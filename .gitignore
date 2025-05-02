@@ -30,3 +30,21 @@
 *.exe
 *.out
 *.app
+
+#QT Specific
+*.user
+*.89cd72f
+*.qrc
+*.ico
+*.cpp
+*.ui
+*.Debug
+*.Release
+*.db
+*.stash
+*.moc
+*.rc
+
+# Ignore everything in folders
+build/*
+icon/*
