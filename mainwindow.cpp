@@ -719,7 +719,7 @@ void MainWindow::on_pushButton_ChangeLog_clicked()
     changelogUi.setupUi(&dialog);
 
     // Set window title
-    dialog.setWindowTitle("");
+    dialog.setWindowTitle("Version: " + Constants::AppVer);
 
     // Show the dialog and wait for it to close
     dialog.exec();

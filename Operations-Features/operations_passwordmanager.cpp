@@ -826,6 +826,13 @@ void Operations_PasswordManager::showContextMenu_PWDisplay(const QPoint &pos)
 
 void Operations_PasswordManager::onDeletePasswordClicked()
 {
+    // Check if passwords are hidden
+    if (m_mainWindow->setting_PWMan_HidePasswords) {
+        QMessageBox::information(m_mainWindow, "Operation Not Allowed",
+                                 "Cannot modify or delete passwords when the option 'Hide Passwords' is activated in the settings menu.");
+        return;
+    }
+
     // Get the sender action
     QAction *action = qobject_cast<QAction *>(sender());
     if (!action) {
@@ -966,6 +973,13 @@ void Operations_PasswordManager::onCopyToClipboardClicked()
 
 void Operations_PasswordManager::onEditPasswordClicked()
 {
+    // Check if passwords are hidden
+    if (m_mainWindow->setting_PWMan_HidePasswords) {
+        QMessageBox::information(m_mainWindow, "Operation Not Allowed",
+                                 "Cannot modify or delete passwords when the option 'Hide Passwords' is activated in the settings menu.");
+        return;
+    }
+
     // Get the sender action
     QAction *action = qobject_cast<QAction *>(sender());
     if (!action) {
@@ -1085,6 +1099,10 @@ void Operations_PasswordManager::onEditPasswordClicked()
 //----PWList---//
 void Operations_PasswordManager::showContextMenu_PWList(const QPoint &pos)
 {
+    // Don't show context menu if passwords are hidden
+    if (m_mainWindow->setting_PWMan_HidePasswords) {
+        return; // Silently return without showing menu
+    }
     // Get the list widget item at the clicked position
     QListWidgetItem *item = m_mainWindow->ui->listWidget_PWList->itemAt(pos);
     if (!item) {

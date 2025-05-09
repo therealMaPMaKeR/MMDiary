@@ -49,8 +49,12 @@ int main(int argc, char *argv[])
     a.setStyle("Fusion");
     QPalette pal_dark;
 
+    #ifdef QT_DEBUG
+    qDebug() << "Running in Debug mode";
+    #else
+    qDebug() << "Running in Release mode";
     //socket system to track application and not allow duplicate. disabled when working on the app
-    /*
+
     // Check if another instance is already running
     QLocalSocket socket;
     socket.connectToServer(APP_ID);
@@ -72,7 +76,32 @@ int main(int argc, char *argv[])
 
     if (!server->listen(APP_ID)) {
         qDebug() << "Failed to start local server:" << server->errorString();
-    }*/
+    }
+
+    // Connect the local server to the app so we can find the MainWindow later
+
+    QObject::connect(server, &QLocalServer::newConnection, [&]() {
+        QLocalSocket* socket = server->nextPendingConnection();
+        if (socket->waitForReadyRead(1000)) {
+            QByteArray message = socket->readAll();
+            if (message == "SHOW") {
+                // Find the MainWindow to show it
+                // This is a bit tricky since we start with loginscreen
+                // We'll need to iterate through all top-level widgets
+                for (QWidget* widget : QApplication::topLevelWidgets()) {
+                    // Check if this is a MainWindow
+                    MainWindow* mainWindow = qobject_cast<MainWindow*>(widget);
+                    if (mainWindow) {
+                        mainWindow->showAndActivate();
+                        break;
+                    }
+                }
+            }
+        }
+        socket->close();
+        socket->deleteLater();
+    });
+    #endif
 
     loginscreen w;
 
@@ -95,31 +124,9 @@ int main(int argc, char *argv[])
     a.setPalette(pal_dark); // set application palette to dark theme
     //qtOldMsgHandler = qInstallMessageHandler(fileMessageHandler); // for writing debug to text file
     w.show();
-    qDebug() << "Debug message here";
-    // disabled when working on the app
-    // Connect the local server to the app so we can find the MainWindow later
-    /*
-    QObject::connect(server, &QLocalServer::newConnection, [&]() {
-        QLocalSocket* socket = server->nextPendingConnection();
-        if (socket->waitForReadyRead(1000)) {
-            QByteArray message = socket->readAll();
-            if (message == "SHOW") {
-                // Find the MainWindow to show it
-                // This is a bit tricky since we start with loginscreen
-                // We'll need to iterate through all top-level widgets
-                for (QWidget* widget : QApplication::topLevelWidgets()) {
-                    // Check if this is a MainWindow
-                    MainWindow* mainWindow = qobject_cast<MainWindow*>(widget);
-                    if (mainWindow) {
-                        mainWindow->showAndActivate();
-                        break;
-                    }
-                }
-            }
-        }
-        socket->close();
-        socket->deleteLater();
-    });*/
 
+    //socket system to track application and not allow duplicate. disabled when working on the app
+    // disabled when working on the app
+    //
     return a.exec();
 }

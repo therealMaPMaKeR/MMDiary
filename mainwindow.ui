@@ -57,7 +57,7 @@
        </size>
       </property>
       <property name="currentIndex">
-       <number>4</number>
+       <number>3</number>
       </property>
       <widget class="QWidget" name="tab_Diaries">
        <attribute name="title">
@@ -1052,7 +1052,7 @@ Using the context menu (right click) you will be able to add folder, remove fold
            </size>
           </property>
           <property name="currentIndex">
-           <number>1</number>
+           <number>0</number>
           </property>
           <widget class="QWidget" name="tab_Settings_Diaries">
            <attribute name="title">
