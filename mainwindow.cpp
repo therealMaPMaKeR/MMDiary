@@ -13,6 +13,7 @@
 #include "loginscreen.h"
 #include "changepassword.h"
 #include "ui_about_MMDiary.h"
+#include "ui_changelog.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -699,5 +700,11 @@ void MainWindow::on_pushButton_AboutMMDiary_clicked()
     aboutUi.setupUi(&dialog);
     dialog.setWindowTitle("About MMDiary");
     dialog.exec();
+}
+
+
+void MainWindow::on_pushButton_ChangeLog_clicked()
+{
+
 }
 

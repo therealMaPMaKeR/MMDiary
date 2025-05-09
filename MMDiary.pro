@@ -85,6 +85,7 @@ FORMS += \
     Operations-Features/tasklists_addtask.ui \
     Operations-Global/passwordvalidation.ui \
     about_MMDiary.ui \
+    changelog.ui \
     changepassword.ui \
     loginscreen.ui \
     mainwindow.ui

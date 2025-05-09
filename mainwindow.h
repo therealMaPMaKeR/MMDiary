@@ -225,6 +225,8 @@ private slots:
 
     void on_pushButton_AboutMMDiary_clicked();
 
+    void on_pushButton_ChangeLog_clicked();
+
 private:
     void UpdateTasklistTextSize();
     QSystemTrayIcon *trayIcon;
