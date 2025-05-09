@@ -4,6 +4,8 @@
 
 namespace Constants
 {
+// Global
+const QString AppVer = "v4.0.3";
 // Error Messages
 const QString ErrorMessage_Default = "ERROR";
 const QString ErrorMessage_INVUSER = "ERROR - INVALID USER";
@@ -69,7 +71,6 @@ const QString Diary_TimeStampStart = "<!TimeStampStart!>";
 const QString Diary_TaskManagerStart = "<!TaskManagerStart!>";
 //Diary
 const QString TASK_MANAGER_TEXT = "Task Manager";
-
 
 
 QString GetCPUNMessage(CPUNType type, CPUNCategory category)

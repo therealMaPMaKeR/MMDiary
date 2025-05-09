@@ -4,7 +4,8 @@
 
 namespace Constants
 {
-
+//Global
+extern const QString AppVer;
 // Error Messages
 extern const QString ErrorMessage_Default;
 extern const QString ErrorMessage_INVUSER;
@@ -70,7 +71,6 @@ extern const QString Diary_TimeStampStart;
 extern const QString Diary_TaskManagerStart;
 //Diary
 extern const QString TASK_MANAGER_TEXT;
-
 // Enum classes
 enum class CPUNType {
     Congrat,
