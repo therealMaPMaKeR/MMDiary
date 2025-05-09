@@ -15,7 +15,7 @@ const QString DEFAULT_DIARY_TEXT_SIZE = "10";
 const QString DEFAULT_DIARY_TSTAMP_TIMER = "5";
 const QString DEFAULT_DIARY_TSTAMP_COUNTER = "5";
 const QString DEFAULT_DIARY_CAN_EDIT_RECENT = "1";
-const QString DEFAULT_DIARY_SHOW_TMAN_LOGS = "1";
+const QString DEFAULT_DIARY_SHOW_TMAN_LOGS = "0";
 
 // Task Lists Settings
 const QString DEFAULT_TLISTS_TEXT_SIZE = "10";

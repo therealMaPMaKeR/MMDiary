@@ -28,6 +28,12 @@ MainWindow::MainWindow(QWidget *parent)
     //this->setMinimumHeight(573);
     //this->resize(1280,573);
 
+    //hide task diary logging for now, might remove permanently later
+    ui->label_Settings_DTLogs->setHidden(true);
+    ui->label_Settings_TDLog->setHidden(true);
+    ui->checkBox_Diary_TManLogs->setHidden(true);
+    ui->checkBox_TList_LogToDiary->setHidden(true);
+    //remove texts tab for now, might remove permanently later
     ui->tabWidget_Main->removeTab(Operations::GetIndexFromText("Texts", ui->tabWidget_Main));
 
 

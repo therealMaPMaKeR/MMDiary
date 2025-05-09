@@ -2506,6 +2506,8 @@ void Operations_TaskLists::ShowTaskMenu(bool editMode)
     //Hide recurrent task because we are disabling them until I fix or rework the entire tasklist system.
     ui.radioButton_TaskRecurrent->setHidden(true);
     ui.label_RecurrentTask->setHidden(true);
+    //hide log task to diary temporarily until I decide what to do
+    ui.groupBox_LogTask->setHidden(true);
     // Set the window title
     dialog.setWindowTitle(editMode ? "Edit Task" : "Add Task");
 
