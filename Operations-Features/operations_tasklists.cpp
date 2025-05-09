@@ -2503,7 +2503,9 @@ void Operations_TaskLists::ShowTaskMenu(bool editMode)
     QDialog dialog;
     Ui::tasklists_addtask ui;
     ui.setupUi(&dialog);
-
+    //Hide recurrent task because we are disabling them until I fix or rework the entire tasklist system.
+    ui.radioButton_TaskRecurrent->setHidden(true);
+    ui.label_RecurrentTask->setHidden(true);
     // Set the window title
     dialog.setWindowTitle(editMode ? "Edit Task" : "Add Task");
 
@@ -5768,8 +5770,9 @@ bool Operations_TaskLists::SaveTasklistOrder()
     // Construct the file path
     QString orderFilePath = settingsDir + "TasklistOrder.txt";
 
-    // Validate the file path
-    if (!OperationsFiles::validateFilePath(orderFilePath, OperationsFiles::FileType::Generic, m_mainWindow->user_Key)) {
+    // Only validate if the file already exists
+    QFileInfo fileInfo(orderFilePath);
+    if (fileInfo.exists() && !OperationsFiles::validateFilePath(orderFilePath, OperationsFiles::FileType::Generic, m_mainWindow->user_Key)) {
         qWarning() << "Invalid tasklist order file path";
         return false;
     }

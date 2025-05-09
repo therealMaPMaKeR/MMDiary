@@ -705,6 +705,17 @@ void MainWindow::on_pushButton_AboutMMDiary_clicked()
 
 void MainWindow::on_pushButton_ChangeLog_clicked()
 {
+    // Create a new dialog
+    QDialog dialog(this);
 
+    // Set up the UI from the changelog.ui file
+    Ui::changelog changelogUi;
+    changelogUi.setupUi(&dialog);
+
+    // Set window title
+    dialog.setWindowTitle("");
+
+    // Show the dialog and wait for it to close
+    dialog.exec();
 }
 

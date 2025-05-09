@@ -1740,12 +1740,6 @@ void Operations_Diary::on_DiaryTextInput_returnPressed()
 {
     QDateTime date = QDateTime::currentDateTime(); // Get date and time
     QString formattedTime = date.toString("yyyy.MM.dd"); // Format approprietly
-    QString diaryPath = getDiaryFilePath(formattedTime);
-    if (diaryPath.isEmpty()) {
-        // Handle the error case
-        qDebug() << "Invalid diary path for date: " << formattedTime;
-        return; // or handle the error in an appropriate way
-    }
     QString todayDiaryPath = getDiaryFilePath(formattedTime); //Get the name of today's diary file.
 
     // Validate the diary input text
@@ -1775,12 +1769,31 @@ void Operations_Diary::on_DiaryTextInput_returnPressed()
         }
         else //else if todays diary isnt currently loaded but does exist
         {
-            // Load todays diary through our Diary List Sorter
+            // Force set current_DiaryFileName to today's diary
+            current_DiaryFileName = todayDiaryPath;
+
+            // Properly select today's year, month, and day in the UI
             m_mainWindow->ui->DiaryListYears->setCurrentIndex(m_mainWindow->ui->DiaryListYears->findText(formattedTime.section('.',0,0), Qt::MatchExactly));
-            QList<QListWidgetItem*> items = m_mainWindow->ui->DiaryListMonths->findItems(QString("*"), Qt::MatchWrap | Qt::MatchWildcard); // Make a list of all the items in the Month sorter
-            m_mainWindow->ui->DiaryListMonths->setCurrentRow(items.length() - 1);
-            items = m_mainWindow->ui->DiaryListDays->findItems(QString("*"), Qt::MatchWrap | Qt::MatchWildcard); // Make a list of all the items in the day sorter
-            m_mainWindow->ui->DiaryListDays->setCurrentRow(items.length() - 1);
+
+            // Find today's month by exact match, not wildcard
+            QList<QListWidgetItem*> monthItems = m_mainWindow->ui->DiaryListMonths->findItems(
+                Operations::ConvertMonthtoText(formattedTime.section('.',1,1)),
+                Qt::MatchContains);
+
+            if (!monthItems.isEmpty()) {
+                m_mainWindow->ui->DiaryListMonths->setCurrentItem(monthItems.at(0));
+            }
+
+            // Find today's day by exact match, not wildcard
+            QList<QListWidgetItem*> dayItems = m_mainWindow->ui->DiaryListDays->findItems(
+                formattedTime.section('.',2,2),
+                Qt::MatchContains);
+
+            if (!dayItems.isEmpty()) {
+                m_mainWindow->ui->DiaryListDays->setCurrentItem(dayItems.at(0));
+            }
+
+            // Add entry to today's diary
             InputNewEntry(current_DiaryFileName);
         }
     }

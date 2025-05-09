@@ -95,6 +95,7 @@ void CombinedDelegate::updateEditorGeometry(QWidget *editor, const QStyleOptionV
 }
 
 QSize CombinedDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
+
     // First check if the item has a specific size hint set
     QVariant sizeHintVar = index.data(Qt::SizeHintRole);
     if (sizeHintVar.isValid()) {
