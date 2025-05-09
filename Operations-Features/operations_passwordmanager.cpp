@@ -93,6 +93,12 @@ void Operations_PasswordManager::SetupPWDisplay(QString sortingMethod)
 
 void Operations_PasswordManager::SetupPWList(QString sortingMethod, bool applyMasking)
 {
+    // Store the currently selected item's text before clearing the list
+    QString currentSelection;
+    if (m_mainWindow->ui->listWidget_PWList->currentItem()) {
+        currentSelection = m_mainWindow->ui->listWidget_PWList->currentItem()->text();
+    }
+
     m_mainWindow->ui->listWidget_PWList->clear();
 
     // Construct the passwords directory path
@@ -197,10 +203,21 @@ void Operations_PasswordManager::SetupPWList(QString sortingMethod, bool applyMa
     foreach (const QString &value, sortedValues) {
         m_mainWindow->ui->listWidget_PWList->addItem(value);
     }
+    // After populating the list, restore the selection if possible
+    if (!currentSelection.isEmpty()) {
+        for (int i = 0; i < m_mainWindow->ui->listWidget_PWList->count(); ++i) {
+            if (m_mainWindow->ui->listWidget_PWList->item(i)->text() == currentSelection) {
+                m_mainWindow->ui->listWidget_PWList->setCurrentRow(i);
+                break;
+            }
+        }
+    }
+
     if (applyMasking) {
         UpdatePasswordMasking();
     }
 }
+
 
 void Operations_PasswordManager::UpdatePWDisplayForSelection(const QString &selectedValue)
 {
@@ -682,7 +699,17 @@ bool Operations_PasswordManager::DeletePassword(const QString &account, const QS
         return false; // No passwords file to modify
     }
 
-    // Define pattern to find the password entry
+    // Read the file to check how many passwords it contains
+    QString fileContent;
+    if (!OperationsFiles::readEncryptedFile(passwordsFilePath, m_mainWindow->user_Key, fileContent)) {
+        qDebug() << "Failed to read passwords file: " << passwordsFilePath;
+        return false;
+    }
+
+    // Count password entries
+    int passwordCount = fileContent.count("<Password>");
+
+    // Check if this is the only entry
     QRegularExpression pattern(
         "<Password>\\s*"
         "Account: " + QRegularExpression::escape(account) + "\\s*"
@@ -690,14 +717,21 @@ bool Operations_PasswordManager::DeletePassword(const QString &account, const QS
                                                  "Service: " + QRegularExpression::escape(service) + "\\s*\\n"
         );
 
-    // Use the processEncryptedFile function to modify the password file
-    return OperationsFiles::processEncryptedFile(passwordsFilePath, m_mainWindow->user_Key,
-                                                 [&pattern](QString& content) -> bool {
-                                                     // Replace the password entry (including the <Password> tag) with an empty string
-                                                     content.replace(pattern, "");
-                                                     return true;
-                                                 }
-                                                 );
+    bool isLastEntry = (passwordCount == 1 && pattern.match(fileContent).hasMatch());
+
+    if (isLastEntry) {
+        // Delete the entire file if this is the last entry
+        QFile file(passwordsFilePath);
+        return file.remove();
+    } else {
+        // Otherwise, use the processEncryptedFile function to modify the password file
+        return OperationsFiles::processEncryptedFile(passwordsFilePath, m_mainWindow->user_Key,
+                                                     [&pattern](QString& content) -> bool {
+                                                         // Replace the password entry with an empty string
+                                                         content.replace(pattern, "");
+                                                         return true;
+                                                     });
+    }
 }
 
 bool Operations_PasswordManager::DeleteAllAssociatedPasswords(const QString &value, const QString &field)
@@ -717,75 +751,139 @@ bool Operations_PasswordManager::DeleteAllAssociatedPasswords(const QString &val
         return false; // No passwords file to modify
     }
 
-    // Use the processEncryptedFile function to modify the password file
-    return OperationsFiles::processEncryptedFile(passwordsFilePath, m_mainWindow->user_Key,
-                                                 [&value, &field](QString& content) -> bool {
-                                                     // Process the content to remove all matching passwords
-                                                     QTextStream fileStream(&content);
-                                                     QString line;
-                                                     QString newFileContent;
-                                                     bool inPasswordBlock = false;
-                                                     bool skipCurrentBlock = false;
-                                                     QString currentAccount, currentPassword, currentService;
-                                                     QString currentBlock;
+    // Read the file to check how many passwords it contains
+    QString fileContent;
+    if (!OperationsFiles::readEncryptedFile(passwordsFilePath, m_mainWindow->user_Key, fileContent)) {
+        qDebug() << "Failed to read passwords file: " << passwordsFilePath;
+        return false;
+    }
 
-                                                     while (!fileStream.atEnd()) {
-                                                         line = fileStream.readLine();
+    // Count total password entries
+    int passwordCount = fileContent.count("<Password>");
 
-                                                         // Start of a password entry
-                                                         if (line == "<Password>") {
-                                                             inPasswordBlock = true;
-                                                             skipCurrentBlock = false;
-                                                             currentBlock = line + "\n";
-                                                             currentAccount = currentPassword = currentService = "";
-                                                             continue;
-                                                         }
+    // Count passwords matching our criteria
+    int matchingCount = 0;
+    QTextStream fileStream(&fileContent);
+    QString line;
+    bool inPasswordBlock = false;
+    QString currentAccount, currentPassword, currentService;
 
-                                                         // End of a password entry (empty line)
-                                                         if (inPasswordBlock && line.isEmpty()) {
-                                                             inPasswordBlock = false;
+    while (!fileStream.atEnd()) {
+        line = fileStream.readLine();
 
-                                                             // Check if this block matches our criteria to delete
-                                                             bool shouldDelete = false;
+        if (line == "<Password>") {
+            inPasswordBlock = true;
+            currentAccount = currentPassword = currentService = "";
+            continue;
+        }
 
-                                                             if (field == "Password" && currentPassword == value) {
-                                                                 shouldDelete = true;
-                                                             } else if (field == "Account" && currentAccount == value) {
-                                                                 shouldDelete = true;
-                                                             } else if (field == "Service" && currentService == value) {
-                                                                 shouldDelete = true;
+        if (inPasswordBlock && line.isEmpty()) {
+            inPasswordBlock = false;
+
+            // Check if this block matches our criteria
+            bool shouldDelete = false;
+
+            if (field == "Password" && currentPassword == value) {
+                shouldDelete = true;
+            } else if (field == "Account" && currentAccount == value) {
+                shouldDelete = true;
+            } else if (field == "Service" && currentService == value) {
+                shouldDelete = true;
+            }
+
+            if (shouldDelete) {
+                matchingCount++;
+            }
+            continue;
+        }
+
+        if (inPasswordBlock) {
+            if (line.startsWith("Account: ")) {
+                currentAccount = line.mid(9);  // Remove "Account: " prefix
+            } else if (line.startsWith("Password: ")) {
+                currentPassword = line.mid(10);  // Remove "Password: " prefix
+            } else if (line.startsWith("Service: ")) {
+                currentService = line.mid(9);  // Remove "Service: " prefix
+            }
+        }
+    }
+
+    // Check if we're deleting all passwords
+    if (matchingCount == passwordCount) {
+        // Delete the entire file
+        QFile file(passwordsFilePath);
+        return file.remove();
+    } else {
+        // Otherwise, use the processEncryptedFile function to modify the password file
+        return OperationsFiles::processEncryptedFile(passwordsFilePath, m_mainWindow->user_Key,
+                                                     [&value, &field](QString& content) -> bool {
+                                                         // Process the content to remove all matching passwords
+                                                         QTextStream fileStream(&content);
+                                                         QString line;
+                                                         QString newFileContent;
+                                                         bool inPasswordBlock = false;
+                                                         bool skipCurrentBlock = false;
+                                                         QString currentAccount, currentPassword, currentService;
+                                                         QString currentBlock;
+
+                                                         while (!fileStream.atEnd()) {
+                                                             line = fileStream.readLine();
+
+                                                             // Start of a password entry
+                                                             if (line == "<Password>") {
+                                                                 inPasswordBlock = true;
+                                                                 skipCurrentBlock = false;
+                                                                 currentBlock = line + "\n";
+                                                                 currentAccount = currentPassword = currentService = "";
+                                                                 continue;
                                                              }
 
-                                                             // Only add to new content if we're not deleting this block
-                                                             if (!shouldDelete) {
-                                                                 newFileContent += currentBlock + "\n";
+                                                             // End of a password entry (empty line)
+                                                             if (inPasswordBlock && line.isEmpty()) {
+                                                                 inPasswordBlock = false;
+
+                                                                 // Check if this block matches our criteria to delete
+                                                                 bool shouldDelete = false;
+
+                                                                 if (field == "Password" && currentPassword == value) {
+                                                                     shouldDelete = true;
+                                                                 } else if (field == "Account" && currentAccount == value) {
+                                                                     shouldDelete = true;
+                                                                 } else if (field == "Service" && currentService == value) {
+                                                                     shouldDelete = true;
+                                                                 }
+
+                                                                 // Only add to new content if we're not deleting this block
+                                                                 if (!shouldDelete) {
+                                                                     newFileContent += currentBlock + "\n";
+                                                                 }
+                                                                 continue;
                                                              }
-                                                             continue;
+
+                                                             // Inside a password block
+                                                             if (inPasswordBlock) {
+                                                                 currentBlock += line + "\n";
+
+                                                                 if (line.startsWith("Account: ")) {
+                                                                     currentAccount = line.mid(9);  // Remove "Account: " prefix
+                                                                 } else if (line.startsWith("Password: ")) {
+                                                                     currentPassword = line.mid(10);  // Remove "Password: " prefix
+                                                                 } else if (line.startsWith("Service: ")) {
+                                                                     currentService = line.mid(9);  // Remove "Service: " prefix
+                                                                 }
+                                                             }
+                                                             else {
+                                                                 // Outside a password block, just add to new content
+                                                                 newFileContent += line + "\n";
+                                                             }
                                                          }
 
-                                                         // Inside a password block
-                                                         if (inPasswordBlock) {
-                                                             currentBlock += line + "\n";
-
-                                                             if (line.startsWith("Account: ")) {
-                                                                 currentAccount = line.mid(9);  // Remove "Account: " prefix
-                                                             } else if (line.startsWith("Password: ")) {
-                                                                 currentPassword = line.mid(10);  // Remove "Password: " prefix
-                                                             } else if (line.startsWith("Service: ")) {
-                                                                 currentService = line.mid(9);  // Remove "Service: " prefix
-                                                             }
-                                                         }
-                                                         else {
-                                                             // Outside a password block, just add to new content
-                                                             newFileContent += line + "\n";
-                                                         }
+                                                         // Update the content
+                                                         content = newFileContent;
+                                                         return true;
                                                      }
-
-                                                     // Update the content
-                                                     content = newFileContent;
-                                                     return true;
-                                                 }
-                                                 );
+                                                     );
+    }
 }
 
 //-------------Context Menu----------//
