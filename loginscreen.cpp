@@ -130,9 +130,9 @@ void loginscreen::on_pushButton_NewAccount_clicked()
     if(isUserInputValid())
 
     {
-        if(ui->lineEdit_Username->text().toLower() == "temp")
+        if(ui->lineEdit_Username->text().toLower() == "mmdiary.db")
         {
-            ui->label_ErrorDisplay->setText("Username cannot be Temp");
+            ui->label_ErrorDisplay->setText("Username cannot be MMDiary.db");
             return;
         }
         DatabaseManager& db = DatabaseManager::instance();

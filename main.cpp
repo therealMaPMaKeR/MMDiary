@@ -45,6 +45,19 @@ int main(int argc, char *argv[])
 {
     OPENSSL_init_ssl(0, NULL);
     QApplication a(argc, argv);
+
+    QDir appDir(QCoreApplication::applicationDirPath());
+    if (!appDir.exists("Data")) {
+        qDebug() << "Data directory doesn't exist, creating it...";
+        if (!appDir.mkdir("Data")) {
+            qCritical() << "Failed to create Data directory at:" << appDir.absoluteFilePath("Data");
+        } else {
+            qDebug() << "Data directory created successfully at:" << appDir.absoluteFilePath("Data");
+        }
+    } else {
+        qDebug() << "Data directory already exists at:" << appDir.absoluteFilePath("Data");
+    }
+
     a.setQuitOnLastWindowClosed(false); // prevents closing the app on last window closed.
     a.setStyle("Fusion");
     QPalette pal_dark;
@@ -124,9 +137,5 @@ int main(int argc, char *argv[])
     a.setPalette(pal_dark); // set application palette to dark theme
     //qtOldMsgHandler = qInstallMessageHandler(fileMessageHandler); // for writing debug to text file
     w.show();
-
-    //socket system to track application and not allow duplicate. disabled when working on the app
-    // disabled when working on the app
-    //
     return a.exec();
 }
