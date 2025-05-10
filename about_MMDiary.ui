@@ -105,7 +105,7 @@ On account creation we generate a random encryption key, and we encrypt it in th
 This means, that to access the key, you must access the password.
 The only way to get the password is to compare our hash with a string of text and see if it matches.
 
-Always make sure you download this from my google drive, at stonedmapster@gmail.com</string>
+Always make sure you download this from my github repo at https://github.com/therealMaPMaKeR/MMDiary</string>
         </property>
         <property name="wordWrap">
          <bool>true</bool>
