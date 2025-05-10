@@ -1022,6 +1022,44 @@ void Operations_Settings::InitializeCustomCheckboxes()
     }
 }
 
+bool Operations_Settings::ValidatePassword(const QString& settingsType) {
+    QString username = m_mainWindow->user_Username;
+
+    // Check which settings would change based on type
+    if (settingsType == Constants::DBSettings_Type_Global) {
+        // Check if Ask Password After Minimize would change
+        QString defaultAskPW = Default_UserSettings::DEFAULT_ASK_PW_AFTER_MIN;
+        bool currentAskPW = m_mainWindow->ui->checkBox_AskPW->isChecked();
+        bool defaultAskPWValue = (defaultAskPW == "1");
+
+        if (currentAskPW != defaultAskPWValue) {
+            // This setting would change, so validate password
+            return PasswordValidation::validatePasswordForOperation(
+                m_mainWindow, "Reset Account Settings to Default", username);
+        }
+    }
+    else if (settingsType == Constants::DBSettings_Type_PWManager) {
+        // Check if Require Password would change
+        QString defaultReqPW = Default_UserSettings::DEFAULT_PWMAN_REQ_PASSWORD;
+        bool currentReqPW = m_mainWindow->ui->checkBox_PWMan_ReqPW->isChecked();
+        bool defaultReqPWValue = (defaultReqPW == "1");
+
+        // Check if Hide Passwords would change
+        QString defaultHidePW = Default_UserSettings::DEFAULT_PWMAN_HIDE_PASSWORDS;
+        bool currentHidePW = m_mainWindow->ui->checkBox_PWMan_HidePWS->isChecked();
+        bool defaultHidePWValue = (defaultHidePW == "1");
+
+        if (currentReqPW != defaultReqPWValue || currentHidePW != defaultHidePWValue) {
+            // These settings would change, so validate password
+            return PasswordValidation::validatePasswordForOperation(
+                m_mainWindow, "Reset Password Manager Settings to Default", username);
+        }
+    }
+
+    // No password validation needed
+    return true;
+}
+
 //-----misc------//
 
 bool Operations_Settings::hasUnsavedChanges(const QString& settingsType)
@@ -1301,8 +1339,11 @@ void Operations_Settings::Slot_ButtonPressed(const QString button)
         LoadSettings(Constants::DBSettings_Type_Global);
     }
     else if (button == Constants::SettingsButton_ResetGlobal) {
-        if (Default_UserSettings::SetDefault_GlobalSettings(username)) {
-            LoadSettings(Constants::DBSettings_Type_Global);
+        // Validate password if needed before reset
+        if (ValidatePassword(Constants::DBSettings_Type_Global)) {
+            if (Default_UserSettings::SetDefault_GlobalSettings(username)) {
+                LoadSettings(Constants::DBSettings_Type_Global);
+            }
         }
     }
 
@@ -1340,8 +1381,11 @@ void Operations_Settings::Slot_ButtonPressed(const QString button)
         LoadSettings(Constants::DBSettings_Type_PWManager);
     }
     else if (button == Constants::SettingsButton_ResetPWManager) {
-        if (Default_UserSettings::SetDefault_PWManagerSettings(username)) {
-            LoadSettings(Constants::DBSettings_Type_PWManager);
+        // Validate password if needed before reset
+        if (ValidatePassword(Constants::DBSettings_Type_PWManager)) {
+            if (Default_UserSettings::SetDefault_PWManagerSettings(username)) {
+                LoadSettings(Constants::DBSettings_Type_PWManager);
+            }
         }
     }
     else {

@@ -24,9 +24,8 @@ private:
     // Helper functions
     void UpdateButtonStates(const QString& settingsType);
     bool ValidateSettingsInput(const QString& settingsType);
+    bool ValidatePassword(const QString& settingsType);
 
-    // Password verification for sensitive operations
-    bool ValidatePassword(QString widgetName);
 
     // Setting description functions
     void SetupSettingDescriptions();

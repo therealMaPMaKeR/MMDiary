@@ -18,10 +18,17 @@ public:
     // Add a method to get the current font size
     int currentFontSize() const { return m_fontSize; }
 
+    // Add method to select the last item
+    void selectLastItem();
+
 protected:
     void wheelEvent(QWheelEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     bool eventFilter(QObject *obj, QEvent *event) override;
+
+    // Add event handlers for mouse events
+    void leaveEvent(QEvent *event) override;
+    void enterEvent(QEnterEvent *event) override;
 
 public slots:
     void keyPressEvent(QKeyEvent *event); // needed for event filter to work in main window because it makes the slot public
@@ -34,6 +41,7 @@ private:
     void updateItemFonts();
     int m_fontSize = 10;
     bool m_inSizeUpdate = false;
+    bool m_inMouseEvent = false; // New flag to prevent recursive events
 
 signals:
     void sizeUpdateStarted();

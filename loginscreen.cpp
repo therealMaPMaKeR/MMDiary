@@ -16,7 +16,7 @@ loginscreen::loginscreen(QWidget *parent)
     ui->lineEdit_Password->setEchoMode(QLineEdit::Password);
     ui->pushButton_Login->setChecked(true);
     ui->lineEdit_Username->setFocus();
-    this->setWindowTitle("MMDiary - " + Constants::AppVer);
+    this->setWindowTitle("MMDiary - v" + Constants::AppVer);
 
     //Prevent whitespaces inside username and password fields
     QRegularExpression noWhitespace("[^\\s]*"); // Matches any non-whitespace characters

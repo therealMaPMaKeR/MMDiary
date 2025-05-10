@@ -352,6 +352,14 @@ void Operations_Diary::InputNewEntry(QString DiaryFileName)
     m_mainWindow->ui->DiaryTextDisplay->item(getTextDisplayItems().length() - 1)->setHidden(true);
     //------------------------------//
     prevent_onDiaryTextDisplay_itemChanged = false; // variable used to prevent on_DiaryTextDisplay_itemChanged() from executing. this function is only for editing text
+
+    // Now select the newly added entry
+    // Get the previous-to-last item (the actual entry, not the spacer)
+
+    if (Operations::GetListItems(m_mainWindow->ui->DiaryTextDisplay).length() > 1) {
+        m_mainWindow->ui->DiaryTextDisplay->setCurrentItem(m_mainWindow->ui->DiaryTextDisplay->item(Operations::GetListItems(m_mainWindow->ui->DiaryTextDisplay).length() - 2));
+    }
+
     UpdateDelegate();
     UpdateFontSize(m_mainWindow->setting_Diary_TextSize, false);
     m_mainWindow->ui->DiaryTextDisplay->scrollToBottom(); // scroll to bottom of diary text display
@@ -1765,6 +1773,11 @@ void Operations_Diary::on_DiaryTextInput_returnPressed()
         if (current_DiaryFileName == todayDiaryPath) // if todays diary is currently loaded
         {
             InputNewEntry(current_DiaryFileName); // add text to todays diary
+            // Select the newly added entry (the next-to-last item, since the last is the spacer)
+            QList<QListWidgetItem*> items = getTextDisplayItems();
+            if (items.length() > 1) {
+                m_mainWindow->ui->DiaryTextDisplay->setCurrentItem(items.at(items.length() - 2));
+            }
         }
         else if (!QFileInfo::exists(todayDiaryPath)) // else if todays diary isn't currently loaded and does not exist
         {

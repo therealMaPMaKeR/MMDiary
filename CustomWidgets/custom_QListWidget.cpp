@@ -26,6 +26,32 @@ custom_QListWidget::~custom_QListWidget()
     }
 }
 
+// Add this after the constructor
+void custom_QListWidget::leaveEvent(QEvent *event)
+{
+    if (!m_inMouseEvent) {
+        m_inMouseEvent = true;
+        clearSelection();
+        m_inMouseEvent = false;
+    }
+    QListWidget::leaveEvent(event);
+}
+
+void custom_QListWidget::enterEvent(QEnterEvent *event)
+{
+    // Handle enter event if needed in the future
+    QListWidget::enterEvent(event);
+}
+
+void custom_QListWidget::selectLastItem()
+{
+    if (count() > 0) {
+        QListWidgetItem* lastItem = item(count() - 1);
+        if (lastItem && (lastItem->flags() & Qt::ItemIsEnabled)) {
+            setCurrentItem(lastItem);
+        }
+    }
+}
 void custom_QListWidget::wheelEvent(QWheelEvent *event)
 {
     if (event->modifiers() & Qt::ControlModifier) {
