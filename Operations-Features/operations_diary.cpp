@@ -11,6 +11,8 @@
 #include <QMenu>
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QFile>
+#include <QMutexLocker>
 
 Operations_Diary::Operations_Diary(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
@@ -358,6 +360,7 @@ void Operations_Diary::InputNewEntry(QString DiaryFileName)
 
 void Operations_Diary::SaveDiary(QString DiaryFileName, bool previousDiary)
 {
+    QMutexLocker locker(&m_saveDiaryMutex);
     // Validate the diary file name
     InputValidation::ValidationResult fileResult =
         InputValidation::validateInput(DiaryFileName, InputValidation::InputType::FilePath);
@@ -424,6 +427,9 @@ void Operations_Diary::SaveDiary(QString DiaryFileName, bool previousDiary)
 
 void Operations_Diary::LoadDiary(QString DiaryFileName)
 {
+    // Use a mutex to prevent loading while a save is in progress
+    QMutexLocker locker(&m_saveDiaryMutex);
+
     // Validate the diary file name
     InputValidation::ValidationResult fileResult =
         InputValidation::validateInput(DiaryFileName, InputValidation::InputType::FilePath);

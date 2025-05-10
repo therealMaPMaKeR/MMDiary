@@ -57,14 +57,23 @@ void TempFileCleaner::cleanup() {
     if (m_cleanup && !m_filePath.isEmpty()) {
         qDebug() << "Performing cleanup for:" << m_filePath;
 
-        // Just pass to the quick delete function - no delays
+        // Try to delete the file
         bool deleted = quickDelete(m_filePath);
 
-        // If the delete worked or we scheduled it for later cleanup,
-        // we can clear our local reference
+        // Only clear the path if deletion was successful or scheduled
         if (deleted || s_pendingDeletions.contains(m_filePath)) {
             m_filePath.clear();
             m_cleanup = false;
+        } else {
+            // If deletion failed and not in pending list, keep the path for possible retry
+            qWarning() << "Cleanup failed for:" << m_filePath;
+            // Add to pending deletions to ensure it gets cleaned up later
+            s_pendingMutex.lock();
+            if (!s_pendingDeletions.contains(m_filePath)) {
+                s_pendingDeletions.append(m_filePath);
+                qDebug() << "Added to pending deletion list:" << m_filePath;
+            }
+            s_pendingMutex.unlock();
         }
     } else if (m_cleanup && m_filePath.isEmpty()) {
         qDebug() << "Cleanup called with empty path";

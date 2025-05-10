@@ -6,6 +6,7 @@
 #include "../Operations-Global/operations.h"
 #include "../Operations-Global/inputvalidation.h"
 #include <QMessageBox>
+#include <QMutex>
 class MainWindow;
 class Operations_Diary : public QObject
 {
@@ -19,10 +20,13 @@ private:
     QString uneditedText;
     bool prevent_onDiaryTextDisplay_itemChanged;
 
+    QMutex m_saveDiaryMutex;
+
 public:
     ~Operations_Diary();
     explicit Operations_Diary(MainWindow* mainWindow);
     friend class MainWindow;
+
     // Moved functions
     void InputNewEntry(QString DiaryFileName);
     void AddNewEntryToDisplay();

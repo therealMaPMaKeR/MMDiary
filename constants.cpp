@@ -5,7 +5,7 @@
 namespace Constants
 {
 // Global
-const QString AppVer = "v4.0.4";
+const QString AppVer = "v4.0.5";
 // Error Messages
 const QString ErrorMessage_Default = "ERROR";
 const QString ErrorMessage_INVUSER = "ERROR - INVALID USER";

@@ -1034,7 +1034,8 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
                     completionStatus = "Pending";
                 }
 
-                int columnCount = isCompleted ? 6 : 4; // Add columns for completion time and date if completed
+                // MODIFIED: Reduced column count by 1 (removed Log to Diary column)
+                int columnCount = isCompleted ? 5 : 3; // Was 6 and 4
 
                 taskDetailsTable->setColumnCount(columnCount);
 
@@ -1048,8 +1049,7 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
                     headers << "Creation Date";
                 }
 
-                // Move Log to Diary to the last column
-                headers << "Log to Diary";
+                // REMOVED: Log to Diary column
                 taskDetailsTable->setHorizontalHeaderLabels(headers);
 
                 taskDetailsTable->insertRow(0);
@@ -1068,7 +1068,6 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
 
                 // Calculate column index for remaining fields (depends on whether task is completed)
                 int creationDateColIndex = isCompleted ? 3 : 2;
-                int logDiaryColIndex = isCompleted ? 5 : 3;
 
                 // If task is completed, add completion time and date
                 if (isCompleted) {
@@ -1096,8 +1095,7 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
                 // Creation Date - formatted
                 taskDetailsTable->setItem(0, creationDateColIndex, new QTableWidgetItem(formattedCreationDate));
 
-                // Log to Diary - now always the last column
-                taskDetailsTable->setItem(0, logDiaryColIndex, new QTableWidgetItem(logToDiary));
+                // REMOVED: Log to Diary column
             }
 
             // For TimeLimit tasks section:
@@ -1128,12 +1126,11 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
                     completionStatus = "Pending";
                 }
 
-                // Base column count includes: Task Type, Status, Time Left, Time Limit, Due Date
-                int baseColumnCount = reminderEnabled ? 7 : 6;
+                // MODIFIED: Base column count includes: Task Type, Status, Time Left, Time Limit, Due Date
+                int baseColumnCount = reminderEnabled ? 6 : 5; // Was 7 and 6
                 // Add columns for completion info if completed
                 int columnCount = isCompleted ? baseColumnCount + 2 : baseColumnCount;
-                // Always add 1 for Log to Diary
-                columnCount += 1;
+                // REMOVED: No longer add 1 for Log to Diary
 
                 taskDetailsTable->setColumnCount(columnCount);
 
@@ -1151,8 +1148,7 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
                     headers << "Creation Date";
                 }
 
-                // Move Log to Diary to the last column
-                headers << "Log to Diary";
+                // REMOVED: Log to Diary column
                 taskDetailsTable->setHorizontalHeaderLabels(headers);
 
                 taskDetailsTable->insertRow(0);
@@ -1234,7 +1230,7 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
                 int completionTimeColIndex = reminderEnabled ? 6 : 5;
                 int creationDateColIndex = reminderEnabled ? (isCompleted ? 7 : 6) : (isCompleted ? 6 : 5);
                 int completionDateColIndex = reminderEnabled ? 8 : 7;
-                int logDiaryColIndex = reminderEnabled ? (isCompleted ? 9 : 7) : (isCompleted ? 8 : 6);
+                // REMOVED: logDiaryColIndex is no longer needed
 
                 // Reminder Frequency (if enabled)
                 if (reminderEnabled && parts.size() > 12) {
@@ -1267,8 +1263,7 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
                 // Creation Date (formatted)
                 taskDetailsTable->setItem(0, creationDateColIndex, new QTableWidgetItem(formattedCreationDate));
 
-                // Log to Diary - always the last column
-                taskDetailsTable->setItem(0, logDiaryColIndex, new QTableWidgetItem(logToDiary));
+                // REMOVED: Log to Diary column
             }
             else if (taskType == "Recurrent") {
                 // Determine if task is completed and if reminder is enabled
@@ -1328,9 +1323,10 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
                     }
                 }
 
-                // Default columns: Task Type, Status, Frequency, Due/Next Due Date, Log to Diary, Creation Date
+                // MODIFIED: Default columns: Task Type, Status, Frequency, Due/Next Due Date, Creation Date
                 // +1 for Reminder Time if enabled, +1 for Time Left if pending and not overdue
-                int baseColumns = 6; // Without reminder
+                // -1 for removing Log to Diary
+                int baseColumns = 5; // Was 6
                 bool showTimeLeft = !isCompleted && completionStatus != "Overdue";
 
                 // Calculate final column count
@@ -1364,8 +1360,7 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
                 // Add creation date header
                 headers << "Creation Date";
 
-                // Move Log to Diary to the last column
-                headers << "Log to Diary";
+                // REMOVED: Log to Diary header
 
                 taskDetailsTable->setHorizontalHeaderLabels(headers);
                 taskDetailsTable->insertRow(0);
@@ -1419,7 +1414,7 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
                 // Column index for remaining fields (depends on Time Left and reminder)
                 int reminderColIndex = dueDateColIndex + 1;
                 int creationDateColIndex = reminderEnabled ? reminderColIndex + 1 : reminderColIndex;
-                int logDiaryColIndex = creationDateColIndex + 1;
+                // REMOVED: logDiaryColIndex is no longer needed
 
                 // Reminder Time (if enabled)
                 if (reminderEnabled && parts.size() > 14) {
@@ -1433,8 +1428,7 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
                 // Creation Date (formatted)
                 taskDetailsTable->setItem(0, creationDateColIndex, new QTableWidgetItem(formattedCreationDate));
 
-                // Log to Diary - always the last column
-                taskDetailsTable->setItem(0, logDiaryColIndex, new QTableWidgetItem(logToDiary));
+                // REMOVED: Log to Diary column
             }
 
             // Resize columns to content
