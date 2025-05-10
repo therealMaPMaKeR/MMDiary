@@ -31,6 +31,7 @@ protected:
 
 private:
     QString lastValidText; // Add this member variable to store the last valid text
+    void insertFromMimeData(const QMimeData *source) override;
 
 signals:
     void customSignal();

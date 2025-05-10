@@ -72,7 +72,7 @@ void CombinedDelegate::setEditorData(QWidget *editor, const QModelIndex &index) 
 void CombinedDelegate::setModelData(QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const {
     if (QTextEdit *textEdit = qobject_cast<QTextEdit *>(editor)) {
         // Add input validation before setting the data
-        QString text = textEdit->toPlainText();
+        QString text = textEdit->document()->toPlainText();
         InputValidation::ValidationResult result =
             InputValidation::validateInput(text, InputValidation::InputType::DiaryContent, 10000);
 

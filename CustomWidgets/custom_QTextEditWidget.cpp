@@ -5,8 +5,12 @@
 #include <QKeyEvent>
 #include <QDebug>
 #include "../Operations-Global/inputvalidation.h"
+#include <QMimeData>
 
 custom_QTextEditWidget::custom_QTextEditWidget(QWidget *parent): QTextEdit(parent) {
+    // Force plain text mode - no rich text allowed
+    setAcceptRichText(false);
+
     // Connect to textChanged signal to adjust height automatically when content changes
     connect(this, &QTextEdit::textChanged, this, &custom_QTextEditWidget::adjustHeight);
     // Connect to document layout changes which happen during font changes
@@ -121,4 +125,26 @@ void custom_QTextEditWidget::changeEvent(QEvent *event) {
         adjustHeight();
     }
     QTextEdit::changeEvent(event);
+}
+
+
+void custom_QTextEditWidget::insertFromMimeData(const QMimeData *source) {
+    // If the source has HTML or rich text, use the plain text version instead
+    if (source->hasText()) {
+        // Get only plain text and insert it
+        QString plainText = source->text();
+
+        // Create a new QMimeData with only plain text
+        QMimeData *plainMimeData = new QMimeData;
+        plainMimeData->setText(plainText);
+
+        // Call the parent method with our plain text mime data
+        QTextEdit::insertFromMimeData(plainMimeData);
+
+        // Clean up
+        delete plainMimeData;
+    } else {
+        // Fall back to default behavior for non-text content
+        QTextEdit::insertFromMimeData(source);
+    }
 }

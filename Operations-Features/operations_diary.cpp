@@ -274,7 +274,7 @@ void Operations_Diary::InputNewEntry(QString DiaryFileName)
     }
 
     // Validate the diary input text
-    QString diaryText = m_mainWindow->ui->DiaryTextInput->toPlainText();
+    QString diaryText = m_mainWindow->ui->DiaryTextInput->document()->toPlainText();
     InputValidation::ValidationResult contentResult =
         InputValidation::validateInput(diaryText, InputValidation::InputType::DiaryContent, 10000);
 
