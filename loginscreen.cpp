@@ -64,6 +64,7 @@ bool loginscreen::isUserInputValid()
         return false;
     }
 
+
     // Validate password
     InputValidation::ValidationResult passwordResult =
         InputValidation::validateInput(ui->lineEdit_Password->text(), InputValidation::InputType::Password);
@@ -72,6 +73,7 @@ bool loginscreen::isUserInputValid()
         ui->label_ErrorDisplay->setText(passwordResult.errorMessage);
         return false;
     }
+
 
     // If we made it here, both username and password are valid
     return true;
@@ -126,7 +128,13 @@ void loginscreen::on_pushButton_Login_clicked()
 void loginscreen::on_pushButton_NewAccount_clicked()
 {
     if(isUserInputValid())
+
     {
+        if(ui->lineEdit_Username->text().toLower() == "temp")
+        {
+            ui->label_ErrorDisplay->setText("Username cannot be Temp");
+            return;
+        }
         DatabaseManager& db = DatabaseManager::instance();
         // Connect to the database
         if (!db.connect(Constants::DBPath_User)) {

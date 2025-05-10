@@ -2304,11 +2304,31 @@ void Operations_TaskLists::DeleteTaskList()
         return;
     }
 
-    // Delete the file and clean up empty directories
-    if (!OperationsFiles::deleteFileAndCleanEmptyDirs(taskListFilePath, hierarchyLevels, basePath)) {
+    // First, try to use the existing function to delete the file
+    bool fileDeleted = OperationsFiles::deleteFileAndCleanEmptyDirs(taskListFilePath, hierarchyLevels, basePath);
+
+    if (!fileDeleted) {
         QMessageBox::warning(m_mainWindow, "Delete Failed",
                              "Could not delete the task list file.");
         return;
+    }
+
+    // Regardless of whether the above function cleaned up directories, check the directory
+    QDir dir(taskListDir);
+    if (dir.exists()) {
+        // Check if the directory is empty
+        QStringList entries = dir.entryList(QDir::NoDotAndDotDot | QDir::AllEntries);
+        if (entries.isEmpty()) {
+            // Directory is empty, remove it
+            if (!dir.removeRecursively()) {
+                // Just log the warning but continue - the file was deleted successfully
+                qWarning() << "Failed to remove empty directory:" << taskListDir;
+            }
+        } else {
+            // Directory is not empty, log what files remain
+            qWarning() << "Directory not empty after file deletion:" << taskListDir;
+            qWarning() << "Remaining files:" << entries;
+        }
     }
 
     // Store the index of the item to be deleted

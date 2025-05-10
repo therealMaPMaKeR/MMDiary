@@ -8,6 +8,7 @@
 #include <QCryptographicHash>
 #include <QMessageAuthenticationCode>
 #include <QElapsedTimer>
+#include <climits>
 
 #define DECL_OPENSSL_PTR(tname, free_func) \
 struct openssl_##tname##_dtor {            \
@@ -184,7 +185,10 @@ QByteArray AESGCM256Crypto::encrypt(const QString& data, const QString& username
     std::vector<uint8_t> cryptooutput(cryptoinput.size() + GCM_TAG_LENGTH);
     std::vector<uint8_t> tag(GCM_TAG_LENGTH);
 
-    int inlen = cryptoinput.size();
+    if (cryptoinput.size() > static_cast<size_t>(INT_MAX)) {
+        throw error("Input too large for encryption. Maximum supported size is 2GB.");
+    }
+    int inlen = static_cast<int>(cryptoinput.size());
     int outlen = 0;
     size_t total_out = 0;
 
@@ -257,7 +261,10 @@ QString AESGCM256Crypto::decrypt(const QByteArray& data) {
     }
 
     // Extract ciphertext (everything in the middle)
-    int ciphertextLength = data.size() - GCM_NONCE_LENGTH - GCM_TAG_LENGTH;
+    if ((data.size() - GCM_NONCE_LENGTH - GCM_TAG_LENGTH) > static_cast<size_t>(INT_MAX)) {
+        throw error("Input too large for decryption. Maximum supported size is 2GB.");
+    }
+    int ciphertextLength = static_cast<int>(data.size() - GCM_NONCE_LENGTH - GCM_TAG_LENGTH);
     std::vector<uint8_t> ciphertext(ciphertextLength);
     for (int i = 0; i < ciphertextLength; ++i) {
         ciphertext[i] = static_cast<uint8_t>(data[GCM_NONCE_LENGTH + i]);
@@ -324,7 +331,10 @@ QByteArray AESGCM256Crypto::encryptBinary(const QByteArray& data, const QString&
     std::vector<uint8_t> cryptooutput(cryptoinput.size() + GCM_TAG_LENGTH);
     std::vector<uint8_t> tag(GCM_TAG_LENGTH);
 
-    int inlen = cryptoinput.size();
+    if (cryptoinput.size() > static_cast<size_t>(INT_MAX)) {
+        throw error("Input too large for encryption. Maximum supported size is 2GB.");
+    }
+    int inlen = static_cast<int>(cryptoinput.size());
     int outlen = 0;
     size_t total_out = 0;
 
@@ -400,7 +410,10 @@ QByteArray AESGCM256Crypto::decryptBinary(const QByteArray& data) {
     }
 
     // Extract ciphertext (everything in the middle)
-    int ciphertextLength = data.size() - GCM_NONCE_LENGTH - GCM_TAG_LENGTH;
+    if ((data.size() - GCM_NONCE_LENGTH - GCM_TAG_LENGTH) > static_cast<size_t>(INT_MAX)) {
+        throw error("Input too large for decryption. Maximum supported size is 2GB.");
+    }
+    int ciphertextLength = static_cast<int>(data.size() - GCM_NONCE_LENGTH - GCM_TAG_LENGTH);
     std::vector<uint8_t> ciphertext(ciphertextLength);
     for (int i = 0; i < ciphertextLength; ++i) {
         ciphertext[i] = static_cast<uint8_t>(data[GCM_NONCE_LENGTH + i]);

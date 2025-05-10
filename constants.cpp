@@ -5,7 +5,7 @@
 namespace Constants
 {
 // Global
-const QString AppVer = "4.0.6";
+const QString AppVer = "4.0.7";
 // Error Messages
 const QString ErrorMessage_Default = "ERROR";
 const QString ErrorMessage_INVUSER = "ERROR - INVALID USER";
@@ -34,7 +34,7 @@ const QString DBSettings_Type_Diary = "Diary";
 const QString DBSettings_Type_Tasklists = "Tasklists";
 const QString DBSettings_Type_PWManager = "PWManager";
 // User Database
-const QString DBPath_User = "MMDiary.db";
+const QString DBPath_User = "Data/MMDiary.db";
 // User Database Table Indexes - User Info
 const QString UserT_Index_Username = "username";
 const QString UserT_Index_Password = "password";
