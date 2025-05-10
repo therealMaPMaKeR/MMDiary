@@ -238,7 +238,7 @@ void Operations_Diary::AddNewEntryToDisplay()
     // Validate the diary input text
     QString diaryText = m_mainWindow->ui->DiaryTextInput->toPlainText();
     InputValidation::ValidationResult result =
-        InputValidation::validateInput(diaryText, InputValidation::InputType::DiaryContent, 10000);
+        InputValidation::validateInput(diaryText, InputValidation::InputType::DiaryContent, 100000);
 
     if (!result.isValid) {
         QMessageBox::warning(m_mainWindow, "Invalid Diary Content",
@@ -276,7 +276,7 @@ void Operations_Diary::InputNewEntry(QString DiaryFileName)
     // Validate the diary input text
     QString diaryText = m_mainWindow->ui->DiaryTextInput->document()->toPlainText();
     InputValidation::ValidationResult contentResult =
-        InputValidation::validateInput(diaryText, InputValidation::InputType::DiaryContent, 10000);
+        InputValidation::validateInput(diaryText, InputValidation::InputType::DiaryContent, 100000);
 
     if (!contentResult.isValid) {
         QMessageBox::warning(m_mainWindow, "Invalid Diary Content",
@@ -414,7 +414,7 @@ void Operations_Diary::SaveDiary(QString DiaryFileName, bool previousDiary)
     {
         // Validate each diary entry before saving
         InputValidation::ValidationResult contentResult =
-            InputValidation::validateInput(item->text(), InputValidation::InputType::DiaryContent, 10000);
+            InputValidation::validateInput(item->text(), InputValidation::InputType::DiaryContent, 100000);
 
         if (!contentResult.isValid) {
             qWarning() << "Invalid content in diary entry: " << contentResult.errorMessage;
@@ -580,7 +580,7 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
             foreach(const QString& line, prevDiaryLines) {
                 // Validate each line of content
                 InputValidation::ValidationResult contentResult =
-                    InputValidation::validateInput(line, InputValidation::InputType::DiaryContent, 10000);
+                    InputValidation::validateInput(line, InputValidation::InputType::DiaryContent, 100000);
 
                 if (!contentResult.isValid) {
                     qWarning() << "Invalid content in previous diary entry during load: " << contentResult.errorMessage;
@@ -739,7 +739,7 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
     foreach(const QString& line, diaryLines) {
         // Validate each line of content
         InputValidation::ValidationResult contentResult =
-            InputValidation::validateInput(line, InputValidation::InputType::DiaryContent, 10000);
+            InputValidation::validateInput(line, InputValidation::InputType::DiaryContent, 100000);
 
         if (!contentResult.isValid) {
             qWarning() << "Invalid content in diary entry during load: " << contentResult.errorMessage;
@@ -1975,7 +1975,7 @@ void Operations_Diary::on_DiaryTextDisplay_itemChanged()
 
                 // Validate the edited text
                 InputValidation::ValidationResult result =
-                    InputValidation::validateInput(editedText, InputValidation::InputType::DiaryContent, 10000);
+                    InputValidation::validateInput(editedText, InputValidation::InputType::DiaryContent, 100000);
 
                 if (!result.isValid) {
                     QMessageBox::warning(m_mainWindow, "Invalid Entry",
