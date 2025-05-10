@@ -9,13 +9,22 @@ CONFIG += c++17
 
 # Static OpenSSL configuration for Windows
 win32 {
-    # Path to your static OpenSSL libraries
-    OPENSSL_PATH = C:/Projects/OpenSSL-Win64
+    # Use relative path to included OpenSSL
+    OPENSSL_PATH = $$PWD/3rdparty/openssl
+
+    # Verify OpenSSL files exist
+    !exists($$OPENSSL_PATH/include/openssl/ssl.h) {
+        error("OpenSSL headers not found. Please see README for setup instructions.")
+    }
+
+    !exists($$OPENSSL_PATH/lib/VC/x64/MD/libssl_static.lib) {
+        error("OpenSSL libraries not found. Please see README for setup instructions.")
+    }
 
     # Include path
     INCLUDEPATH += $$OPENSSL_PATH/include
 
-    # Static libraries - Check exact filenames in your lib directory
+    # Static libraries
     LIBS += -L$$OPENSSL_PATH/lib/VC/x64/MD -llibssl_static -llibcrypto_static
 
     # Additional dependencies required by static OpenSSL on Windows
