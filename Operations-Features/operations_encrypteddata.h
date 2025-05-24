@@ -44,6 +44,33 @@ public:
     void cancel();
 };
 
+class DecryptionWorker : public QObject
+{
+    Q_OBJECT
+
+public:
+    DecryptionWorker(const QString& sourceFile, const QString& targetFile,
+                     const QByteArray& encryptionKey);
+
+    QString m_sourceFile;
+    QString m_targetFile;
+
+public slots:
+    void doDecryption();
+
+signals:
+    void progressUpdated(int percentage);
+    void decryptionFinished(bool success, const QString& errorMessage = QString());
+
+private:
+    QByteArray m_encryptionKey;
+    bool m_cancelled;
+    QMutex m_cancelMutex;
+
+public:
+    void cancel();
+};
+
 class Operations_EncryptedData : public QObject
 {
     Q_OBJECT
@@ -63,6 +90,9 @@ private:
     EncryptionWorker* m_worker;
     QThread* m_workerThread;
 
+    DecryptionWorker* m_decryptWorker;
+    QThread* m_decryptWorkerThread;
+
     // Helper function to map UI display names to directory names
     QString mapSortTypeToDirectory(const QString& sortType);
     // Helper function to map directory names back to UI display names
@@ -81,6 +111,10 @@ public:
     void populateEncryptedFilesList();
     QString getOriginalFilename(const QString& encryptedFilePath);
 
+    void decryptSelectedFile();
+
+    void deleteSelectedFile();
+
 public slots:
     void onSortTypeChanged(const QString& sortType);
 
@@ -88,6 +122,10 @@ private slots:
     void onEncryptionProgress(int percentage);
     void onEncryptionFinished(bool success, const QString& errorMessage = QString());
     void onEncryptionCancelled();
+
+    void onDecryptionProgress(int percentage);
+    void onDecryptionFinished(bool success, const QString& errorMessage = QString());
+    void onDecryptionCancelled();
 };
 
 #endif // OPERATIONS_ENCRYPTEDDATA_H

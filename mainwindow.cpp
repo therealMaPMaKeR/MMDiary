@@ -616,29 +616,16 @@ void MainWindow::on_checkBox_PWMan_ReqPW_stateChanged(int arg1)
 void MainWindow::on_pushButton_DataENC_Encrypt_clicked()
 {
     Operations_EncryptedData_ptr->encryptSelectedFile();
-    /*
-    // Open file dialog to select a file for encryption
-    QString filePath = QFileDialog::getOpenFileName(
-        this,                                    // parent widget
-        "Select File to Encrypt",               // dialog title
-        QString(),                              // starting directory (empty = last used)
-        "All Files (*.*)"                       // file filters
-        );
+}
 
-    // Check if user selected a file (didn't cancel)
-    if (!filePath.isEmpty()) {
-        qDebug() << "Selected file for encryption:" << filePath;
+void MainWindow::on_pushButton_DataENC_Decrypt_clicked()
+{
+    Operations_EncryptedData_ptr->decryptSelectedFile();
+}
 
-        // TODO: Add your encryption logic here
-        // You can access the file path and process it for encryption
-
-        // For now, just show the selected file path
-        QMessageBox::information(this, "File Selected",
-                                 "Selected file: " + filePath);
-    } else {
-        qDebug() << "User cancelled file selection";
-    }
-*/
+void MainWindow::on_pushButton_DataENC_DeleteFile_clicked()
+{
+    Operations_EncryptedData_ptr->deleteSelectedFile();
 }
 
 //------Custom Setting Signals-----//

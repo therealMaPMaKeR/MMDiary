@@ -131,6 +131,158 @@ void EncryptionWorker::cancel()
 }
 
 // ============================================================================
+// DecryptionWorker Implementation (add after EncryptionWorker)
+// ============================================================================
+
+
+DecryptionWorker::DecryptionWorker(const QString& sourceFile, const QString& targetFile,
+                                   const QByteArray& encryptionKey)
+    : m_sourceFile(sourceFile)
+    , m_targetFile(targetFile)
+    , m_encryptionKey(encryptionKey)
+    , m_cancelled(false)
+{
+}
+
+void DecryptionWorker::doDecryption()
+{
+    try {
+        QFile sourceFile(m_sourceFile);
+        if (!sourceFile.open(QIODevice::ReadOnly)) {
+            emit decryptionFinished(false, "Failed to open encrypted file for reading");
+            return;
+        }
+
+        // Get file size for progress calculation
+        qint64 totalSize = sourceFile.size();
+        qint64 processedSize = 0;
+
+        // Read and skip the filename header (we don't need it for decryption)
+        quint32 filenameLength = 0;
+        if (sourceFile.read(reinterpret_cast<char*>(&filenameLength), sizeof(filenameLength)) != sizeof(filenameLength)) {
+            emit decryptionFinished(false, "Failed to read filename length from encrypted file");
+            return;
+        }
+
+        if (filenameLength == 0 || filenameLength > 1000) {
+            emit decryptionFinished(false, "Invalid filename length in encrypted file");
+            return;
+        }
+
+        // Skip the filename bytes
+        if (sourceFile.read(filenameLength).size() != static_cast<int>(filenameLength)) {
+            emit decryptionFinished(false, "Failed to skip filename in encrypted file");
+            return;
+        }
+
+        processedSize += sizeof(filenameLength) + filenameLength;
+
+        // Create target directory if it doesn't exist
+        QFileInfo targetInfo(m_targetFile);
+        QDir targetDir = targetInfo.dir();
+        if (!targetDir.exists()) {
+            if (!targetDir.mkpath(".")) {
+                emit decryptionFinished(false, "Failed to create target directory");
+                return;
+            }
+        }
+
+        QFile targetFile(m_targetFile);
+        if (!targetFile.open(QIODevice::WriteOnly)) {
+            emit decryptionFinished(false, "Failed to create target file");
+            return;
+        }
+
+        // Decrypt file content chunk by chunk
+        while (!sourceFile.atEnd()) {
+            // Check for cancellation
+            {
+                QMutexLocker locker(&m_cancelMutex);
+                if (m_cancelled) {
+                    targetFile.close();
+                    QFile::remove(m_targetFile); // Clean up partial file
+                    emit decryptionFinished(false, "Operation was cancelled");
+                    return;
+                }
+            }
+
+            // Read chunk size
+            quint32 chunkSize = 0;
+            qint64 bytesRead = sourceFile.read(reinterpret_cast<char*>(&chunkSize), sizeof(chunkSize));
+            if (bytesRead == 0) {
+                break; // End of file
+            }
+            if (bytesRead != sizeof(chunkSize)) {
+                targetFile.close();
+                QFile::remove(m_targetFile);
+                emit decryptionFinished(false, "Failed to read chunk size");
+                return;
+            }
+
+            if (chunkSize == 0 || chunkSize > 10 * 1024 * 1024) { // Max 10MB per chunk
+                targetFile.close();
+                QFile::remove(m_targetFile);
+                emit decryptionFinished(false, "Invalid chunk size in encrypted file");
+                return;
+            }
+
+            // Read encrypted chunk data
+            QByteArray encryptedChunk = sourceFile.read(chunkSize);
+            if (encryptedChunk.size() != static_cast<int>(chunkSize)) {
+                targetFile.close();
+                QFile::remove(m_targetFile);
+                emit decryptionFinished(false, "Failed to read complete encrypted chunk");
+                return;
+            }
+
+            // Decrypt chunk
+            QByteArray decryptedChunk = CryptoUtils::Encryption_DecryptBArray(
+                m_encryptionKey, encryptedChunk);
+
+            if (decryptedChunk.isEmpty()) {
+                targetFile.close();
+                QFile::remove(m_targetFile);
+                emit decryptionFinished(false, "Decryption failed for file chunk");
+                return;
+            }
+
+            // Write decrypted chunk
+            if (targetFile.write(decryptedChunk) != decryptedChunk.size()) {
+                targetFile.close();
+                QFile::remove(m_targetFile);
+                emit decryptionFinished(false, "Failed to write decrypted data");
+                return;
+            }
+
+            processedSize += sizeof(chunkSize) + chunkSize;
+
+            // Update progress
+            int percentage = static_cast<int>((processedSize * 100) / totalSize);
+            emit progressUpdated(percentage);
+
+            // Allow other threads to run
+            QCoreApplication::processEvents();
+        }
+
+        sourceFile.close();
+        targetFile.close();
+
+        emit decryptionFinished(true);
+
+    } catch (const std::exception& e) {
+        emit decryptionFinished(false, QString("Decryption error: %1").arg(e.what()));
+    } catch (...) {
+        emit decryptionFinished(false, "Unknown decryption error occurred");
+    }
+}
+
+void DecryptionWorker::cancel()
+{
+    QMutexLocker locker(&m_cancelMutex);
+    m_cancelled = true;
+}
+
+// ============================================================================
 // Operations_EncryptedData Implementation
 // ============================================================================
 
@@ -140,6 +292,8 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     , m_progressDialog(nullptr)
     , m_worker(nullptr)
     , m_workerThread(nullptr)
+    , m_decryptWorker(nullptr)  // Add this line
+    , m_decryptWorkerThread(nullptr)  // Add this line
 {
     // Connect selection changed signal to update button states
     connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemSelectionChanged,
@@ -153,18 +307,33 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
 
 Operations_EncryptedData::~Operations_EncryptedData()
 {
+    // Handle encryption worker (existing code)
     if (m_workerThread && m_workerThread->isRunning()) {
         if (m_worker) {
             m_worker->cancel();
         }
         m_workerThread->quit();
-        m_workerThread->wait(5000); // Wait up to 5 seconds
+        m_workerThread->wait(5000);
         if (m_workerThread->isRunning()) {
             m_workerThread->terminate();
             m_workerThread->wait(1000);
         }
     }
 
+    // Handle decryption worker (add this)
+    if (m_decryptWorkerThread && m_decryptWorkerThread->isRunning()) {
+        if (m_decryptWorker) {
+            m_decryptWorker->cancel();
+        }
+        m_decryptWorkerThread->quit();
+        m_decryptWorkerThread->wait(5000);
+        if (m_decryptWorkerThread->isRunning()) {
+            m_decryptWorkerThread->terminate();
+            m_decryptWorkerThread->wait(1000);
+        }
+    }
+
+    // Clean up workers
     if (m_worker) {
         m_worker->deleteLater();
         m_worker = nullptr;
@@ -175,11 +344,24 @@ Operations_EncryptedData::~Operations_EncryptedData()
         m_workerThread = nullptr;
     }
 
+    // Add cleanup for decryption worker
+    if (m_decryptWorker) {
+        m_decryptWorker->deleteLater();
+        m_decryptWorker = nullptr;
+    }
+
+    if (m_decryptWorkerThread) {
+        m_decryptWorkerThread->deleteLater();
+        m_decryptWorkerThread = nullptr;
+    }
+
     if (m_progressDialog) {
         m_progressDialog->deleteLater();
         m_progressDialog = nullptr;
     }
 }
+
+//encryption
 
 void Operations_EncryptedData::encryptSelectedFile()
 {
@@ -452,6 +634,240 @@ void Operations_EncryptedData::onEncryptionCancelled()
     }
 }
 
+//decryption
+
+void Operations_EncryptedData::decryptSelectedFile()
+{
+    // Get the currently selected item
+    QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_DataENC_FileList->currentItem();
+    if (!currentItem) {
+        QMessageBox::warning(m_mainWindow, "No Selection",
+                             "Please select a file to decrypt.");
+        return;
+    }
+
+    // Get the encrypted file path from the item's user data
+    QString encryptedFilePath = currentItem->data(Qt::UserRole).toString();
+    if (encryptedFilePath.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to retrieve encrypted file path.");
+        return;
+    }
+
+    // Verify the encrypted file still exists
+    if (!QFile::exists(encryptedFilePath)) {
+        QMessageBox::critical(m_mainWindow, "File Not Found",
+                              "The encrypted file no longer exists.");
+        populateEncryptedFilesList(); // Refresh the list
+        return;
+    }
+
+    // Get the original filename
+    QString originalFilename = getOriginalFilename(encryptedFilePath);
+    if (originalFilename.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to extract original filename from encrypted file.");
+        return;
+    }
+
+    // Open save dialog with original filename pre-filled
+    QString suggestedPath = QDir::homePath() + "/" + originalFilename;
+    QString targetPath = QFileDialog::getSaveFileName(
+        m_mainWindow,
+        "Save Decrypted File As",
+        suggestedPath,
+        "All Files (*.*)"
+        );
+
+    if (targetPath.isEmpty()) {
+        qDebug() << "User cancelled file save dialog";
+        return;
+    }
+
+    // Validate the target path
+    InputValidation::ValidationResult result = InputValidation::validateInput(
+        targetPath, InputValidation::InputType::ExternalFilePath, 1000);
+
+    if (!result.isValid) {
+        QMessageBox::warning(m_mainWindow, "Invalid File Path",
+                             "The selected save path is invalid: " + result.errorMessage);
+        return;
+    }
+
+    // Check if target file already exists
+    if (QFile::exists(targetPath)) {
+        int ret = QMessageBox::question(m_mainWindow, "File Exists",
+                                        "The target file already exists. Do you want to overwrite it?",
+                                        QMessageBox::Yes | QMessageBox::No,
+                                        QMessageBox::No);
+        if (ret != QMessageBox::Yes) {
+            return;
+        }
+    }
+
+    // Get encryption key
+    QByteArray encryptionKey = m_mainWindow->user_Key;
+
+    // Set up progress dialog
+    m_progressDialog = new QProgressDialog("Decrypting file...", "Cancel", 0, 100, m_mainWindow);
+    m_progressDialog->setWindowTitle("File Decryption");
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setMinimumDuration(0);
+    m_progressDialog->setValue(0);
+
+    // Set up worker thread
+    m_decryptWorkerThread = new QThread(this);
+    m_decryptWorker = new DecryptionWorker(encryptedFilePath, targetPath, encryptionKey);
+    m_decryptWorker->moveToThread(m_decryptWorkerThread);
+
+    // Connect signals
+    connect(m_decryptWorkerThread, &QThread::started, m_decryptWorker, &DecryptionWorker::doDecryption);
+    connect(m_decryptWorker, &DecryptionWorker::progressUpdated, this, &Operations_EncryptedData::onDecryptionProgress);
+    connect(m_decryptWorker, &DecryptionWorker::decryptionFinished, this, &Operations_EncryptedData::onDecryptionFinished);
+    connect(m_progressDialog, &QProgressDialog::canceled, this, &Operations_EncryptedData::onDecryptionCancelled);
+
+    // Start decryption
+    m_decryptWorkerThread->start();
+    m_progressDialog->exec();
+}
+
+void Operations_EncryptedData::onDecryptionProgress(int percentage)
+{
+    if (m_progressDialog) {
+        m_progressDialog->setValue(percentage);
+    }
+}
+
+void Operations_EncryptedData::onDecryptionFinished(bool success, const QString& errorMessage)
+{
+    if (m_progressDialog) {
+        m_progressDialog->close();
+    }
+
+    if (m_decryptWorkerThread) {
+        m_decryptWorkerThread->quit();
+        m_decryptWorkerThread->wait();
+        m_decryptWorkerThread->deleteLater();
+        m_decryptWorkerThread = nullptr;
+    }
+
+    if (m_decryptWorker) {
+        QString encryptedFile = m_decryptWorker->m_sourceFile;
+        QString decryptedFile = m_decryptWorker->m_targetFile;
+
+        if (success) {
+            // Show success dialog and ask about deleting encrypted file
+            QMessageBox msgBox(m_mainWindow);
+            msgBox.setWindowTitle("Decryption Complete");
+            msgBox.setIcon(QMessageBox::Information);
+            msgBox.setText("File decrypted successfully!");
+            msgBox.setInformativeText("The file has been decrypted and saved.\n\n"
+                                      "Would you like to delete the encrypted copy?");
+
+            QPushButton* deleteButton = msgBox.addButton("Delete Encrypted Copy", QMessageBox::YesRole);
+            QPushButton* keepButton = msgBox.addButton("Keep Encrypted Copy", QMessageBox::NoRole);
+            msgBox.setDefaultButton(keepButton);
+
+            msgBox.exec();
+
+            // Check if the delete button was clicked
+            if (msgBox.clickedButton() == deleteButton) {
+                // Delete the encrypted file
+                if (QFile::remove(encryptedFile)) {
+                    // Refresh the list since we removed a file
+                    populateEncryptedFilesList();
+                    QMessageBox::information(m_mainWindow, "File Deleted",
+                                             "The encrypted file has been deleted.");
+                } else {
+                    QMessageBox::warning(m_mainWindow, "Deletion Failed",
+                                         "Failed to delete the encrypted file. "
+                                         "You may need to delete it manually.");
+                }
+            }
+        } else {
+            QMessageBox::critical(m_mainWindow, "Decryption Failed",
+                                  "File decryption failed: " + errorMessage);
+        }
+
+        m_decryptWorker->deleteLater();
+        m_decryptWorker = nullptr;
+    }
+}
+
+void Operations_EncryptedData::onDecryptionCancelled()
+{
+    if (m_decryptWorker) {
+        m_decryptWorker->cancel();
+    }
+
+    if (m_progressDialog) {
+        m_progressDialog->setLabelText("Cancelling...");
+        m_progressDialog->setCancelButton(nullptr); // Disable cancel button while cancelling
+    }
+}
+
+//deletion
+
+void Operations_EncryptedData::deleteSelectedFile()
+{
+    // Get the currently selected item
+    QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_DataENC_FileList->currentItem();
+    if (!currentItem) {
+        QMessageBox::warning(m_mainWindow, "No Selection",
+                             "Please select a file to delete.");
+        return;
+    }
+
+    // Get the encrypted file path from the item's user data
+    QString encryptedFilePath = currentItem->data(Qt::UserRole).toString();
+    if (encryptedFilePath.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to retrieve encrypted file path.");
+        return;
+    }
+
+    // Verify the encrypted file still exists
+    if (!QFile::exists(encryptedFilePath)) {
+        QMessageBox::critical(m_mainWindow, "File Not Found",
+                              "The encrypted file no longer exists.");
+        populateEncryptedFilesList(); // Refresh the list
+        return;
+    }
+
+    // Get the original filename for display in the confirmation dialog
+    QString originalFilename = getOriginalFilename(encryptedFilePath);
+    if (originalFilename.isEmpty()) {
+        // If we can't get the original filename, use the encrypted filename
+        QFileInfo fileInfo(encryptedFilePath);
+        originalFilename = fileInfo.fileName();
+    }
+
+    // Show confirmation dialog
+    int ret = QMessageBox::question(
+        m_mainWindow,
+        "Confirm Deletion",
+        QString("Are you sure you want to delete '%1'?").arg(originalFilename),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No // Default to No for safety
+        );
+
+    if (ret != QMessageBox::Yes) {
+        return; // User cancelled
+    }
+
+    // Delete the encrypted file (regular deletion is fine since it's encrypted)
+    bool deleted = QFile::remove(encryptedFilePath);
+
+    if (deleted) {
+        // Refresh the list since we removed a file
+        populateEncryptedFilesList();
+        QMessageBox::information(m_mainWindow, "File Deleted",
+                                 QString("'%1' has been deleted.").arg(originalFilename));
+    } else {
+        QMessageBox::critical(m_mainWindow, "Deletion Failed",
+                              QString("Failed to delete '%1'. The file may be in use or you may not have sufficient permissions.").arg(originalFilename));
+    }
+}
 
 //Populate List Widget
 
@@ -646,3 +1062,4 @@ void Operations_EncryptedData::updateButtonStates()
     m_mainWindow->ui->pushButton_DataENC_DeleteFile->setEnabled(hasSelection);
     m_mainWindow->ui->pushButton_DataENC_DeleteFile->setStyleSheet(hasSelection ? enabledStyle : disabledStyle);
 }
+

@@ -230,6 +230,10 @@ private slots:
 
     void on_pushButton_ChangeLog_clicked();
 
+    void on_pushButton_DataENC_Decrypt_clicked();
+
+    void on_pushButton_DataENC_DeleteFile_clicked();
+
 private:
     void UpdateTasklistTextSize();
     QSystemTrayIcon *trayIcon;
