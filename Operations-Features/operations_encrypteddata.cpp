@@ -1,19 +1,425 @@
 #include "operations_encrypteddata.h"
-#include "../CustomWidgets/CombinedDelegate.h"
 #include "../Operations-Global/CryptoUtils.h"
-#include "ui_mainwindow.h"
+#include "../Operations-Global/operations_files.h"
 #include "../constants.h"
-#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
-#include <QTimer>
-#include <QMenu>
-#include <QClipboard>
-#include <QGuiApplication>
+#include <QRandomGenerator>
+#include <QCoreApplication>
+#include <QThread>
+#include <QMutexLocker>
 
-Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
-    : m_mainWindow(mainWindow)
+// ============================================================================
+// EncryptionWorker Implementation
+// ============================================================================
+
+EncryptionWorker::EncryptionWorker(const QString& sourceFile, const QString& targetFile,
+                                   const QByteArray& encryptionKey, const QString& username)
+    : m_sourceFile(sourceFile)
+    , m_targetFile(targetFile)
+    , m_encryptionKey(encryptionKey)
+    , m_username(username)
+    , m_cancelled(false)
 {
-
 }
 
+void EncryptionWorker::doEncryption()
+{
+    try {
+        QFile sourceFile(m_sourceFile);
+        if (!sourceFile.open(QIODevice::ReadOnly)) {
+            emit encryptionFinished(false, "Failed to open source file for reading");
+            return;
+        }
+
+        // Get file size for progress calculation
+        qint64 totalSize = sourceFile.size();
+        qint64 processedSize = 0;
+
+        // Create target directory if it doesn't exist
+        QFileInfo targetInfo(m_targetFile);
+        QDir targetDir = targetInfo.dir();
+        if (!targetDir.exists()) {
+            if (!targetDir.mkpath(".")) {
+                emit encryptionFinished(false, "Failed to create target directory");
+                return;
+            }
+        }
+
+        QFile targetFile(m_targetFile);
+        if (!targetFile.open(QIODevice::WriteOnly)) {
+            emit encryptionFinished(false, "Failed to create target file");
+            return;
+        }
+
+        // Write header: original filename length + filename + username length + username
+        QFileInfo sourceInfo(m_sourceFile);
+        QString originalFilename = sourceInfo.fileName();
+        QByteArray filenameBytes = originalFilename.toUtf8();
+        QByteArray usernameBytes = m_username.toUtf8();
+
+        // Write lengths and data
+        quint32 filenameLength = static_cast<quint32>(filenameBytes.size());
+        quint32 usernameLength = static_cast<quint32>(usernameBytes.size());
+
+        targetFile.write(reinterpret_cast<const char*>(&filenameLength), sizeof(filenameLength));
+        targetFile.write(filenameBytes);
+        targetFile.write(reinterpret_cast<const char*>(&usernameLength), sizeof(usernameLength));
+        targetFile.write(usernameBytes);
+
+        // Encrypt and write file content in chunks
+        const qint64 chunkSize = 1024 * 1024; // 1MB chunks
+        QByteArray buffer;
+
+        while (!sourceFile.atEnd()) {
+            // Check for cancellation
+            {
+                QMutexLocker locker(&m_cancelMutex);
+                if (m_cancelled) {
+                    targetFile.close();
+                    QFile::remove(m_targetFile); // Clean up partial file
+                    emit encryptionFinished(false, "Operation was cancelled");
+                    return;
+                }
+            }
+
+            // Read chunk
+            buffer = sourceFile.read(chunkSize);
+            if (buffer.isEmpty()) {
+                break;
+            }
+
+            // Encrypt chunk
+            QByteArray encryptedChunk = CryptoUtils::Encryption_EncryptBArray(
+                m_encryptionKey, buffer, m_username);
+
+            if (encryptedChunk.isEmpty()) {
+                targetFile.close();
+                QFile::remove(m_targetFile); // Clean up partial file
+                emit encryptionFinished(false, "Encryption failed for file chunk");
+                return;
+            }
+
+            // Write encrypted chunk size and data
+            quint32 chunkDataSize = static_cast<quint32>(encryptedChunk.size());
+            targetFile.write(reinterpret_cast<const char*>(&chunkDataSize), sizeof(chunkDataSize));
+            targetFile.write(encryptedChunk);
+
+            processedSize += buffer.size();
+
+            // Update progress
+            int percentage = static_cast<int>((processedSize * 100) / totalSize);
+            emit progressUpdated(percentage);
+
+            // Allow other threads to run
+            QCoreApplication::processEvents();
+        }
+
+        sourceFile.close();
+        targetFile.close();
+
+        emit encryptionFinished(true);
+
+    } catch (const std::exception& e) {
+        emit encryptionFinished(false, QString("Encryption error: %1").arg(e.what()));
+    } catch (...) {
+        emit encryptionFinished(false, "Unknown encryption error occurred");
+    }
+}
+
+void EncryptionWorker::cancel()
+{
+    QMutexLocker locker(&m_cancelMutex);
+    m_cancelled = true;
+}
+
+// ============================================================================
+// Operations_EncryptedData Implementation
+// ============================================================================
+
+Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
+    : QObject(mainWindow)
+    , m_mainWindow(mainWindow)
+    , m_progressDialog(nullptr)
+    , m_worker(nullptr)
+    , m_workerThread(nullptr)
+{
+}
+
+Operations_EncryptedData::~Operations_EncryptedData()
+{
+    if (m_workerThread && m_workerThread->isRunning()) {
+        if (m_worker) {
+            m_worker->cancel();
+        }
+        m_workerThread->quit();
+        m_workerThread->wait(5000); // Wait up to 5 seconds
+        if (m_workerThread->isRunning()) {
+            m_workerThread->terminate();
+            m_workerThread->wait(1000);
+        }
+    }
+
+    if (m_worker) {
+        m_worker->deleteLater();
+        m_worker = nullptr;
+    }
+
+    if (m_workerThread) {
+        m_workerThread->deleteLater();
+        m_workerThread = nullptr;
+    }
+
+    if (m_progressDialog) {
+        m_progressDialog->deleteLater();
+        m_progressDialog = nullptr;
+    }
+}
+
+void Operations_EncryptedData::encryptSelectedFile()
+{
+    // Open file dialog to select a file for encryption
+    QString filePath = QFileDialog::getOpenFileName(
+        m_mainWindow,
+        "Select File to Encrypt",
+        QString(),
+        "All Files (*.*)"
+        );
+
+    // Check if user selected a file (didn't cancel)
+    if (filePath.isEmpty()) {
+        qDebug() << "User cancelled file selection";
+        return;
+    }
+
+    qDebug() << "Selected file for encryption:" << filePath;
+
+    // Validate the file path
+    InputValidation::ValidationResult result = InputValidation::validateInput(
+        filePath, InputValidation::InputType::FilePath, 1000);
+
+    if (!result.isValid) {
+        QMessageBox::warning(m_mainWindow, "Invalid File Path",
+                             "The selected file path is invalid: " + result.errorMessage);
+        return;
+    }
+
+    // Check if file exists and is readable
+    QFileInfo fileInfo(filePath);
+    if (!fileInfo.exists() || !fileInfo.isReadable()) {
+        QMessageBox::warning(m_mainWindow, "File Access Error",
+                             "The selected file cannot be read or does not exist.");
+        return;
+    }
+
+    // Get username from mainwindow
+    QString username = m_mainWindow->user_Username;
+    QByteArray encryptionKey = m_mainWindow->user_Key;
+
+    // Create target path
+    QString targetPath = createTargetPath(filePath, username);
+    if (targetPath.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to create target path for encrypted file.");
+        return;
+    }
+
+    // Set up progress dialog
+    m_progressDialog = new QProgressDialog("Encrypting file...", "Cancel", 0, 100, m_mainWindow);
+    m_progressDialog->setWindowTitle("File Encryption");
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setMinimumDuration(0);
+    m_progressDialog->setValue(0);
+
+    // Set up worker thread
+    m_workerThread = new QThread(this);
+    m_worker = new EncryptionWorker(filePath, targetPath, encryptionKey, username);
+    m_worker->moveToThread(m_workerThread);
+
+    // Connect signals
+    connect(m_workerThread, &QThread::started, m_worker, &EncryptionWorker::doEncryption);
+    connect(m_worker, &EncryptionWorker::progressUpdated, this, &Operations_EncryptedData::onEncryptionProgress);
+    connect(m_worker, &EncryptionWorker::encryptionFinished, this, &Operations_EncryptedData::onEncryptionFinished);
+    connect(m_progressDialog, &QProgressDialog::canceled, this, &Operations_EncryptedData::onEncryptionCancelled);
+
+    // Start encryption
+    m_workerThread->start();
+    m_progressDialog->exec();
+}
+
+QString Operations_EncryptedData::determineFileType(const QString& filePath)
+{
+    QFileInfo fileInfo(filePath);
+    QString extension = fileInfo.suffix().toLower();
+
+    // Video files
+    QStringList videoExtensions = {"mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp"};
+    if (videoExtensions.contains(extension)) {
+        return "Video";
+    }
+
+    // Image files
+    QStringList imageExtensions = {"jpg", "jpeg", "png", "gif", "bmp", "tiff", "svg", "ico", "webp"};
+    if (imageExtensions.contains(extension)) {
+        return "Image";
+    }
+
+    // Audio files
+    QStringList audioExtensions = {"mp3", "wav", "flac", "aac", "ogg", "wma", "m4a"};
+    if (audioExtensions.contains(extension)) {
+        return "Audio";
+    }
+
+    // Document files
+    QStringList documentExtensions = {"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", "odt"};
+    if (documentExtensions.contains(extension)) {
+        return "Document";
+    }
+
+    // Archive files
+    QStringList archiveExtensions = {"zip", "rar", "7z", "tar", "gz", "bz2"};
+    if (archiveExtensions.contains(extension)) {
+        return "Archive";
+    }
+
+    // Default to "Other" for unrecognized file types
+    return "Other";
+}
+
+QString Operations_EncryptedData::generateRandomFilename()
+{
+    const QString chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    const int length = 32; // Generate a 32-character random string
+
+    QString randomString;
+    for (int i = 0; i < length; ++i) {
+        int index = QRandomGenerator::global()->bounded(chars.length());
+        randomString.append(chars[index]);
+    }
+
+    return randomString + ".mmenc";
+}
+
+bool Operations_EncryptedData::checkFilenameExists(const QString& folderPath, const QString& filename)
+{
+    QDir dir(folderPath);
+    return dir.exists(filename);
+}
+
+QString Operations_EncryptedData::createTargetPath(const QString& sourceFile, const QString& username)
+{
+    // Determine file type
+    QString fileType = determineFileType(sourceFile);
+
+    // Create folder path: Data/username/EncryptedData/FileType/
+    QString basePath = QDir::current().absoluteFilePath("Data");
+    QString userPath = QDir(basePath).absoluteFilePath(username);
+    QString encDataPath = QDir(userPath).absoluteFilePath("EncryptedData");
+    QString typePath = QDir(encDataPath).absoluteFilePath(fileType);
+
+    // Ensure directories exist
+    QDir typeDir(typePath);
+    if (!typeDir.exists()) {
+        if (!typeDir.mkpath(".")) {
+            qWarning() << "Failed to create directory:" << typePath;
+            return QString();
+        }
+    }
+
+    // Generate unique filename
+    QString filename;
+    int attempts = 0;
+    const int maxAttempts = 100;
+
+    do {
+        filename = generateRandomFilename();
+        attempts++;
+
+        if (attempts > maxAttempts) {
+            qWarning() << "Failed to generate unique filename after" << maxAttempts << "attempts";
+            return QString();
+        }
+
+    } while (checkFilenameExists(typePath, filename));
+
+    return QDir(typePath).absoluteFilePath(filename);
+}
+
+void Operations_EncryptedData::showSuccessDialog(const QString& encryptedFile, const QString& originalFile)
+{
+    QMessageBox msgBox(m_mainWindow);
+    msgBox.setWindowTitle("Encryption Complete");
+    msgBox.setIcon(QMessageBox::Information);
+    msgBox.setText("File encrypted successfully!");
+    msgBox.setInformativeText("The file has been encrypted and saved securely.\n\n"
+                              "Would you like to securely delete the original unencrypted file?");
+
+    QPushButton* deleteButton = msgBox.addButton("Delete Original", QMessageBox::YesRole);
+    QPushButton* keepButton = msgBox.addButton("Keep Original", QMessageBox::NoRole);
+    msgBox.setDefaultButton(keepButton);
+
+    msgBox.exec();
+
+    // Check if the delete button was clicked by comparing button text
+    if (msgBox.clickedButton() && msgBox.clickedButton()->text() == "Delete Original") {
+        // Securely delete the original file
+        bool deleted = OperationsFiles::secureDelete(originalFile, 3);
+
+        if (deleted) {
+            QMessageBox::information(m_mainWindow, "File Deleted",
+                                     "The original file has been securely deleted.");
+        } else {
+            QMessageBox::warning(m_mainWindow, "Deletion Failed",
+                                 "Failed to securely delete the original file. "
+                                 "You may need to delete it manually.");
+        }
+    }
+}
+
+void Operations_EncryptedData::onEncryptionProgress(int percentage)
+{
+    if (m_progressDialog) {
+        m_progressDialog->setValue(percentage);
+    }
+}
+
+void Operations_EncryptedData::onEncryptionFinished(bool success, const QString& errorMessage)
+{
+    if (m_progressDialog) {
+        m_progressDialog->close();
+    }
+
+    if (m_workerThread) {
+        m_workerThread->quit();
+        m_workerThread->wait();
+        m_workerThread->deleteLater();
+        m_workerThread = nullptr;
+    }
+
+    if (m_worker) {
+        QString originalFile = m_worker->m_sourceFile;
+        QString encryptedFile = m_worker->m_targetFile;
+
+        m_worker->deleteLater();
+        m_worker = nullptr;
+
+        if (success) {
+            showSuccessDialog(encryptedFile, originalFile);
+        } else {
+            QMessageBox::critical(m_mainWindow, "Encryption Failed",
+                                  "File encryption failed: " + errorMessage);
+        }
+    }
+}
+
+void Operations_EncryptedData::onEncryptionCancelled()
+{
+    if (m_worker) {
+        m_worker->cancel();
+    }
+
+    if (m_progressDialog) {
+        m_progressDialog->setLabelText("Cancelling...");
+        m_progressDialog->setCancelButton(nullptr); // Disable cancel button while cancelling
+    }
+}
