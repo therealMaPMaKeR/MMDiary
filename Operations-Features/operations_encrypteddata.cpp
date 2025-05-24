@@ -52,20 +52,16 @@ void EncryptionWorker::doEncryption()
             return;
         }
 
-        // Write header: original filename length + filename + username length + username
+        // Write header: original filename length + filename
         QFileInfo sourceInfo(m_sourceFile);
         QString originalFilename = sourceInfo.fileName();
         QByteArray filenameBytes = originalFilename.toUtf8();
-        QByteArray usernameBytes = m_username.toUtf8();
 
-        // Write lengths and data
+        // Write length and data
         quint32 filenameLength = static_cast<quint32>(filenameBytes.size());
-        quint32 usernameLength = static_cast<quint32>(usernameBytes.size());
 
         targetFile.write(reinterpret_cast<const char*>(&filenameLength), sizeof(filenameLength));
         targetFile.write(filenameBytes);
-        targetFile.write(reinterpret_cast<const char*>(&usernameLength), sizeof(usernameLength));
-        targetFile.write(usernameBytes);
 
         // Encrypt and write file content in chunks
         const qint64 chunkSize = 1024 * 1024; // 1MB chunks

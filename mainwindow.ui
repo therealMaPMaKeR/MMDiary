@@ -1564,6 +1564,16 @@ li.checked::marker { content: &quot;\2612&quot;; }
               <string>Video</string>
              </property>
             </item>
+            <item>
+             <property name="text">
+              <string>Archive</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Other</string>
+             </property>
+            </item>
            </widget>
           </item>
           <item>
