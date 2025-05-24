@@ -8,13 +8,13 @@
 #include <QMessageBox>
 
 class MainWindow;
-class Operations_TextsManager : public QObject
+class Operations_EncryptedData : public QObject
 {
     Q_OBJECT
 private:
     MainWindow* m_mainWindow;
 public:
-    explicit Operations_TextsManager(MainWindow* mainWindow);
+    explicit Operations_EncryptedData(MainWindow* mainWindow);
     friend class MainWindow;
 
 };

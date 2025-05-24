@@ -8,6 +8,7 @@
 #include "Operations-Features/operations_passwordmanager.h"
 #include "Operations-Features/operations_tasklists.h"
 #include "Operations-Features/operations_settings.h"
+#include "Operations-Features/operations_encrypteddata.h"
 #include "Operations-Global/passwordvalidation.h"
 #include "constants.h"
 #include "loginscreen.h"
@@ -137,6 +138,7 @@ void MainWindow::FinishInitialization()
         Operations_PasswordManager_ptr = new Operations_PasswordManager(this);
         Operations_TaskLists_ptr = new Operations_TaskLists(this, Operations_Diary_ptr);
         Operations_Settings_ptr = new Operations_Settings(this);
+        Operations_EncryptedData_ptr = new Operations_EncryptedData(this);
         CombinedDelegate *delegate = new CombinedDelegate(this);
         //------------------ INITIALIZE SIGNALS ----------------//
         //Diary Signals
@@ -605,6 +607,32 @@ void MainWindow::on_checkBox_PWMan_ReqPW_stateChanged(int arg1)
 {
     if (initFinished == false) {return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_PWManager);
+}
+
+//Encrypted Data
+void MainWindow::on_pushButton_DataENC_Encrypt_clicked()
+{
+    // Open file dialog to select a file for encryption
+    QString filePath = QFileDialog::getOpenFileName(
+        this,                                    // parent widget
+        "Select File to Encrypt",               // dialog title
+        QString(),                              // starting directory (empty = last used)
+        "All Files (*.*)"                       // file filters
+        );
+
+    // Check if user selected a file (didn't cancel)
+    if (!filePath.isEmpty()) {
+        qDebug() << "Selected file for encryption:" << filePath;
+
+        // TODO: Add your encryption logic here
+        // You can access the file path and process it for encryption
+
+        // For now, just show the selected file path
+        QMessageBox::information(this, "File Selected",
+                                 "Selected file: " + filePath);
+    } else {
+        qDebug() << "User cancelled file selection";
+    }
 }
 
 //------Custom Setting Signals-----//

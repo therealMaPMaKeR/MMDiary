@@ -11,8 +11,9 @@
 #include <QClipboard>
 #include <QGuiApplication>
 
-Operations_TextsManager::Operations_TextsManager(MainWindow* mainWindow)
+Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
 {
+
 }
 

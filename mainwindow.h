@@ -33,7 +33,7 @@ class custom_QListWidget;
 class Operations_Diary;
 class Operations_PasswordManager;
 class Operations_TaskLists;
-class Operations_TextsManager;
+class Operations_EncryptedData;
 class Operations_Settings;
 
 // Header's Class
@@ -48,7 +48,7 @@ public:
     friend class Operations_Diary;
     friend class Operations_PasswordManager;
     friend class Operations_TaskLists;
-    friend class Operations_TextsManager;
+    friend class Operations_EncryptedData;
     friend class Operations_Settings;
     // public functions
     MainWindow(QWidget *parent = nullptr);
@@ -144,10 +144,13 @@ private:
     Operations_PasswordManager* Operations_PasswordManager_ptr;
     Operations_TaskLists* Operations_TaskLists_ptr;
     Operations_Settings* Operations_Settings_ptr;
+    Operations_EncryptedData* Operations_EncryptedData_ptr;
 
 signals:
     void passUsername_Signal(QString username);
 private slots:
+
+    void on_pushButton_DataENC_Encrypt_clicked();
 
     void on_pushButton_Acc_Save_clicked();
 
