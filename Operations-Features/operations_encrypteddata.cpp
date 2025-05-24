@@ -2,6 +2,7 @@
 #include "../Operations-Global/CryptoUtils.h"
 #include "../Operations-Global/operations_files.h"
 #include "../constants.h"
+#include "ui_mainwindow.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QRandomGenerator>
@@ -140,6 +141,7 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     , m_worker(nullptr)
     , m_workerThread(nullptr)
 {
+    onSortTypeChanged("All");
 }
 
 Operations_EncryptedData::~Operations_EncryptedData()
@@ -396,15 +398,38 @@ void Operations_EncryptedData::onEncryptionFinished(bool success, const QString&
         QString originalFile = m_worker->m_sourceFile;
         QString encryptedFile = m_worker->m_targetFile;
 
-        m_worker->deleteLater();
-        m_worker = nullptr;
-
         if (success) {
+            // Determine the file type that was just encrypted
+            QString fileType = determineFileType(originalFile);
+            QString uiSortType = mapDirectoryToSortType(fileType);
+
+            // Check if combo box is already on the correct type
+            QString currentSortType = m_mainWindow->ui->comboBox_DataENC_SortType->currentText();
+
+            if (currentSortType == uiSortType || currentSortType == "All") {
+                // Already on the correct type or showing all files - just refresh the list
+                populateEncryptedFilesList();
+            } else {
+                // Need to change combo box, which will automatically trigger list refresh
+                int targetIndex = Operations::GetIndexFromText(uiSortType, m_mainWindow->ui->comboBox_DataENC_SortType);
+                if (targetIndex != -1) {
+                    m_mainWindow->ui->comboBox_DataENC_SortType->setCurrentIndex(targetIndex);
+                    // This will automatically trigger onSortTypeChanged() which will repopulate the list
+                } else {
+                    // Fallback: manually populate the list if index lookup failed
+                    qWarning() << "Failed to find combo box index for:" << uiSortType;
+                    populateEncryptedFilesList();
+                }
+            }
+
             showSuccessDialog(encryptedFile, originalFile);
         } else {
             QMessageBox::critical(m_mainWindow, "Encryption Failed",
                                   "File encryption failed: " + errorMessage);
         }
+
+        m_worker->deleteLater();
+        m_worker = nullptr;
     }
 }
 
@@ -418,4 +443,176 @@ void Operations_EncryptedData::onEncryptionCancelled()
         m_progressDialog->setLabelText("Cancelling...");
         m_progressDialog->setCancelButton(nullptr); // Disable cancel button while cancelling
     }
+}
+
+
+//Populate List Widget
+
+QString Operations_EncryptedData::getOriginalFilename(const QString& encryptedFilePath)
+{
+    QFile file(encryptedFilePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qWarning() << "Failed to open encrypted file:" << encryptedFilePath;
+        return QString();
+    }
+
+    // Read the filename length (first 4 bytes)
+    quint32 filenameLength = 0;
+    if (file.read(reinterpret_cast<char*>(&filenameLength), sizeof(filenameLength)) != sizeof(filenameLength)) {
+        qWarning() << "Failed to read filename length from:" << encryptedFilePath;
+        return QString();
+    }
+
+    // Validate filename length (reasonable limits)
+    if (filenameLength == 0 || filenameLength > 1000) {
+        qWarning() << "Invalid filename length in encrypted file:" << filenameLength << encryptedFilePath;
+        return QString();
+    }
+
+    // Read the original filename
+    QByteArray filenameBytes = file.read(filenameLength);
+    if (filenameBytes.size() != static_cast<int>(filenameLength)) {
+        qWarning() << "Failed to read complete filename from:" << encryptedFilePath;
+        return QString();
+    }
+
+    file.close();
+
+    // Convert to QString
+    QString originalFilename = QString::fromUtf8(filenameBytes);
+
+    // Validate the filename
+    InputValidation::ValidationResult result = InputValidation::validateInput(
+        originalFilename, InputValidation::InputType::FileName, 255);
+
+    if (!result.isValid) {
+        qWarning() << "Invalid filename extracted from encrypted file:" << originalFilename;
+        return QString();
+    }
+
+    return originalFilename;
+}
+
+QString Operations_EncryptedData::mapSortTypeToDirectory(const QString& sortType)
+{
+    if (sortType == "Text") {
+        return "Document";
+    } else if (sortType == "Image") {
+        return "Image";
+    } else if (sortType == "Audio") {
+        return "Audio";
+    } else if (sortType == "Video") {
+        return "Video";
+    } else if (sortType == "Archive") {
+        return "Archive";
+    } else if (sortType == "Other") {
+        return "Other";
+    } else if (sortType == "All") {
+        return "All";
+    }
+
+    return "All"; // Default fallback
+}
+
+QString Operations_EncryptedData::mapDirectoryToSortType(const QString& directoryName)
+{
+    if (directoryName == "Document") {
+        return "Text";
+    } else if (directoryName == "Image") {
+        return "Image";
+    } else if (directoryName == "Audio") {
+        return "Audio";
+    } else if (directoryName == "Video") {
+        return "Video";
+    } else if (directoryName == "Archive") {
+        return "Archive";
+    } else if (directoryName == "Other") {
+        return "Other";
+    }
+
+    return "All"; // Default fallback
+}
+
+void Operations_EncryptedData::populateEncryptedFilesList()
+{
+    // Clear the current list
+    m_mainWindow->ui->listWidget_DataENC_FileList->clear();
+
+    // Get current sort type from combo box
+    QString currentSortType = m_mainWindow->ui->comboBox_DataENC_SortType->currentText();
+    QString username = m_mainWindow->user_Username;
+
+    // Build base path to encrypted data
+    QString basePath = QDir::current().absoluteFilePath("Data");
+    QString userPath = QDir(basePath).absoluteFilePath(username);
+    QString encDataPath = QDir(userPath).absoluteFilePath("EncryptedData");
+
+    QDir encDataDir(encDataPath);
+    if (!encDataDir.exists()) {
+        // No encrypted data directory exists yet
+        qDebug() << "EncryptedData directory doesn't exist for user:" << username;
+        return;
+    }
+
+    QStringList directoriesToScan;
+
+    if (currentSortType == "All") {
+        // Scan all subdirectories
+        directoriesToScan << "Document" << "Image" << "Audio" << "Video" << "Archive" << "Other";
+    } else {
+        // Scan only the specific directory
+        QString mappedDirectory = mapSortTypeToDirectory(currentSortType);
+        directoriesToScan << mappedDirectory;
+    }
+
+    // Scan each directory for encrypted files
+    for (const QString& dirName : directoriesToScan) {
+        QString dirPath = QDir(encDataPath).absoluteFilePath(dirName);
+        QDir dir(dirPath);
+
+        if (!dir.exists()) {
+            continue; // Skip non-existent directories
+        }
+
+        // Get all .mmenc files in this directory
+        QStringList filters;
+        filters << "*.mmenc";
+        QFileInfoList fileList = dir.entryInfoList(filters, QDir::Files | QDir::Readable, QDir::Name);
+
+        for (const QFileInfo& fileInfo : fileList) {
+            QString encryptedFilePath = fileInfo.absoluteFilePath();
+            QString originalFilename = getOriginalFilename(encryptedFilePath);
+
+            if (!originalFilename.isEmpty()) {
+                // Create list item with original filename as display text
+                QListWidgetItem* item = new QListWidgetItem(originalFilename);
+
+                // Store the encrypted file path and directory type as user data
+                item->setData(Qt::UserRole, encryptedFilePath);
+                item->setData(Qt::UserRole + 1, dirName);
+
+                // Add type prefix if showing "All" to help user identify file types
+                if (currentSortType == "All") {
+                    QString displayName = QString("[%1] %2").arg(
+                        dirName == "Document" ? "Text" : dirName, originalFilename);
+                    item->setText(displayName);
+                }
+
+                m_mainWindow->ui->listWidget_DataENC_FileList->addItem(item);
+            } else {
+                qWarning() << "Failed to extract filename from:" << encryptedFilePath;
+            }
+        }
+    }
+
+    // Update list widget to show results
+    int itemCount = m_mainWindow->ui->listWidget_DataENC_FileList->count();
+    qDebug() << "Populated encrypted files list with" << itemCount << "items for sort type:" << currentSortType;
+}
+
+void Operations_EncryptedData::onSortTypeChanged(const QString& sortType)
+{
+    Q_UNUSED(sortType)
+    // Repopulate the list when sort type changes
+    populateEncryptedFilesList();
 }

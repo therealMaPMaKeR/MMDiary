@@ -63,6 +63,11 @@ private:
     EncryptionWorker* m_worker;
     QThread* m_workerThread;
 
+    // Helper function to map UI display names to directory names
+    QString mapSortTypeToDirectory(const QString& sortType);
+    // Helper function to map directory names back to UI display names
+    QString mapDirectoryToSortType(const QString& directoryName);
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();
@@ -70,6 +75,12 @@ public:
 
     // Main encryption function
     void encryptSelectedFile();
+    // File listing functions
+    void populateEncryptedFilesList();
+    QString getOriginalFilename(const QString& encryptedFilePath);
+
+public slots:
+    void onSortTypeChanged(const QString& sortType);
 
 private slots:
     void onEncryptionProgress(int percentage);

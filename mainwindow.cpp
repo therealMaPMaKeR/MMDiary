@@ -182,6 +182,9 @@ void MainWindow::FinishInitialization()
                         Operations_Diary_ptr->prevent_onDiaryTextDisplay_itemChanged = false;
                     }
                 });
+        //EncryptedData Signals
+        connect(ui->comboBox_DataENC_SortType, &QComboBox::currentTextChanged,
+                Operations_EncryptedData_ptr, &Operations_EncryptedData::onSortTypeChanged);
         //trayIcon->showMessage("Title", "This is a notification message.", QSystemTrayIcon::Information, 3000);
         initFinished = true;
     }
