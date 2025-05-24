@@ -18,9 +18,10 @@ enum class InputType {
     Password,        // Password requirements
     DisplayName,     // Display names with some restrictions
     FileName,        // Valid file names
-    FilePath,        // File paths
+    FilePath,        // File paths (restricted to Data directory)
+    ExternalFilePath,// External file paths (not restricted to Data directory)
     DiaryContent,    // Content for diary entries
-    ColorName,        // Color names (for your color settings)
+    ColorName,       // Color names (for your color settings)
     Line,
     TaskListName
 };

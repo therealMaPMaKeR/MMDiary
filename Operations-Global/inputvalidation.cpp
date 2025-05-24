@@ -218,6 +218,63 @@ ValidationResult validateInput(const QString& input, InputType type, int maxLeng
         break;
     }
 
+    case InputType::ExternalFilePath: {
+        // External file path validation - similar to FilePath but allows paths outside Data directory
+        QFileInfo pathInfo(input);
+        QString absolutePath = pathInfo.absoluteFilePath();
+
+        // Use canonicalFilePath to resolve symbolic links
+        QString canonicalPath;
+
+        // If the file exists, get its canonical path to resolve symlinks
+        if (pathInfo.exists()) {
+            canonicalPath = pathInfo.canonicalFilePath();
+
+            // If canonicalFilePath returns empty (error), fallback to cleanPath
+            if (canonicalPath.isEmpty()) {
+                canonicalPath = QDir::cleanPath(absolutePath);
+                qWarning() << "Failed to get canonical path for existing file, using cleaned path:" << canonicalPath;
+            }
+        } else {
+            // For non-existent files, use cleanPath
+            canonicalPath = QDir::cleanPath(absolutePath);
+        }
+
+        // Path traversal check - still useful as a first defense
+        QRegularExpression pathTraversalPattern("\\.\\.");
+        if (pathTraversalPattern.match(input).hasMatch()) {
+            result.isValid = false;
+            result.errorMessage = "Path contains directory traversal patterns";
+            return result;
+        }
+
+// Additional OS-specific checks
+#ifdef Q_OS_WIN
+        // Windows-specific checks
+        // Check for alternate data streams
+        if (input.contains(':')) {
+            QRegularExpression adsPattern(":.+");
+            if (adsPattern.match(QFileInfo(input).fileName()).hasMatch()) {
+                result.isValid = false;
+                result.errorMessage = "Path contains Windows alternate data stream";
+                return result;
+            }
+        }
+
+        // Check for Windows short names (8.3 format)
+        QRegularExpression shortNamePattern("~[0-9]");
+        if (shortNamePattern.match(input).hasMatch()) {
+            result.isValid = false;
+            result.errorMessage = "Path may contain Windows short name format";
+            return result;
+        }
+#endif
+
+        // Note: We do NOT check if the path is within the Data directory for external files
+        // This allows users to select files from anywhere on their system for encryption
+        break;
+    }
+
     case InputType::DiaryContent: {
         // Diary content - simply check for script tags and large content
         // Other content validation can be added here as needed

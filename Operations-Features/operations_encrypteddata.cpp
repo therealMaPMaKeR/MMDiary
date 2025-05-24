@@ -196,7 +196,7 @@ void Operations_EncryptedData::encryptSelectedFile()
 
     // Validate the file path
     InputValidation::ValidationResult result = InputValidation::validateInput(
-        filePath, InputValidation::InputType::FilePath, 1000);
+        filePath, InputValidation::InputType::ExternalFilePath, 1000);
 
     if (!result.isValid) {
         QMessageBox::warning(m_mainWindow, "Invalid File Path",
