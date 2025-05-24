@@ -9,6 +9,8 @@
 #include <QMutex>
 #include <QPushButton>
 #include <QAbstractButton>
+#include <QTimer>
+#include <QProcess>
 #include "../mainwindow.h"
 #include "../Operations-Global/operations.h"
 #include "../Operations-Global/inputvalidation.h"
@@ -71,6 +73,34 @@ public:
     void cancel();
 };
 
+// Worker class for temporary decryption (for opening files)
+class TempDecryptionWorker : public QObject
+{
+    Q_OBJECT
+
+public:
+    TempDecryptionWorker(const QString& sourceFile, const QString& targetFile,
+                         const QByteArray& encryptionKey);
+
+    QString m_sourceFile;
+    QString m_targetFile;
+
+public slots:
+    void doDecryption();
+
+signals:
+    void progressUpdated(int percentage);
+    void decryptionFinished(bool success, const QString& errorMessage = QString());
+
+private:
+    QByteArray m_encryptionKey;
+    bool m_cancelled;
+    QMutex m_cancelMutex;
+
+public:
+    void cancel();
+};
+
 class Operations_EncryptedData : public QObject
 {
     Q_OBJECT
@@ -93,12 +123,33 @@ private:
     DecryptionWorker* m_decryptWorker;
     QThread* m_decryptWorkerThread;
 
+    // Temporary decryption for opening files
+    TempDecryptionWorker* m_tempDecryptWorker;
+    QThread* m_tempDecryptWorkerThread;
+    QString m_pendingAppToOpen; // Store the app path for opening after temp decryption
+
     // Helper function to map UI display names to directory names
     QString mapSortTypeToDirectory(const QString& sortType);
     // Helper function to map directory names back to UI display names
     QString mapDirectoryToSortType(const QString& directoryName);
 
     void updateButtonStates();
+
+    // Double-click to open functionality
+    QString checkDefaultApp(const QString& extension);
+    enum class AppChoice { Cancel, UseDefault, SelectApp };
+    AppChoice showDefaultAppDialog(const QString& appName);
+    AppChoice showNoDefaultAppDialog();
+    QString selectApplication();
+    QString createTempFilePath(const QString& originalFilename);
+    void openFileWithApp(const QString& tempFile, const QString& appPath);
+
+    // Temp file monitoring and cleanup
+    QTimer* m_tempFileCleanupTimer;
+    void startTempFileMonitoring();
+    void cleanupTempFiles();
+    bool isFileInUse(const QString& filePath);
+    QString getTempDecryptDir();
 
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
@@ -117,6 +168,7 @@ public:
 
 public slots:
     void onSortTypeChanged(const QString& sortType);
+    void onFileListDoubleClicked(QListWidgetItem* item);
 
 private slots:
     void onEncryptionProgress(int percentage);
@@ -126,6 +178,14 @@ private slots:
     void onDecryptionProgress(int percentage);
     void onDecryptionFinished(bool success, const QString& errorMessage = QString());
     void onDecryptionCancelled();
+
+    // Temp decryption slots
+    void onTempDecryptionProgress(int percentage);
+    void onTempDecryptionFinished(bool success, const QString& errorMessage = QString());
+    void onTempDecryptionCancelled();
+
+    // Cleanup timer slot
+    void onCleanupTimerTimeout();
 };
 
 #endif // OPERATIONS_ENCRYPTEDDATA_H

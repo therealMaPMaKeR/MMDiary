@@ -9,6 +9,17 @@
 #include <QCoreApplication>
 #include <QThread>
 #include <QMutexLocker>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QProcess>
+#include <QRegularExpression>
+
+// Windows-specific includes for file association checking
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <shellapi.h>
+#include <QSettings>
+#endif
 
 // ============================================================================
 // EncryptionWorker Implementation
@@ -131,9 +142,8 @@ void EncryptionWorker::cancel()
 }
 
 // ============================================================================
-// DecryptionWorker Implementation (add after EncryptionWorker)
+// DecryptionWorker Implementation
 // ============================================================================
-
 
 DecryptionWorker::DecryptionWorker(const QString& sourceFile, const QString& targetFile,
                                    const QByteArray& encryptionKey)
@@ -283,6 +293,157 @@ void DecryptionWorker::cancel()
 }
 
 // ============================================================================
+// TempDecryptionWorker Implementation
+// ============================================================================
+
+TempDecryptionWorker::TempDecryptionWorker(const QString& sourceFile, const QString& targetFile,
+                                           const QByteArray& encryptionKey)
+    : m_sourceFile(sourceFile)
+    , m_targetFile(targetFile)
+    , m_encryptionKey(encryptionKey)
+    , m_cancelled(false)
+{
+}
+
+void TempDecryptionWorker::doDecryption()
+{
+    try {
+        QFile sourceFile(m_sourceFile);
+        if (!sourceFile.open(QIODevice::ReadOnly)) {
+            emit decryptionFinished(false, "Failed to open encrypted file for reading");
+            return;
+        }
+
+        // Get file size for progress calculation
+        qint64 totalSize = sourceFile.size();
+        qint64 processedSize = 0;
+
+        // Read and skip the filename header
+        quint32 filenameLength = 0;
+        if (sourceFile.read(reinterpret_cast<char*>(&filenameLength), sizeof(filenameLength)) != sizeof(filenameLength)) {
+            emit decryptionFinished(false, "Failed to read filename length from encrypted file");
+            return;
+        }
+
+        if (filenameLength == 0 || filenameLength > 1000) {
+            emit decryptionFinished(false, "Invalid filename length in encrypted file");
+            return;
+        }
+
+        // Skip the filename bytes
+        if (sourceFile.read(filenameLength).size() != static_cast<int>(filenameLength)) {
+            emit decryptionFinished(false, "Failed to skip filename in encrypted file");
+            return;
+        }
+
+        processedSize += sizeof(filenameLength) + filenameLength;
+
+        // Create target directory if it doesn't exist
+        QFileInfo targetInfo(m_targetFile);
+        QDir targetDir = targetInfo.dir();
+        if (!targetDir.exists()) {
+            if (!targetDir.mkpath(".")) {
+                emit decryptionFinished(false, "Failed to create target directory");
+                return;
+            }
+        }
+
+        QFile targetFile(m_targetFile);
+        if (!targetFile.open(QIODevice::WriteOnly)) {
+            emit decryptionFinished(false, "Failed to create target file");
+            return;
+        }
+
+        // Decrypt file content chunk by chunk
+        while (!sourceFile.atEnd()) {
+            // Check for cancellation
+            {
+                QMutexLocker locker(&m_cancelMutex);
+                if (m_cancelled) {
+                    targetFile.close();
+                    QFile::remove(m_targetFile); // Clean up partial file
+                    emit decryptionFinished(false, "Operation was cancelled");
+                    return;
+                }
+            }
+
+            // Read chunk size
+            quint32 chunkSize = 0;
+            qint64 bytesRead = sourceFile.read(reinterpret_cast<char*>(&chunkSize), sizeof(chunkSize));
+            if (bytesRead == 0) {
+                break; // End of file
+            }
+            if (bytesRead != sizeof(chunkSize)) {
+                targetFile.close();
+                QFile::remove(m_targetFile);
+                emit decryptionFinished(false, "Failed to read chunk size");
+                return;
+            }
+
+            if (chunkSize == 0 || chunkSize > 10 * 1024 * 1024) { // Max 10MB per chunk
+                targetFile.close();
+                QFile::remove(m_targetFile);
+                emit decryptionFinished(false, "Invalid chunk size in encrypted file");
+                return;
+            }
+
+            // Read encrypted chunk data
+            QByteArray encryptedChunk = sourceFile.read(chunkSize);
+            if (encryptedChunk.size() != static_cast<int>(chunkSize)) {
+                targetFile.close();
+                QFile::remove(m_targetFile);
+                emit decryptionFinished(false, "Failed to read complete encrypted chunk");
+                return;
+            }
+
+            // Decrypt chunk
+            QByteArray decryptedChunk = CryptoUtils::Encryption_DecryptBArray(
+                m_encryptionKey, encryptedChunk);
+
+            if (decryptedChunk.isEmpty()) {
+                targetFile.close();
+                QFile::remove(m_targetFile);
+                emit decryptionFinished(false, "Decryption failed for file chunk");
+                return;
+            }
+
+            // Write decrypted chunk
+            if (targetFile.write(decryptedChunk) != decryptedChunk.size()) {
+                targetFile.close();
+                QFile::remove(m_targetFile);
+                emit decryptionFinished(false, "Failed to write decrypted data");
+                return;
+            }
+
+            processedSize += sizeof(chunkSize) + chunkSize;
+
+            // Update progress
+            int percentage = static_cast<int>((processedSize * 100) / totalSize);
+            emit progressUpdated(percentage);
+
+            // Allow other threads to run
+            QCoreApplication::processEvents();
+        }
+
+        sourceFile.close();
+        targetFile.close();
+
+        emit decryptionFinished(true);
+
+    } catch (const std::exception& e) {
+        emit decryptionFinished(false, QString("Decryption error: %1").arg(e.what()));
+    } catch (...) {
+        emit decryptionFinished(false, "Unknown decryption error occurred");
+    }
+}
+
+void TempDecryptionWorker::cancel()
+{
+    QMutexLocker locker(&m_cancelMutex);
+    m_cancelled = true;
+}
+
+// ============================================================================
 // Operations_EncryptedData Implementation
 // ============================================================================
 
@@ -292,21 +453,41 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     , m_progressDialog(nullptr)
     , m_worker(nullptr)
     , m_workerThread(nullptr)
-    , m_decryptWorker(nullptr)  // Add this line
-    , m_decryptWorkerThread(nullptr)  // Add this line
+    , m_decryptWorker(nullptr)
+    , m_decryptWorkerThread(nullptr)
+    , m_tempDecryptWorker(nullptr)
+    , m_tempDecryptWorkerThread(nullptr)
+    , m_tempFileCleanupTimer(nullptr)
 {
     // Connect selection changed signal to update button states
     connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemSelectionChanged,
             this, &Operations_EncryptedData::updateButtonStates);
 
+    // Connect double-click signal
+    connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemDoubleClicked,
+            this, &Operations_EncryptedData::onFileListDoubleClicked);
+
     onSortTypeChanged("All");
 
     // Set initial button states (disabled since no files loaded yet)
     updateButtonStates();
+
+    // Start temp file monitoring
+    startTempFileMonitoring();
+
+    // Clean up any orphaned temp files from previous sessions
+    cleanupTempFiles();
 }
 
 Operations_EncryptedData::~Operations_EncryptedData()
 {
+    // Stop the cleanup timer
+    if (m_tempFileCleanupTimer) {
+        m_tempFileCleanupTimer->stop();
+        m_tempFileCleanupTimer->deleteLater();
+        m_tempFileCleanupTimer = nullptr;
+    }
+
     // Handle encryption worker (existing code)
     if (m_workerThread && m_workerThread->isRunning()) {
         if (m_worker) {
@@ -320,7 +501,7 @@ Operations_EncryptedData::~Operations_EncryptedData()
         }
     }
 
-    // Handle decryption worker (add this)
+    // Handle decryption worker
     if (m_decryptWorkerThread && m_decryptWorkerThread->isRunning()) {
         if (m_decryptWorker) {
             m_decryptWorker->cancel();
@@ -330,6 +511,19 @@ Operations_EncryptedData::~Operations_EncryptedData()
         if (m_decryptWorkerThread->isRunning()) {
             m_decryptWorkerThread->terminate();
             m_decryptWorkerThread->wait(1000);
+        }
+    }
+
+    // Handle temp decryption worker
+    if (m_tempDecryptWorkerThread && m_tempDecryptWorkerThread->isRunning()) {
+        if (m_tempDecryptWorker) {
+            m_tempDecryptWorker->cancel();
+        }
+        m_tempDecryptWorkerThread->quit();
+        m_tempDecryptWorkerThread->wait(5000);
+        if (m_tempDecryptWorkerThread->isRunning()) {
+            m_tempDecryptWorkerThread->terminate();
+            m_tempDecryptWorkerThread->wait(1000);
         }
     }
 
@@ -344,7 +538,6 @@ Operations_EncryptedData::~Operations_EncryptedData()
         m_workerThread = nullptr;
     }
 
-    // Add cleanup for decryption worker
     if (m_decryptWorker) {
         m_decryptWorker->deleteLater();
         m_decryptWorker = nullptr;
@@ -355,13 +548,493 @@ Operations_EncryptedData::~Operations_EncryptedData()
         m_decryptWorkerThread = nullptr;
     }
 
+    if (m_tempDecryptWorker) {
+        m_tempDecryptWorker->deleteLater();
+        m_tempDecryptWorker = nullptr;
+    }
+
+    if (m_tempDecryptWorkerThread) {
+        m_tempDecryptWorkerThread->deleteLater();
+        m_tempDecryptWorkerThread = nullptr;
+    }
+
     if (m_progressDialog) {
         m_progressDialog->deleteLater();
         m_progressDialog = nullptr;
     }
 }
 
-//encryption
+// ============================================================================
+// Double-click to open functionality
+// ============================================================================
+
+void Operations_EncryptedData::onFileListDoubleClicked(QListWidgetItem* item)
+{
+    if (!item) {
+        return;
+    }
+
+    // Get the encrypted file path and original filename
+    QString encryptedFilePath = item->data(Qt::UserRole).toString();
+    if (encryptedFilePath.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to retrieve encrypted file path.");
+        return;
+    }
+
+    // Verify the encrypted file still exists
+    if (!QFile::exists(encryptedFilePath)) {
+        QMessageBox::critical(m_mainWindow, "File Not Found",
+                              "The encrypted file no longer exists.");
+        populateEncryptedFilesList(); // Refresh the list
+        return;
+    }
+
+    // Get the original filename
+    QString originalFilename = getOriginalFilename(encryptedFilePath);
+    if (originalFilename.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to extract original filename from encrypted file.");
+        return;
+    }
+
+    // Extract file extension
+    QFileInfo fileInfo(originalFilename);
+    QString extension = fileInfo.suffix().toLower();
+
+    if (extension.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "No File Extension",
+                             "The file has no extension. Cannot determine default application.");
+        return;
+    }
+
+    // Check for default application
+    QString defaultApp = checkDefaultApp(extension);
+    QString appToUse;
+
+    if (defaultApp.isEmpty()) {
+        // No default app - show dialog to select one
+        AppChoice choice = showNoDefaultAppDialog();
+        if (choice == AppChoice::Cancel) {
+            return;
+        } else if (choice == AppChoice::SelectApp) {
+            appToUse = selectApplication();
+            if (appToUse.isEmpty()) {
+                return; // User cancelled app selection
+            }
+        }
+    } else {
+        // Default app exists - show dialog with options
+        AppChoice choice = showDefaultAppDialog(defaultApp);
+        if (choice == AppChoice::Cancel) {
+            return;
+        } else if (choice == AppChoice::UseDefault) {
+            appToUse = "default"; // Special marker for default app
+        } else if (choice == AppChoice::SelectApp) {
+            appToUse = selectApplication();
+            if (appToUse.isEmpty()) {
+                return; // User cancelled app selection
+            }
+        }
+    }
+
+    // Create temp file path with obfuscated name
+    QString tempFilePath = createTempFilePath(originalFilename);
+    if (tempFilePath.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to create temporary file path.");
+        return;
+    }
+
+    // Store the app to open for later use after decryption
+    m_pendingAppToOpen = appToUse;
+
+    // Set up progress dialog
+    m_progressDialog = new QProgressDialog("Decrypting file for opening...", "Cancel", 0, 100, m_mainWindow);
+    m_progressDialog->setWindowTitle("Opening Encrypted File");
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setMinimumDuration(0);
+    m_progressDialog->setValue(0);
+
+    // Set up worker thread for temp decryption
+    m_tempDecryptWorkerThread = new QThread(this);
+    m_tempDecryptWorker = new TempDecryptionWorker(encryptedFilePath, tempFilePath, m_mainWindow->user_Key);
+    m_tempDecryptWorker->moveToThread(m_tempDecryptWorkerThread);
+
+    // Connect signals
+    connect(m_tempDecryptWorkerThread, &QThread::started, m_tempDecryptWorker, &TempDecryptionWorker::doDecryption);
+    connect(m_tempDecryptWorker, &TempDecryptionWorker::progressUpdated, this, &Operations_EncryptedData::onTempDecryptionProgress);
+    connect(m_tempDecryptWorker, &TempDecryptionWorker::decryptionFinished, this, &Operations_EncryptedData::onTempDecryptionFinished);
+    connect(m_progressDialog, &QProgressDialog::canceled, this, &Operations_EncryptedData::onTempDecryptionCancelled);
+
+    // Start decryption
+    m_tempDecryptWorkerThread->start();
+    m_progressDialog->exec();
+}
+
+QString Operations_EncryptedData::checkDefaultApp(const QString& extension)
+{
+#ifdef Q_OS_WIN
+    // Check Windows registry for default application
+    QSettings regSettings(QString("HKEY_CLASSES_ROOT\\.%1").arg(extension), QSettings::NativeFormat);
+    QString fileType = regSettings.value(".", "").toString();
+
+    if (fileType.isEmpty()) {
+        return QString(); // No association found
+    }
+
+    QSettings appSettings(QString("HKEY_CLASSES_ROOT\\%1\\shell\\open\\command").arg(fileType), QSettings::NativeFormat);
+    QString command = appSettings.value(".", "").toString();
+
+    if (command.isEmpty()) {
+        return QString(); // No command found
+    }
+
+    // Extract application name from command
+    // Commands usually look like: "C:\Program Files\App\app.exe" "%1"
+    QRegularExpression regex("\"([^\"]+)\"");
+    QRegularExpressionMatch match = regex.match(command);
+    if (match.hasMatch()) {
+        QString appPath = match.captured(1);
+        QFileInfo appInfo(appPath);
+        return appInfo.baseName(); // Return just the application name
+    } else {
+        // Try to extract first word as app path
+        QStringList parts = command.split(' ', Qt::SkipEmptyParts);
+        if (!parts.isEmpty()) {
+            QFileInfo appInfo(parts.first());
+            return appInfo.baseName();
+        }
+    }
+#endif
+    return QString(); // Fallback for non-Windows or if detection fails
+}
+
+Operations_EncryptedData::AppChoice Operations_EncryptedData::showDefaultAppDialog(const QString& appName)
+{
+    QMessageBox msgBox(m_mainWindow);
+    msgBox.setWindowTitle("Open Encrypted File");
+    msgBox.setIcon(QMessageBox::Question);
+    msgBox.setText(QString("'%1' is set as default for this type of file.").arg(appName));
+    msgBox.setInformativeText("Do you want to open it with the default app or select a specific one?");
+
+    QPushButton* cancelButton = msgBox.addButton("Cancel", QMessageBox::RejectRole);
+    QPushButton* useDefaultButton = msgBox.addButton("Use Default", QMessageBox::AcceptRole);
+    QPushButton* selectAppButton = msgBox.addButton("Select an App", QMessageBox::ActionRole);
+
+    msgBox.setDefaultButton(useDefaultButton);
+    msgBox.exec();
+
+    if (msgBox.clickedButton() == cancelButton) {
+        return AppChoice::Cancel;
+    } else if (msgBox.clickedButton() == useDefaultButton) {
+        return AppChoice::UseDefault;
+    } else if (msgBox.clickedButton() == selectAppButton) {
+        return AppChoice::SelectApp;
+    }
+
+    return AppChoice::Cancel; // Default fallback
+}
+
+Operations_EncryptedData::AppChoice Operations_EncryptedData::showNoDefaultAppDialog()
+{
+    QMessageBox msgBox(m_mainWindow);
+    msgBox.setWindowTitle("Open Encrypted File");
+    msgBox.setIcon(QMessageBox::Information);
+    msgBox.setText("No default app defined for this type of file.");
+
+    QPushButton* cancelButton = msgBox.addButton("Cancel", QMessageBox::RejectRole);
+    QPushButton* selectAppButton = msgBox.addButton("Select an App", QMessageBox::AcceptRole);
+
+    msgBox.setDefaultButton(selectAppButton);
+    msgBox.exec();
+
+    if (msgBox.clickedButton() == cancelButton) {
+        return AppChoice::Cancel;
+    } else if (msgBox.clickedButton() == selectAppButton) {
+        return AppChoice::SelectApp;
+    }
+
+    return AppChoice::Cancel; // Default fallback
+}
+
+QString Operations_EncryptedData::selectApplication()
+{
+    QString appPath = QFileDialog::getOpenFileName(
+        m_mainWindow,
+        "Select Application",
+        QString(),
+        "Executable Files (*.exe);;All Files (*.*)"
+        );
+
+    // Validate the selected application path
+    if (!appPath.isEmpty()) {
+        QFileInfo appInfo(appPath);
+        if (!appInfo.exists() || !appInfo.isExecutable()) {
+            QMessageBox::warning(m_mainWindow, "Invalid Application",
+                                 "The selected file is not a valid executable.");
+            return QString();
+        }
+    }
+
+    return appPath;
+}
+
+QString Operations_EncryptedData::createTempFilePath(const QString& originalFilename)
+{
+    // Get the temp decrypt directory
+    QString tempDir = getTempDecryptDir();
+
+    // Ensure temp directory exists
+    QDir dir(tempDir);
+    if (!dir.exists()) {
+        if (!dir.mkpath(".")) {
+            qWarning() << "Failed to create temp decrypt directory:" << tempDir;
+            return QString();
+        }
+    }
+
+    // Extract extension from original filename
+    QFileInfo fileInfo(originalFilename);
+    QString extension = fileInfo.suffix();
+
+    // Generate obfuscated filename with original extension
+    QString obfuscatedName = generateRandomFilename();
+
+    // Replace .mmenc extension with the original file extension
+    if (!extension.isEmpty()) {
+        obfuscatedName = obfuscatedName.replace(".mmenc", "." + extension);
+    } else {
+        obfuscatedName = obfuscatedName.replace(".mmenc", "");
+    }
+
+    // Ensure filename is unique in temp directory
+    QString finalPath;
+    int attempts = 0;
+    const int maxAttempts = 100;
+
+    do {
+        if (attempts > 0) {
+            // Add number suffix for uniqueness
+            QString nameWithoutExt = QFileInfo(obfuscatedName).baseName();
+            QString finalName = QString("%1_%2").arg(nameWithoutExt).arg(attempts);
+            if (!extension.isEmpty()) {
+                finalName += "." + extension;
+            }
+            finalPath = QDir(tempDir).absoluteFilePath(finalName);
+        } else {
+            finalPath = QDir(tempDir).absoluteFilePath(obfuscatedName);
+        }
+
+        attempts++;
+
+        if (attempts > maxAttempts) {
+            qWarning() << "Failed to generate unique temp filename after" << maxAttempts << "attempts";
+            return QString();
+        }
+
+    } while (QFile::exists(finalPath));
+
+    return finalPath;
+}
+
+void Operations_EncryptedData::openFileWithApp(const QString& tempFile, const QString& appPath)
+{
+    if (appPath == "default") {
+        // Use system default application
+        QUrl fileUrl = QUrl::fromLocalFile(tempFile);
+        if (!QDesktopServices::openUrl(fileUrl)) {
+            QMessageBox::warning(m_mainWindow, "Failed to Open File",
+                                 "Could not open the file with the default application.");
+        } else {
+            qDebug() << "Opened file with default app:" << tempFile;
+        }
+    } else {
+        // Use specific application
+        QStringList arguments;
+        arguments << tempFile;
+
+        if (!QProcess::startDetached(appPath, arguments)) {
+            QMessageBox::warning(m_mainWindow, "Failed to Open File",
+                                 "Could not open the file with the selected application.");
+        } else {
+            qDebug() << "Opened file with app:" << appPath << "file:" << tempFile;
+        }
+    }
+}
+
+QString Operations_EncryptedData::getTempDecryptDir()
+{
+    QString basePath = QDir::current().absoluteFilePath("Data");
+    QString userPath = QDir(basePath).absoluteFilePath(m_mainWindow->user_Username);
+    QString tempPath = QDir(userPath).absoluteFilePath("Temp");
+    return QDir(tempPath).absoluteFilePath("tempdecrypt");
+}
+
+// ============================================================================
+// Temp file monitoring and cleanup
+// ============================================================================
+
+void Operations_EncryptedData::startTempFileMonitoring()
+{
+    if (!m_tempFileCleanupTimer) {
+        m_tempFileCleanupTimer = new QTimer(this);
+        connect(m_tempFileCleanupTimer, &QTimer::timeout, this, &Operations_EncryptedData::onCleanupTimerTimeout);
+        m_tempFileCleanupTimer->start(60000); // 1 minute = 60000 ms
+        qDebug() << "Started temp file cleanup timer with 1-minute interval";
+    }
+}
+
+void Operations_EncryptedData::onCleanupTimerTimeout()
+{
+    cleanupTempFiles();
+}
+
+void Operations_EncryptedData::cleanupTempFiles()
+{
+    QString tempDir = getTempDecryptDir();
+    QDir dir(tempDir);
+
+    if (!dir.exists()) {
+        return; // No temp directory exists yet
+    }
+
+    // Get all files in the temp directory
+    QFileInfoList fileList = dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot);
+
+    int filesDeleted = 0;
+    for (const QFileInfo& fileInfo : fileList) {
+        QString filePath = fileInfo.absoluteFilePath();
+
+        // Check if file is in use
+        if (!isFileInUse(filePath)) {
+            // File is not in use, securely delete it
+            if (OperationsFiles::secureDelete(filePath, 3)) {
+                filesDeleted++;
+                qDebug() << "Cleaned up temp file:" << filePath;
+            } else {
+                qWarning() << "Failed to clean up temp file:" << filePath;
+            }
+        } else {
+            qDebug() << "Temp file still in use:" << filePath;
+        }
+    }
+
+    if (filesDeleted > 0) {
+        qDebug() << "Cleanup completed. Deleted" << filesDeleted << "temp files";
+    }
+}
+
+bool Operations_EncryptedData::isFileInUse(const QString& filePath)
+{
+#ifdef Q_OS_WIN
+    // On Windows, try to open the file with exclusive access
+    // If it fails, the file is likely in use
+    HANDLE fileHandle = CreateFileA(
+        filePath.toLocal8Bit().constData(),
+        GENERIC_READ | GENERIC_WRITE,
+        0, // No sharing - exclusive access
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+        );
+
+    if (fileHandle == INVALID_HANDLE_VALUE) {
+        DWORD error = GetLastError();
+        if (error == ERROR_SHARING_VIOLATION || error == ERROR_ACCESS_DENIED) {
+            // File is in use
+            return true;
+        }
+        // Other errors might indicate the file doesn't exist or other issues
+        // For safety, consider it not in use so it can be cleaned up
+        return false;
+    } else {
+        // Successfully opened with exclusive access, file is not in use
+        CloseHandle(fileHandle);
+        return false;
+    }
+#else
+    // For non-Windows systems, this is a fallback
+    // Simply try to open and close the file
+    QFile file(filePath);
+    if (file.open(QIODevice::ReadWrite)) {
+        file.close();
+        return false; // Not in use
+    }
+    return true; // Assume in use if we can't open it
+#endif
+}
+
+// ============================================================================
+// Temp decryption slots
+// ============================================================================
+
+void Operations_EncryptedData::onTempDecryptionProgress(int percentage)
+{
+    if (m_progressDialog) {
+        m_progressDialog->setValue(percentage);
+    }
+}
+
+void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QString& errorMessage)
+{
+    if (m_progressDialog) {
+        m_progressDialog->close();
+    }
+
+    if (m_tempDecryptWorkerThread) {
+        m_tempDecryptWorkerThread->quit();
+        m_tempDecryptWorkerThread->wait();
+        m_tempDecryptWorkerThread->deleteLater();
+        m_tempDecryptWorkerThread = nullptr;
+    }
+
+    if (m_tempDecryptWorker) {
+        QString tempFilePath = m_tempDecryptWorker->m_targetFile;
+
+        if (success) {
+            // Open the file with the chosen application
+            openFileWithApp(tempFilePath, m_pendingAppToOpen);
+        } else {
+            QMessageBox::critical(m_mainWindow, "Decryption Failed",
+                                  "Failed to decrypt file for opening: " + errorMessage);
+
+            // Clean up the partial temp file if it exists
+            if (QFile::exists(tempFilePath)) {
+                QFile::remove(tempFilePath);
+            }
+        }
+
+        m_tempDecryptWorker->deleteLater();
+        m_tempDecryptWorker = nullptr;
+    }
+
+    // Clear pending app
+    m_pendingAppToOpen.clear();
+}
+
+void Operations_EncryptedData::onTempDecryptionCancelled()
+{
+    if (m_tempDecryptWorker) {
+        m_tempDecryptWorker->cancel();
+    }
+
+    if (m_progressDialog) {
+        m_progressDialog->setLabelText("Cancelling...");
+        m_progressDialog->setCancelButton(nullptr); // Disable cancel button while cancelling
+    }
+
+    // Clear pending app
+    m_pendingAppToOpen.clear();
+}
+
+// ============================================================================
+// Existing functionality (encryption, regular decryption, etc.)
+// ============================================================================
+
+// [Insert all the existing methods from the original file here...]
+// I'll continue with the rest of the existing methods in the next part
 
 void Operations_EncryptedData::encryptSelectedFile()
 {
@@ -634,8 +1307,6 @@ void Operations_EncryptedData::onEncryptionCancelled()
     }
 }
 
-//decryption
-
 void Operations_EncryptedData::decryptSelectedFile()
 {
     // Get the currently selected item
@@ -806,8 +1477,6 @@ void Operations_EncryptedData::onDecryptionCancelled()
     }
 }
 
-//deletion
-
 void Operations_EncryptedData::deleteSelectedFile()
 {
     // Get the currently selected item
@@ -868,8 +1537,6 @@ void Operations_EncryptedData::deleteSelectedFile()
                               QString("Failed to delete '%1'. The file may be in use or you may not have sufficient permissions.").arg(originalFilename));
     }
 }
-
-//Populate List Widget
 
 QString Operations_EncryptedData::getOriginalFilename(const QString& encryptedFilePath)
 {
@@ -1042,9 +1709,6 @@ void Operations_EncryptedData::onSortTypeChanged(const QString& sortType)
     populateEncryptedFilesList();
 }
 
-
-//Buttons
-
 void Operations_EncryptedData::updateButtonStates()
 {
     // Check if any item is selected in the file list
@@ -1062,4 +1726,3 @@ void Operations_EncryptedData::updateButtonStates()
     m_mainWindow->ui->pushButton_DataENC_DeleteFile->setEnabled(hasSelection);
     m_mainWindow->ui->pushButton_DataENC_DeleteFile->setStyleSheet(hasSelection ? enabledStyle : disabledStyle);
 }
-
