@@ -314,6 +314,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     else if(quitToLogin == false && setting_MinToTray == false) // close app entirely
     {
+        Operations_EncryptedData_ptr->cleanupTempFiles(); // cleanup temp files for encrypted data feature
         trayIcon->hide();
         trayIcon->disconnect();
         trayIcon->deleteLater();
@@ -321,10 +322,11 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     else if(quitToLogin == true) // log out
     {
-    trayIcon->hide();
-    trayIcon->disconnect();
-    trayIcon->deleteLater();
-    event->accept();
+        Operations_EncryptedData_ptr->cleanupTempFiles(); // cleanup temp files for encrypted data feature
+        trayIcon->hide();
+        trayIcon->disconnect();
+        trayIcon->deleteLater();
+        event->accept();
     }
 }
 

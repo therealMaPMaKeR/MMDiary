@@ -275,8 +275,24 @@ void DecryptionWorker::doDecryption()
         }
 
         sourceFile.close();
+
+        // Ensure all data is written to disk before closing
+        targetFile.flush();
         targetFile.close();
 
+// Set proper file permissions for reading
+#ifdef Q_OS_WIN
+        // On Windows, ensure the file is not marked as read-only
+        QFile::setPermissions(m_targetFile, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadUser | QFile::WriteUser);
+#endif
+
+        // Verify the file was created successfully
+        if (!QFile::exists(m_targetFile)) {
+            emit decryptionFinished(false, "Target file was not created successfully");
+            return;
+        }
+
+        qDebug() << "Temp decryption completed successfully:" << m_targetFile;
         emit decryptionFinished(true);
 
     } catch (const std::exception& e) {
@@ -426,8 +442,24 @@ void TempDecryptionWorker::doDecryption()
         }
 
         sourceFile.close();
+
+        // Ensure all data is written to disk before closing
+        targetFile.flush();
         targetFile.close();
 
+// Set proper file permissions for reading
+#ifdef Q_OS_WIN
+        // On Windows, ensure the file is not marked as read-only
+        QFile::setPermissions(m_targetFile, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadUser | QFile::WriteUser);
+#endif
+
+        // Verify the file was created successfully
+        if (!QFile::exists(m_targetFile)) {
+            emit decryptionFinished(false, "Target file was not created successfully");
+            return;
+        }
+
+        qDebug() << "Temp decryption completed successfully:" << m_targetFile;
         emit decryptionFinished(true);
 
     } catch (const std::exception& e) {
@@ -608,35 +640,79 @@ void Operations_EncryptedData::onFileListDoubleClicked(QListWidgetItem* item)
         return;
     }
 
+    // Validate encryption key before proceeding with file opening
+    qDebug() << "Validating encryption key for double-click open:" << encryptedFilePath;
+    QByteArray encryptionKey = m_mainWindow->user_Key;
+    if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey)) {
+        QMessageBox::critical(m_mainWindow, "Invalid Encryption Key",
+                              "The encryption key is invalid or the file is corrupted. "
+                              "Please ensure you are using the correct user account.");
+        return;
+    }
+    qDebug() << "Encryption key validation successful for double-click open";
+
     // Check for default application
     QString defaultApp = checkDefaultApp(extension);
     QString appToUse;
 
+    qDebug() << "File extension:" << extension;
+    qDebug() << "Default app found:" << (defaultApp.isEmpty() ? "None" : defaultApp);
+
     if (defaultApp.isEmpty()) {
         // No default app - show dialog to select one
         AppChoice choice = showNoDefaultAppDialog();
+        qDebug() << "No default app dialog choice (int):" << static_cast<int>(choice);
+        qDebug() << "Comparing with SelectApp (" << static_cast<int>(AppChoice::SelectApp) << ")";
+
         if (choice == AppChoice::Cancel) {
+            qDebug() << "User cancelled - no default app dialog";
             return;
         } else if (choice == AppChoice::SelectApp) {
+            qDebug() << "User chose to select app - calling selectApplication()";
             appToUse = selectApplication();
+            qDebug() << "selectApplication() returned:" << appToUse;
             if (appToUse.isEmpty()) {
+                qDebug() << "User cancelled app selection";
                 return; // User cancelled app selection
             }
+        } else {
+            qDebug() << "WARNING: Unexpected choice value in no default app dialog:" << static_cast<int>(choice);
         }
     } else {
         // Default app exists - show dialog with options
         AppChoice choice = showDefaultAppDialog(defaultApp);
+        qDebug() << "Default app dialog choice (int):" << static_cast<int>(choice);
+        qDebug() << "Comparing with Cancel (" << static_cast<int>(AppChoice::Cancel) << "), UseDefault (" << static_cast<int>(AppChoice::UseDefault) << "), SelectApp (" << static_cast<int>(AppChoice::SelectApp) << ")";
+
         if (choice == AppChoice::Cancel) {
+            qDebug() << "User cancelled - default app dialog";
             return;
         } else if (choice == AppChoice::UseDefault) {
             appToUse = "default"; // Special marker for default app
+            qDebug() << "User chose UseDefault - appToUse set to 'default'";
         } else if (choice == AppChoice::SelectApp) {
+            qDebug() << "User chose to select app - calling selectApplication()";
             appToUse = selectApplication();
+            qDebug() << "selectApplication() returned:" << appToUse;
             if (appToUse.isEmpty()) {
+                qDebug() << "User cancelled app selection";
                 return; // User cancelled app selection
             }
+        } else {
+            qDebug() << "WARNING: Unexpected choice value in default app dialog:" << static_cast<int>(choice);
         }
     }
+
+    // Safety check - this should never happen but let's handle it
+    if (appToUse.isEmpty()) {
+        qDebug() << "ERROR: appToUse is still empty after dialog logic!";
+        qDebug() << "This should not happen - showing fallback dialog";
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "No application was selected to open the file.");
+        return;
+    }
+
+    qDebug() << "Final appToUse value before proceeding:" << appToUse;
 
     // Create temp file path with obfuscated name
     QString tempFilePath = createTempFilePath(originalFilename);
@@ -648,6 +724,9 @@ void Operations_EncryptedData::onFileListDoubleClicked(QListWidgetItem* item)
 
     // Store the app to open for later use after decryption
     m_pendingAppToOpen = appToUse;
+    qDebug() << "Stored in m_pendingAppToOpen:" << m_pendingAppToOpen;
+
+    qDebug() << "Starting temporary decryption with validated encryption key";
 
     // Set up progress dialog
     m_progressDialog = new QProgressDialog("Decrypting file for opening...", "Cancel", 0, 100, m_mainWindow);
@@ -658,7 +737,7 @@ void Operations_EncryptedData::onFileListDoubleClicked(QListWidgetItem* item)
 
     // Set up worker thread for temp decryption
     m_tempDecryptWorkerThread = new QThread(this);
-    m_tempDecryptWorker = new TempDecryptionWorker(encryptedFilePath, tempFilePath, m_mainWindow->user_Key);
+    m_tempDecryptWorker = new TempDecryptionWorker(encryptedFilePath, tempFilePath, encryptionKey);
     m_tempDecryptWorker->moveToThread(m_tempDecryptWorkerThread);
 
     // Connect signals
@@ -712,6 +791,8 @@ QString Operations_EncryptedData::checkDefaultApp(const QString& extension)
 
 Operations_EncryptedData::AppChoice Operations_EncryptedData::showDefaultAppDialog(const QString& appName)
 {
+    qDebug() << "Showing default app dialog for app:" << appName;
+
     QMessageBox msgBox(m_mainWindow);
     msgBox.setWindowTitle("Open Encrypted File");
     msgBox.setIcon(QMessageBox::Question);
@@ -723,21 +804,49 @@ Operations_EncryptedData::AppChoice Operations_EncryptedData::showDefaultAppDial
     QPushButton* selectAppButton = msgBox.addButton("Select an App", QMessageBox::ActionRole);
 
     msgBox.setDefaultButton(useDefaultButton);
-    msgBox.exec();
+    int result = msgBox.exec();
+
+    qDebug() << "Dialog exec result:" << result;
+    qDebug() << "Clicked button text:" << (msgBox.clickedButton() ? msgBox.clickedButton()->text() : "nullptr");
+    qDebug() << "Clicked button pointer:" << msgBox.clickedButton();
+    qDebug() << "Cancel button pointer:" << cancelButton;
+    qDebug() << "Use Default button pointer:" << useDefaultButton;
+    qDebug() << "Select App button pointer:" << selectAppButton;
+
+    AppChoice choice = AppChoice::Cancel; // Default
 
     if (msgBox.clickedButton() == cancelButton) {
-        return AppChoice::Cancel;
+        choice = AppChoice::Cancel;
+        qDebug() << "User clicked Cancel button (pointer match)";
     } else if (msgBox.clickedButton() == useDefaultButton) {
-        return AppChoice::UseDefault;
+        choice = AppChoice::UseDefault;
+        qDebug() << "User clicked Use Default button (pointer match)";
     } else if (msgBox.clickedButton() == selectAppButton) {
-        return AppChoice::SelectApp;
+        choice = AppChoice::SelectApp;
+        qDebug() << "User clicked Select an App button (pointer match)";
+    } else {
+        qDebug() << "Button pointer comparison failed - using text fallback";
+        // Fallback based on button text in case button comparison fails
+        if (msgBox.clickedButton() && msgBox.clickedButton()->text() == "Use Default") {
+            choice = AppChoice::UseDefault;
+            qDebug() << "Fallback: Detected Use Default by text";
+        } else if (msgBox.clickedButton() && msgBox.clickedButton()->text() == "Select an App") {
+            choice = AppChoice::SelectApp;
+            qDebug() << "Fallback: Detected Select an App by text";
+        } else {
+            choice = AppChoice::Cancel;
+            qDebug() << "Fallback: Defaulting to Cancel";
+        }
     }
 
-    return AppChoice::Cancel; // Default fallback
+    qDebug() << "Final default app dialog result:" << static_cast<int>(choice);
+    return choice;
 }
 
 Operations_EncryptedData::AppChoice Operations_EncryptedData::showNoDefaultAppDialog()
 {
+    qDebug() << "Showing no default app dialog";
+
     QMessageBox msgBox(m_mainWindow);
     msgBox.setWindowTitle("Open Encrypted File");
     msgBox.setIcon(QMessageBox::Information);
@@ -747,19 +856,42 @@ Operations_EncryptedData::AppChoice Operations_EncryptedData::showNoDefaultAppDi
     QPushButton* selectAppButton = msgBox.addButton("Select an App", QMessageBox::AcceptRole);
 
     msgBox.setDefaultButton(selectAppButton);
-    msgBox.exec();
+    int result = msgBox.exec();
+
+    qDebug() << "Dialog exec result:" << result;
+    qDebug() << "Clicked button text:" << (msgBox.clickedButton() ? msgBox.clickedButton()->text() : "nullptr");
+    qDebug() << "Clicked button pointer:" << msgBox.clickedButton();
+    qDebug() << "Cancel button pointer:" << cancelButton;
+    qDebug() << "Select App button pointer:" << selectAppButton;
+
+    AppChoice choice = AppChoice::Cancel; // Default
 
     if (msgBox.clickedButton() == cancelButton) {
-        return AppChoice::Cancel;
+        choice = AppChoice::Cancel;
+        qDebug() << "User clicked Cancel button (pointer match)";
     } else if (msgBox.clickedButton() == selectAppButton) {
-        return AppChoice::SelectApp;
+        choice = AppChoice::SelectApp;
+        qDebug() << "User clicked Select an App button (pointer match)";
+    } else {
+        qDebug() << "Button pointer comparison failed - using text fallback";
+        // Fallback based on button text
+        if (msgBox.clickedButton() && msgBox.clickedButton()->text() == "Select an App") {
+            choice = AppChoice::SelectApp;
+            qDebug() << "Fallback: Detected Select an App by text";
+        } else {
+            choice = AppChoice::Cancel;
+            qDebug() << "Fallback: Defaulting to Cancel";
+        }
     }
 
-    return AppChoice::Cancel; // Default fallback
+    qDebug() << "Final no default app dialog result:" << static_cast<int>(choice);
+    return choice;
 }
 
 QString Operations_EncryptedData::selectApplication()
 {
+    qDebug() << "Opening application selection dialog";
+
     QString appPath = QFileDialog::getOpenFileName(
         m_mainWindow,
         "Select Application",
@@ -767,12 +899,15 @@ QString Operations_EncryptedData::selectApplication()
         "Executable Files (*.exe);;All Files (*.*)"
         );
 
+    qDebug() << "Application selection result:" << (appPath.isEmpty() ? "User cancelled" : appPath);
+
     // Validate the selected application path
     if (!appPath.isEmpty()) {
         QFileInfo appInfo(appPath);
         if (!appInfo.exists() || !appInfo.isExecutable()) {
             QMessageBox::warning(m_mainWindow, "Invalid Application",
                                  "The selected file is not a valid executable.");
+            qDebug() << "Invalid application selected:" << appPath;
             return QString();
         }
     }
@@ -840,25 +975,124 @@ QString Operations_EncryptedData::createTempFilePath(const QString& originalFile
 
 void Operations_EncryptedData::openFileWithApp(const QString& tempFile, const QString& appPath)
 {
+    // Ensure file exists and is readable
+    QFileInfo fileInfo(tempFile);
+    if (!fileInfo.exists() || !fileInfo.isReadable()) {
+        QMessageBox::critical(m_mainWindow, "File Error",
+                              "The temporary file could not be accessed.");
+        return;
+    }
+
+    qDebug() << "Attempting to open file:" << tempFile;
+    qDebug() << "File size:" << fileInfo.size() << "bytes";
+    qDebug() << "Using app:" << (appPath == "default" ? "default system app" : appPath);
+
+    // Safety check for empty app path
+    if (appPath.isEmpty()) {
+        qDebug() << "WARNING: Empty app path, falling back to default app";
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            m_mainWindow,
+            "No Application Selected",
+            "No application was selected. Would you like to try opening with the system default application?",
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::Yes
+            );
+
+        if (reply != QMessageBox::Yes) {
+            return;
+        }
+
+        // Fall back to default app
+        QUrl fileUrl = QUrl::fromLocalFile(tempFile);
+
+        // Add a small delay to ensure file is fully written
+        QCoreApplication::processEvents();
+        QThread::msleep(100);
+
+        if (!QDesktopServices::openUrl(fileUrl)) {
+            // Try alternative method on Windows
+#ifdef Q_OS_WIN
+            QString command = QString("cmd.exe");
+            QStringList args;
+            args << "/c" << "start" << "" << QDir::toNativeSeparators(tempFile);
+            if (QProcess::startDetached(command, args)) {
+                qDebug() << "Opened file with Windows start command:" << tempFile;
+                return;
+            }
+#endif
+            QMessageBox::warning(m_mainWindow, "Failed to Open File",
+                                 QString("Could not open the file with the default application.\n\nFile location: %1").arg(tempFile));
+        } else {
+            qDebug() << "Opened file with fallback default app:" << tempFile;
+        }
+        return;
+    }
+
     if (appPath == "default") {
         // Use system default application
         QUrl fileUrl = QUrl::fromLocalFile(tempFile);
+
+        // Add a small delay to ensure file is fully written
+        QCoreApplication::processEvents();
+        QThread::msleep(100);
+
         if (!QDesktopServices::openUrl(fileUrl)) {
+            // Try alternative method on Windows
+#ifdef Q_OS_WIN
+            QString command = QString("cmd.exe");
+            QStringList args;
+            args << "/c" << "start" << "" << QDir::toNativeSeparators(tempFile);
+            if (QProcess::startDetached(command, args)) {
+                qDebug() << "Opened file with fallback Windows start command:" << tempFile;
+                return;
+            }
+#endif
             QMessageBox::warning(m_mainWindow, "Failed to Open File",
-                                 "Could not open the file with the default application.");
+                                 QString("Could not open the file with the default application.\n\nFile location: %1").arg(tempFile));
         } else {
             qDebug() << "Opened file with default app:" << tempFile;
         }
     } else {
         // Use specific application
         QStringList arguments;
-        arguments << tempFile;
+        arguments << QDir::toNativeSeparators(tempFile);
 
-        if (!QProcess::startDetached(appPath, arguments)) {
+        // Set working directory to the app's directory
+        QFileInfo appInfo(appPath);
+        QString workingDir = appInfo.absolutePath();
+
+        // Add a small delay to ensure file is fully written
+        QCoreApplication::processEvents();
+        QThread::msleep(100);
+
+        qint64 pid = 0;
+        bool success = QProcess::startDetached(appPath, arguments, workingDir, &pid);
+
+        if (!success) {
+            // Try with quoted path as a single argument
+            QStringList quotedArgs;
+            quotedArgs << QString("\"%1\"").arg(QDir::toNativeSeparators(tempFile));
+            success = QProcess::startDetached(appPath, quotedArgs, workingDir, &pid);
+        }
+
+        if (!success) {
+            // Try using cmd.exe on Windows
+#ifdef Q_OS_WIN
+            QString command = QString("cmd.exe");
+            QStringList args;
+            args << "/c" << QString("\"%1\" \"%2\"").arg(
+                QDir::toNativeSeparators(appPath),
+                QDir::toNativeSeparators(tempFile));
+
+            if (QProcess::startDetached(command, args)) {
+                qDebug() << "Opened file with Windows cmd command:" << appPath << tempFile;
+                return;
+            }
+#endif
             QMessageBox::warning(m_mainWindow, "Failed to Open File",
-                                 "Could not open the file with the selected application.");
+                                 QString("Could not open the file with the selected application.\n\nApp: %1\nFile: %2\n\nTry opening the file manually from the temp folder.").arg(appPath, tempFile));
         } else {
-            qDebug() << "Opened file with app:" << appPath << "file:" << tempFile;
+            qDebug() << "Opened file with app:" << appPath << "file:" << tempFile << "PID:" << pid;
         }
     }
 }
@@ -979,6 +1213,14 @@ void Operations_EncryptedData::onTempDecryptionProgress(int percentage)
 
 void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QString& errorMessage)
 {
+    qDebug() << "=== onTempDecryptionFinished called ===";
+    qDebug() << "Success:" << success;
+    qDebug() << "m_pendingAppToOpen at start of onTempDecryptionFinished:" << m_pendingAppToOpen;
+
+    // Store the app choice in a local variable immediately to prevent it from being cleared
+    QString localAppToOpen = m_pendingAppToOpen;
+    qDebug() << "Stored in localAppToOpen:" << localAppToOpen;
+
     if (m_progressDialog) {
         m_progressDialog->close();
     }
@@ -992,10 +1234,38 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
 
     if (m_tempDecryptWorker) {
         QString tempFilePath = m_tempDecryptWorker->m_targetFile;
+        qDebug() << "Got tempFilePath:" << tempFilePath;
+        qDebug() << "m_pendingAppToOpen after getting tempFilePath:" << m_pendingAppToOpen;
+        qDebug() << "localAppToOpen after getting tempFilePath:" << localAppToOpen;
 
         if (success) {
-            // Open the file with the chosen application
-            openFileWithApp(tempFilePath, m_pendingAppToOpen);
+            qDebug() << "m_pendingAppToOpen in success branch:" << m_pendingAppToOpen;
+            qDebug() << "localAppToOpen in success branch:" << localAppToOpen;
+
+            // Add a brief delay to ensure file system operations are complete
+            QCoreApplication::processEvents();
+            qDebug() << "m_pendingAppToOpen after processEvents:" << m_pendingAppToOpen;
+            qDebug() << "localAppToOpen after processEvents:" << localAppToOpen;
+
+            QThread::msleep(200);
+            qDebug() << "m_pendingAppToOpen after msleep:" << m_pendingAppToOpen;
+            qDebug() << "localAppToOpen after msleep:" << localAppToOpen;
+
+            // Verify file exists and has content before trying to open
+            QFileInfo fileInfo(tempFilePath);
+            qDebug() << "Temp decryption finished. File:" << tempFilePath;
+            qDebug() << "File exists:" << fileInfo.exists() << "Size:" << fileInfo.size() << "bytes";
+            qDebug() << "Pending app JUST BEFORE openFileWithApp:" << m_pendingAppToOpen;
+            qDebug() << "localAppToOpen JUST BEFORE openFileWithApp:" << localAppToOpen;
+
+            if (!fileInfo.exists() || fileInfo.size() == 0) {
+                QMessageBox::critical(m_mainWindow, "File Error",
+                                      QString("The decrypted temporary file is missing or empty.\n\nExpected location: %1").arg(tempFilePath));
+            } else {
+                qDebug() << "About to call openFileWithApp with localAppToOpen:" << localAppToOpen;
+                // Use the local variable instead of the member variable
+                openFileWithApp(tempFilePath, localAppToOpen);
+            }
         } else {
             QMessageBox::critical(m_mainWindow, "Decryption Failed",
                                   "Failed to decrypt file for opening: " + errorMessage);
@@ -1010,12 +1280,17 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
         m_tempDecryptWorker = nullptr;
     }
 
-    // Clear pending app
+    // Clear pending app only after we're done using it
+    qDebug() << "About to clear m_pendingAppToOpen at end of function";
     m_pendingAppToOpen.clear();
+    qDebug() << "Cleared m_pendingAppToOpen at end of function";
 }
 
 void Operations_EncryptedData::onTempDecryptionCancelled()
 {
+    qDebug() << "=== onTempDecryptionCancelled called ===";
+    qDebug() << "m_pendingAppToOpen before cancel processing:" << m_pendingAppToOpen;
+
     if (m_tempDecryptWorker) {
         m_tempDecryptWorker->cancel();
     }
@@ -1026,7 +1301,9 @@ void Operations_EncryptedData::onTempDecryptionCancelled()
     }
 
     // Clear pending app
+    qDebug() << "About to clear m_pendingAppToOpen in onTempDecryptionCancelled";
     m_pendingAppToOpen.clear();
+    qDebug() << "Cleared m_pendingAppToOpen in onTempDecryptionCancelled";
 }
 
 // ============================================================================
@@ -1333,6 +1610,19 @@ void Operations_EncryptedData::decryptSelectedFile()
         return;
     }
 
+    // Get encryption key
+    QByteArray encryptionKey = m_mainWindow->user_Key;
+
+    // Validate encryption key before proceeding
+    qDebug() << "Validating encryption key for file:" << encryptedFilePath;
+    if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey)) {
+        QMessageBox::critical(m_mainWindow, "Invalid Encryption Key",
+                              "The encryption key is invalid or the file is corrupted. "
+                              "Please ensure you are using the correct user account.");
+        return;
+    }
+    qDebug() << "Encryption key validation successful";
+
     // Get the original filename
     QString originalFilename = getOriginalFilename(encryptedFilePath);
     if (originalFilename.isEmpty()) {
@@ -1375,9 +1665,6 @@ void Operations_EncryptedData::decryptSelectedFile()
             return;
         }
     }
-
-    // Get encryption key
-    QByteArray encryptionKey = m_mainWindow->user_Key;
 
     // Set up progress dialog
     m_progressDialog = new QProgressDialog("Decrypting file...", "Cancel", 0, 100, m_mainWindow);
