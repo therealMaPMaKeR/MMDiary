@@ -166,6 +166,8 @@ public:
 
     void deleteSelectedFile();
 
+    void secureDeleteExternalFile();
+
 public slots:
     void onSortTypeChanged(const QString& sortType);
     void onFileListDoubleClicked(QListWidgetItem* item);

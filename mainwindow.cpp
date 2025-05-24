@@ -630,6 +630,11 @@ void MainWindow::on_pushButton_DataENC_DeleteFile_clicked()
     Operations_EncryptedData_ptr->deleteSelectedFile();
 }
 
+void MainWindow::on_pushButton_DataENC_SecureDel_clicked()
+{
+    Operations_EncryptedData_ptr->secureDeleteExternalFile();
+}
+
 //------Custom Setting Signals-----//
 
 void MainWindow::UpdateTasklistTextSize()

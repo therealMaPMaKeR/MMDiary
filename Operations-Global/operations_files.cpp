@@ -84,18 +84,24 @@ void TempFileCleaner::cleanup() {
 
 // A lightweight function for quick file deletion without blocking
 bool quickDelete(const QString& filePath) {
+    qDebug() << "=== quickDelete called for:" << filePath << "===";
+
     if (!QFile::exists(filePath)) {
+        qDebug() << "File doesn't exist in quickDelete";
         return true;  // Already gone
     }
 
     // First try standard removal - no delay
+    qDebug() << "Trying QFile::remove()...";
     if (QFile::remove(filePath)) {
         qDebug() << "Standard deletion successful for:" << filePath;
         return true;
     }
+    qDebug() << "QFile::remove() failed";
 
 // If that failed, use Windows API as it's more effective for locked files
 #ifdef Q_OS_WIN
+    qDebug() << "Trying Windows API deletion...";
     HANDLE fileHandle = CreateFileW(
         reinterpret_cast<const wchar_t*>(filePath.utf16()),
         DELETE,
@@ -111,9 +117,11 @@ bool quickDelete(const QString& filePath) {
         qDebug() << "Windows API deletion scheduled for:" << filePath;
         return true;
     }
+    qDebug() << "Windows API deletion also failed";
 #endif
 
     // If we couldn't delete, add to pending list (safely)
+    qDebug() << "Adding to pending deletion list";
     s_pendingMutex.lock();
     if (!s_pendingDeletions.contains(filePath)) {
         s_pendingDeletions.append(filePath);
@@ -509,7 +517,9 @@ std::unique_ptr<QTemporaryFile> createTempFile(const QString& baseFileTemplate, 
 }
 
 // Streamlined secure delete that prioritizes performance
-bool secureDelete(const QString& filePath, int passes) {
+bool secureDelete(const QString& filePath, int passes, bool allowExternalFiles) {
+    qDebug() << "=== secureDelete called for:" << filePath << "with" << passes << "passes, allowExternalFiles:" << allowExternalFiles << " ===";
+
     // Process pending deletions occasionally to clean up old files
     static int cleanupCounter = 0;
     if (++cleanupCounter % 10 == 0) {
@@ -522,9 +532,14 @@ bool secureDelete(const QString& filePath, int passes) {
         s_pendingMutex.unlock();
     }
 
-    // Validate the file path
-    InputValidation::ValidationResult result =
-        InputValidation::validateInput(filePath, InputValidation::InputType::FilePath);
+    // Validate the file path - use different validation based on allowExternalFiles
+    InputValidation::ValidationResult result;
+    if (allowExternalFiles) {
+        result = InputValidation::validateInput(filePath, InputValidation::InputType::ExternalFilePath);
+    } else {
+        result = InputValidation::validateInput(filePath, InputValidation::InputType::FilePath);
+    }
+
     if (!result.isValid) {
         qWarning() << "Invalid file path for secure deletion: " << result.errorMessage;
         return false;
@@ -532,12 +547,15 @@ bool secureDelete(const QString& filePath, int passes) {
 
     QFile file(filePath);
     if (!file.exists()) {
+        qDebug() << "File doesn't exist, returning true";
         return true; // Already gone
     }
 
     // Get file size
     qint64 fileSize = file.size();
+    qDebug() << "File size:" << fileSize;
     if (fileSize <= 0) {
+        qDebug() << "File size <= 0, calling quickDelete";
         // Empty file, just quick delete
         return quickDelete(filePath);
     }
@@ -545,15 +563,21 @@ bool secureDelete(const QString& filePath, int passes) {
     // For smaller files or when the system is under heavy file operations,
     // reduce passes to improve performance
     int effectivePasses = (fileSize < 4096) ? 1 : (passes > 2 ? 2 : passes);
+    qDebug() << "Effective passes:" << effectivePasses;
 
     // Make sure file is closed
     file.close();
 
     // Try to open with proper sharing flags to reduce locking issues
+    qDebug() << "Attempting to open file for writing...";
     if (!file.open(QIODevice::WriteOnly)) {
+        qDebug() << "Failed to open file for writing, calling quickDelete";
+        qDebug() << "File error:" << file.error();
+        qDebug() << "Error string:" << file.errorString();
         // If we can't open it, just try quick deletion
         return quickDelete(filePath);
     }
+    qDebug() << "File opened successfully for writing";
 
     // Buffer for overwriting
     const int BUFFER_SIZE = 4096;
@@ -572,6 +596,7 @@ bool secureDelete(const QString& filePath, int passes) {
 
             // Fill the file with the pattern
             if (!file.seek(0)) {
+                qDebug() << "Failed to seek to beginning of file";
                 overwriteSuccess = false;
                 break;
             }
@@ -584,6 +609,7 @@ bool secureDelete(const QString& filePath, int passes) {
                 qint64 bytesWritten = file.write(buffer.constData(), bytesToWrite);
 
                 if (bytesWritten != bytesToWrite) {
+                    qDebug() << "Write failed: expected" << bytesToWrite << "got" << bytesWritten;
                     overwriteSuccess = false;
                     break;
                 }
@@ -593,6 +619,7 @@ bool secureDelete(const QString& filePath, int passes) {
 
             if (!overwriteSuccess) break;
             file.flush();
+            qDebug() << "Pass" << (pass + 1) << "completed successfully";
         }
     } catch (const std::exception& e) {
         qWarning() << "Exception during secure file deletion:" << e.what();
@@ -602,11 +629,16 @@ bool secureDelete(const QString& filePath, int passes) {
         overwriteSuccess = false;
     }
 
+    qDebug() << "Overwrite success:" << overwriteSuccess;
+
     // Close file
     file.close();
+    qDebug() << "File closed, calling quickDelete";
 
     // Quick delete regardless of overwrite success
-    return quickDelete(filePath);
+    bool deleteResult = quickDelete(filePath);
+    qDebug() << "quickDelete result:" << deleteResult;
+    return deleteResult;
 }
 
 bool encryptToTargetAndCleanup(QTemporaryFile* tempFile, const QString& targetPath, const QByteArray& encryptionKey) {

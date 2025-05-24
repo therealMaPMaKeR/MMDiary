@@ -55,7 +55,7 @@ std::unique_ptr<QFile> openSecureFile(const QString& filePath, QIODevice::OpenMo
 
 // Temporary file operations
 std::unique_ptr<QTemporaryFile> createTempFile(const QString& baseFileTemplate = QString(), bool autoRemove = false);
-bool secureDelete(const QString& filePath, int passes = 3);
+bool secureDelete(const QString& filePath, int passes = 3, bool allowExternalFiles = false);
 
 // Encryption and file processing operations
 bool encryptToTargetAndCleanup(QTemporaryFile* tempFile, const QString& targetPath, const QByteArray& encryptionKey);

@@ -1500,7 +1500,7 @@ void Operations_EncryptedData::showSuccessDialog(const QString& encryptedFile, c
     // Check if the delete button was clicked by comparing button text
     if (msgBox.clickedButton() && msgBox.clickedButton()->text() == "Delete Original") {
         // Securely delete the original file
-        bool deleted = OperationsFiles::secureDelete(originalFile, 3);
+        bool deleted = OperationsFiles::secureDelete(originalFile, 3, true); // allow external file
 
         if (deleted) {
             QMessageBox::information(m_mainWindow, "File Deleted",
@@ -2012,4 +2012,93 @@ void Operations_EncryptedData::updateButtonStates()
     // Update Delete File button
     m_mainWindow->ui->pushButton_DataENC_DeleteFile->setEnabled(hasSelection);
     m_mainWindow->ui->pushButton_DataENC_DeleteFile->setStyleSheet(hasSelection ? enabledStyle : disabledStyle);
+}
+
+
+void Operations_EncryptedData::secureDeleteExternalFile()
+{
+    // Open file dialog to select a file for secure deletion
+    QString filePath = QFileDialog::getOpenFileName(
+        m_mainWindow,
+        "Select File to Securely Delete",
+        QDir::homePath(), // Start in user's home directory
+        "All Files (*.*)"
+        );
+
+    // Check if user selected a file (didn't cancel)
+    if (filePath.isEmpty()) {
+        qDebug() << "User cancelled file selection for secure deletion";
+        return;
+    }
+
+    qDebug() << "Selected file for secure deletion:" << filePath;
+
+    // Validate the file path
+    InputValidation::ValidationResult result = InputValidation::validateInput(
+        filePath, InputValidation::InputType::ExternalFilePath, 1000);
+
+    if (!result.isValid) {
+        QMessageBox::warning(m_mainWindow, "Invalid File Path",
+                             "The selected file path is invalid: " + result.errorMessage);
+        return;
+    }
+
+    // Check if file exists and is accessible
+    QFileInfo fileInfo(filePath);
+    if (!fileInfo.exists()) {
+        QMessageBox::warning(m_mainWindow, "File Not Found",
+                             "The selected file does not exist or cannot be accessed.");
+        return;
+    }
+
+    // Check if it's a directory (we only want to delete files)
+    if (fileInfo.isDir()) {
+        QMessageBox::warning(m_mainWindow, "Directory Selected",
+                             "Please select a file, not a directory. Directory deletion is not supported.");
+        return;
+    }
+
+    // Check if file is writable (needed for secure deletion)
+    if (!fileInfo.isWritable()) {
+        QMessageBox::warning(m_mainWindow, "File Access Error",
+                             "The selected file cannot be deleted. It may be read-only or in use by another application.");
+        return;
+    }
+
+    // Get just the filename for the confirmation dialog
+    QString filename = fileInfo.fileName();
+
+    // Show confirmation dialog
+    QMessageBox confirmBox(m_mainWindow);
+    confirmBox.setWindowTitle("Confirm Secure Deletion");
+    confirmBox.setIcon(QMessageBox::Warning);
+    confirmBox.setText(QString("Are you sure you want to permanently delete the file '%1'?").arg(filename));
+    confirmBox.setInformativeText("This action cannot be undone. The file will be securely overwritten and permanently deleted.");
+
+    QPushButton* deleteButton = confirmBox.addButton("Delete", QMessageBox::YesRole);
+    QPushButton* cancelButton = confirmBox.addButton("Cancel", QMessageBox::NoRole);
+    confirmBox.setDefaultButton(cancelButton); // Default to Cancel for safety
+
+    confirmBox.exec();
+
+    // Check if the delete button was clicked
+    if (confirmBox.clickedButton() != deleteButton) {
+        qDebug() << "User cancelled secure deletion";
+        return; // User cancelled
+    }
+
+    // Perform secure deletion
+    qDebug() << "Starting secure deletion of:" << filePath;
+    bool deleted = OperationsFiles::secureDelete(filePath, 3, true); // Allow external files , 3 passes for secure delete.
+
+    if (deleted) {
+        QMessageBox::information(m_mainWindow, "File Deleted",
+                                 QString("'%1' has been securely deleted.").arg(filename));
+        qDebug() << "Secure deletion successful:" << filePath;
+    } else {
+        QMessageBox::critical(m_mainWindow, "Deletion Failed",
+                              QString("Failed to securely delete '%1'. The file may be in use by another application or you may not have sufficient permissions.").arg(filename));
+        qWarning() << "Secure deletion failed:" << filePath;
+    }
+
 }
