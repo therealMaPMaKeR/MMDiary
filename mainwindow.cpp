@@ -33,8 +33,6 @@ MainWindow::MainWindow(QWidget *parent)
     ui->label_Settings_TDLog->setHidden(true);
     ui->checkBox_Diary_TManLogs->setHidden(true);
     ui->checkBox_TList_LogToDiary->setHidden(true);
-    //remove texts tab for now, might remove permanently later
-    ui->tabWidget_Main->removeTab(Operations::GetIndexFromText("Texts", ui->tabWidget_Main));
 
 
 

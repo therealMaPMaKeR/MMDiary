@@ -46,10 +46,10 @@ SOURCES += \
     CustomWidgets/custom_qlistwidget_task.cpp \
     CustomWidgets/custom_qtabwidget_main.cpp \
     Operations-Features/operations_diary.cpp \
+    Operations-Features/operations_encrypteddata.cpp \
     Operations-Features/operations_passwordmanager.cpp \
     Operations-Features/operations_settings.cpp \
     Operations-Features/operations_tasklists.cpp \
-    Operations-Features/operations_textsmanager.cpp \
     Operations-Global/CryptoUtils.cpp \
     Operations-Global/default_usersettings.cpp \
     Operations-Global/inputvalidation.cpp \
@@ -72,10 +72,10 @@ HEADERS += \
     CustomWidgets/custom_qlistwidget_task.h \
     CustomWidgets/custom_qtabwidget_main.h \
     Operations-Features/operations_diary.h \
+    Operations-Features/operations_encrypteddata.h \
     Operations-Features/operations_passwordmanager.h \
     Operations-Features/operations_settings.h \
     Operations-Features/operations_tasklists.h \
-    Operations-Features/operations_textsmanager.h \
     Operations-Global/CryptoUtils.h \
     Operations-Global/default_usersettings.h \
     Operations-Global/inputvalidation.h \

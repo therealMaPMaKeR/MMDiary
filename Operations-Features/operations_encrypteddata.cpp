@@ -1,4 +1,4 @@
-#include "operations_textsmanager.h"
+#include "operations_encrypteddata.h"
 #include "../CustomWidgets/CombinedDelegate.h"
 #include "../Operations-Global/CryptoUtils.h"
 #include "ui_mainwindow.h"
@@ -14,6 +14,5 @@
 Operations_TextsManager::Operations_TextsManager(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
 {
-    //connect(m_mainWindow->ui->DiaryTextInput, &custom_QTextEditWidget::customSignal, this, &Operations_Diary::on_DiaryTextInput_returnPressed);
 }
 

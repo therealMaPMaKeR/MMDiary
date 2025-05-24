@@ -1,5 +1,5 @@
-#ifndef OPERATIONS_TEXTSMANAGER_H
-#define OPERATIONS_TEXTSMANAGER_H
+#ifndef OPERATIONS_ENCRYPTEDDATA_H
+#define OPERATIONS_ENCRYPTEDDATA_H
 
 #include <QObject>
 #include "../mainwindow.h"
@@ -19,4 +19,4 @@ public:
 
 };
 
-#endif // OPERATIONS_TEXTSMANAGER_H
+#endif // OPERATIONS_ENCRYPTEDDATA_H
