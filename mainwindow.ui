@@ -1610,6 +1610,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
             </property>
            </widget>
           </item>
+          <item>
+           <widget class="QPushButton" name="pushButton_DataENC_DeleteFile">
+            <property name="text">
+             <string>Delete Encrypted File</string>
+            </property>
+           </widget>
+          </item>
          </layout>
         </item>
        </layout>

@@ -68,6 +68,8 @@ private:
     // Helper function to map directory names back to UI display names
     QString mapDirectoryToSortType(const QString& directoryName);
 
+    void updateButtonStates();
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();

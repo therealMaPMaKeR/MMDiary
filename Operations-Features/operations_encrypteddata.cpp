@@ -141,7 +141,14 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     , m_worker(nullptr)
     , m_workerThread(nullptr)
 {
+    // Connect selection changed signal to update button states
+    connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemSelectionChanged,
+            this, &Operations_EncryptedData::updateButtonStates);
+
     onSortTypeChanged("All");
+
+    // Set initial button states (disabled since no files loaded yet)
+    updateButtonStates();
 }
 
 Operations_EncryptedData::~Operations_EncryptedData()
@@ -608,6 +615,8 @@ void Operations_EncryptedData::populateEncryptedFilesList()
     // Update list widget to show results
     int itemCount = m_mainWindow->ui->listWidget_DataENC_FileList->count();
     qDebug() << "Populated encrypted files list with" << itemCount << "items for sort type:" << currentSortType;
+    // Update button states after populating the list
+    updateButtonStates();
 }
 
 void Operations_EncryptedData::onSortTypeChanged(const QString& sortType)
@@ -615,4 +624,25 @@ void Operations_EncryptedData::onSortTypeChanged(const QString& sortType)
     Q_UNUSED(sortType)
     // Repopulate the list when sort type changes
     populateEncryptedFilesList();
+}
+
+
+//Buttons
+
+void Operations_EncryptedData::updateButtonStates()
+{
+    // Check if any item is selected in the file list
+    bool hasSelection = (m_mainWindow->ui->listWidget_DataENC_FileList->currentItem() != nullptr);
+
+    // Style for disabled buttons (same as operations_settings.cpp)
+    QString disabledStyle = "color: #888888; background-color: #444444;";
+    QString enabledStyle = ""; // Default style
+
+    // Update Decrypt button
+    m_mainWindow->ui->pushButton_DataENC_Decrypt->setEnabled(hasSelection);
+    m_mainWindow->ui->pushButton_DataENC_Decrypt->setStyleSheet(hasSelection ? enabledStyle : disabledStyle);
+
+    // Update Delete File button
+    m_mainWindow->ui->pushButton_DataENC_DeleteFile->setEnabled(hasSelection);
+    m_mainWindow->ui->pushButton_DataENC_DeleteFile->setStyleSheet(hasSelection ? enabledStyle : disabledStyle);
 }
