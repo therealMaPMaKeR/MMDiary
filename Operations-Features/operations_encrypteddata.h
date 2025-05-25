@@ -23,18 +23,34 @@ class EncryptionWorker : public QObject
     Q_OBJECT
 
 public:
+    // New constructor for multiple files
+    EncryptionWorker(const QStringList& sourceFiles, const QStringList& targetFiles,
+                     const QByteArray& encryptionKey, const QString& username);
+
+    // Keep old constructor for backward compatibility
     EncryptionWorker(const QString& sourceFile, const QString& targetFile,
                      const QByteArray& encryptionKey, const QString& username);
 
-    QString m_sourceFile;
-    QString m_targetFile;
+    // Public member variables (updated for multiple files)
+    QStringList m_sourceFiles;
+    QStringList m_targetFiles;
 
 public slots:
     void doEncryption();
 
 signals:
     void progressUpdated(int percentage);
+
+    // New signal for file-specific progress
+    void fileProgressUpdate(int currentFile, int totalFiles, const QString& fileName);
+
+    // Backward compatible: keep old signal for single files
     void encryptionFinished(bool success, const QString& errorMessage = QString());
+
+    // New signal for multiple files
+    void multiFileEncryptionFinished(bool success, const QString& errorMessage,
+                                     const QStringList& successfulFiles,
+                                     const QStringList& failedFiles);
 
 private:
     QByteArray m_encryptionKey;
@@ -151,6 +167,12 @@ private:
     bool isFileInUse(const QString& filePath);
     QString getTempDecryptDir();
 
+
+    // New method for handling multiple file success dialog
+    void showMultiFileSuccessDialog(const QStringList& originalFiles,
+                                    const QStringList& successfulFiles,
+                                    const QStringList& failedFiles);
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();
@@ -188,6 +210,14 @@ private slots:
 
     // Cleanup timer slot
     void onCleanupTimerTimeout();
+
+    // New slot for file progress updates
+    void onFileProgressUpdate(int currentFile, int totalFiles, const QString& fileName);
+
+    // New slot for multiple file encryption completion
+    void onMultiFileEncryptionFinished(bool success, const QString& errorMessage,
+                                       const QStringList& successfulFiles,
+                                       const QStringList& failedFiles);
 };
 
 #endif // OPERATIONS_ENCRYPTEDDATA_H
