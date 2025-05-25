@@ -1443,7 +1443,7 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
     QFile::remove(tempPath); // Clean up temporary file
 
     if (!taskFound) {
-        qDebug() << "Could not find the specified task in the task list.";
+        //qDebug() << "Could not find the specified task in the task list.";
         return;
     }
 
@@ -1700,7 +1700,7 @@ QDateTime Operations_TaskLists::ParseFormattedDateTime(const QString& formattedD
     QRegularExpressionMatch match = regex.match(formattedDateTime);
 
     if (!match.hasMatch()) {
-        qDebug() << "Failed to match datetime format:" << formattedDateTime;
+        //qDebug() << "Failed to match datetime format:" << formattedDateTime;
         return QDateTime(); // Invalid format, return an invalid QDateTime
     }
 
@@ -1723,7 +1723,7 @@ QDateTime Operations_TaskLists::ParseFormattedDateTime(const QString& formattedD
         if (monthName == "Mars") {
             month = 3;
         } else {
-            qDebug() << "Failed to parse month:" << monthName;
+            //qDebug() << "Failed to parse month:" << monthName;
             return QDateTime();
         }
     }
@@ -1733,7 +1733,7 @@ QDateTime Operations_TaskLists::ParseFormattedDateTime(const QString& formattedD
     QTime time(hour, minute, seconds); // Now including seconds
 
     if (!date.isValid() || !time.isValid()) {
-        qDebug() << "Invalid date or time components:" << year << month << day << hour << minute << seconds;
+        //qDebug() << "Invalid date or time components:" << year << month << day << hour << minute << seconds;
         return QDateTime();
     }
 
@@ -2747,22 +2747,22 @@ void Operations_TaskLists::ShowTaskMenu(bool editMode)
 
         // Now select the appropriate task type based on user settings
         QString taskType = m_mainWindow->setting_TLists_TaskType;
-        qDebug() << "Default task type from settings:" << taskType;
+        //qDebug() << "Default task type from settings:" << taskType;
 
         if (taskType == "Time Limit" || taskType == "TimeLimit") {
-            qDebug() << "Setting Time Limit task type";
+            //qDebug() << "Setting Time Limit task type";
             ui.radioButton_TaskTimed->setChecked(true);
             ui.stackedWidget->setCurrentIndex(1);
             ui.lineEdit_TaskName->setPlaceholderText("Time Limit Task");
         }
         else if (taskType == "Recurrent") {
-            qDebug() << "Setting Recurrent task type";
+            //qDebug() << "Setting Recurrent task type";
             ui.radioButton_TaskRecurrent->setChecked(true);
             ui.stackedWidget->setCurrentIndex(2);
             ui.lineEdit_TaskName->setPlaceholderText("Recurrent Task");
         }
         else { // Default to Simple if setting is not recognized or is "Simple"
-            qDebug() << "Setting Simple task type (default)";
+            //qDebug() << "Setting Simple task type (default)";
             ui.radioButton_TaskSimple->setChecked(true);
             ui.stackedWidget->setCurrentIndex(0);
             ui.lineEdit_TaskName->setPlaceholderText("Simple Task");
@@ -4573,44 +4573,44 @@ void Operations_TaskLists::CheckTaskReminders() // also checks for overdue tasks
 {
     // Get current date-time
     QDateTime currentDateTime = QDateTime::currentDateTime();
-    qDebug() << "Checking task reminders at:" << currentDateTime.toString();
+    //qDebug() << "Checking task reminders at:" << currentDateTime.toString();
 
     // Get list of all task lists
     QString tasksListsPath = "Data/" + m_mainWindow->user_Username + "/Tasklists/";
     QDir tasksListsDir(tasksListsPath);
 
     if (!tasksListsDir.exists()) {
-        qDebug() << "Task lists directory doesn't exist:" << tasksListsPath;
+        //qDebug() << "Task lists directory doesn't exist:" << tasksListsPath;
         return;
     }
 
     // Get all subdirectories (each represents a task list)
     QStringList taskListDirs = tasksListsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    qDebug() << "Found" << taskListDirs.size() << "task lists to check";
+    //qDebug() << "Found" << taskListDirs.size() << "task lists to check";
 
     for (const QString& taskListDirName : taskListDirs) {
         QString taskListPath = tasksListsPath + taskListDirName + "/";
         QString taskListFilePath = taskListPath + taskListDirName + ".txt";
 
-        qDebug() << "Checking task list:" << taskListFilePath;
+        //qDebug() << "Checking task list:" << taskListFilePath;
 
         // Check if the file exists
         QFileInfo fileInfo(taskListFilePath);
         if (!fileInfo.exists() || !fileInfo.isFile()) {
-            qDebug() << "Task list file doesn't exist:" << taskListFilePath;
+            //qDebug() << "Task list file doesn't exist:" << taskListFilePath;
             continue;
         }
 
         // Validate the tasklist file
         if (!OperationsFiles::validateFilePath(taskListFilePath, OperationsFiles::FileType::TaskList, m_mainWindow->user_Key)) {
-            qDebug() << "Invalid task list file during reminder check:" << taskListFilePath;
+            //qDebug() << "Invalid task list file during reminder check:" << taskListFilePath;
             continue; // Skip to the next tasklist
         }
 
         // Read the task list file
         QStringList taskLines;
         if (!OperationsFiles::readTasklistFile(taskListFilePath, m_mainWindow->user_Key, taskLines)) {
-            qDebug() << "Failed to read task list file during reminder check";
+            //qDebug() << "Failed to read task list file during reminder check";
             continue;
         }
 
@@ -4630,11 +4630,11 @@ void Operations_TaskLists::CheckTaskReminders() // also checks for overdue tasks
             QStringList parts = line.split('|');
 
             // Debug task data
-            qDebug() << "Processing task:" << taskCount << "with" << parts.size() << "fields";
+            //qDebug() << "Processing task:" << taskCount << "with" << parts.size() << "fields";
 
             // Ensure we have the minimum required fields
             if (parts.size() < 2) {
-                qDebug() << "Task has insufficient fields, skipping";
+                //qDebug() << "Task has insufficient fields, skipping";
                 continue;
             }
 
@@ -4642,7 +4642,7 @@ void Operations_TaskLists::CheckTaskReminders() // also checks for overdue tasks
             QString taskName = parts[1];
             taskName.replace("\\|", "|"); // Unescape pipes
 
-            qDebug() << "Task type:" << taskType << "Task name:" << taskName;
+            //qDebug() << "Task type:" << taskType << "Task name:" << taskName;
 
             // Create a unique ID for this task
             QString taskId = taskListDirName + "::" + taskName;
@@ -4650,7 +4650,7 @@ void Operations_TaskLists::CheckTaskReminders() // also checks for overdue tasks
             // Skip completed tasks
             bool isCompleted = (parts.size() > 3 && (parts[3] == "1" || parts[3] == "2"));
             if (isCompleted) {
-                qDebug() << "Task is completed, skipping";
+                //qDebug() << "Task is completed, skipping";
                 continue;
             }
 
@@ -4673,23 +4673,23 @@ void Operations_TaskLists::CheckTaskReminders() // also checks for overdue tasks
                 }
 
                 if (inQueue) {
-                    qDebug() << "Task already in precise queue, skipping in reminder check:" << taskName;
+                    //qDebug() << "Task already in precise queue, skipping in reminder check:" << taskName;
                     continue;
                 }
 
                 // Process TimeLimit task
-                qDebug() << "Processing TimeLimit task with" << parts.size() << "fields";
+                //qDebug() << "Processing TimeLimit task with" << parts.size() << "fields";
 
                 // Print all task data for debugging
                 for (int i = 0; i < parts.size(); i++) {
-                    qDebug() << "Field" << i << ":" << parts[i];
+                    //qDebug() << "Field" << i << ":" << parts[i];
                 }
 
                 // TimeLimit task should have reminder flag at index 10
                 bool reminderEnabled = false;
                 if (parts.size() > 10) {
                     reminderEnabled = (parts[10] == "1");
-                    qDebug() << "Reminder enabled:" << reminderEnabled;
+                    //qDebug() << "Reminder enabled:" << reminderEnabled;
                 }
 
                 // Get task details for due date calculation
@@ -4724,7 +4724,7 @@ void Operations_TaskLists::CheckTaskReminders() // also checks for overdue tasks
 
                     // Pass creationDateTime to the function
                     if (ShouldShowTimeLimitReminder(dueDateTime, creationDateTime, reminderFrequency, reminderUnit, taskId)) {
-                        qDebug() << "REMINDER DUE for time limit task:" << taskName;
+                        //qDebug() << "REMINDER DUE for time limit task:" << taskName;
 
                         // Calculate time remaining until due
                         QString timeRemaining = CalculateTimeLeft(currentDateTime, dueDateTime);
@@ -4740,32 +4740,32 @@ void Operations_TaskLists::CheckTaskReminders() // also checks for overdue tasks
                                 QSystemTrayIcon::Warning,
                                 5000
                                 );
-                            qDebug() << "Notification sent for time limit task:" << taskName;
+                            //qDebug() << "Notification sent for time limit task:" << taskName;
 
                             // Record the time we showed this notification
                             m_lastNotifiedTasks[taskId] = QDateTime::currentDateTime();
                         } else {
-                            qDebug() << "Cannot show notification - tray icon is null";
+                            //qDebug() << "Cannot show notification - tray icon is null";
                         }
                     } else {
-                        qDebug() << "Not time to show reminder for time limit task:" << taskName;
+                        //qDebug() << "Not time to show reminder for time limit task:" << taskName;
                     }
                 }
             }
             else if (taskType == "Recurrent") {
                 // Process Recurrent task
-                qDebug() << "Processing Recurrent task with" << parts.size() << "fields";
+                //qDebug() << "Processing Recurrent task with" << parts.size() << "fields";
 
                 // Print all task data for debugging
                 for (int i = 0; i < parts.size(); i++) {
-                    qDebug() << "Field" << i << ":" << parts[i];
+                    //qDebug() << "Field" << i << ":" << parts[i];
                 }
 
                 // Recurrent task should have reminder flag at index 12
                 bool reminderEnabled = false;
                 if (parts.size() > 12) {
                     reminderEnabled = (parts[12] == "1");
-                    qDebug() << "Reminder enabled:" << reminderEnabled;
+                    //qDebug() << "Reminder enabled:" << reminderEnabled;
                 }
 
                 if (reminderEnabled) {
@@ -4775,9 +4775,9 @@ void Operations_TaskLists::CheckTaskReminders() // also checks for overdue tasks
                     QString frequencyUnit = parts[7];
                     QTime startTime = QTime::fromString(parts[8], "hh:mm:ss");
 
-                    qDebug() << "Creation date:" << creationDateTime.toString();
-                    qDebug() << "Frequency:" << frequencyValue << frequencyUnit;
-                    qDebug() << "Start time:" << startTime.toString();
+                    //qDebug() << "Creation date:" << creationDateTime.toString();
+                    //qDebug() << "Frequency:" << frequencyValue << frequencyUnit;
+                    //qDebug() << "Start time:" << startTime.toString();
 
                     // Get time limit info if available
                     bool hasTimeLimit = (parts.size() > 9 && parts[9] == "1");
@@ -4786,19 +4786,19 @@ void Operations_TaskLists::CheckTaskReminders() // also checks for overdue tasks
                     if (hasTimeLimit && parts.size() > 11) {
                         timeLimitValue = parts[10].toInt();
                         timeLimitUnit = parts[11];
-                        qDebug() << "Time limit:" << timeLimitValue << timeLimitUnit;
+                        //qDebug() << "Time limit:" << timeLimitValue << timeLimitUnit;
                     }
 
                     // Calculate due date
                     QDateTime dueDateTime = CalculateRecurrentDueDate(
                         creationDateTime, startTime, frequencyValue, frequencyUnit,
                         hasTimeLimit, timeLimitValue, timeLimitUnit, false, currentDateTime);
-                    qDebug() << "Due date:" << dueDateTime.toString();
+                    //qDebug() << "Due date:" << dueDateTime.toString();
 
                     // Check if the task is overdue
                     bool isOverdue = currentDateTime > dueDateTime;
                     if (isOverdue) {
-                        qDebug() << "Recurrent task is overdue, skipping reminder";
+                        //qDebug() << "Recurrent task is overdue, skipping reminder";
                         continue;
                     }
 
@@ -4809,15 +4809,15 @@ void Operations_TaskLists::CheckTaskReminders() // also checks for overdue tasks
                     if (parts.size() > 14) {
                         reminderValue = parts[13].toInt();
                         reminderUnit = parts[14];
-                        qDebug() << "Reminder:" << reminderValue << reminderUnit << "before due date";
+                        //qDebug() << "Reminder:" << reminderValue << reminderUnit << "before due date";
                     } else {
-                        qDebug() << "Missing reminder value/unit fields";
+                        //qDebug() << "Missing reminder value/unit fields";
                         continue;
                     }
 
                     // For recurrent tasks, the reminder is X time before due date (only once)
                     if (ShouldShowRecurrentReminder(dueDateTime, reminderValue, reminderUnit, currentDateTime, taskId)) {
-                        qDebug() << "REMINDER DUE for recurrent task:" << taskName;
+                        //qDebug() << "REMINDER DUE for recurrent task:" << taskName;
 
                         // Calculate time remaining until due
                         QString timeRemaining = CalculateTimeLeft(currentDateTime, dueDateTime);
@@ -4833,22 +4833,22 @@ void Operations_TaskLists::CheckTaskReminders() // also checks for overdue tasks
                                 QSystemTrayIcon::Warning,
                                 5000
                                 );
-                            qDebug() << "Notification sent for recurrent task:" << taskName;
+                            //qDebug() << "Notification sent for recurrent task:" << taskName;
 
                             // Record the time we showed this notification with the due date to avoid repeats
                             QString cycleId = taskId + "::" + dueDateTime.toString(Qt::ISODate);
                             m_lastNotifiedTasks[cycleId] = QDateTime::currentDateTime();
                         } else {
-                            qDebug() << "Cannot show notification - tray icon is null";
+                            //qDebug() << "Cannot show notification - tray icon is null";
                         }
                     } else {
-                        qDebug() << "Not time to show reminder for recurrent task:" << taskName;
+                        //qDebug() << "Not time to show reminder for recurrent task:" << taskName;
                     }
                 }
             }
         }
 
-        qDebug() << "Processed" << taskCount << "tasks in task list";
+        //qDebug() << "Processed" << taskCount << "tasks in task list";
     }
 
     // Clean up old notifications (older than 24 hours)
@@ -4868,7 +4868,7 @@ void Operations_TaskLists::CheckTaskReminders() // also checks for overdue tasks
     if (cleanupCounter >= 10080) { // Weekly cleanup (60 min * 24 hours * 7 days = 10080 minutes)
         cleanupCounter = 0;
         m_overdueNotifiedTasks.clear();
-        qDebug() << "Cleared overdue notification history during weekly cleanup";
+        //qDebug() << "Cleared overdue notification history during weekly cleanup";
     }
 }
 
@@ -4882,14 +4882,14 @@ bool Operations_TaskLists::ShouldShowTimeLimitReminder(const QDateTime& dueDateT
 
     // Don't show reminders for past-due tasks
     if (currentDateTime > dueDateTime) {
-        qDebug() << "Task is past due, not showing reminder";
+        //qDebug() << "Task is past due, not showing reminder";
         return false;
     }
 
     // If this is the first check for this task, calculate when reminders should be shown
     // based on the creation date and frequency
     if (!m_lastNotifiedTasks.contains(taskId)) {
-        qDebug() << "First check for this task";
+        //qDebug() << "First check for this task";
 
         // Calculate time intervals in seconds based on the reminder unit and frequency
         qint64 frequencySeconds = 0;
@@ -4908,24 +4908,24 @@ bool Operations_TaskLists::ShouldShowTimeLimitReminder(const QDateTime& dueDateT
         }
 
         if (frequencySeconds <= 0) {
-            qDebug() << "Invalid reminder frequency";
+            //qDebug() << "Invalid reminder frequency";
             return false;
         }
 
         // Calculate seconds since task creation
         qint64 secondsSinceCreation = creationDateTime.secsTo(currentDateTime);
-        qDebug() << "Seconds since task creation:" << secondsSinceCreation;
+        //qDebug() << "Seconds since task creation:" << secondsSinceCreation;
 
         // Calculate how many reminder periods have passed
         qint64 periodsPassed = secondsSinceCreation / frequencySeconds;
-        qDebug() << "Reminder periods passed:" << periodsPassed;
+        //qDebug() << "Reminder periods passed:" << periodsPassed;
 
         // Calculate when the next reminder should be shown
         QDateTime nextReminderTime;
 
         if (periodsPassed == 0) {
             // No periods have passed, show the first reminder now
-            qDebug() << "First period, showing reminder now";
+            //qDebug() << "First period, showing reminder now";
             return true;
         } else {
             // Calculate the next reminder time based on the number of periods passed
@@ -4946,12 +4946,12 @@ bool Operations_TaskLists::ShouldShowTimeLimitReminder(const QDateTime& dueDateT
                 nextReminderTime = nextReminderTime.addYears((periodsPassed + 1) * reminderFrequency);
             }
 
-            qDebug() << "Next calculated reminder time:" << nextReminderTime.toString();
+            //qDebug() << "Next calculated reminder time:" << nextReminderTime.toString();
 
             // Check if we're within 1 minute of the calculated next reminder time
             qint64 secondsDiff = qAbs(currentDateTime.secsTo(nextReminderTime));
             if (secondsDiff < 60) {
-                qDebug() << "Within threshold of next reminder time";
+                //qDebug() << "Within threshold of next reminder time";
                 return true;
             } else {
                 // Calculate the previous reminder time
@@ -4972,11 +4972,11 @@ bool Operations_TaskLists::ShouldShowTimeLimitReminder(const QDateTime& dueDateT
                 // If the most recent reminder time was within the last minute, show it
                 qint64 secondsSincePrevious = previousReminderTime.secsTo(currentDateTime);
                 if (secondsSincePrevious >= 0 && secondsSincePrevious < 60) {
-                    qDebug() << "Within threshold of previous reminder time";
+                    //qDebug() << "Within threshold of previous reminder time";
                     return true;
                 }
 
-                qDebug() << "Not time for a reminder yet";
+                //qDebug() << "Not time for a reminder yet";
                 return false;
             }
         }
@@ -4984,7 +4984,7 @@ bool Operations_TaskLists::ShouldShowTimeLimitReminder(const QDateTime& dueDateT
 
     // For subsequent checks, use the last notification time
     QDateTime lastNotificationTime = m_lastNotifiedTasks[taskId];
-    qDebug() << "Last notification was at:" << lastNotificationTime.toString();
+    //qDebug() << "Last notification was at:" << lastNotificationTime.toString();
 
     // Calculate when the next notification should be
     QDateTime nextNotificationTime = lastNotificationTime;
@@ -5001,7 +5001,7 @@ bool Operations_TaskLists::ShouldShowTimeLimitReminder(const QDateTime& dueDateT
         nextNotificationTime = nextNotificationTime.addYears(reminderFrequency);
     }
 
-    qDebug() << "Next notification scheduled for:" << nextNotificationTime.toString();
+    //qDebug() << "Next notification scheduled for:" << nextNotificationTime.toString();
 
     // Show a notification if we've reached or passed the next notification time
     // Use a 1-minute window to avoid missing notifications
@@ -5014,7 +5014,7 @@ bool Operations_TaskLists::ShouldShowRecurrentReminder(const QDateTime& dueDateT
                                                        const QString& taskId)
 {
     if (!dueDateTime.isValid() || reminderValue <= 0) {
-        qDebug() << "Invalid due date or reminder value";
+        //qDebug() << "Invalid due date or reminder value";
         return false;
     }
 
@@ -5034,13 +5034,13 @@ bool Operations_TaskLists::ShouldShowRecurrentReminder(const QDateTime& dueDateT
         reminderDateTime = reminderDateTime.addYears(-reminderValue);
     }
 
-    qDebug() << "Current time:" << currentDateTime.toString();
-    qDebug() << "Reminder time:" << reminderDateTime.toString();
-    qDebug() << "Due time:" << dueDateTime.toString();
+    //qDebug() << "Current time:" << currentDateTime.toString();
+    //qDebug() << "Reminder time:" << reminderDateTime.toString();
+    //qDebug() << "Due time:" << dueDateTime.toString();
 
     // Task is past due, don't show a reminder
     if (currentDateTime > dueDateTime) {
-        qDebug() << "Task is past due";
+        //qDebug() << "Task is past due";
         return false;
     }
 
@@ -5050,7 +5050,7 @@ bool Operations_TaskLists::ShouldShowRecurrentReminder(const QDateTime& dueDateT
 
     // If we've already shown a notification for this cycle, don't show another
     if (m_lastNotifiedTasks.contains(cycleId)) {
-        qDebug() << "Already shown a reminder for this cycle";
+        //qDebug() << "Already shown a reminder for this cycle";
         return false;
     }
 
@@ -5193,13 +5193,13 @@ void Operations_TaskLists::InitializeDueTasksQueue()
     QDir tasksListsDir(tasksListsPath);
 
     if (!tasksListsDir.exists()) {
-        qDebug() << "Task lists directory doesn't exist:" << tasksListsPath;
+        //qDebug() << "Task lists directory doesn't exist:" << tasksListsPath;
         return;
     }
 
     // Get all task list directories
     QStringList taskListDirs = tasksListsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    qDebug() << "Found" << taskListDirs.size() << "task lists to scan for due tasks";
+    //qDebug() << "Found" << taskListDirs.size() << "task lists to scan for due tasks";
 
     // Scan each task list
     for (const QString& taskListDirName : taskListDirs) {
@@ -5214,7 +5214,7 @@ void Operations_TaskLists::InitializeDueTasksQueue()
 
         // Validate the tasklist file for security
         if (!InputValidation::validateTasklistFile(taskListFilePath, m_mainWindow->user_Key)) {
-            qDebug() << "Invalid task list file during due tasks queue initialization:" << taskListFilePath;
+            //qDebug() << "Invalid task list file during due tasks queue initialization:" << taskListFilePath;
             continue; // Skip to the next tasklist
         }
         // Decrypt and read the file
@@ -5317,7 +5317,7 @@ void Operations_TaskLists::AddTaskToDueQueue(const QString& taskListName, const 
     // Add to priority queue
     m_dueTasksQueue.push(taskInfo);
 
-    qDebug() << "Added task to due queue:" << taskName << "due at" << dueDateTime.toString();
+    //qDebug() << "Added task to due queue:" << taskName << "due at" << dueDateTime.toString();
 
     // Reschedule timer if this is now the earliest due task
     if (m_dueTasksQueue.top().taskId == taskId) {
@@ -5357,7 +5357,7 @@ void Operations_TaskLists::ScheduleNextDueTask()
 
     // If the queue is empty, nothing to schedule
     if (m_dueTasksQueue.empty()) {
-        qDebug() << "No tasks in due queue, timer not scheduled";
+        //qDebug() << "No tasks in due queue, timer not scheduled";
         return;
     }
 
@@ -5375,7 +5375,7 @@ void Operations_TaskLists::ScheduleNextDueTask()
     }
 
     // Schedule the timer
-    qDebug() << "Scheduling timer for task:" << nextTask.taskName << "in" << msUntilDue << "ms";
+    //qDebug() << "Scheduling timer for task:" << nextTask.taskName << "in" << msUntilDue << "ms";
     m_preciseTaskTimer->setSingleShot(true);
     m_preciseTaskTimer->start(msUntilDue);
 }
@@ -5383,12 +5383,12 @@ void Operations_TaskLists::ScheduleNextDueTask()
 // Process a task that has become due
 void Operations_TaskLists::ProcessDueTask(const TaskDueInfo& taskInfo)
 {
-    qDebug() << "***** STARTING ProcessDueTask *****";
-    qDebug() << "TaskId:" << taskInfo.taskId;
-    qDebug() << "TaskName:" << taskInfo.taskName;
-    qDebug() << "TaskListName:" << taskInfo.taskListName;
-    qDebug() << "DueDateTime:" << taskInfo.dueDateTime.toString(Qt::ISODate);
-    qDebug() << "PunitiveType:" << taskInfo.punitiveType;
+    //qDebug() << "***** STARTING ProcessDueTask *****";
+    //qDebug() << "TaskId:" << taskInfo.taskId;
+    //qDebug() << "TaskName:" << taskInfo.taskName;
+    //qDebug() << "TaskListName:" << taskInfo.taskListName;
+    //qDebug() << "DueDateTime:" << taskInfo.dueDateTime.toString(Qt::ISODate);
+    //qDebug() << "PunitiveType:" << taskInfo.punitiveType;
 
     // Make local copies of all needed data BEFORE popping from queue
     QString localTaskId = taskInfo.taskId;
@@ -5397,28 +5397,28 @@ void Operations_TaskLists::ProcessDueTask(const TaskDueInfo& taskInfo)
     QDateTime localDueDateTime = taskInfo.dueDateTime;
     QString localPunitiveType = taskInfo.punitiveType;
 
-    qDebug() << "Made local copies of task data";
+    //qDebug() << "Made local copies of task data";
 
     // Now remove task from queue
-    qDebug() << "Before popping from queue";
+    //qDebug() << "Before popping from queue";
     m_dueTasksQueue.pop();
-    qDebug() << "After popping from queue";
+    //qDebug() << "After popping from queue";
 
     // Mark task as notified for overdue
-    qDebug() << "Before marking task as notified";
+    //qDebug() << "Before marking task as notified";
     m_overdueNotifiedTasks[localTaskId] = true;
-    qDebug() << "After marking task as notified";
+    //qDebug() << "After marking task as notified";
 
     // Default message
-    qDebug() << "Creating overdueMessage";
+    //qDebug() << "Creating overdueMessage";
     QString overdueMessage = "Failed to complete " + localTaskName + " in time";
-    qDebug() << "OverdueMessage created:" << overdueMessage;
+    //qDebug() << "OverdueMessage created:" << overdueMessage;
 
     // Get punitive message if set
-    qDebug() << "Creating punitiveMessage";
+    //qDebug() << "Creating punitiveMessage";
     QString punitiveMessage = "";
     if (localPunitiveType != "None") {
-        qDebug() << "PunitiveType is not None";
+        //qDebug() << "PunitiveType is not None";
         // Determine category based on the punitiveMessage value
         Constants::CPUNCategory category = Constants::CPUNCategory::None;
 
@@ -5436,32 +5436,32 @@ void Operations_TaskLists::ProcessDueTask(const TaskDueInfo& taskInfo)
         }
 
         if (category != Constants::CPUNCategory::None) {
-            qDebug() << "Getting CPUN message for category:" << static_cast<int>(category);
+            //qDebug() << "Getting CPUN message for category:" << static_cast<int>(category);
             punitiveMessage = Constants::GetCPUNMessage(Constants::CPUNType::Punish, category);
         }
-        qDebug() << "PunitiveMessage created:" << punitiveMessage;
+        //qDebug() << "PunitiveMessage created:" << punitiveMessage;
 
         // Disable the punitive message to prevent it from showing again
-        qDebug() << "Before updating punitive message to None";
+        //qDebug() << "Before updating punitive message to None";
         try {
             UpdatePunitiveMessageToNone(localTaskListName, localTaskName, "TimeLimit", 9);
         } catch (const std::exception& e) {
-            qDebug() << "Exception in UpdatePunitiveMessageToNone:" << e.what();
+            //qDebug() << "Exception in UpdatePunitiveMessageToNone:" << e.what();
         } catch (...) {
-            qDebug() << "Unknown exception in UpdatePunitiveMessageToNone";
+            //qDebug() << "Unknown exception in UpdatePunitiveMessageToNone";
         }
-        qDebug() << "After updating punitive message to None";
+        //qDebug() << "After updating punitive message to None";
     }
 
     // Combine messages if punitive message is available
-    qDebug() << "Before combining messages";
+    //qDebug() << "Before combining messages";
     if (!punitiveMessage.isEmpty()) {
         overdueMessage += ". " + punitiveMessage;
     }
-    qDebug() << "Final overdueMessage:" << overdueMessage;
+    //qDebug() << "Final overdueMessage:" << overdueMessage;
 
     // Show notification if tray icon exists
-    qDebug() << "Before showing notification";
+    //qDebug() << "Before showing notification";
     if (m_mainWindow && m_mainWindow->trayIcon && m_mainWindow->setting_TLists_Notif) {
         m_mainWindow->trayIcon->showMessage(
             "Task Overdue",
@@ -5469,12 +5469,12 @@ void Operations_TaskLists::ProcessDueTask(const TaskDueInfo& taskInfo)
             QSystemTrayIcon::Critical,
             5000
         );
-        qDebug() << "Notification sent for task:" << localTaskName;
+        //qDebug() << "Notification sent for task:" << localTaskName;
     } else {
-        qDebug() << "Cannot show notification - tray icon is null";
+        //qDebug() << "Cannot show notification - tray icon is null";
     }
 
-    qDebug() << "Preparing to check if Log to Diary is enabled";
+    //qDebug() << "Preparing to check if Log to Diary is enabled";
 
     // Check if Log to Diary is enabled for this task and log to diary if it is
     bool logTask = false;
@@ -5482,63 +5482,63 @@ void Operations_TaskLists::ProcessDueTask(const TaskDueInfo& taskInfo)
 
     try {
         // Sanitize the task list name for file operations
-        qDebug() << "Before sanitizing taskListName";
+        //qDebug() << "Before sanitizing taskListName";
         QString sanitizedName = localTaskListName;
         sanitizedName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
-        qDebug() << "Sanitized name:" << sanitizedName;
+        //qDebug() << "Sanitized name:" << sanitizedName;
 
         QString taskListDir = "Data/" + m_mainWindow->user_Username + "/Tasklists/" + sanitizedName + "/";
-        qDebug() << "TaskListDir:" << taskListDir;
+        //qDebug() << "TaskListDir:" << taskListDir;
 
         // Construct file paths with proper sanitization
         QString taskListFilePath = taskListDir + sanitizedName + ".txt";
-        qDebug() << "TaskListFilePath:" << taskListFilePath;
+        //qDebug() << "TaskListFilePath:" << taskListFilePath;
 
         // Check if file exists
-        qDebug() << "Before checking if file exists";
+        //qDebug() << "Before checking if file exists";
         QFileInfo fileInfo(taskListFilePath);
         taskFileFound = fileInfo.exists() && fileInfo.isFile();
-        qDebug() << "File exists:" << taskFileFound;
+        //qDebug() << "File exists:" << taskFileFound;
 
         if (taskFileFound) {
             // Validate the tasklist file for security
             if (!InputValidation::validateTasklistFile(taskListFilePath, m_mainWindow->user_Key)) {
-                qDebug() << "Invalid task list file when processing due task:" << taskListFilePath;
+                //qDebug() << "Invalid task list file when processing due task:" << taskListFilePath;
                 return; // Skip this task
             }
             // Temporary path for decrypted file with unique identifier
-            qDebug() << "Creating unique temp path";
+            //qDebug() << "Creating unique temp path";
             QString uniqueId = QString::number(QDateTime::currentDateTime().toMSecsSinceEpoch());
             QString tempPath = taskListFilePath + ".temp." + uniqueId;
-            qDebug() << "TempPath:" << tempPath;
+            //qDebug() << "TempPath:" << tempPath;
 
             // Decrypt the file to check Log to Diary setting
-            qDebug() << "Before decrypting file";
+            //qDebug() << "Before decrypting file";
             bool decrypted = false;
             try {
                 decrypted = CryptoUtils::Encryption_DecryptFile(
                     m_mainWindow->user_Key, taskListFilePath, tempPath);
             } catch (const std::exception& e) {
-                qDebug() << "Exception during decryption:" << e.what();
+                //qDebug() << "Exception during decryption:" << e.what();
             } catch (...) {
-                qDebug() << "Unknown exception during decryption";
+                //qDebug() << "Unknown exception during decryption";
             }
-            qDebug() << "File decrypted:" << decrypted;
+            //qDebug() << "File decrypted:" << decrypted;
 
             if (decrypted) {
                 // Open the file and find the task
-                qDebug() << "Before opening temp file";
+                //qDebug() << "Before opening temp file";
                 QFile file(tempPath);
                 bool fileOpened = file.open(QIODevice::ReadOnly | QIODevice::Text);
-                qDebug() << "File opened:" << fileOpened;
+                //qDebug() << "File opened:" << fileOpened;
 
                 if (fileOpened) {
                     QTextStream in(&file);
                     in.readLine(); // Skip header line
-                    qDebug() << "Skipped header line";
+                    //qDebug() << "Skipped header line";
 
                     bool taskFound = false;
-                    qDebug() << "Searching for task in file";
+                    //qDebug() << "Searching for task in file";
 
                     while (!in.atEnd()) {
                         QString line = in.readLine();
@@ -5560,17 +5560,17 @@ void Operations_TaskLists::ProcessDueTask(const TaskDueInfo& taskInfo)
                         QString currentTaskName = parts[1];
                         currentTaskName.replace("\\|", "|"); // Unescape pipes
 
-                        qDebug() << "Checking task:" << currentTaskName << "Type:" << taskType;
+                        //qDebug() << "Checking task:" << currentTaskName << "Type:" << taskType;
 
                         // If this is the task we're looking for
                         if (currentTaskName == localTaskName && taskType == "TimeLimit") {
                             taskFound = true;
-                            qDebug() << "Task found in file";
+                            //qDebug() << "Task found in file";
 
                             // Check if Log to Diary is enabled
                             if (parts.size() > 2) {
                                 logTask = (parts[2] == "1");
-                                qDebug() << "Log to Diary enabled:" << logTask;
+                                //qDebug() << "Log to Diary enabled:" << logTask;
                             }
 
                             break;
@@ -5578,11 +5578,11 @@ void Operations_TaskLists::ProcessDueTask(const TaskDueInfo& taskInfo)
                     }
 
                     file.close();
-                    qDebug() << "Temp file closed";
+                    //qDebug() << "Temp file closed";
 
                     // Log to diary if enabled and task found
                     if (taskFound && logTask) {
-                        qDebug() << "*** CRITICAL POINT: Before logging to diary ***";
+                        //qDebug() << "*** CRITICAL POINT: Before logging to diary ***";
 
                         // Make absolutely sure all parameters are valid
                         QString safeTaskName = localTaskName;
@@ -5590,48 +5590,48 @@ void Operations_TaskLists::ProcessDueTask(const TaskDueInfo& taskInfo)
                         QDateTime safeDueTime = localDueDateTime.isValid() ?
                                                localDueDateTime : QDateTime::currentDateTime();
 
-                        qDebug() << "SafeTaskName:" << safeTaskName;
-                        qDebug() << "SafeMsg:" << safeMsg;
-                        qDebug() << "SafeDueTime:" << safeDueTime.toString(Qt::ISODate);
+                        //qDebug() << "SafeTaskName:" << safeTaskName;
+                        //qDebug() << "SafeMsg:" << safeMsg;
+                        //qDebug() << "SafeDueTime:" << safeDueTime.toString(Qt::ISODate);
 
                         if (m_diaryOps) {
-                            qDebug() << "m_diaryOps is valid";
+                            //qDebug() << "m_diaryOps is valid";
                             try {
-                                qDebug() << "Calling AddTaskLogEntry";
+                                //qDebug() << "Calling AddTaskLogEntry";
                                 // CRITICAL CHANGE: Pass the actual due date instead of an empty QDateTime
                                 m_diaryOps->AddTaskLogEntry("TimeLimit", safeTaskName, localTaskListName, "Overdue",
                                                          safeDueTime, safeMsg);
-                                qDebug() << "AddTaskLogEntry completed successfully";
+                                //qDebug() << "AddTaskLogEntry completed successfully";
                             } catch (const std::exception& e) {
-                                qDebug() << "Exception during diary logging:" << e.what();
+                                //qDebug() << "Exception during diary logging:" << e.what();
                             } catch (...) {
-                                qDebug() << "Unknown exception during diary logging";
+                                //qDebug() << "Unknown exception during diary logging";
                             }
                         } else {
-                            qDebug() << "m_diaryOps is NULL";
+                            //qDebug() << "m_diaryOps is NULL";
                         }
-                        qDebug() << "*** CRITICAL POINT: After logging to diary ***";
+                        //qDebug() << "*** CRITICAL POINT: After logging to diary ***";
                     }
                 }
 
                 // Clean up temporary file
-                qDebug() << "Before removing temp file";
+                //qDebug() << "Before removing temp file";
                 QFile::remove(tempPath);
-                qDebug() << "After removing temp file";
+                //qDebug() << "After removing temp file";
             }
         }
     } catch (const std::exception& e) {
-        qDebug() << "Exception in log to diary section:" << e.what();
+        //qDebug() << "Exception in log to diary section:" << e.what();
     } catch (...) {
-        qDebug() << "Unknown exception in log to diary section";
+        //qDebug() << "Unknown exception in log to diary section";
     }
 
     // Schedule the next task
-    qDebug() << "Before scheduling next task";
+    //qDebug() << "Before scheduling next task";
     ScheduleNextDueTask();
-    qDebug() << "After scheduling next task";
+    //qDebug() << "After scheduling next task";
 
-    qDebug() << "***** FINISHED ProcessDueTask *****";
+    //qDebug() << "***** FINISHED ProcessDueTask *****";
 }
 
 // Update the queue when tasks change

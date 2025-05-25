@@ -173,22 +173,6 @@ QPixmap ThumbnailCache::getThumbnail(const QString& encryptedFilePath, int size)
         return QPixmap();
     }
 
-    // Validate that we can decrypt this cache file with our key
-    if (!validateThumbnailCacheFile(cacheFilePath)) {
-        qWarning() << "Thumbnail cache file validation failed (wrong key or corrupted):" << cacheFilePath;
-        // Delete the invalid cache file
-        QFile::remove(cacheFilePath);
-        return QPixmap();
-    }
-    qDebug() << "=== getThumbnail called ===";
-    qDebug() << "encryptedFilePath:" << encryptedFilePath;
-    qDebug() << "requested size:" << size;
-
-    if (!QFile::exists(cacheFilePath)) {
-        qDebug() << "Cache file does not exist:" << cacheFilePath;
-        return QPixmap(); // No cached thumbnail
-    }
-
     qDebug() << "Loading cached thumbnail from:" << cacheFilePath;
 
     try {
@@ -209,7 +193,9 @@ QPixmap ThumbnailCache::getThumbnail(const QString& encryptedFilePath, int size)
                                                                 QString::fromLatin1(encryptedData));
 
         if (decryptedData.isEmpty()) {
-            qWarning() << "Failed to decrypt cached thumbnail:" << cacheFilePath;
+            qWarning() << "Failed to decrypt cached thumbnail (corrupted or wrong key):" << cacheFilePath;
+            // Delete the invalid cache file
+            QFile::remove(cacheFilePath);
             return QPixmap();
         }
 
@@ -220,6 +206,8 @@ QPixmap ThumbnailCache::getThumbnail(const QString& encryptedFilePath, int size)
         QPixmap thumbnail;
         if (!thumbnail.loadFromData(pixmapData, "PNG")) {
             qWarning() << "Failed to load pixmap from cached data:" << cacheFilePath;
+            // Delete the invalid cache file
+            QFile::remove(cacheFilePath);
             return QPixmap();
         }
 
@@ -235,6 +223,8 @@ QPixmap ThumbnailCache::getThumbnail(const QString& encryptedFilePath, int size)
 
     } catch (const std::exception& e) {
         qWarning() << "Exception while loading cached thumbnail:" << e.what();
+        // Delete the problematic cache file
+        QFile::remove(cacheFilePath);
         return QPixmap();
     }
 }
@@ -273,7 +263,7 @@ bool ThumbnailCache::storeThumbnail(const QString& encryptedFilePath, const QPix
         qDebug() << "Converted to base64, size:" << base64Data.size() << "chars";
 
         // Encrypt the thumbnail data
-        QString encryptedData = CryptoUtils::Encryption_Encrypt(m_encryptionKey, base64Data, m_username);
+        QString encryptedData = CryptoUtils::Encryption_Encrypt(m_encryptionKey, base64Data);
         if (encryptedData.isEmpty()) {
             qWarning() << "Failed to encrypt thumbnail data";
             return false;
@@ -350,36 +340,61 @@ void ThumbnailCache::clearCache()
 
 void ThumbnailCache::cleanupOrphanedThumbnails(const QStringList& validEncryptedFilePaths)
 {
+    qDebug() << "=== CLEANUP ORPHANED THUMBNAILS DEBUG ===";
+    qDebug() << "Valid file paths count:" << validEncryptedFilePaths.size();
+
     QDir cacheDir(m_cacheDirectory);
     if (!cacheDir.exists()) {
+        qDebug() << "Cache directory doesn't exist, nothing to clean up";
         return;
     }
 
     // Create set of valid cache keys for faster lookup
     QSet<QString> validCacheKeys;
     for (const QString& filePath : validEncryptedFilePaths) {
-        validCacheKeys.insert(getCacheKey(filePath));
+        QString cacheKey = getCacheKey(filePath);
+        validCacheKeys.insert(cacheKey);
+        qDebug() << "VALID PATH:" << filePath;
+        qDebug() << "VALID KEY:" << cacheKey;
     }
+
+    qDebug() << "Total valid cache keys:" << validCacheKeys.size();
 
     // Get all thumbnail files
     QStringList filters;
     filters << "*.thumbnail";
     QFileInfoList fileList = cacheDir.entryInfoList(filters, QDir::Files);
 
+    qDebug() << "Found" << fileList.size() << "thumbnail cache files";
+
     int removedCount = 0;
     for (const QFileInfo& fileInfo : fileList) {
         QString baseName = fileInfo.baseName(); // filename without .thumbnail extension
+        QString filePath = fileInfo.absoluteFilePath();
+
+        qDebug() << "CACHE FILE:" << filePath;
+        qDebug() << "CACHE KEY (basename):" << baseName;
+        qDebug() << "IS VALID:" << validCacheKeys.contains(baseName);
 
         if (!validCacheKeys.contains(baseName)) {
-            if (QFile::remove(fileInfo.absoluteFilePath())) {
+            qDebug() << "DELETING ORPHANED CACHE FILE:" << filePath;
+            if (QFile::remove(filePath)) {
                 removedCount++;
+                qDebug() << "Successfully deleted orphaned cache file";
+            } else {
+                qDebug() << "Failed to delete orphaned cache file";
             }
+        } else {
+            qDebug() << "Keeping valid cache file:" << filePath;
         }
     }
 
     if (removedCount > 0) {
         qDebug() << "Cleaned up" << removedCount << "orphaned thumbnail cache files";
+    } else {
+        qDebug() << "No orphaned thumbnail files found";
     }
+    qDebug() << "=== END CLEANUP DEBUG ===";
 }
 
 
@@ -389,29 +404,19 @@ bool ThumbnailCache::validateThumbnailCacheFile(const QString& cacheFilePath)
         return false;
     }
 
-    try {
-        // Try to decrypt a small portion to validate the key
-        QFile cacheFile(cacheFilePath);
-        if (!cacheFile.open(QIODevice::ReadOnly)) {
-            return false;
-        }
+    // For thumbnail cache files, we'll do a simpler validation:
+    // Just check if the file exists and has reasonable size
+    QFileInfo fileInfo(cacheFilePath);
 
-        // Read just a small portion for validation (first 100 bytes should be enough)
-        QByteArray testData = cacheFile.read(100);
-        cacheFile.close();
-
-        if (testData.isEmpty()) {
-            return false;
-        }
-
-        // Try to decrypt - if key is wrong, this will fail
-        QString testDecrypt = CryptoUtils::Encryption_Decrypt(m_encryptionKey, QString::fromLatin1(testData));
-
-        // If decryption succeeds (returns non-empty), the key is correct
-        // Note: We don't care about the actual content, just that decryption didn't fail
-        return !testDecrypt.isEmpty();
-
-    } catch (...) {
+    // Basic size check - thumbnail cache files should be between 1KB and 50KB
+    qint64 fileSize = fileInfo.size();
+    if (fileSize < 1024 || fileSize > 51200) {
+        qDebug() << "Thumbnail cache file size out of range:" << fileSize << "bytes";
         return false;
     }
+
+    // File exists and has reasonable size - assume it's valid
+    // We'll discover if it's actually corrupt when we try to decrypt it in getThumbnail()
+    qDebug() << "Thumbnail cache file validation passed (basic check):" << cacheFilePath;
+    return true;
 }

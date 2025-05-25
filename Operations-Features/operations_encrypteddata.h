@@ -28,13 +28,14 @@ class EncryptionWorker : public QObject
     Q_OBJECT
 
 public:
-    // New constructor for multiple files
+    //multiple files
     EncryptionWorker(const QStringList& sourceFiles, const QStringList& targetFiles,
-                     const QByteArray& encryptionKey, const QString& username);
-
-    // Keep old constructor for backward compatibility
+                     const QByteArray& encryptionKey, const QString& username,
+                     const QMap<QString, QPixmap>& videoThumbnails = QMap<QString, QPixmap>());
+    //single file
     EncryptionWorker(const QString& sourceFile, const QString& targetFile,
-                     const QByteArray& encryptionKey, const QString& username);
+                     const QByteArray& encryptionKey, const QString& username,
+                     const QMap<QString, QPixmap>& videoThumbnails = QMap<QString, QPixmap>());
 
     // Public member variables (updated for multiple files)
     QStringList m_sourceFiles;
@@ -65,6 +66,7 @@ private:
     QString m_username;
     bool m_cancelled;
     QMutex m_cancelMutex;
+    QMap<QString, QPixmap> m_videoThumbnails;
 
 public:
     void cancel();

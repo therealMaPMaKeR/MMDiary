@@ -30,21 +30,25 @@
 // ============================================================================
 
 EncryptionWorker::EncryptionWorker(const QStringList& sourceFiles, const QStringList& targetFiles,
-                                   const QByteArray& encryptionKey, const QString& username)
+                                   const QByteArray& encryptionKey, const QString& username,
+                                   const QMap<QString, QPixmap>& videoThumbnails)
     : m_sourceFiles(sourceFiles)
     , m_targetFiles(targetFiles)
     , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(false)
+    , m_videoThumbnails(videoThumbnails) // ← ADD THIS LINE
 {
 }
 
 // Keep the old constructor for backward compatibility
 EncryptionWorker::EncryptionWorker(const QString& sourceFile, const QString& targetFile,
-                                   const QByteArray& encryptionKey, const QString& username)
+                                   const QByteArray& encryptionKey, const QString& username,
+                                   const QMap<QString, QPixmap>& videoThumbnails)
     : m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(false)
+    , m_videoThumbnails(videoThumbnails) // ← ADD THIS LINE
 {
     m_sourceFiles << sourceFile;
     m_targetFiles << targetFile;
@@ -71,29 +75,7 @@ void EncryptionWorker::doEncryption()
         // Determine if this is single or multiple file operation
         bool isMultipleFiles = (m_sourceFiles.size() > 1);
 
-        // *** NEW: Extract video thumbnails before encryption ***
-        QMap<QString, QPixmap> videoThumbnails;
-        for (const QString& sourceFile : m_sourceFiles) {
-            QFileInfo fileInfo(sourceFile);
-            QString extension = fileInfo.suffix().toLower();
-
-            // Check if this is a video file
-            QStringList videoExtensions = {"mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp", "mpg", "mpeg", "m2v", "divx", "xvid"};
-            if (videoExtensions.contains(extension)) {
-                qDebug() << "Extracting video thumbnail for:" << sourceFile;
-
-                // Create a FileIconProvider instance to extract thumbnail
-                FileIconProvider iconProvider;
-                QPixmap videoThumbnail = iconProvider.getVideoThumbnail(sourceFile, 64);
-
-                if (!videoThumbnail.isNull()) {
-                    videoThumbnails[sourceFile] = videoThumbnail;
-                    qDebug() << "Successfully extracted video thumbnail for:" << fileInfo.fileName();
-                } else {
-                    qDebug() << "Failed to extract video thumbnail for:" << fileInfo.fileName();
-                }
-            }
-        }
+        // *** REMOVED: Video thumbnail extraction (now done in main thread) ***
 
         // Calculate total size of all files for progress tracking
         qint64 totalSize = 0;
@@ -257,12 +239,10 @@ void EncryptionWorker::doEncryption()
             if (fileSuccess) {
                 successfulFiles.append(QFileInfo(sourceFile).fileName());
 
-                // *** NEW: Store video thumbnail in cache after successful encryption ***
-                if (videoThumbnails.contains(sourceFile)) {
-                    qDebug() << "Storing video thumbnail in cache for encrypted file:" << targetFile;
-
-                    // Signal to store the thumbnail (we'll need to add this signal)
-                    emit videoThumbnailExtracted(targetFile, videoThumbnails[sourceFile]);
+                // *** UPDATED: Use pre-extracted video thumbnail if available ***
+                if (m_videoThumbnails.contains(sourceFile)) {
+                    qDebug() << "Using pre-extracted video thumbnail for encrypted file:" << targetFile;
+                    emit videoThumbnailExtracted(targetFile, m_videoThumbnails[sourceFile]);
                 }
             } else {
                 QString fileName = QFileInfo(sourceFile).fileName();
@@ -1580,6 +1560,33 @@ void Operations_EncryptedData::encryptSelectedFile()
         }
     }
 
+    // *** NEW: Extract video thumbnails in main thread before encryption ***
+    QMap<QString, QPixmap> videoThumbnails;
+    QStringList videoExtensions = {"mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp", "mpg", "mpeg", "m2v", "divx", "xvid"};
+
+    for (const QString& sourceFile : validFiles) {
+        QFileInfo fileInfo(sourceFile);
+        QString extension = fileInfo.suffix().toLower();
+
+        // Check if this is a video file
+        if (videoExtensions.contains(extension)) {
+            qDebug() << "Pre-extracting video thumbnail for:" << sourceFile;
+
+            if (m_iconProvider) {
+                QPixmap videoThumbnail = m_iconProvider->getVideoThumbnail(sourceFile, 64);
+
+                if (!videoThumbnail.isNull()) {
+                    videoThumbnails[sourceFile] = videoThumbnail;
+                    qDebug() << "Successfully pre-extracted video thumbnail for:" << fileInfo.fileName();
+                } else {
+                    qDebug() << "Failed to pre-extract video thumbnail for:" << fileInfo.fileName();
+                }
+            } else {
+                qWarning() << "FileIconProvider not available for video thumbnail extraction";
+            }
+        }
+    }
+
     // Get username from mainwindow
     QString username = m_mainWindow->user_Username;
     QByteArray encryptionKey = m_mainWindow->user_Key;
@@ -1636,9 +1643,9 @@ void Operations_EncryptedData::encryptSelectedFile()
     m_progressDialog->setMinimumDuration(0);
     m_progressDialog->setValue(0);
 
-    // Set up worker thread
+    // Set up worker thread - PASS PRE-EXTRACTED THUMBNAILS
     m_workerThread = new QThread(this);
-    m_worker = new EncryptionWorker(validFiles, targetPaths, encryptionKey, username);
+    m_worker = new EncryptionWorker(validFiles, targetPaths, encryptionKey, username, videoThumbnails);
     m_worker->moveToThread(m_workerThread);
 
     // Connect signals - choose appropriate connections based on file count
@@ -1647,6 +1654,7 @@ void Operations_EncryptedData::encryptSelectedFile()
     connect(m_progressDialog, &QProgressDialog::canceled, this, &Operations_EncryptedData::onEncryptionCancelled);
     connect(m_worker, &EncryptionWorker::videoThumbnailExtracted,
             this, &Operations_EncryptedData::storeVideoThumbnail);
+
     if (validFiles.size() == 1) {
         // Single file - use backward compatible signal
         connect(m_worker, &EncryptionWorker::encryptionFinished, this, &Operations_EncryptedData::onEncryptionFinished);
@@ -2443,9 +2451,19 @@ void Operations_EncryptedData::populateEncryptedFilesList()
         }
     }
 
+    qDebug() << "=== BEFORE CLEANUP ===";
+    qDebug() << "About to call cleanupOrphanedThumbnails with" << allValidFilePaths.size() << "valid paths";
+    for (const QString& path : allValidFilePaths) {
+        qDebug() << "VALID PATH FOR CLEANUP:" << path;
+    }
+    qDebug() << "=== END BEFORE CLEANUP ===";
+
     // Clean up orphaned thumbnail cache entries
-    if (m_thumbnailCache) {
+    if (m_thumbnailCache && currentSortType == "All") {
+        qDebug() << "Running thumbnail cleanup (showing All files)";
         m_thumbnailCache->cleanupOrphanedThumbnails(allValidFilePaths);
+    } else {
+        qDebug() << "Skipping thumbnail cleanup (not showing All files, sort type:" << currentSortType << ")";
     }
 
     // Start lazy loading for visible items

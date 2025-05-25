@@ -109,7 +109,7 @@ AESGCM256Crypto::AESGCM256Crypto() {
 AESGCM256Crypto::AESGCM256Crypto(const std::string& customKey)
     : m_key(str2Bytes(customKey))
 {
-    qDebug() << "AESGCM256Crypto constructor called with key length:" << customKey.length() << "bytes";
+    //qDebug() << "AESGCM256Crypto constructor called with key length:" << customKey.length() << "bytes";
     try {
         validateKey(m_key);
     }
@@ -117,14 +117,14 @@ AESGCM256Crypto::AESGCM256Crypto(const std::string& customKey)
         qWarning() << "Key validation failed in constructor:" << e.what();
         throw; // Re-throw the exception
     }
-    qDebug() << "AESGCM256Crypto constructor completed successfully";
+    //qDebug() << "AESGCM256Crypto constructor completed successfully";
 }
 
 // New constructor with QByteArray
 AESGCM256Crypto::AESGCM256Crypto(const QByteArray& customKey)
     : m_key(QByteArray2Bytes(customKey))
 {
-    qDebug() << "AESGCM256Crypto constructor called with QByteArray key length:" << customKey.length() << "bytes";
+    //qDebug() << "AESGCM256Crypto constructor called with QByteArray key length:" << customKey.length() << "bytes";
     try {
         validateKey(m_key);
     }
@@ -132,7 +132,7 @@ AESGCM256Crypto::AESGCM256Crypto(const QByteArray& customKey)
         qWarning() << "Key validation failed in constructor:" << e.what();
         throw; // Re-throw the exception
     }
-    qDebug() << "AESGCM256Crypto constructor completed successfully";
+    //qDebug() << "AESGCM256Crypto constructor completed successfully";
 }
 
 AESGCM256Crypto::~AESGCM256Crypto() {
@@ -146,14 +146,14 @@ AESGCM256Crypto::~AESGCM256Crypto() {
 }
 
 void AESGCM256Crypto::validateKey(const std::vector<uint8_t>& key) {
-    qDebug() << "Validating key, size:" << key.size() << "bytes";
+    //qDebug() << "Validating key, size:" << key.size() << "bytes";
 
     if (key.size() != 32) {
         qWarning() << "Invalid key size for AES-256-GCM. Required: 32 bytes, Actual:" << key.size() << "bytes";
         throw error("AES-256 GCM key must be exactly 32 bytes (256 bits)");
     }
 
-    qDebug() << "Key validation successful";
+    //qDebug() << "Key validation successful";
 }
 
 void AESGCM256Crypto::setKey(const std::string& newKey) {
@@ -316,7 +316,7 @@ QByteArray AESGCM256Crypto::encryptBinary(const QByteArray& data, const QString&
         throw error("Encryption key is not set. Call setKey() before encrypting.");
     }
 
-    qDebug() << "encryptBinary: Input data size:" << data.size() << "bytes";
+    //qDebug() << "encryptBinary: Input data size:" << data.size() << "bytes";
 
     // Convert QByteArray directly to vector<uint8_t> for encryption
     std::vector<uint8_t> cryptoinput(data.size());
@@ -380,7 +380,7 @@ QByteArray AESGCM256Crypto::encryptBinary(const QByteArray& data, const QString&
         result.append(static_cast<char>(tag[i]));
     }
 
-    qDebug() << "encryptBinary: Output data size:" << result.size() << "bytes";
+    //qDebug() << "encryptBinary: Output data size:" << result.size() << "bytes";
     return result;
 }
 
@@ -473,7 +473,7 @@ std::vector<uint8_t> AESGCM256Crypto::generateNonce(const QString& username) {
 }
 
 std::vector<uint8_t> AESGCM256Crypto::str2Bytes(const std::string& message) {
-    qDebug() << "Converting string to bytes, length:" << message.length() << "bytes";
+    //qDebug() << "Converting string to bytes, length:" << message.length() << "bytes";
     if (message.empty()) {
         qWarning() << "Warning: Empty string passed to str2Bytes";
     }
@@ -483,13 +483,13 @@ std::vector<uint8_t> AESGCM256Crypto::str2Bytes(const std::string& message) {
         out[n] = message[n];
     }
 
-    qDebug() << "String converted to" << out.size() << "bytes";
+    //qDebug() << "String converted to" << out.size() << "bytes";
     return out;
 }
 
 // New helper method for QByteArray to vector<uint8_t> conversion
 std::vector<uint8_t> AESGCM256Crypto::QByteArray2Bytes(const QByteArray& data) {
-    qDebug() << "Converting QByteArray to bytes, length:" << data.length() << "bytes";
+    //qDebug() << "Converting QByteArray to bytes, length:" << data.length() << "bytes";
     if (data.isEmpty()) {
         qWarning() << "Warning: Empty QByteArray passed to QByteArray2Bytes";
     }
@@ -499,7 +499,7 @@ std::vector<uint8_t> AESGCM256Crypto::QByteArray2Bytes(const QByteArray& data) {
         out[n] = static_cast<uint8_t>(data[n]);
     }
 
-    qDebug() << "QByteArray converted to" << out.size() << "bytes";
+    //qDebug() << "QByteArray converted to" << out.size() << "bytes";
     return out;
 }
 
