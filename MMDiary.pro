@@ -33,6 +33,7 @@ win32 {
     # Define this to prevent OpenSSL from using DLL import/export specifiers
     DEFINES += OPENSSL_STATIC
 }
+win32:LIBS += -lole32 -lshell32 -luser32 -lgdi32 -luuid
 win32:QMAKE_LFLAGS += /NODEFAULTLIB:MSVCRT
 CONFIG(release, debug|release): DEFINES += QT_NO_DEBUG_OUTPUT QT_NO_WARNING_OUTPUT
 TEMPLATE = app

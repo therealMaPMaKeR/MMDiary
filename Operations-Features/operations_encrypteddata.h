@@ -57,6 +57,9 @@ signals:
                                      const QStringList& successfulFiles,
                                      const QStringList& failedFiles);
 
+    // *** NEW: Signal for video thumbnail extraction ***
+    void videoThumbnailExtracted(const QString& encryptedFilePath, const QPixmap& thumbnail);
+
 private:
     QByteArray m_encryptionKey;
     QString m_username;
@@ -172,7 +175,6 @@ private:
     bool isFileInUse(const QString& filePath);
     QString getTempDecryptDir();
 
-
     // New method for handling multiple file success dialog
     void showMultiFileSuccessDialog(const QStringList& originalFiles,
                                     const QStringList& successfulFiles,
@@ -216,6 +218,9 @@ public:
     void deleteSelectedFile();
 
     void secureDeleteExternalFile();
+
+    // *** NEW: Method to store video thumbnail ***
+    void storeVideoThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail);
 
 public slots:
     void onSortTypeChanged(const QString& sortType);

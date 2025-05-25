@@ -71,6 +71,30 @@ void EncryptionWorker::doEncryption()
         // Determine if this is single or multiple file operation
         bool isMultipleFiles = (m_sourceFiles.size() > 1);
 
+        // *** NEW: Extract video thumbnails before encryption ***
+        QMap<QString, QPixmap> videoThumbnails;
+        for (const QString& sourceFile : m_sourceFiles) {
+            QFileInfo fileInfo(sourceFile);
+            QString extension = fileInfo.suffix().toLower();
+
+            // Check if this is a video file
+            QStringList videoExtensions = {"mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp", "mpg", "mpeg", "m2v", "divx", "xvid"};
+            if (videoExtensions.contains(extension)) {
+                qDebug() << "Extracting video thumbnail for:" << sourceFile;
+
+                // Create a FileIconProvider instance to extract thumbnail
+                FileIconProvider iconProvider;
+                QPixmap videoThumbnail = iconProvider.getVideoThumbnail(sourceFile, 64);
+
+                if (!videoThumbnail.isNull()) {
+                    videoThumbnails[sourceFile] = videoThumbnail;
+                    qDebug() << "Successfully extracted video thumbnail for:" << fileInfo.fileName();
+                } else {
+                    qDebug() << "Failed to extract video thumbnail for:" << fileInfo.fileName();
+                }
+            }
+        }
+
         // Calculate total size of all files for progress tracking
         qint64 totalSize = 0;
         QList<qint64> fileSizes;
@@ -232,6 +256,14 @@ void EncryptionWorker::doEncryption()
 
             if (fileSuccess) {
                 successfulFiles.append(QFileInfo(sourceFile).fileName());
+
+                // *** NEW: Store video thumbnail in cache after successful encryption ***
+                if (videoThumbnails.contains(sourceFile)) {
+                    qDebug() << "Storing video thumbnail in cache for encrypted file:" << targetFile;
+
+                    // Signal to store the thumbnail (we'll need to add this signal)
+                    emit videoThumbnailExtracted(targetFile, videoThumbnails[sourceFile]);
+                }
             } else {
                 QString fileName = QFileInfo(sourceFile).fileName();
                 failedFiles.append(QString("%1 (encryption failed)").arg(fileName));
@@ -289,6 +321,7 @@ void EncryptionWorker::doEncryption()
         }
     }
 }
+
 
 void EncryptionWorker::cancel()
 {
@@ -654,7 +687,6 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemDoubleClicked,
             this, &Operations_EncryptedData::onFileListDoubleClicked);
 
-
     // Set initial button states (disabled since no files loaded yet)
     updateButtonStates();
 
@@ -683,7 +715,7 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     connect(m_mainWindow->ui->listWidget_DataENC_FileList->verticalScrollBar(), &QScrollBar::valueChanged,
             this, &Operations_EncryptedData::onListScrolled);
 
-        onSortTypeChanged("All");
+    onSortTypeChanged("All");
 }
 
 Operations_EncryptedData::~Operations_EncryptedData()
@@ -1613,7 +1645,8 @@ void Operations_EncryptedData::encryptSelectedFile()
     connect(m_workerThread, &QThread::started, m_worker, &EncryptionWorker::doEncryption);
     connect(m_worker, &EncryptionWorker::progressUpdated, this, &Operations_EncryptedData::onEncryptionProgress);
     connect(m_progressDialog, &QProgressDialog::canceled, this, &Operations_EncryptedData::onEncryptionCancelled);
-
+    connect(m_worker, &EncryptionWorker::videoThumbnailExtracted,
+            this, &Operations_EncryptedData::storeVideoThumbnail);
     if (validFiles.size() == 1) {
         // Single file - use backward compatible signal
         connect(m_worker, &EncryptionWorker::encryptionFinished, this, &Operations_EncryptedData::onEncryptionFinished);
@@ -1747,32 +1780,53 @@ QString Operations_EncryptedData::determineFileType(const QString& filePath)
     QFileInfo fileInfo(filePath);
     QString extension = fileInfo.suffix().toLower();
 
-    // Video files
-    QStringList videoExtensions = {"mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp"};
+    // Video files - expanded list for better Windows thumbnail support
+    QStringList videoExtensions = {
+        "mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp",
+        "mpg", "mpeg", "m2v", "divx", "xvid", "asf", "rm", "rmvb", "vob",
+        "ts", "mts", "m2ts", "f4v", "ogv", "mxf", "dv", "m1v", "mp2v",
+        "3g2", "3gp2", "amv", "dnxhd", "prores"
+    };
     if (videoExtensions.contains(extension)) {
         return "Video";
     }
 
     // Image files
-    QStringList imageExtensions = {"jpg", "jpeg", "png", "gif", "bmp", "tiff", "svg", "ico", "webp"};
+    QStringList imageExtensions = {
+        "jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "svg", "ico",
+        "webp", "heic", "heif", "raw", "cr2", "nef", "arw", "dng", "psd",
+        "xcf", "eps", "ai", "indd"
+    };
     if (imageExtensions.contains(extension)) {
         return "Image";
     }
 
     // Audio files
-    QStringList audioExtensions = {"mp3", "wav", "flac", "aac", "ogg", "wma", "m4a"};
+    QStringList audioExtensions = {
+        "mp3", "wav", "flac", "aac", "ogg", "wma", "m4a", "ape", "ac3",
+        "dts", "opus", "aiff", "au", "ra", "amr", "3ga", "caf", "m4b",
+        "m4p", "m4r", "oga", "mogg", "xm", "it", "s3m", "mod"
+    };
     if (audioExtensions.contains(extension)) {
         return "Audio";
     }
 
     // Document files
-    QStringList documentExtensions = {"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", "odt"};
+    QStringList documentExtensions = {
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf",
+        "odt", "ods", "odp", "pages", "numbers", "key", "tex", "md",
+        "epub", "mobi", "azw", "azw3", "fb2", "lit", "pdb", "tcr", "lrf"
+    };
     if (documentExtensions.contains(extension)) {
         return "Document";
     }
 
     // Archive files
-    QStringList archiveExtensions = {"zip", "rar", "7z", "tar", "gz", "bz2"};
+    QStringList archiveExtensions = {
+        "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "lzma", "cab",
+        "iso", "dmg", "img", "nrg", "mdf", "cue", "bin", "deb", "rpm",
+        "pkg", "apk", "ipa", "msi", "exe" // executable archives
+    };
     if (archiveExtensions.contains(extension)) {
         return "Archive";
     }
@@ -2330,16 +2384,17 @@ void Operations_EncryptedData::populateEncryptedFilesList()
                 // Set file information
                 customWidget->setFileInfo(originalFilename, encryptedFilePath, dirName);
 
-                // Check if we have a cached thumbnail for images
+                // Check if we have a cached thumbnail
                 QPixmap icon;
                 bool hasCachedThumbnail = false;
 
-                if (dirName == "Image") {
-                    qDebug() << "=== Processing image file ===";
-                    qDebug() << "Original filename:" << originalFilename;
-                    qDebug() << "Encrypted file path:" << encryptedFilePath;
+                if (m_thumbnailCache) {
+                    // Check for cached thumbnails for both images and videos
+                    if (dirName == "Image" || dirName == "Video") {
+                        qDebug() << "=== Processing" << dirName.toLower() << "file ===";
+                        qDebug() << "Original filename:" << originalFilename;
+                        qDebug() << "Encrypted file path:" << encryptedFilePath;
 
-                    if (m_thumbnailCache != nullptr) {
                         qDebug() << "Checking for cached thumbnail...";
                         hasCachedThumbnail = m_thumbnailCache->hasThumbnail(encryptedFilePath);
                         qDebug() << "hasThumbnail result:" << hasCachedThumbnail;
@@ -2355,8 +2410,6 @@ void Operations_EncryptedData::populateEncryptedFilesList()
                         } else {
                             qDebug() << "No cached thumbnail found for:" << originalFilename;
                         }
-                    } else {
-                        qWarning() << "m_thumbnailCache is null!";
                     }
                 }
 
@@ -2381,8 +2434,8 @@ void Operations_EncryptedData::populateEncryptedFilesList()
                 m_mainWindow->ui->listWidget_DataENC_FileList->addItem(item);
                 m_mainWindow->ui->listWidget_DataENC_FileList->setItemWidget(item, customWidget);
 
-                // Add to pending thumbnails if it's an image without cached thumbnail
-                if (dirName == "Image" && m_thumbnailCache && !m_thumbnailCache->hasThumbnail(encryptedFilePath)) {
+                // Add to pending thumbnails if it's an image or video without cached thumbnail
+                if ((dirName == "Image" || dirName == "Video") && m_thumbnailCache && !m_thumbnailCache->hasThumbnail(encryptedFilePath)) {
                     m_pendingThumbnailItems.append(item);
                     qDebug() << "Added to pending thumbnails:" << originalFilename;
                 }
@@ -2524,20 +2577,23 @@ void Operations_EncryptedData::secureDeleteExternalFile()
 
 QPixmap Operations_EncryptedData::getIconForFileType(const QString& originalFilename, const QString& fileType)
 {
-    // Temporary simple implementation to avoid the crash
     QPixmap icon;
 
-    // Use Qt's standard icons as fallback for now
-    if (fileType == "Image") {
-        icon = QApplication::style()->standardIcon(QStyle::SP_FileIcon).pixmap(64, 64);
-    } else if (fileType == "Video") {
-        icon = QApplication::style()->standardIcon(QStyle::SP_MediaPlay).pixmap(64, 64);
+    if (fileType == "Video") {
+        // For videos, check if we have a cached thumbnail first
+        // (This will be set during encryption process)
+        // For now, return default video icon - thumbnail will be loaded by lazy loading
+        icon = m_iconProvider->getDefaultVideoIcon(EncryptedFileItemWidget::getIconSize());
+    } else if (fileType == "Image") {
+        icon = m_iconProvider->getDefaultImageIcon(EncryptedFileItemWidget::getIconSize());
     } else if (fileType == "Audio") {
-        icon = QApplication::style()->standardIcon(QStyle::SP_MediaPlay).pixmap(64, 64);
+        icon = m_iconProvider->getDefaultAudioIcon(EncryptedFileItemWidget::getIconSize());
     } else if (fileType == "Document") {
-        icon = QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView).pixmap(64, 64);
+        icon = m_iconProvider->getDefaultDocumentIcon(EncryptedFileItemWidget::getIconSize());
+    } else if (fileType == "Archive") {
+        icon = m_iconProvider->getDefaultArchiveIcon(EncryptedFileItemWidget::getIconSize());
     } else {
-        icon = QApplication::style()->standardIcon(QStyle::SP_FileIcon).pixmap(64, 64);
+        icon = m_iconProvider->getDefaultFileIcon(EncryptedFileItemWidget::getIconSize());
     }
 
     return icon;
@@ -2610,9 +2666,13 @@ void Operations_EncryptedData::generateThumbnailForItem(QListWidgetItem* item)
     QString fileType = item->data(Qt::UserRole + 1).toString();
     QString originalFilename = item->data(Qt::UserRole + 2).toString();
 
-    // Only generate thumbnails for images for now
+    // Generate thumbnails for both images and videos
     if (fileType == "Image") {
         generateImageThumbnail(encryptedFilePath, originalFilename);
+    } else if (fileType == "Video") {
+        // For videos, we should already have the thumbnail cached from encryption
+        // If not, we can't generate it from the encrypted file, so just use default icon
+        qDebug() << "Video file without cached thumbnail (expected after encryption):" << originalFilename;
     }
 }
 
@@ -2787,5 +2847,23 @@ void Operations_EncryptedData::updateItemThumbnail(const QString& encryptedFileP
             }
             break;
         }
+    }
+}
+
+void Operations_EncryptedData::storeVideoThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail)
+{
+    if (!m_thumbnailCache || thumbnail.isNull()) {
+        return;
+    }
+
+    qDebug() << "Storing video thumbnail for encrypted file:" << encryptedFilePath;
+
+    if (m_thumbnailCache->storeThumbnail(encryptedFilePath, thumbnail)) {
+        qDebug() << "Successfully stored video thumbnail in cache";
+
+        // Update the UI if this file is currently visible
+        updateItemThumbnail(encryptedFilePath, thumbnail);
+    } else {
+        qWarning() << "Failed to store video thumbnail in cache";
     }
 }
