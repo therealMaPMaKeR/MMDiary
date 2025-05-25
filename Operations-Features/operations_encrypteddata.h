@@ -14,6 +14,11 @@
 #include "../mainwindow.h"
 #include "../Operations-Global/operations.h"
 #include "../Operations-Global/inputvalidation.h"
+#include "../CustomWidgets/encryptedfileitemwidget.h"
+#include "../Operations-Global/fileiconprovider.h"
+#include "../Operations-Global/thumbnailcache.h"
+#include <QScrollBar>
+#include <QTimer>
 
 class MainWindow;
 
@@ -173,6 +178,28 @@ private:
                                     const QStringList& successfulFiles,
                                     const QStringList& failedFiles);
 
+    // Icon and thumbnail management
+    ThumbnailCache* m_thumbnailCache = nullptr;
+    FileIconProvider* m_iconProvider = nullptr;
+
+    // Lazy loading management
+    QTimer* m_lazyLoadTimer = nullptr;
+    QList<QListWidgetItem*> m_pendingThumbnailItems;
+
+    // Thumbnail generation
+    void generateThumbnailForItem(QListWidgetItem* item);
+    void generateImageThumbnail(const QString& encryptedFilePath, const QString& originalFilename);
+    QPixmap createImageThumbnail(const QString& tempImagePath, int size = 64);
+
+    // Icon management
+    QPixmap getIconForFileType(const QString& originalFilename, const QString& fileType);
+
+    // Lazy loading
+    void checkVisibleItems();
+    void startLazyLoadTimer();
+
+    void updateItemThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail);
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();
@@ -218,6 +245,9 @@ private slots:
     void onMultiFileEncryptionFinished(bool success, const QString& errorMessage,
                                        const QStringList& successfulFiles,
                                        const QStringList& failedFiles);
+
+    void onLazyLoadTimeout();
+    void onListScrolled();
 };
 
 #endif // OPERATIONS_ENCRYPTEDDATA_H

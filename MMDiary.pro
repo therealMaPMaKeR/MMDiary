@@ -33,7 +33,7 @@ win32 {
     # Define this to prevent OpenSSL from using DLL import/export specifiers
     DEFINES += OPENSSL_STATIC
 }
-
+win32:QMAKE_LFLAGS += /NODEFAULTLIB:MSVCRT
 CONFIG(release, debug|release): DEFINES += QT_NO_DEBUG_OUTPUT QT_NO_WARNING_OUTPUT
 TEMPLATE = app
 #CONFIG += console
@@ -45,6 +45,7 @@ SOURCES += \
     CustomWidgets/custom_qcheckboxwidget.cpp \
     CustomWidgets/custom_qlistwidget_task.cpp \
     CustomWidgets/custom_qtabwidget_main.cpp \
+    CustomWidgets/encryptedfileitemwidget.cpp \
     Operations-Features/operations_diary.cpp \
     Operations-Features/operations_encrypteddata.cpp \
     Operations-Features/operations_passwordmanager.cpp \
@@ -52,11 +53,13 @@ SOURCES += \
     Operations-Features/operations_tasklists.cpp \
     Operations-Global/CryptoUtils.cpp \
     Operations-Global/default_usersettings.cpp \
+    Operations-Global/fileiconprovider.cpp \
     Operations-Global/inputvalidation.cpp \
     Operations-Global/operations.cpp \
     Operations-Global/operations_files.cpp \
     Operations-Global/passwordvalidation.cpp \
     Operations-Global/sqlite-database-impl.cpp \
+    Operations-Global/thumbnailcache.cpp \
     QT_AESGCM256/aesgcm256.cpp \
     changepassword.cpp \
     constants.cpp \
@@ -71,6 +74,7 @@ HEADERS += \
     CustomWidgets/custom_qcheckboxwidget.h \
     CustomWidgets/custom_qlistwidget_task.h \
     CustomWidgets/custom_qtabwidget_main.h \
+    CustomWidgets/encryptedfileitemwidget.h \
     Operations-Features/operations_diary.h \
     Operations-Features/operations_encrypteddata.h \
     Operations-Features/operations_passwordmanager.h \
@@ -78,11 +82,13 @@ HEADERS += \
     Operations-Features/operations_tasklists.h \
     Operations-Global/CryptoUtils.h \
     Operations-Global/default_usersettings.h \
+    Operations-Global/fileiconprovider.h \
     Operations-Global/inputvalidation.h \
     Operations-Global/operations.h \
     Operations-Global/operations_files.h \
     Operations-Global/passwordvalidation.h \
     Operations-Global/sqlite-database-handler.h \
+    Operations-Global/thumbnailcache.h \
     QT_AESGCM256/aesgcm256.h \
     changepassword.h \
     constants.h \

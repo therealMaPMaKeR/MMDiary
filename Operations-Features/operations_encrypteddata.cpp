@@ -2,6 +2,10 @@
 #include "../Operations-Global/CryptoUtils.h"
 #include "../Operations-Global/operations_files.h"
 #include "../constants.h"
+#include "../CustomWidgets/encryptedfileitemwidget.h"
+#include "../Operations-Global/fileiconprovider.h"
+#include "../Operations-Global/thumbnailcache.h"
+#include "qpainter.h"
 #include "ui_mainwindow.h"
 #include <QDir>
 #include <QFileInfo>
@@ -650,7 +654,6 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemDoubleClicked,
             this, &Operations_EncryptedData::onFileListDoubleClicked);
 
-    onSortTypeChanged("All");
 
     // Set initial button states (disabled since no files loaded yet)
     updateButtonStates();
@@ -660,6 +663,27 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
 
     // Clean up any orphaned temp files from previous sessions
     cleanupTempFiles();
+
+    // Initialize icon provider and thumbnail cache
+    qDebug() << "About to create FileIconProvider...";
+    m_iconProvider = new FileIconProvider(this);
+    qDebug() << "FileIconProvider created, address:" << m_iconProvider;
+
+    qDebug() << "About to create ThumbnailCache...";
+    m_thumbnailCache = new ThumbnailCache(m_mainWindow->user_Username, m_mainWindow->user_Key, this);
+    qDebug() << "ThumbnailCache created, address:" << m_thumbnailCache;
+
+    // Initialize lazy loading timer
+    m_lazyLoadTimer = new QTimer(this);
+    m_lazyLoadTimer->setSingleShot(true);
+    m_lazyLoadTimer->setInterval(100); // 100ms delay for lazy loading
+    connect(m_lazyLoadTimer, &QTimer::timeout, this, &Operations_EncryptedData::onLazyLoadTimeout);
+
+    // Connect scroll events for lazy loading
+    connect(m_mainWindow->ui->listWidget_DataENC_FileList->verticalScrollBar(), &QScrollBar::valueChanged,
+            this, &Operations_EncryptedData::onListScrolled);
+
+        onSortTypeChanged("All");
 }
 
 Operations_EncryptedData::~Operations_EncryptedData()
@@ -2247,12 +2271,15 @@ QString Operations_EncryptedData::mapDirectoryToSortType(const QString& director
 
 void Operations_EncryptedData::populateEncryptedFilesList()
 {
-    // Clear the current list
+    // Clear the current list and pending items
     m_mainWindow->ui->listWidget_DataENC_FileList->clear();
+    m_pendingThumbnailItems.clear();
 
     // Get current sort type from combo box
     QString currentSortType = m_mainWindow->ui->comboBox_DataENC_SortType->currentText();
     QString username = m_mainWindow->user_Username;
+
+    qDebug() << "Populating list for user:" << username << "sort type:" << currentSortType;
 
     // Build base path to encrypted data
     QString basePath = QDir::current().absoluteFilePath("Data");
@@ -2261,7 +2288,6 @@ void Operations_EncryptedData::populateEncryptedFilesList()
 
     QDir encDataDir(encDataPath);
     if (!encDataDir.exists()) {
-        // No encrypted data directory exists yet
         qDebug() << "EncryptedData directory doesn't exist for user:" << username;
         return;
     }
@@ -2269,13 +2295,14 @@ void Operations_EncryptedData::populateEncryptedFilesList()
     QStringList directoriesToScan;
 
     if (currentSortType == "All") {
-        // Scan all subdirectories
         directoriesToScan << "Document" << "Image" << "Audio" << "Video" << "Archive" << "Other";
     } else {
-        // Scan only the specific directory
         QString mappedDirectory = mapSortTypeToDirectory(currentSortType);
         directoriesToScan << mappedDirectory;
     }
+
+    // Collect all valid file paths for cache cleanup
+    QStringList allValidFilePaths;
 
     // Scan each directory for encrypted files
     for (const QString& dirName : directoriesToScan) {
@@ -2283,10 +2310,9 @@ void Operations_EncryptedData::populateEncryptedFilesList()
         QDir dir(dirPath);
 
         if (!dir.exists()) {
-            continue; // Skip non-existent directories
+            continue;
         }
 
-        // Get all .mmenc files in this directory
         QStringList filters;
         filters << "*.mmenc";
         QFileInfoList fileList = dir.entryInfoList(filters, QDir::Files | QDir::Readable, QDir::Name);
@@ -2296,32 +2322,88 @@ void Operations_EncryptedData::populateEncryptedFilesList()
             QString originalFilename = getOriginalFilename(encryptedFilePath);
 
             if (!originalFilename.isEmpty()) {
-                // Create list item with original filename as display text
-                QListWidgetItem* item = new QListWidgetItem(originalFilename);
+                allValidFilePaths.append(encryptedFilePath);
 
-                // Store the encrypted file path and directory type as user data
-                item->setData(Qt::UserRole, encryptedFilePath);
-                item->setData(Qt::UserRole + 1, dirName);
+                // Create custom widget for this file
+                EncryptedFileItemWidget* customWidget = new EncryptedFileItemWidget();
 
-                // Add type prefix if showing "All" to help user identify file types
-                if (currentSortType == "All") {
-                    QString displayName = QString("[%1] %2").arg(
-                        dirName == "Document" ? "Text" : dirName, originalFilename);
-                    item->setText(displayName);
+                // Set file information
+                customWidget->setFileInfo(originalFilename, encryptedFilePath, dirName);
+
+                // Check if we have a cached thumbnail for images
+                QPixmap icon;
+                bool hasCachedThumbnail = false;
+
+                if (dirName == "Image") {
+                    qDebug() << "=== Processing image file ===";
+                    qDebug() << "Original filename:" << originalFilename;
+                    qDebug() << "Encrypted file path:" << encryptedFilePath;
+
+                    if (m_thumbnailCache != nullptr) {
+                        qDebug() << "Checking for cached thumbnail...";
+                        hasCachedThumbnail = m_thumbnailCache->hasThumbnail(encryptedFilePath);
+                        qDebug() << "hasThumbnail result:" << hasCachedThumbnail;
+
+                        if (hasCachedThumbnail) {
+                            qDebug() << "Loading cached thumbnail...";
+                            icon = m_thumbnailCache->getThumbnail(encryptedFilePath, EncryptedFileItemWidget::getIconSize());
+                            if (!icon.isNull()) {
+                                qDebug() << "Successfully loaded cached thumbnail for:" << originalFilename;
+                            } else {
+                                qWarning() << "Failed to load cached thumbnail for:" << originalFilename;
+                            }
+                        } else {
+                            qDebug() << "No cached thumbnail found for:" << originalFilename;
+                        }
+                    } else {
+                        qWarning() << "m_thumbnailCache is null!";
+                    }
                 }
 
+                // If no cached thumbnail, use default icon
+                if (icon.isNull()) {
+                    icon = getIconForFileType(originalFilename, dirName);
+                }
+
+                customWidget->setIcon(icon);
+
+                // Create list widget item
+                QListWidgetItem* item = new QListWidgetItem();
+                item->setData(Qt::UserRole, encryptedFilePath);
+                item->setData(Qt::UserRole + 1, dirName);
+                item->setData(Qt::UserRole + 2, originalFilename);
+
+                // Set item size to accommodate custom widget
+                int itemHeight = EncryptedFileItemWidget::getIconSize() + 8; // icon size + padding
+                item->setSizeHint(QSize(0, itemHeight));
+
+                // Add item to list and set custom widget
                 m_mainWindow->ui->listWidget_DataENC_FileList->addItem(item);
-            } else {
-                qWarning() << "Failed to extract filename from:" << encryptedFilePath;
+                m_mainWindow->ui->listWidget_DataENC_FileList->setItemWidget(item, customWidget);
+
+                // Add to pending thumbnails if it's an image without cached thumbnail
+                if (dirName == "Image" && m_thumbnailCache && !m_thumbnailCache->hasThumbnail(encryptedFilePath)) {
+                    m_pendingThumbnailItems.append(item);
+                    qDebug() << "Added to pending thumbnails:" << originalFilename;
+                }
             }
         }
     }
 
-    // Update list widget to show results
-    int itemCount = m_mainWindow->ui->listWidget_DataENC_FileList->count();
-    qDebug() << "Populated encrypted files list with" << itemCount << "items for sort type:" << currentSortType;
+    // Clean up orphaned thumbnail cache entries
+    if (m_thumbnailCache) {
+        m_thumbnailCache->cleanupOrphanedThumbnails(allValidFilePaths);
+    }
+
+    // Start lazy loading for visible items
+    startLazyLoadTimer();
+
     // Update button states after populating the list
     updateButtonStates();
+
+    qDebug() << "Populated encrypted files list with" << m_mainWindow->ui->listWidget_DataENC_FileList->count()
+             << "items for sort type:" << currentSortType
+             << "Pending thumbnails:" << m_pendingThumbnailItems.size();
 }
 
 void Operations_EncryptedData::onSortTypeChanged(const QString& sortType)
@@ -2436,4 +2518,274 @@ void Operations_EncryptedData::secureDeleteExternalFile()
         qWarning() << "Secure deletion failed:" << filePath;
     }
 
+}
+
+// Thumbnail Generation
+
+QPixmap Operations_EncryptedData::getIconForFileType(const QString& originalFilename, const QString& fileType)
+{
+    // Temporary simple implementation to avoid the crash
+    QPixmap icon;
+
+    // Use Qt's standard icons as fallback for now
+    if (fileType == "Image") {
+        icon = QApplication::style()->standardIcon(QStyle::SP_FileIcon).pixmap(64, 64);
+    } else if (fileType == "Video") {
+        icon = QApplication::style()->standardIcon(QStyle::SP_MediaPlay).pixmap(64, 64);
+    } else if (fileType == "Audio") {
+        icon = QApplication::style()->standardIcon(QStyle::SP_MediaPlay).pixmap(64, 64);
+    } else if (fileType == "Document") {
+        icon = QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView).pixmap(64, 64);
+    } else {
+        icon = QApplication::style()->standardIcon(QStyle::SP_FileIcon).pixmap(64, 64);
+    }
+
+    return icon;
+}
+
+void Operations_EncryptedData::startLazyLoadTimer()
+{
+    if (m_lazyLoadTimer && !m_pendingThumbnailItems.isEmpty()) {
+        m_lazyLoadTimer->start();
+    }
+}
+
+void Operations_EncryptedData::onLazyLoadTimeout()
+{
+    checkVisibleItems();
+}
+
+void Operations_EncryptedData::onListScrolled()
+{
+    // Restart the lazy load timer when user scrolls
+    if (m_lazyLoadTimer) {
+        m_lazyLoadTimer->start();
+    }
+}
+
+void Operations_EncryptedData::checkVisibleItems()
+{
+    if (!m_mainWindow || !m_mainWindow->ui->listWidget_DataENC_FileList) {
+        return;
+    }
+
+    QListWidget* listWidget = m_mainWindow->ui->listWidget_DataENC_FileList;
+
+    // Get visible area
+    QRect visibleRect = listWidget->viewport()->rect();
+
+    // Check each pending thumbnail item
+    QList<QListWidgetItem*> itemsToProcess;
+    for (QListWidgetItem* item : m_pendingThumbnailItems) {
+        if (!item) continue;
+
+        QRect itemRect = listWidget->visualItemRect(item);
+        if (visibleRect.intersects(itemRect)) {
+            itemsToProcess.append(item);
+        }
+
+        // Limit processing to avoid blocking the UI
+        if (itemsToProcess.size() >= 3) {
+            break;
+        }
+    }
+
+    // Process visible items
+    for (QListWidgetItem* item : itemsToProcess) {
+        generateThumbnailForItem(item);
+        m_pendingThumbnailItems.removeOne(item);
+    }
+
+    // Continue processing if there are more items
+    if (!m_pendingThumbnailItems.isEmpty() && m_lazyLoadTimer) {
+        m_lazyLoadTimer->start();
+    }
+}
+
+void Operations_EncryptedData::generateThumbnailForItem(QListWidgetItem* item)
+{
+    if (!item) return;
+
+    QString encryptedFilePath = item->data(Qt::UserRole).toString();
+    QString fileType = item->data(Qt::UserRole + 1).toString();
+    QString originalFilename = item->data(Qt::UserRole + 2).toString();
+
+    // Only generate thumbnails for images for now
+    if (fileType == "Image") {
+        generateImageThumbnail(encryptedFilePath, originalFilename);
+    }
+}
+
+void Operations_EncryptedData::generateImageThumbnail(const QString& encryptedFilePath, const QString& originalFilename)
+{
+    if (!m_thumbnailCache) {
+        qWarning() << "ThumbnailCache not available for thumbnail generation";
+        return;
+    }
+
+    qDebug() << "Generating thumbnail for:" << originalFilename;
+
+    // Create a temporary file for decryption
+    QString tempDir = QDir::tempPath();
+    QString tempFileName = QString("temp_thumb_%1_%2").arg(
+                                                          QDateTime::currentMSecsSinceEpoch()).arg(QFileInfo(originalFilename).fileName());
+    QString tempFilePath = QDir(tempDir).absoluteFilePath(tempFileName);
+
+    try {
+        // Decrypt the image file to temp location
+        QByteArray encryptionKey = m_mainWindow->user_Key;
+
+        // Validate encryption key
+        if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey)) {
+            qWarning() << "Invalid encryption key for thumbnail generation:" << encryptedFilePath;
+            return;
+        }
+
+        // Read and decrypt the file
+        QFile encryptedFile(encryptedFilePath);
+        if (!encryptedFile.open(QIODevice::ReadOnly)) {
+            qWarning() << "Failed to open encrypted file for thumbnail:" << encryptedFilePath;
+            return;
+        }
+
+        // Skip the filename header
+        quint32 filenameLength = 0;
+        if (encryptedFile.read(reinterpret_cast<char*>(&filenameLength), sizeof(filenameLength)) != sizeof(filenameLength)) {
+            qWarning() << "Failed to read filename length for thumbnail";
+            return;
+        }
+
+        if (filenameLength == 0 || filenameLength > 1000) {
+            qWarning() << "Invalid filename length for thumbnail:" << filenameLength;
+            return;
+        }
+
+        // Skip the filename bytes
+        if (encryptedFile.read(filenameLength).size() != static_cast<int>(filenameLength)) {
+            qWarning() << "Failed to skip filename for thumbnail";
+            return;
+        }
+
+        // Read and decrypt the image data in chunks
+        QFile tempFile(tempFilePath);
+        if (!tempFile.open(QIODevice::WriteOnly)) {
+            qWarning() << "Failed to create temp file for thumbnail:" << tempFilePath;
+            return;
+        }
+
+        while (!encryptedFile.atEnd()) {
+            // Read chunk size
+            quint32 chunkSize = 0;
+            qint64 bytesRead = encryptedFile.read(reinterpret_cast<char*>(&chunkSize), sizeof(chunkSize));
+            if (bytesRead == 0) {
+                break; // End of file
+            }
+            if (bytesRead != sizeof(chunkSize)) {
+                qWarning() << "Failed to read chunk size for thumbnail";
+                break;
+            }
+
+            if (chunkSize == 0 || chunkSize > 10 * 1024 * 1024) { // Max 10MB per chunk
+                qWarning() << "Invalid chunk size for thumbnail:" << chunkSize;
+                break;
+            }
+
+            // Read encrypted chunk data
+            QByteArray encryptedChunk = encryptedFile.read(chunkSize);
+            if (encryptedChunk.size() != static_cast<int>(chunkSize)) {
+                qWarning() << "Failed to read complete encrypted chunk for thumbnail";
+                break;
+            }
+
+            // Decrypt chunk
+            QByteArray decryptedChunk = CryptoUtils::Encryption_DecryptBArray(encryptionKey, encryptedChunk);
+            if (decryptedChunk.isEmpty()) {
+                qWarning() << "Decryption failed for thumbnail chunk";
+                break;
+            }
+
+            // Write decrypted chunk
+            tempFile.write(decryptedChunk);
+        }
+
+        encryptedFile.close();
+        tempFile.close();
+
+        // Generate thumbnail from temp file
+        QPixmap thumbnail = createImageThumbnail(tempFilePath, EncryptedFileItemWidget::getIconSize());
+
+        if (!thumbnail.isNull()) {
+            // Cache the thumbnail
+            if (m_thumbnailCache->storeThumbnail(encryptedFilePath, thumbnail)) {
+                qDebug() << "Successfully generated and cached thumbnail for:" << originalFilename;
+
+                // Update the UI with the new thumbnail
+                updateItemThumbnail(encryptedFilePath, thumbnail);
+            } else {
+                qWarning() << "Failed to cache thumbnail for:" << originalFilename;
+            }
+        } else {
+            qWarning() << "Failed to create thumbnail from:" << tempFilePath;
+        }
+
+    } catch (const std::exception& e) {
+        qWarning() << "Exception during thumbnail generation:" << e.what();
+    } catch (...) {
+        qWarning() << "Unknown exception during thumbnail generation";
+    }
+
+    // Clean up temp file
+    if (QFile::exists(tempFilePath)) {
+        QFile::remove(tempFilePath);
+    }
+}
+
+QPixmap Operations_EncryptedData::createImageThumbnail(const QString& tempImagePath, int size)
+{
+    QPixmap originalPixmap;
+    if (!originalPixmap.load(tempImagePath)) {
+        qWarning() << "Failed to load image for thumbnail:" << tempImagePath;
+        return QPixmap();
+    }
+
+    // Create thumbnail with proper aspect ratio
+    QPixmap thumbnail = originalPixmap.scaled(size, size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+    // Add a subtle border to make thumbnails look more polished
+    QPixmap borderedThumbnail(size, size);
+    borderedThumbnail.fill(Qt::transparent);
+
+    QPainter painter(&borderedThumbnail);
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    // Center the thumbnail
+    int x = (size - thumbnail.width()) / 2;
+    int y = (size - thumbnail.height()) / 2;
+
+    // Draw thumbnail
+    painter.drawPixmap(x, y, thumbnail);
+
+    // Draw subtle border
+    painter.setPen(QPen(QColor(100, 100, 100), 1));
+    painter.drawRect(x, y, thumbnail.width() - 1, thumbnail.height() - 1);
+
+    return borderedThumbnail;
+}
+
+void Operations_EncryptedData::updateItemThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail)
+{
+    // Find the item in the list and update its thumbnail
+    QListWidget* listWidget = m_mainWindow->ui->listWidget_DataENC_FileList;
+
+    for (int i = 0; i < listWidget->count(); ++i) {
+        QListWidgetItem* item = listWidget->item(i);
+        if (item && item->data(Qt::UserRole).toString() == encryptedFilePath) {
+            EncryptedFileItemWidget* widget = qobject_cast<EncryptedFileItemWidget*>(listWidget->itemWidget(item));
+            if (widget) {
+                widget->setIcon(thumbnail);
+                qDebug() << "Updated thumbnail in UI for:" << widget->getOriginalFilename();
+            }
+            break;
+        }
+    }
 }
