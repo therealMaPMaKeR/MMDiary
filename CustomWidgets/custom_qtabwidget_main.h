@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <QTabWidget>
 #include <QTabBar>
+#include <QSet>
 
 class custom_QTabWidget_Main : public QTabWidget
 {
@@ -11,7 +12,7 @@ class custom_QTabWidget_Main : public QTabWidget
 public:
     explicit custom_QTabWidget_Main(QWidget *parent = nullptr);
 
-    // Allow setting whether password validation is required
+    // Allow setting whether password validation is required for specific tabs
     void setRequirePasswordForTab(int tabIndex, bool required);
 
     // Add a method to set the settings tab index
@@ -29,9 +30,8 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
-    int m_passwordProtectedTab = 2; // Default to tab index 2 (Passwords)
-    bool m_requirePassword = true;  // Whether password validation is required
-    int m_settingsTabIndex = 3;     // Settings tab index (default to 3)
+    QSet<int> m_passwordProtectedTabs; // Set of tab indices that require password
+    int m_settingsTabIndex = 3;       // Settings tab index (default to 3)
 };
 
 #endif // CUSTOM_QTABWIDGET_MAIN_H

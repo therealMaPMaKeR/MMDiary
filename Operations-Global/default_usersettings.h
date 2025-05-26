@@ -30,10 +30,14 @@ const QString DEFAULT_PWMAN_DEF_SORTING_METHOD = "Password";
 const QString DEFAULT_PWMAN_REQ_PASSWORD = "0";
 const QString DEFAULT_PWMAN_HIDE_PASSWORDS = "0";
 
+// Encrypted Data Settings
+const QString DEFAULT_DATAENC_REQ_PASSWORD = "0";
+
 bool SetDefault_GlobalSettings(QString username);
 bool SetDefault_DiarySettings(QString username);
 bool SetDefault_TasklistsSettings(QString username);
 bool SetDefault_PWManagerSettings(QString username);
+bool SetDefault_EncryptedDataSettings(QString username);
 bool SetAllDefaults(QString username);
 };
 

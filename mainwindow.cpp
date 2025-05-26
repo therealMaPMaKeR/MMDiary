@@ -99,7 +99,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Set the settings tab index and password tab index
     ui->tabWidget_Main->setSettingsTabIndex(3); // Assuming 3 is the index of the settings tab
-    ui->tabWidget_Main->setRequirePasswordForTab(2, setting_PWMan_ReqPassword);
+    ui->tabWidget_Main->setRequirePasswordForTab(2, setting_PWMan_ReqPassword);     // Password Manager tab
+    ui->tabWidget_Main->setRequirePasswordForTab(4, setting_DataENC_ReqPassword);  // Encrypted Data tab
 
     connect(ui->tabWidget_Main, &QTabWidget::currentChanged,
             this, &MainWindow::onTabChanged);
@@ -200,6 +201,10 @@ void MainWindow::ApplySettings()
     Operations_Diary_ptr->UpdateDisplayName();
     Operations_Diary_ptr->UpdateDelegate();
     Operations_Diary_ptr->DiaryLoader(); // reload diaries
+
+    // Update password protection settings for tabs
+    ui->tabWidget_Main->setRequirePasswordForTab(2, setting_PWMan_ReqPassword);     // Password Manager tab
+    ui->tabWidget_Main->setRequirePasswordForTab(4, setting_DataENC_ReqPassword);  // Encrypted Data tab
 }
 
 void MainWindow::showAndActivate() {
@@ -619,6 +624,30 @@ void MainWindow::on_checkBox_PWMan_ReqPW_stateChanged(int arg1)
 }
 
 //Encrypted Data
+
+void MainWindow::on_pushButton_DataENC_Save_clicked()
+{
+    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SaveEncryptedData);
+}
+
+void MainWindow::on_pushButton_DataENC_Cancel_clicked()
+{
+    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelEncryptedData);
+}
+
+void MainWindow::on_pushButton_DataENC_RDefault_clicked()
+{
+    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_ResetEncryptedData);
+}
+
+void MainWindow::on_checkBox_DataENC_ReqPW_stateChanged(int arg1)
+{
+    Q_UNUSED(arg1)
+    if (initFinished == false) {return;}
+    Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData);
+}
+
+//---------- Encrypted Data Feature ----------//
 void MainWindow::on_pushButton_DataENC_Encrypt_clicked()
 {
     Operations_EncryptedData_ptr->encryptSelectedFile();
@@ -694,11 +723,22 @@ void MainWindow::on_tabWidget_Main_tabBarClicked(int index)
 
 void MainWindow::onPasswordValidationRequested(int targetTabIndex, int currentIndex)
 {
-    // Only validate password if the setting requires it
-    if (setting_PWMan_ReqPassword) {
+    bool passwordRequired = false;
+    QString operationName;
+
+    // Determine which tab requires password validation
+    if (targetTabIndex == 2 && setting_PWMan_ReqPassword) {
+        passwordRequired = true;
+        operationName = "Access Password Manager";
+    } else if (targetTabIndex == 4 && setting_DataENC_ReqPassword) {
+        passwordRequired = true;
+        operationName = "Access Encrypted Data";
+    }
+
+    if (passwordRequired) {
         // Use the static method to validate the password
         bool passwordValid = PasswordValidation::validatePasswordForOperation(
-            this, "Access Password Manager", user_Username);
+            this, operationName, user_Username);
 
         if (passwordValid) {
             // Password validated, proceed with tab change
@@ -717,9 +757,16 @@ void MainWindow::onUnsavedChangesCheckRequested(int targetTabIndex, int currentI
     bool canProceed = Operations_Settings_ptr->handleUnsavedChanges(Constants::DBSettings_Type_ALL, targetTabIndex);
 
     if (canProceed) {
-        // If the target tab is the password tab and requires validation,
-        // we need to validate the password too
-        if (targetTabIndex == 2 && setting_PWMan_ReqPassword) { // Assuming 2 is password tab
+        // Check if the target tab requires password validation
+        bool needsPasswordValidation = false;
+
+        if (targetTabIndex == 2 && setting_PWMan_ReqPassword) {
+            needsPasswordValidation = true;
+        } else if (targetTabIndex == 4 && setting_DataENC_ReqPassword) {
+            needsPasswordValidation = true;
+        }
+
+        if (needsPasswordValidation) {
             onPasswordValidationRequested(targetTabIndex, currentIndex);
         } else {
             // Otherwise just switch tabs

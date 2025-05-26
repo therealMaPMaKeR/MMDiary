@@ -95,11 +95,11 @@ public:
     // Backup methods
     bool backupDatabase(const QString& backupPath = "");
     bool restoreFromBackup(const QString& backupPath = "");
-    int latestVersion = 2; // update this as you add new versions
+    int latestVersion = 3; // update this as you add new versions
     bool rollbackFromV2();
-    //bool rollbackFromV3();
+    bool rollbackFromV3();
     bool migrateToV2();
-    //bool migrateToV3();
+    bool migrateToV3();
 private:
     // Private constructor for singleton
     DatabaseManager();

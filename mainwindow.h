@@ -139,6 +139,8 @@ private:
     QString setting_PWMan_DefSortingMethod = "Password";
     bool setting_PWMan_ReqPassword = true;
     bool setting_PWMan_HidePasswords = true;
+    // Encrypted Data Settings
+    bool setting_DataENC_ReqPassword = false;
     //Member Classes
     Operations_Diary* Operations_Diary_ptr;
     Operations_PasswordManager* Operations_PasswordManager_ptr;
@@ -235,6 +237,14 @@ private slots:
     void on_pushButton_DataENC_DeleteFile_clicked();
 
     void on_pushButton_DataENC_SecureDel_clicked();
+
+    void on_pushButton_DataENC_Save_clicked();
+
+    void on_pushButton_DataENC_Cancel_clicked();
+
+    void on_pushButton_DataENC_RDefault_clicked();
+
+    void on_checkBox_DataENC_ReqPW_stateChanged(int arg1);
 
 private:
     void UpdateTasklistTextSize();

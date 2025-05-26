@@ -521,7 +521,7 @@ bool DatabaseManager::migrateDatabase() {
     }
 
     // Get the latest available version (based on available migration methods)
-    latestVersion = 2; // Update this as you add more migrations
+    latestVersion = 3; // Update this as you add more migrations
 
     if (currentVersion >= latestVersion) {
         qInfo() << "Database is already at the latest version:" << currentVersion;
@@ -616,8 +616,8 @@ bool DatabaseManager::migrateToVersion(int version) {
     switch (version) {
     case 2:
         return migrateToV2();
-    //case 3:
-        //return migrateToV3();
+    case 3:
+        return migrateToV3();
     // Add cases for future versions
     default:
         m_lastError = QString("No migration defined for version %1").arg(version);
@@ -629,8 +629,8 @@ bool DatabaseManager::rollbackFromVersion(int version) {
     switch (version) {
     case 2:
         return rollbackFromV2();
-    //case 3:
-        //return rollbackFromV3();
+    case 3:
+        return rollbackFromV3();
     // Add cases for future versions
     default:
         m_lastError = QString("No rollback defined for version %1").arg(version);
@@ -709,6 +709,23 @@ bool DatabaseManager::rollbackFromV3() {
     }
 }
 */
+
+bool DatabaseManager::migrateToV3() {
+    if (!executeQuery("ALTER TABLE users ADD COLUMN " + Constants::UserT_Index_DataENC_ReqPassword + " TEXT")) {
+        m_lastError = QString("Failed to add DataENC_ReqPassword column to users table: %1").arg(lastError());
+        return false;
+    }
+    return updateVersion(3);
+}
+
+bool DatabaseManager::rollbackFromV3() {
+    if (!removeColumn("users", Constants::UserT_Index_DataENC_ReqPassword)) {
+        m_lastError = QString("Failed to remove DataENC_ReqPassword column: %1").arg(lastError());
+        return false;
+    }
+    return true;
+}
+
 bool DatabaseManager::backupDatabase(const QString& backupPath) {
     if (!isConnected()) {
         m_lastError = "Database not connected";
@@ -929,6 +946,9 @@ bool DatabaseManager::IndexIsValid(QString index, QString type)
         columnTypes[Constants::UserT_Index_PWMan_DefSortingMethod] = Constants::DataType_QString;
         columnTypes[Constants::UserT_Index_PWMan_ReqPassword] = Constants::DataType_QString;
         columnTypes[Constants::UserT_Index_PWMan_HidePasswords] = Constants::DataType_QString;
+
+        // Encrypted Data Settings columns
+        columnTypes[Constants::UserT_Index_DataENC_ReqPassword] = Constants::DataType_QString;
     }
 
     // Check if the column exists in our map

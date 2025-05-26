@@ -57,7 +57,7 @@
        </size>
       </property>
       <property name="currentIndex">
-       <number>3</number>
+       <number>0</number>
       </property>
       <widget class="QWidget" name="tab_Diaries">
        <attribute name="title">
@@ -1407,7 +1407,7 @@
                 </widget>
                </item>
                <item row="0" column="1">
-                <widget class="QCheckBox" name="checkBox_DataENC_ReqPW">
+                <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_ReqPW">
                  <property name="text">
                   <string/>
                  </property>

@@ -22,6 +22,9 @@ extern const QString SettingsButton_ResetTasklists;
 extern const QString SettingsButton_SavePWManager;
 extern const QString SettingsButton_CancelPWManager;
 extern const QString SettingsButton_ResetPWManager;
+extern const QString SettingsButton_SaveEncryptedData;
+extern const QString SettingsButton_CancelEncryptedData;
+extern const QString SettingsButton_ResetEncryptedData;
 // Data Types
 extern const QString DataType_QString;
 extern const QString DataType_QByteArray;
@@ -33,6 +36,7 @@ extern const QString DBSettings_Type_Global;
 extern const QString DBSettings_Type_Diary;
 extern const QString DBSettings_Type_Tasklists;
 extern const QString DBSettings_Type_PWManager;
+extern const QString DBSettings_Type_EncryptedData;
 // User Database
 extern const QString DBPath_User;
 // Users Database Table Indexes - User Info
@@ -63,6 +67,8 @@ extern const QString UserT_Index_TLists_TextSize;
 extern const QString UserT_Index_PWMan_DefSortingMethod;
 extern const QString UserT_Index_PWMan_ReqPassword;
 extern const QString UserT_Index_PWMan_HidePasswords;
+// User Database Table Indexes - Encrypted Data Settings
+extern const QString UserT_Index_DataENC_ReqPassword;
 // Diary Text Codes
 extern const QString Diary_Spacer;
 extern const QString Diary_TextBlockStart;

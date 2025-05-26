@@ -11,8 +11,11 @@ custom_QTabWidget_Main::custom_QTabWidget_Main(QWidget *parent)
 
 void custom_QTabWidget_Main::setRequirePasswordForTab(int tabIndex, bool required)
 {
-    m_passwordProtectedTab = tabIndex;
-    m_requirePassword = required;
+    if (required) {
+        m_passwordProtectedTabs.insert(tabIndex);
+    } else {
+        m_passwordProtectedTabs.remove(tabIndex);
+    }
 }
 
 void custom_QTabWidget_Main::setSettingsTabIndex(int tabIndex)
@@ -41,8 +44,8 @@ bool custom_QTabWidget_Main::eventFilter(QObject *watched, QEvent *event)
             return true;
         }
 
-        // Second check: Are we trying to access the password tab?
-        if (clickedTab == m_passwordProtectedTab && m_requirePassword) {
+        // Second check: Are we trying to access a password-protected tab?
+        if (m_passwordProtectedTabs.contains(clickedTab)) {
             // Emit signal to request password validation
             emit passwordValidationRequested(clickedTab, currentTab);
 

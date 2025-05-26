@@ -96,9 +96,29 @@ bool SetDefault_PWManagerSettings(QString username)
     return false;
 }
 
+bool SetDefault_EncryptedDataSettings(QString username)
+{
+    DatabaseManager& db = DatabaseManager::instance();
+    // Connect to the database
+    if (!db.connect(Constants::DBPath_User)) {
+        qCritical() << "Failed to connect to database:" << db.lastError();
+        qDebug() << "Unable to set default settings for EncryptedData";
+        return false;
+    }
+    if(username.isEmpty()){qDebug() << "Unable to set default settings for EncryptedData";return false;} // if username is empty, stop here.
+    if(db.GetUserData_String(username,Constants::UserT_Index_Username) != Constants::ErrorMessage_INVUSER) // if username is valid
+    {
+        // Update encrypted data settings using constants
+        db.UpdateUserData_TEXT(username, Constants::UserT_Index_DataENC_ReqPassword, DEFAULT_DATAENC_REQ_PASSWORD);
+        return true;
+    }
+    qDebug() << "Unable to set default settings for EncryptedData";
+    return false;
+}
+
 bool SetAllDefaults(QString username)
 {
-    if(SetDefault_GlobalSettings(username) && SetDefault_DiarySettings(username) && SetDefault_TasklistsSettings(username) && SetDefault_PWManagerSettings(username))
+    if(SetDefault_GlobalSettings(username) && SetDefault_DiarySettings(username) && SetDefault_TasklistsSettings(username) && SetDefault_PWManagerSettings(username) && SetDefault_EncryptedDataSettings(username))
     {
         return true;
     }

@@ -5,7 +5,7 @@
 namespace Constants
 {
 // Global
-const QString AppVer = "4.1.2";
+const QString AppVer = "4.1.3";
 // Error Messages
 const QString ErrorMessage_Default = "ERROR";
 const QString ErrorMessage_INVUSER = "ERROR - INVALID USER";
@@ -22,6 +22,9 @@ const QString SettingsButton_ResetTasklists = "ResetTasklists";
 const QString SettingsButton_SavePWManager = "SavePWManager";
 const QString SettingsButton_CancelPWManager = "CancelPWManager";
 const QString SettingsButton_ResetPWManager = "ResetPWManager";
+const QString SettingsButton_SaveEncryptedData = "SaveENCRYPTEDDATA";
+const QString SettingsButton_CancelEncryptedData = "CancelENCRYPTEDDATA";
+const QString SettingsButton_ResetEncryptedData = "ResetENCRYPTEDDATA";
 // Data Types
 const QString DataType_QString = "QString";
 const QString DataType_QByteArray = "QByteArray";
@@ -33,6 +36,7 @@ const QString DBSettings_Type_Global = "Global";
 const QString DBSettings_Type_Diary = "Diary";
 const QString DBSettings_Type_Tasklists = "Tasklists";
 const QString DBSettings_Type_PWManager = "PWManager";
+const QString DBSettings_Type_EncryptedData = "ENCRYPTEDDATA";
 // User Database
 const QString DBPath_User = "Data/MMDiary.db";
 // User Database Table Indexes - User Info
@@ -63,6 +67,8 @@ const QString UserT_Index_TLists_TextSize = "TLists_TextSize";
 const QString UserT_Index_PWMan_DefSortingMethod = "PWMan_DefSortingMethod";
 const QString UserT_Index_PWMan_ReqPassword = "PWMan_ReqPassword";
 const QString UserT_Index_PWMan_HidePasswords = "PWMan_HidePasswords";
+// User Database Table Indexes - Encrypted Data Settings
+const QString UserT_Index_DataENC_ReqPassword = "ENCRYPTEDDATA_ReqPassword";
 // Diary Text Codes
 const QString Diary_Spacer = "<!spacer!>";
 const QString Diary_TextBlockStart = "<!TextBlockStart!>";

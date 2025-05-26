@@ -25,6 +25,7 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
     UpdateButtonStates(Constants::DBSettings_Type_Diary);
     UpdateButtonStates(Constants::DBSettings_Type_Tasklists);
     UpdateButtonStates(Constants::DBSettings_Type_PWManager);
+    UpdateButtonStates(Constants::DBSettings_Type_EncryptedData);
 
     m_previousSettingsTabIndex = m_mainWindow->ui->tabWidget_Settings->currentIndex();
     m_previousMainTabIndex = m_mainWindow->ui->tabWidget_Main->currentIndex();
@@ -445,6 +446,36 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
     }
 
+    // ------- Load Encrypted Data Settings -------
+    if (settingsType == Constants::DBSettings_Type_ALL || settingsType == Constants::DBSettings_Type_EncryptedData)
+    {
+        bool validationFailed = false;
+
+        // Require Password
+        QString reqPassword = dbManager.GetUserData_String(username, Constants::UserT_Index_DataENC_ReqPassword);
+        if (reqPassword != Constants::ErrorMessage_Default && reqPassword != Constants::ErrorMessage_INVUSER) {
+            if (reqPassword == "0" || reqPassword == "1") {
+                bool value = (reqPassword == "1");
+                m_mainWindow->ui->checkBox_DataENC_ReqPW->setChecked(value);
+                m_mainWindow->setting_DataENC_ReqPassword = value;
+            } else {
+                qDebug() << "Invalid encrypted data require password value:" << reqPassword;
+                validationFailed = true;
+            }
+        } else {
+            qDebug() << "Failed to load encrypted data require password setting";
+            validationFailed = true;
+        }
+
+        // If any validation failed, reset to defaults
+        if (validationFailed) {
+            qDebug() << "Some encrypted data settings failed validation, resetting to defaults";
+            Default_UserSettings::SetDefault_EncryptedDataSettings(username);
+            LoadSettings(Constants::DBSettings_Type_EncryptedData); // Reload with default values
+            return;
+        }
+    }
+
     // Update button states after loading
     UpdateButtonStates(settingsType);
     m_mainWindow->UpdateTasklistTextSize();
@@ -594,7 +625,16 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         QString hidePasswordsStr = hidePasswords ? "1" : "0";
         dbManager.UpdateUserData_TEXT(username, Constants::UserT_Index_PWMan_HidePasswords, hidePasswordsStr);
         m_mainWindow->setting_PWMan_HidePasswords = hidePasswords; // Update member variable
+    }
 
+    // ------- Save Encrypted Data Settings -------
+    if (settingsType == Constants::DBSettings_Type_ALL || settingsType == Constants::DBSettings_Type_EncryptedData)
+    {
+        // Require Password
+        bool reqPassword = m_mainWindow->ui->checkBox_DataENC_ReqPW->isChecked();
+        QString reqPasswordStr = reqPassword ? "1" : "0";
+        dbManager.UpdateUserData_TEXT(username, Constants::UserT_Index_DataENC_ReqPassword, reqPasswordStr);
+        m_mainWindow->setting_DataENC_ReqPassword = reqPassword; // update member variable
     }
 
     // Update button states after saving
@@ -701,6 +741,12 @@ bool Operations_Settings::ValidateSettingsInput(const QString& settingsType)
             isValid = false;
             errorMessage += "- Default Sorting Method: Invalid selection\n";
         }
+    }
+
+    if (settingsType == Constants::DBSettings_Type_ALL || settingsType == Constants::DBSettings_Type_EncryptedData)
+    {
+        // For now, no specific validation needed for encrypted data settings
+        // The checkbox is either checked or not, both are valid states
     }
 
     if (!isValid) {
@@ -967,6 +1013,32 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         m_mainWindow->ui->pushButton_PWMan_Cancel->setStyleSheet(matchesDatabase ? disabledStyle : enabledStyle);
         m_mainWindow->ui->pushButton_PWMan_RDefault->setStyleSheet(matchesDefault ? disabledStyle : enabledStyle);
     }
+
+    if (settingsType == Constants::DBSettings_Type_EncryptedData) {
+        // Check if current UI values match database values
+        bool matchesDatabase = true;
+        bool matchesDefault = true;
+
+        // Require Password
+        QString dbReqPW = dbManager.GetUserData_String(username, Constants::UserT_Index_DataENC_ReqPassword);
+        QString uiReqPW = m_mainWindow->ui->checkBox_DataENC_ReqPW->isChecked() ? "1" : "0";
+        if (dbReqPW != uiReqPW) {
+            matchesDatabase = false;
+        }
+        if (uiReqPW != Default_UserSettings::DEFAULT_DATAENC_REQ_PASSWORD) {
+            matchesDefault = false;
+        }
+
+        // Update button states
+        m_mainWindow->ui->pushButton_DataENC_Save->setEnabled(!matchesDatabase);
+        m_mainWindow->ui->pushButton_DataENC_Cancel->setEnabled(!matchesDatabase);
+        m_mainWindow->ui->pushButton_DataENC_RDefault->setEnabled(!matchesDefault);
+
+        // Apply styling
+        m_mainWindow->ui->pushButton_DataENC_Save->setStyleSheet(matchesDatabase ? disabledStyle : enabledStyle);
+        m_mainWindow->ui->pushButton_DataENC_Cancel->setStyleSheet(matchesDatabase ? disabledStyle : enabledStyle);
+        m_mainWindow->ui->pushButton_DataENC_RDefault->setStyleSheet(matchesDefault ? disabledStyle : enabledStyle);
+    }
 }
 
 void Operations_Settings::InitializeCustomCheckboxes()
@@ -982,6 +1054,9 @@ void Operations_Settings::InitializeCustomCheckboxes()
 
     custom_QCheckboxWidget* askPWOnCloseCheckbox =
         qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_AskPW);
+
+    custom_QCheckboxWidget* dataEncReqPWCheckbox =
+        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_DataENC_ReqPW);
 
     // Set validation info for each checkbox
     if (hidePasswordsCheckbox) {
@@ -1020,6 +1095,18 @@ void Operations_Settings::InitializeCustomCheckboxes()
             return (dbValue == "1");
         });
     }
+
+    if (dataEncReqPWCheckbox) {
+        dataEncReqPWCheckbox->setValidationInfo(
+            "Disable 'Require Password' in Encrypted Data Settings", username);
+        dataEncReqPWCheckbox->setRequireValidation(true);
+        dataEncReqPWCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        dataEncReqPWCheckbox->setDatabaseValueGetter([ username]() {
+            DatabaseManager& dbManager = DatabaseManager::instance();
+            QString dbValue = dbManager.GetUserData_String(username, Constants::UserT_Index_DataENC_ReqPassword);
+            return (dbValue == "1");
+        });
+    }
 }
 
 bool Operations_Settings::ValidatePassword(const QString& settingsType) {
@@ -1055,6 +1142,18 @@ bool Operations_Settings::ValidatePassword(const QString& settingsType) {
                 m_mainWindow, "Reset Password Manager Settings to Default", username);
         }
     }
+    else if (settingsType == Constants::DBSettings_Type_EncryptedData) {
+        // Check if Require Password would change
+        QString defaultReqPW = Default_UserSettings::DEFAULT_DATAENC_REQ_PASSWORD;
+        bool currentReqPW = m_mainWindow->ui->checkBox_DataENC_ReqPW->isChecked();
+        bool defaultReqPWValue = (defaultReqPW == "1");
+
+        if (currentReqPW != defaultReqPWValue) {
+            // This setting would change, so validate password
+            return PasswordValidation::validatePasswordForOperation(
+                m_mainWindow, "Reset Encrypted Data Settings to Default", username);
+        }
+    }
 
     // No password validation needed
     return true;
@@ -1076,11 +1175,15 @@ bool Operations_Settings::hasUnsavedChanges(const QString& settingsType)
     else if (settingsType == Constants::DBSettings_Type_Global) {
         return m_mainWindow->ui->pushButton_Acc_Save->isEnabled();
     }
+    else if (settingsType == Constants::DBSettings_Type_EncryptedData) {
+        return m_mainWindow->ui->pushButton_DataENC_Save->isEnabled();
+    }
     else if (settingsType == Constants::DBSettings_Type_ALL) {
         return hasUnsavedChanges(Constants::DBSettings_Type_Diary) ||
                hasUnsavedChanges(Constants::DBSettings_Type_Tasklists) ||
                hasUnsavedChanges(Constants::DBSettings_Type_PWManager) ||
-               hasUnsavedChanges(Constants::DBSettings_Type_Global);
+               hasUnsavedChanges(Constants::DBSettings_Type_Global) ||
+               hasUnsavedChanges(Constants::DBSettings_Type_EncryptedData);
     }
 
     return false;
@@ -1106,6 +1209,8 @@ bool Operations_Settings::handleUnsavedChanges(const QString& settingsType, int 
             categoryName = "password manager";
         } else if (settingsType == Constants::DBSettings_Type_Global) {
             categoryName = "account";
+        } else if (settingsType == Constants::DBSettings_Type_EncryptedData) {
+            categoryName = "encrypted data";
         }
 
         message = QString("Unsaved changes for %1 settings.").arg(categoryName);
@@ -1141,6 +1246,9 @@ bool Operations_Settings::handleUnsavedChanges(const QString& settingsType, int 
             if (hasUnsavedChanges(Constants::DBSettings_Type_PWManager)) {
                 SaveSettings(Constants::DBSettings_Type_PWManager);
             }
+            if (hasUnsavedChanges(Constants::DBSettings_Type_EncryptedData)) {
+                SaveSettings(Constants::DBSettings_Type_EncryptedData);
+            }
         } else {
             // Just save the specific category
             SaveSettings(settingsType);
@@ -1166,6 +1274,9 @@ void Operations_Settings::onSettingsTabChanged(int newIndex)
         break;
     case 2: // Password Manager tab
         currentSettingsType = Constants::DBSettings_Type_PWManager;
+        break;
+    case 3: // Encrypted Data tab
+        currentSettingsType = Constants::DBSettings_Type_EncryptedData;
         break;
     default:
         currentSettingsType = Constants::DBSettings_Type_Diary; // Default
@@ -1267,6 +1378,10 @@ void Operations_Settings::SetupSettingDescriptions()
 
     m_settingNames[m_mainWindow->ui->checkBox_PWMan_HidePWS] = "Hide Passwords";
     m_settingDescriptions[m_mainWindow->ui->checkBox_PWMan_HidePWS] = "Used to hide passwords.\n\nYou can still copy them to clipboard, They are just not visible.\n\nThis is good for after you've entered all your passwords.\n\nIt allows you to be able to access them without worry.\n\nIf clipboard reset timer is set to 0, meaning it is disabled, make sure to clear your clipboard after use.";
+
+    // Encrypted Data Settings
+    m_settingNames[m_mainWindow->ui->checkBox_DataENC_ReqPW] = "Require Password for Tab";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_DataENC_ReqPW] = "If you want your password to be required whenever you want to access the Encrypted Data tab.\n\nIt's useful if you use this app in a public setting and want to protect your encrypted files from being viewed or accessed.";
 
     // Install event filters on all UI controls
     QMap<QObject*, QString>::iterator it;
@@ -1385,6 +1500,22 @@ void Operations_Settings::Slot_ButtonPressed(const QString button)
         if (ValidatePassword(Constants::DBSettings_Type_PWManager)) {
             if (Default_UserSettings::SetDefault_PWManagerSettings(username)) {
                 LoadSettings(Constants::DBSettings_Type_PWManager);
+            }
+        }
+    }
+
+    // --- Encrypted Data Settings Buttons ---
+    else if (button == Constants::SettingsButton_SaveEncryptedData) {
+        SaveSettings(Constants::DBSettings_Type_EncryptedData);
+    }
+    else if (button == Constants::SettingsButton_CancelEncryptedData) {
+        LoadSettings(Constants::DBSettings_Type_EncryptedData);
+    }
+    else if (button == Constants::SettingsButton_ResetEncryptedData) {
+        // Validate password if needed before reset
+        if (ValidatePassword(Constants::DBSettings_Type_EncryptedData)) {
+            if (Default_UserSettings::SetDefault_EncryptedDataSettings(username)) {
+                LoadSettings(Constants::DBSettings_Type_EncryptedData);
             }
         }
     }
