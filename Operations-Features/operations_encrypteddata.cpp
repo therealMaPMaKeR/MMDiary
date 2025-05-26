@@ -17,6 +17,11 @@
 #include <QUrl>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QMenu>
+#include <QAction>
+#include <QStyle>
+#include <QApplication>
+#include "editencryptedfiledialog.h"
 
 // Windows-specific includes for file association checking
 #ifdef Q_OS_WIN
@@ -740,6 +745,11 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     // Connect scroll events for lazy loading
     connect(m_mainWindow->ui->listWidget_DataENC_FileList->verticalScrollBar(), &QScrollBar::valueChanged,
             this, &Operations_EncryptedData::onListScrolled);
+
+    // Set up context menu for the encrypted files list
+    m_mainWindow->ui->listWidget_DataENC_FileList->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::customContextMenuRequested,
+            this, &Operations_EncryptedData::showContextMenu_FileList);
 
     onSortTypeChanged("All");
 }
@@ -2900,4 +2910,146 @@ void Operations_EncryptedData::storeVideoThumbnail(const QString& encryptedFileP
     } else {
         qWarning() << "Failed to store video thumbnail in cache";
     }
+}
+
+
+// ============================================================================
+// Context Menu Implementation
+// ============================================================================
+
+void Operations_EncryptedData::showContextMenu_FileList(const QPoint& pos)
+{
+    // Get the item at the clicked position
+    QListWidgetItem* item = m_mainWindow->ui->listWidget_DataENC_FileList->itemAt(pos);
+
+    if (!item) {
+        // No item at this position, don't show context menu
+        return;
+    }
+
+    // Select the item that was right-clicked
+    m_mainWindow->ui->listWidget_DataENC_FileList->setCurrentItem(item);
+
+    // Create context menu
+    QMenu contextMenu(m_mainWindow);
+
+    // Add Open action
+    QAction* openAction = contextMenu.addAction("Open");
+    openAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+    connect(openAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuOpen);
+
+    // Add Edit action
+    QAction* editAction = contextMenu.addAction("Edit");
+    editAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+    connect(editAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuEdit);
+
+    // Add separator
+    contextMenu.addSeparator();
+
+    // Add Decrypt and Export action
+    QAction* decryptAction = contextMenu.addAction("Decrypt and Export");
+    decryptAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_DialogSaveButton));
+    connect(decryptAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuDecryptExport);
+
+    // Add separator
+    contextMenu.addSeparator();
+
+    // Add Delete action
+    QAction* deleteAction = contextMenu.addAction("Delete");
+    deleteAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_TrashIcon));
+    connect(deleteAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuDelete);
+
+    // Show context menu at the cursor position
+    QPoint globalPos = m_mainWindow->ui->listWidget_DataENC_FileList->mapToGlobal(pos);
+    contextMenu.exec(globalPos);
+}
+
+void Operations_EncryptedData::onContextMenuOpen()
+{
+    // Get the currently selected item
+    QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_DataENC_FileList->currentItem();
+    if (currentItem) {
+        // Use the existing double-click functionality
+        onFileListDoubleClicked(currentItem);
+    }
+}
+
+void Operations_EncryptedData::onContextMenuEdit()
+{
+    // Get the currently selected item
+    QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_DataENC_FileList->currentItem();
+    if (!currentItem) {
+        return;
+    }
+
+    // Get the encrypted file path from the item's user data
+    QString encryptedFilePath = currentItem->data(Qt::UserRole).toString();
+    if (encryptedFilePath.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to retrieve encrypted file path.");
+        return;
+    }
+
+    // Verify the encrypted file still exists
+    if (!QFile::exists(encryptedFilePath)) {
+        QMessageBox::critical(m_mainWindow, "File Not Found",
+                              "The encrypted file no longer exists.");
+        populateEncryptedFilesList(); // Refresh the list
+        return;
+    }
+
+    // Get encryption key and username
+    QByteArray encryptionKey = m_mainWindow->user_Key;
+    QString username = m_mainWindow->user_Username;
+
+    // Validate encryption key before proceeding
+    qDebug() << "Validating encryption key for edit operation:" << encryptedFilePath;
+    if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey, true)) {
+        QMessageBox::critical(m_mainWindow, "Invalid Encryption Key",
+                              "The encryption key is invalid or the file is corrupted. "
+                              "Please ensure you are using the correct user account.");
+        return;
+    }
+    qDebug() << "Encryption key validation successful for edit operation";
+
+    // Create and show edit dialog
+    EditEncryptedFileDialog editDialog(m_mainWindow);
+    editDialog.initialize(encryptedFilePath, encryptionKey, username);
+
+    // Show dialog and handle result
+    int result = editDialog.exec();
+
+    if (result == QDialog::Accepted) {
+        // Changes were saved, refresh the file list to show updated information
+        qDebug() << "Edit dialog accepted, refreshing file list";
+        populateEncryptedFilesList();
+
+        // Try to reselect the same file after refresh
+        // Find the item with the same encrypted file path
+        QListWidget* listWidget = m_mainWindow->ui->listWidget_DataENC_FileList;
+        for (int i = 0; i < listWidget->count(); ++i) {
+            QListWidgetItem* item = listWidget->item(i);
+            if (item && item->data(Qt::UserRole).toString() == encryptedFilePath) {
+                listWidget->setCurrentItem(item);
+                break;
+            }
+        }
+
+        QMessageBox::information(m_mainWindow, "Changes Saved",
+                                 "File metadata has been updated successfully.");
+    } else {
+        qDebug() << "Edit dialog cancelled, no changes made";
+    }
+}
+
+void Operations_EncryptedData::onContextMenuDecryptExport()
+{
+    // Use the existing decrypt functionality
+    decryptSelectedFile();
+}
+
+void Operations_EncryptedData::onContextMenuDelete()
+{
+    // Use the existing delete functionality
+    deleteSelectedFile();
 }

@@ -217,6 +217,12 @@ private:
 
     EncryptedFileMetadata* m_metadataManager;
 
+    void showContextMenu_FileList(const QPoint& pos);
+    void onContextMenuOpen();
+    void onContextMenuEdit();
+    void onContextMenuDecryptExport();
+    void onContextMenuDelete();
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();

@@ -65,6 +65,7 @@ SOURCES += \
     QT_AESGCM256/aesgcm256.cpp \
     changepassword.cpp \
     constants.cpp \
+    editencryptedfiledialog.cpp \
     loginscreen.cpp \
     main.cpp \
     mainwindow.cpp
@@ -95,6 +96,7 @@ HEADERS += \
     QT_AESGCM256/aesgcm256.h \
     changepassword.h \
     constants.h \
+    editencryptedfiledialog.h \
     loginscreen.h \
     mainwindow.h
 
@@ -105,6 +107,7 @@ FORMS += \
     about_MMDiary.ui \
     changelog.ui \
     changepassword.ui \
+    editencryptedfiledialog.ui \
     loginscreen.ui \
     mainwindow.ui
 
