@@ -54,6 +54,7 @@ SOURCES += \
     Operations-Features/operations_tasklists.cpp \
     Operations-Global/CryptoUtils.cpp \
     Operations-Global/default_usersettings.cpp \
+    Operations-Global/encryptedfilemetadata.cpp \
     Operations-Global/fileiconprovider.cpp \
     Operations-Global/inputvalidation.cpp \
     Operations-Global/operations.cpp \
@@ -83,6 +84,7 @@ HEADERS += \
     Operations-Features/operations_tasklists.h \
     Operations-Global/CryptoUtils.h \
     Operations-Global/default_usersettings.h \
+    Operations-Global/encryptedfilemetadata.h \
     Operations-Global/fileiconprovider.h \
     Operations-Global/inputvalidation.h \
     Operations-Global/operations.h \

@@ -331,7 +331,39 @@ ValidationResult validateInput(const QString& input, InputType type, int maxLeng
         }
         break;
     }
+    case InputType::CategoryTag: {
+        // Category/Tag validation: alphanumeric, spaces, and common punctuation, 1-50 chars
+        if (input.length() < 1 || input.length() > 50) {
+            result.isValid = false;
+            result.errorMessage = "Category/Tag must be between 1 and 50 characters long";
+            return result;
+        }
+
+        // Allow alphanumeric, spaces, and safe punctuation
+        QRegularExpression validCharsPattern("^[a-zA-Z0-9\\s\\-_.,!?()]+$");
+        if (!validCharsPattern.match(input).hasMatch()) {
+            result.isValid = false;
+            result.errorMessage = "Category/Tag contains invalid characters. Only letters, numbers, spaces, and basic punctuation are allowed";
+            return result;
+        }
+
+        // Check for leading/trailing spaces
+        if (input != input.trimmed()) {
+            result.isValid = false;
+            result.errorMessage = "Category/Tag cannot have leading or trailing spaces";
+            return result;
+        }
+
+        // Check for multiple consecutive spaces
+        if (input.contains("  ")) {
+            result.isValid = false;
+            result.errorMessage = "Category/Tag cannot contain multiple consecutive spaces";
+            return result;
+        }
+        break;
     }
+    }
+
     return result;
 }
 
@@ -453,6 +485,95 @@ bool validateEncryptionKey(const QString& filePath, const QByteArray& expectedEn
 
     qDebug() << "Encryption key matches the expected key for file:" << filePath;
     return true;
+}
+
+bool validateEncryptionKey(const QString& filePath, const QByteArray& expectedEncryptionKey, bool useNewMetadataFormat) {
+    if (!useNewMetadataFormat) {
+        // Use the existing validation method for old format files
+        return validateEncryptionKey(filePath, expectedEncryptionKey);
+    }
+
+    // New metadata format validation (for encrypted data files)
+    QFile encryptedFile(filePath);
+    if (!encryptedFile.exists() || encryptedFile.size() == 0) {
+        qWarning() << "File doesn't exist or is empty:" << filePath;
+        return false;
+    }
+
+    if (!encryptedFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "Failed to open encrypted file:" << filePath;
+        return false;
+    }
+
+    try {
+        // Read metadata size (first 4 bytes)
+        quint32 metadataSize = 0;
+        if (encryptedFile.read(reinterpret_cast<char*>(&metadataSize), sizeof(metadataSize)) != sizeof(metadataSize)) {
+            qWarning() << "Failed to read metadata size for key validation:" << filePath;
+            encryptedFile.close();
+            return false;
+        }
+
+        // Validate metadata size (reasonable limits)
+        if (metadataSize == 0 || metadataSize > 1024 * 1024) { // Max 1MB for encrypted metadata
+            qWarning() << "Invalid metadata size for key validation:" << metadataSize << filePath;
+            encryptedFile.close();
+            return false;
+        }
+
+        // Read the encrypted metadata chunk
+        QByteArray encryptedMetadata = encryptedFile.read(metadataSize);
+        if (encryptedMetadata.size() != static_cast<int>(metadataSize)) {
+            qWarning() << "Failed to read complete encrypted metadata for key validation:" << filePath;
+            encryptedFile.close();
+            return false;
+        }
+
+        encryptedFile.close();
+
+        // Try to decrypt the metadata chunk to validate the key
+        QByteArray decryptedMetadata = CryptoUtils::Encryption_DecryptBArray(expectedEncryptionKey, encryptedMetadata);
+
+        if (decryptedMetadata.isEmpty()) {
+            qWarning() << "Failed to decrypt metadata for key validation:" << filePath;
+            return false;
+        }
+
+        // Additional validation: try to parse the metadata structure
+        // This ensures the decryption actually produced valid metadata, not just random data
+        const char* data = decryptedMetadata.constData();
+        int pos = 0;
+        int totalSize = decryptedMetadata.size();
+
+        // Try to read filename length
+        quint32 filenameLength = 0;
+        if (pos + static_cast<int>(sizeof(filenameLength)) > totalSize) {
+            qWarning() << "Invalid decrypted metadata structure for key validation:" << filePath;
+            return false;
+        }
+
+        memcpy(&filenameLength, data + pos, sizeof(filenameLength));
+        pos += sizeof(filenameLength);
+
+        // Validate filename length (reasonable limits)
+        if (filenameLength == 0 || filenameLength > 1000 || pos + static_cast<int>(filenameLength) > totalSize) {
+            qWarning() << "Invalid filename length in decrypted metadata for key validation:" << filenameLength << filePath;
+            return false;
+        }
+
+        // If we got this far, the key successfully decrypted valid metadata
+        qDebug() << "Encryption key validation successful for new format file:" << filePath;
+        return true;
+
+    } catch (const std::exception& e) {
+        qWarning() << "Exception during encryption key validation:" << e.what() << filePath;
+        encryptedFile.close();
+        return false;
+    } catch (...) {
+        qWarning() << "Unknown exception during encryption key validation:" << filePath;
+        encryptedFile.close();
+        return false;
+    }
 }
 
 // New function to validate task list files with standardized non-existence handling

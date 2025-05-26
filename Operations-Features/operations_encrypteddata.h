@@ -17,6 +17,7 @@
 #include "../CustomWidgets/encryptedfileitemwidget.h"
 #include "../Operations-Global/fileiconprovider.h"
 #include "../Operations-Global/thumbnailcache.h"
+#include "Operations-Global/encryptedfilemetadata.h"
 #include <QScrollBar>
 #include <QTimer>
 
@@ -36,6 +37,8 @@ public:
     EncryptionWorker(const QString& sourceFile, const QString& targetFile,
                      const QByteArray& encryptionKey, const QString& username,
                      const QMap<QString, QPixmap>& videoThumbnails = QMap<QString, QPixmap>());
+
+    ~EncryptionWorker();
 
     // Public member variables (updated for multiple files)
     QStringList m_sourceFiles;
@@ -68,6 +71,8 @@ private:
     QMutex m_cancelMutex;
     QMap<QString, QPixmap> m_videoThumbnails;
 
+    EncryptedFileMetadata* m_metadataManager;
+
 public:
     void cancel();
 };
@@ -79,6 +84,8 @@ class DecryptionWorker : public QObject
 public:
     DecryptionWorker(const QString& sourceFile, const QString& targetFile,
                      const QByteArray& encryptionKey);
+
+    ~DecryptionWorker();
 
     QString m_sourceFile;
     QString m_targetFile;
@@ -94,6 +101,7 @@ private:
     QByteArray m_encryptionKey;
     bool m_cancelled;
     QMutex m_cancelMutex;
+    EncryptedFileMetadata* m_metadataManager;
 
 public:
     void cancel();
@@ -108,6 +116,8 @@ public:
     TempDecryptionWorker(const QString& sourceFile, const QString& targetFile,
                          const QByteArray& encryptionKey);
 
+    ~TempDecryptionWorker();
+
     QString m_sourceFile;
     QString m_targetFile;
 
@@ -122,6 +132,7 @@ private:
     QByteArray m_encryptionKey;
     bool m_cancelled;
     QMutex m_cancelMutex;
+    EncryptedFileMetadata* m_metadataManager;
 
 public:
     void cancel();
@@ -203,6 +214,8 @@ private:
     void startLazyLoadTimer();
 
     void updateItemThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail);
+
+    EncryptedFileMetadata* m_metadataManager;
 
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);

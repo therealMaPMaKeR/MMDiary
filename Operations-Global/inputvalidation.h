@@ -23,7 +23,8 @@ enum class InputType {
     DiaryContent,    // Content for diary entries
     ColorName,       // Color names (for your color settings)
     Line,
-    TaskListName
+    TaskListName,
+    CategoryTag      // Categories and tags for encrypted files
 };
 
 struct ValidationResult {
@@ -43,6 +44,7 @@ bool validateTextEdit(QTextEdit* textEdit, InputType type, int maxLength = 10000
 
 //Helper function to validate encryption key
 bool validateEncryptionKey(const QString& filePath, const QByteArray& expectedEncryptionKey);
+bool validateEncryptionKey(const QString& filePath, const QByteArray& expectedEncryptionKey, bool useNewMetadataFormat);
 // Validate diary file integrity
 bool validateDiaryFile(const QString& filePath, const QByteArray& expectedEncryptionKey);
 bool validateDiaryFile(const QString& filePath, const QByteArray& expectedEncryptionKey, bool requireExistence);

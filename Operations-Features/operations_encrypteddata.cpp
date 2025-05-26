@@ -37,21 +37,31 @@ EncryptionWorker::EncryptionWorker(const QStringList& sourceFiles, const QString
     , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(false)
-    , m_videoThumbnails(videoThumbnails) // ← ADD THIS LINE
+    , m_videoThumbnails(videoThumbnails)
+    , m_metadataManager(new EncryptedFileMetadata(encryptionKey, username))
 {
 }
 
-// Keep the old constructor for backward compatibility
 EncryptionWorker::EncryptionWorker(const QString& sourceFile, const QString& targetFile,
                                    const QByteArray& encryptionKey, const QString& username,
                                    const QMap<QString, QPixmap>& videoThumbnails)
     : m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(false)
-    , m_videoThumbnails(videoThumbnails) // ← ADD THIS LINE
+    , m_videoThumbnails(videoThumbnails)
+    , m_metadataManager(new EncryptedFileMetadata(encryptionKey, username))
 {
     m_sourceFiles << sourceFile;
     m_targetFiles << targetFile;
+}
+
+// Add cleanup in EncryptionWorker destructor (add if not exists):
+EncryptionWorker::~EncryptionWorker()
+{
+    if (m_metadataManager) {
+        delete m_metadataManager;
+        m_metadataManager = nullptr;
+    }
 }
 
 void EncryptionWorker::doEncryption()
@@ -162,14 +172,27 @@ void EncryptionWorker::doEncryption()
                 continue;
             }
 
-            // Write header: original filename length + filename
+            // Write encrypted metadata header
             QFileInfo sourceInfo(sourceFile);
             QString originalFilename = sourceInfo.fileName();
-            QByteArray filenameBytes = originalFilename.toUtf8();
 
-            quint32 filenameLength = static_cast<quint32>(filenameBytes.size());
-            target.write(reinterpret_cast<const char*>(&filenameLength), sizeof(filenameLength));
-            target.write(filenameBytes);
+            // Create metadata with just filename (empty category and tags)
+            EncryptedFileMetadata::FileMetadata metadata(originalFilename);
+
+            // Create encrypted metadata chunk
+            QByteArray encryptedMetadata = m_metadataManager->createEncryptedMetadataChunk(metadata);
+            if (encryptedMetadata.isEmpty()) {
+                QString fileName = QFileInfo(sourceFile).fileName();
+                failedFiles.append(QString("%1 (failed to create metadata)").arg(fileName));
+                source.close();
+                processedTotalSize += currentFileSize;
+                continue;
+            }
+
+            // Write metadata size and encrypted metadata
+            quint32 metadataSize = static_cast<quint32>(encryptedMetadata.size());
+            target.write(reinterpret_cast<const char*>(&metadataSize), sizeof(metadataSize));
+            target.write(encryptedMetadata);
 
             // Encrypt and write file content in chunks
             const qint64 chunkSize = 1024 * 1024; // 1MB chunks
@@ -319,7 +342,16 @@ DecryptionWorker::DecryptionWorker(const QString& sourceFile, const QString& tar
     , m_targetFile(targetFile)
     , m_encryptionKey(encryptionKey)
     , m_cancelled(false)
+    , m_metadataManager(new EncryptedFileMetadata(encryptionKey, QString()))
 {
+}
+
+DecryptionWorker::~DecryptionWorker()
+{
+    if (m_metadataManager) {
+        delete m_metadataManager;
+        m_metadataManager = nullptr;
+    }
 }
 
 void DecryptionWorker::doDecryption()
@@ -335,25 +367,27 @@ void DecryptionWorker::doDecryption()
         qint64 totalSize = sourceFile.size();
         qint64 processedSize = 0;
 
-        // Read and skip the filename header (we don't need it for decryption)
-        quint32 filenameLength = 0;
-        if (sourceFile.read(reinterpret_cast<char*>(&filenameLength), sizeof(filenameLength)) != sizeof(filenameLength)) {
-            emit decryptionFinished(false, "Failed to read filename length from encrypted file");
+        // Skip the encrypted metadata header
+        quint32 metadataSize = 0;
+        if (sourceFile.read(reinterpret_cast<char*>(&metadataSize), sizeof(metadataSize)) != sizeof(metadataSize)) {
+            emit decryptionFinished(false, "Failed to read metadata size from encrypted file");
             return;
         }
 
-        if (filenameLength == 0 || filenameLength > 1000) {
-            emit decryptionFinished(false, "Invalid filename length in encrypted file");
+        // Validate metadata size
+        if (metadataSize == 0 || metadataSize > EncryptedFileMetadata::MAX_ENCRYPTED_METADATA_SIZE) {
+            emit decryptionFinished(false, "Invalid metadata size in encrypted file");
             return;
         }
 
-        // Skip the filename bytes
-        if (sourceFile.read(filenameLength).size() != static_cast<int>(filenameLength)) {
-            emit decryptionFinished(false, "Failed to skip filename in encrypted file");
+        // Skip the encrypted metadata chunk
+        QByteArray encryptedMetadata = sourceFile.read(metadataSize);
+        if (encryptedMetadata.size() != static_cast<int>(metadataSize)) {
+            emit decryptionFinished(false, "Failed to skip metadata in encrypted file");
             return;
         }
 
-        processedSize += sizeof(filenameLength) + filenameLength;
+        processedSize += sizeof(metadataSize) + metadataSize;
 
         // Create target directory if it doesn't exist
         QFileInfo targetInfo(m_targetFile);
@@ -486,9 +520,17 @@ TempDecryptionWorker::TempDecryptionWorker(const QString& sourceFile, const QStr
     , m_targetFile(targetFile)
     , m_encryptionKey(encryptionKey)
     , m_cancelled(false)
+    , m_metadataManager(new EncryptedFileMetadata(encryptionKey, QString()))
 {
 }
 
+TempDecryptionWorker::~TempDecryptionWorker()
+{
+    if (m_metadataManager) {
+        delete m_metadataManager;
+        m_metadataManager = nullptr;
+    }
+}
 void TempDecryptionWorker::doDecryption()
 {
     try {
@@ -502,25 +544,27 @@ void TempDecryptionWorker::doDecryption()
         qint64 totalSize = sourceFile.size();
         qint64 processedSize = 0;
 
-        // Read and skip the filename header
-        quint32 filenameLength = 0;
-        if (sourceFile.read(reinterpret_cast<char*>(&filenameLength), sizeof(filenameLength)) != sizeof(filenameLength)) {
-            emit decryptionFinished(false, "Failed to read filename length from encrypted file");
+        // Skip the encrypted metadata header
+        quint32 metadataSize = 0;
+        if (sourceFile.read(reinterpret_cast<char*>(&metadataSize), sizeof(metadataSize)) != sizeof(metadataSize)) {
+            emit decryptionFinished(false, "Failed to read metadata size from encrypted file");
             return;
         }
 
-        if (filenameLength == 0 || filenameLength > 1000) {
-            emit decryptionFinished(false, "Invalid filename length in encrypted file");
+        // Validate metadata size
+        if (metadataSize == 0 || metadataSize > EncryptedFileMetadata::MAX_ENCRYPTED_METADATA_SIZE) {
+            emit decryptionFinished(false, "Invalid metadata size in encrypted file");
             return;
         }
 
-        // Skip the filename bytes
-        if (sourceFile.read(filenameLength).size() != static_cast<int>(filenameLength)) {
-            emit decryptionFinished(false, "Failed to skip filename in encrypted file");
+        // Skip the encrypted metadata chunk
+        QByteArray encryptedMetadata = sourceFile.read(metadataSize);
+        if (encryptedMetadata.size() != static_cast<int>(metadataSize)) {
+            emit decryptionFinished(false, "Failed to skip metadata in encrypted file");
             return;
         }
 
-        processedSize += sizeof(filenameLength) + filenameLength;
+        processedSize += sizeof(metadataSize) + metadataSize;
 
         // Create target directory if it doesn't exist
         QFileInfo targetInfo(m_targetFile);
@@ -659,6 +703,8 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     , m_tempDecryptWorkerThread(nullptr)
     , m_tempFileCleanupTimer(nullptr)
 {
+    //Create MetaData Manager Instance
+    m_metadataManager = new EncryptedFileMetadata(m_mainWindow->user_Key, m_mainWindow->user_Username);
     // Connect selection changed signal to update button states
     connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemSelectionChanged,
             this, &Operations_EncryptedData::updateButtonStates);
@@ -781,6 +827,11 @@ Operations_EncryptedData::~Operations_EncryptedData()
         m_progressDialog->deleteLater();
         m_progressDialog = nullptr;
     }
+    // Clean up metadata manager
+    if (m_metadataManager) {
+        delete m_metadataManager;
+        m_metadataManager = nullptr;
+    }
 }
 
 // ============================================================================
@@ -830,7 +881,7 @@ void Operations_EncryptedData::onFileListDoubleClicked(QListWidgetItem* item)
     // Validate encryption key before proceeding with file opening
     qDebug() << "Validating encryption key for double-click open:" << encryptedFilePath;
     QByteArray encryptionKey = m_mainWindow->user_Key;
-    if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey)) {
+    if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey, true)) {
         QMessageBox::critical(m_mainWindow, "Invalid Encryption Key",
                               "The encryption key is invalid or the file is corrupted. "
                               "Please ensure you are using the correct user account.");
@@ -2036,7 +2087,7 @@ void Operations_EncryptedData::decryptSelectedFile()
 
     // Validate encryption key before proceeding
     qDebug() << "Validating encryption key for file:" << encryptedFilePath;
-    if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey)) {
+    if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey, true)) {
         QMessageBox::critical(m_mainWindow, "Invalid Encryption Key",
                               "The encryption key is invalid or the file is corrupted. "
                               "Please ensure you are using the correct user account.");
@@ -2248,47 +2299,12 @@ void Operations_EncryptedData::deleteSelectedFile()
 
 QString Operations_EncryptedData::getOriginalFilename(const QString& encryptedFilePath)
 {
-    QFile file(encryptedFilePath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        qWarning() << "Failed to open encrypted file:" << encryptedFilePath;
+    if (!m_metadataManager) {
+        qWarning() << "Metadata manager not initialized";
         return QString();
     }
 
-    // Read the filename length (first 4 bytes)
-    quint32 filenameLength = 0;
-    if (file.read(reinterpret_cast<char*>(&filenameLength), sizeof(filenameLength)) != sizeof(filenameLength)) {
-        qWarning() << "Failed to read filename length from:" << encryptedFilePath;
-        return QString();
-    }
-
-    // Validate filename length (reasonable limits)
-    if (filenameLength == 0 || filenameLength > 1000) {
-        qWarning() << "Invalid filename length in encrypted file:" << filenameLength << encryptedFilePath;
-        return QString();
-    }
-
-    // Read the original filename
-    QByteArray filenameBytes = file.read(filenameLength);
-    if (filenameBytes.size() != static_cast<int>(filenameLength)) {
-        qWarning() << "Failed to read complete filename from:" << encryptedFilePath;
-        return QString();
-    }
-
-    file.close();
-
-    // Convert to QString
-    QString originalFilename = QString::fromUtf8(filenameBytes);
-
-    // Validate the filename
-    InputValidation::ValidationResult result = InputValidation::validateInput(
-        originalFilename, InputValidation::InputType::FileName, 255);
-
-    if (!result.isValid) {
-        qWarning() << "Invalid filename extracted from encrypted file:" << originalFilename;
-        return QString();
-    }
-
-    return originalFilename;
+    return m_metadataManager->getFilenameFromFile(encryptedFilePath);
 }
 
 QString Operations_EncryptedData::mapSortTypeToDirectory(const QString& sortType)
