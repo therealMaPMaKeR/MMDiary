@@ -223,6 +223,19 @@ private:
     void onContextMenuDecryptExport();
     void onContextMenuDelete();
 
+    void updateFileListDisplay();
+    void populateCategoriesList();
+    void populateTagsList();
+
+    QMap<QString, EncryptedFileMetadata::FileMetadata> m_fileMetadataCache;
+    QStringList m_currentFilteredFiles; // Files matching current filters
+    bool m_updatingFilters;
+
+    void refreshAfterEncryption(const QString& encryptedFilePath);
+    void refreshAfterEdit(const QString& encryptedFilePath);
+    void selectCategoryAndFile(const QString& categoryToSelect, const QString& filePathToSelect = QString());
+    void removeFileFromCacheAndRefresh(const QString& encryptedFilePath);
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();
@@ -274,6 +287,9 @@ private slots:
 
     void onLazyLoadTimeout();
     void onListScrolled();
+
+    void onCategorySelectionChanged();
+    void onTagCheckboxChanged();
 };
 
 #endif // OPERATIONS_ENCRYPTEDDATA_H

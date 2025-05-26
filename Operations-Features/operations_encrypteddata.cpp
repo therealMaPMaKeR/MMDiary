@@ -707,6 +707,7 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     , m_tempDecryptWorker(nullptr)
     , m_tempDecryptWorkerThread(nullptr)
     , m_tempFileCleanupTimer(nullptr)
+    , m_updatingFilters(false) // Initialize new member
 {
     //Create MetaData Manager Instance
     m_metadataManager = new EncryptedFileMetadata(m_mainWindow->user_Key, m_mainWindow->user_Username);
@@ -717,6 +718,12 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     // Connect double-click signal
     connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemDoubleClicked,
             this, &Operations_EncryptedData::onFileListDoubleClicked);
+
+    // Add connections for new filtering system
+    connect(m_mainWindow->ui->listWidget_DataENC_Categories, &QListWidget::currentItemChanged,
+            this, &Operations_EncryptedData::onCategorySelectionChanged);
+
+    // Note: Tag checkboxes will be connected dynamically when created
 
     // Set initial button states (disabled since no files loaded yet)
     updateButtonStates();
@@ -1739,7 +1746,7 @@ void Operations_EncryptedData::onFileProgressUpdate(int currentFile, int totalFi
     }
 }
 
-// New slot for multiple file encryption completion
+
 void Operations_EncryptedData::onMultiFileEncryptionFinished(bool success, const QString& errorMessage,
                                                              const QStringList& successfulFiles, const QStringList& failedFiles)
 {
@@ -1755,9 +1762,24 @@ void Operations_EncryptedData::onMultiFileEncryptionFinished(bool success, const
     }
 
     if (m_worker) {
-        if (success) {
-            // Refresh the file list to show newly encrypted files
-            populateEncryptedFilesList();
+        if (success && !m_worker->m_targetFiles.isEmpty()) {
+            // For multiple files, refresh to show the first successfully encrypted file
+            // Find the first successful file's encrypted path
+            QString firstSuccessfulEncryptedFile;
+            for (int i = 0; i < m_worker->m_sourceFiles.size(); ++i) {
+                QString sourceFileName = QFileInfo(m_worker->m_sourceFiles[i]).fileName();
+                if (successfulFiles.contains(sourceFileName)) {
+                    firstSuccessfulEncryptedFile = m_worker->m_targetFiles[i];
+                    break;
+                }
+            }
+
+            if (!firstSuccessfulEncryptedFile.isEmpty()) {
+                refreshAfterEncryption(firstSuccessfulEncryptedFile);
+            } else {
+                // Fallback: just refresh the list normally
+                populateEncryptedFilesList();
+            }
 
             // Show success dialog with multiple file handling
             showMultiFileSuccessDialog(m_worker->m_sourceFiles, successfulFiles, failedFiles);
@@ -2020,28 +2042,8 @@ void Operations_EncryptedData::onEncryptionFinished(bool success, const QString&
         QString encryptedFile = m_worker->m_targetFiles.first();
 
         if (success) {
-            // Determine the file type that was just encrypted
-            QString fileType = determineFileType(originalFile);
-            QString uiSortType = mapDirectoryToSortType(fileType);
-
-            // Check if combo box is already on the correct type
-            QString currentSortType = m_mainWindow->ui->comboBox_DataENC_SortType->currentText();
-
-            if (currentSortType == uiSortType || currentSortType == "All") {
-                // Already on the correct type or showing all files - just refresh the list
-                populateEncryptedFilesList();
-            } else {
-                // Need to change combo box, which will automatically trigger list refresh
-                int targetIndex = Operations::GetIndexFromText(uiSortType, m_mainWindow->ui->comboBox_DataENC_SortType);
-                if (targetIndex != -1) {
-                    m_mainWindow->ui->comboBox_DataENC_SortType->setCurrentIndex(targetIndex);
-                    // This will automatically trigger onSortTypeChanged() which will repopulate the list
-                } else {
-                    // Fallback: manually populate the list if index lookup failed
-                    qWarning() << "Failed to find combo box index for:" << uiSortType;
-                    populateEncryptedFilesList();
-                }
-            }
+            // Refresh the list and select appropriate category/file
+            refreshAfterEncryption(encryptedFile);
 
             showSuccessDialog(encryptedFile, originalFile);
         } else {
@@ -2268,16 +2270,25 @@ void Operations_EncryptedData::deleteSelectedFile()
     if (!QFile::exists(encryptedFilePath)) {
         QMessageBox::critical(m_mainWindow, "File Not Found",
                               "The encrypted file no longer exists.");
-        populateEncryptedFilesList(); // Refresh the list
+        // Remove from cache and refresh since file is gone
+        removeFileFromCacheAndRefresh(encryptedFilePath);
         return;
     }
 
     // Get the original filename for display in the confirmation dialog
-    QString originalFilename = getOriginalFilename(encryptedFilePath);
-    if (originalFilename.isEmpty()) {
-        // If we can't get the original filename, use the encrypted filename
-        QFileInfo fileInfo(encryptedFilePath);
-        originalFilename = fileInfo.fileName();
+    QString originalFilename;
+
+    // Try to get from cache first (faster)
+    if (m_fileMetadataCache.contains(encryptedFilePath)) {
+        originalFilename = m_fileMetadataCache[encryptedFilePath].filename;
+    } else {
+        // Fallback to reading metadata
+        originalFilename = getOriginalFilename(encryptedFilePath);
+        if (originalFilename.isEmpty()) {
+            // If we can't get the original filename, use the encrypted filename
+            QFileInfo fileInfo(encryptedFilePath);
+            originalFilename = fileInfo.fileName();
+        }
     }
 
     // Show confirmation dialog
@@ -2297,8 +2308,9 @@ void Operations_EncryptedData::deleteSelectedFile()
     bool deleted = QFile::remove(encryptedFilePath);
 
     if (deleted) {
-        // Refresh the list since we removed a file
-        populateEncryptedFilesList();
+        // Remove from cache and refresh the display
+        removeFileFromCacheAndRefresh(encryptedFilePath);
+
         QMessageBox::information(m_mainWindow, "File Deleted",
                                  QString("'%1' has been deleted.").arg(originalFilename));
     } else {
@@ -2359,15 +2371,24 @@ QString Operations_EncryptedData::mapDirectoryToSortType(const QString& director
 
 void Operations_EncryptedData::populateEncryptedFilesList()
 {
-    // Clear the current list and pending items
-    m_mainWindow->ui->listWidget_DataENC_FileList->clear();
+    qDebug() << "Starting populateEncryptedFilesList with hierarchical filtering";
+
+    // Prevent recursive updates
+    if (m_updatingFilters) {
+        return;
+    }
+    m_updatingFilters = true;
+
+    // Clear current state
+    m_fileMetadataCache.clear();
+    m_currentFilteredFiles.clear();
     m_pendingThumbnailItems.clear();
 
     // Get current sort type from combo box
     QString currentSortType = m_mainWindow->ui->comboBox_DataENC_SortType->currentText();
     QString username = m_mainWindow->user_Username;
 
-    qDebug() << "Populating list for user:" << username << "sort type:" << currentSortType;
+    qDebug() << "Scanning files for user:" << username << "sort type:" << currentSortType;
 
     // Build base path to encrypted data
     QString basePath = QDir::current().absoluteFilePath("Data");
@@ -2377,11 +2398,12 @@ void Operations_EncryptedData::populateEncryptedFilesList()
     QDir encDataDir(encDataPath);
     if (!encDataDir.exists()) {
         qDebug() << "EncryptedData directory doesn't exist for user:" << username;
+        m_updatingFilters = false;
         return;
     }
 
+    // Determine directories to scan based on file type filter
     QStringList directoriesToScan;
-
     if (currentSortType == "All") {
         directoriesToScan << "Document" << "Image" << "Audio" << "Video" << "Archive" << "Other";
     } else {
@@ -2392,7 +2414,7 @@ void Operations_EncryptedData::populateEncryptedFilesList()
     // Collect all valid file paths for cache cleanup
     QStringList allValidFilePaths;
 
-    // Scan each directory for encrypted files
+    // Scan each directory for encrypted files and load metadata
     for (const QString& dirName : directoriesToScan) {
         QString dirPath = QDir(encDataPath).absoluteFilePath(dirName);
         QDir dir(dirPath);
@@ -2407,89 +2429,319 @@ void Operations_EncryptedData::populateEncryptedFilesList()
 
         for (const QFileInfo& fileInfo : fileList) {
             QString encryptedFilePath = fileInfo.absoluteFilePath();
-            QString originalFilename = getOriginalFilename(encryptedFilePath);
 
-            if (!originalFilename.isEmpty()) {
+            // Try to read metadata for this file
+            EncryptedFileMetadata::FileMetadata metadata;
+            if (m_metadataManager && m_metadataManager->readMetadataFromFile(encryptedFilePath, metadata)) {
+                // Valid metadata found
+                m_fileMetadataCache[encryptedFilePath] = metadata;
                 allValidFilePaths.append(encryptedFilePath);
 
-                // Create custom widget for this file
-                EncryptedFileItemWidget* customWidget = new EncryptedFileItemWidget();
+                qDebug() << "Loaded metadata for:" << metadata.filename
+                         << "category:" << metadata.category
+                         << "tags:" << metadata.tags.join(", ");
+            } else {
+                // Fallback: try to get original filename using legacy method
+                QString originalFilename = getOriginalFilename(encryptedFilePath);
+                if (!originalFilename.isEmpty()) {
+                    // Create basic metadata with just filename
+                    metadata = EncryptedFileMetadata::FileMetadata(originalFilename);
+                    m_fileMetadataCache[encryptedFilePath] = metadata;
+                    allValidFilePaths.append(encryptedFilePath);
 
-                // Set file information
-                customWidget->setFileInfo(originalFilename, encryptedFilePath, dirName);
-
-                // Check if we have a cached thumbnail
-                QPixmap icon;
-                bool hasCachedThumbnail = false;
-
-                if (m_thumbnailCache) {
-                    // Check for cached thumbnails for both images and videos
-                    if (dirName == "Image" || dirName == "Video") {
-                        qDebug() << "=== Processing" << dirName.toLower() << "file ===";
-                        qDebug() << "Original filename:" << originalFilename;
-                        qDebug() << "Encrypted file path:" << encryptedFilePath;
-
-                        qDebug() << "Checking for cached thumbnail...";
-                        hasCachedThumbnail = m_thumbnailCache->hasThumbnail(encryptedFilePath);
-                        qDebug() << "hasThumbnail result:" << hasCachedThumbnail;
-
-                        if (hasCachedThumbnail) {
-                            qDebug() << "Loading cached thumbnail...";
-                            icon = m_thumbnailCache->getThumbnail(encryptedFilePath, EncryptedFileItemWidget::getIconSize());
-                            if (!icon.isNull()) {
-                                qDebug() << "Successfully loaded cached thumbnail for:" << originalFilename;
-                            } else {
-                                qWarning() << "Failed to load cached thumbnail for:" << originalFilename;
-                            }
-                        } else {
-                            qDebug() << "No cached thumbnail found for:" << originalFilename;
-                        }
-                    }
-                }
-
-                // If no cached thumbnail, use default icon
-                if (icon.isNull()) {
-                    icon = getIconForFileType(originalFilename, dirName);
-                }
-
-                customWidget->setIcon(icon);
-
-                // Create list widget item
-                QListWidgetItem* item = new QListWidgetItem();
-                item->setData(Qt::UserRole, encryptedFilePath);
-                item->setData(Qt::UserRole + 1, dirName);
-                item->setData(Qt::UserRole + 2, originalFilename);
-
-                // Set item size to accommodate custom widget
-                int itemHeight = EncryptedFileItemWidget::getIconSize() + 8; // icon size + padding
-                item->setSizeHint(QSize(0, itemHeight));
-
-                // Add item to list and set custom widget
-                m_mainWindow->ui->listWidget_DataENC_FileList->addItem(item);
-                m_mainWindow->ui->listWidget_DataENC_FileList->setItemWidget(item, customWidget);
-
-                // Add to pending thumbnails if it's an image or video without cached thumbnail
-                if ((dirName == "Image" || dirName == "Video") && m_thumbnailCache && !m_thumbnailCache->hasThumbnail(encryptedFilePath)) {
-                    m_pendingThumbnailItems.append(item);
-                    qDebug() << "Added to pending thumbnails:" << originalFilename;
+                    qDebug() << "Using legacy filename for:" << originalFilename;
                 }
             }
         }
     }
 
-    qDebug() << "=== BEFORE CLEANUP ===";
-    qDebug() << "About to call cleanupOrphanedThumbnails with" << allValidFilePaths.size() << "valid paths";
-    for (const QString& path : allValidFilePaths) {
-        qDebug() << "VALID PATH FOR CLEANUP:" << path;
-    }
-    qDebug() << "=== END BEFORE CLEANUP ===";
+    qDebug() << "Loaded metadata for" << m_fileMetadataCache.size() << "files";
 
     // Clean up orphaned thumbnail cache entries
     if (m_thumbnailCache && currentSortType == "All") {
         qDebug() << "Running thumbnail cleanup (showing All files)";
         m_thumbnailCache->cleanupOrphanedThumbnails(allValidFilePaths);
-    } else {
-        qDebug() << "Skipping thumbnail cleanup (not showing All files, sort type:" << currentSortType << ")";
+    }
+
+    // Populate categories list based on loaded metadata
+    populateCategoriesList();
+
+    // Reset category selection to "All"
+    if (m_mainWindow->ui->listWidget_DataENC_Categories->count() > 0) {
+        m_mainWindow->ui->listWidget_DataENC_Categories->setCurrentRow(0); // "All" is always first
+    }
+
+    m_updatingFilters = false;
+
+    // This will trigger onCategorySelectionChanged which will handle the rest
+    qDebug() << "Finished populateEncryptedFilesList, category selection will trigger rest of filtering";
+}
+
+// New method: Populate categories list
+void Operations_EncryptedData::populateCategoriesList()
+{
+    qDebug() << "Populating categories list";
+
+    // Clear current categories list
+    m_mainWindow->ui->listWidget_DataENC_Categories->clear();
+
+    // Collect all unique categories that have files
+    QSet<QString> categoriesWithFiles;
+
+    for (auto it = m_fileMetadataCache.begin(); it != m_fileMetadataCache.end(); ++it) {
+        const EncryptedFileMetadata::FileMetadata& metadata = it.value();
+
+        if (metadata.category.isEmpty()) {
+            categoriesWithFiles.insert("Uncategorized");
+        } else {
+            categoriesWithFiles.insert(metadata.category);
+        }
+    }
+
+    // Always add "All" at the top
+    QListWidgetItem* allItem = new QListWidgetItem("All");
+    allItem->setData(Qt::UserRole, "All");
+    m_mainWindow->ui->listWidget_DataENC_Categories->addItem(allItem);
+
+    // Add categories in alphabetical order
+    QStringList sortedCategories(categoriesWithFiles.begin(), categoriesWithFiles.end());
+    sortedCategories.sort();
+
+    // Remove "Uncategorized" if it exists (we'll add it at the end)
+    sortedCategories.removeAll("Uncategorized");
+
+    for (const QString& category : sortedCategories) {
+        QListWidgetItem* item = new QListWidgetItem(category);
+        item->setData(Qt::UserRole, category);
+        m_mainWindow->ui->listWidget_DataENC_Categories->addItem(item);
+    }
+
+    // Add "Uncategorized" at the bottom if it has files
+    if (categoriesWithFiles.contains("Uncategorized")) {
+        QListWidgetItem* uncategorizedItem = new QListWidgetItem("Uncategorized");
+        uncategorizedItem->setData(Qt::UserRole, "Uncategorized");
+        m_mainWindow->ui->listWidget_DataENC_Categories->addItem(uncategorizedItem);
+    }
+
+    qDebug() << "Added" << m_mainWindow->ui->listWidget_DataENC_Categories->count()
+             << "categories (including All)";
+}
+
+// New method: Handle category selection changes
+void Operations_EncryptedData::onCategorySelectionChanged()
+{
+    if (m_updatingFilters) {
+        return;
+    }
+
+    QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_DataENC_Categories->currentItem();
+    if (!currentItem) {
+        qDebug() << "No category selected, clearing lists";
+        m_mainWindow->ui->listWidget_DataENC_Tags->clear();
+        m_mainWindow->ui->listWidget_DataENC_FileList->clear();
+        updateButtonStates();
+        return;
+    }
+
+    QString selectedCategory = currentItem->data(Qt::UserRole).toString();
+    qDebug() << "Category selection changed to:" << selectedCategory;
+
+    // Filter files by selected category
+    m_currentFilteredFiles.clear();
+
+    for (auto it = m_fileMetadataCache.begin(); it != m_fileMetadataCache.end(); ++it) {
+        const QString& filePath = it.key();
+        const EncryptedFileMetadata::FileMetadata& metadata = it.value();
+
+        bool includeFile = false;
+
+        if (selectedCategory == "All") {
+            includeFile = true;
+        } else if (selectedCategory == "Uncategorized") {
+            includeFile = metadata.category.isEmpty();
+        } else {
+            includeFile = (metadata.category == selectedCategory);
+        }
+
+        if (includeFile) {
+            m_currentFilteredFiles.append(filePath);
+        }
+    }
+
+    qDebug() << "Filtered to" << m_currentFilteredFiles.size() << "files for category:" << selectedCategory;
+
+    // Populate tags list based on filtered files
+    populateTagsList();
+
+    // Update file list display
+    updateFileListDisplay();
+}
+
+// New method: Populate tags list with checkboxes
+void Operations_EncryptedData::populateTagsList()
+{
+    qDebug() << "Populating tags list";
+
+    // Clear current tags list
+    m_mainWindow->ui->listWidget_DataENC_Tags->clear();
+
+    // Collect all unique tags from currently filtered files
+    QSet<QString> allTags;
+
+    for (const QString& filePath : m_currentFilteredFiles) {
+        if (m_fileMetadataCache.contains(filePath)) {
+            const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
+            for (const QString& tag : metadata.tags) {
+                if (!tag.isEmpty()) {
+                    allTags.insert(tag);
+                }
+            }
+        }
+    }
+
+    // Add tags as checkbox items in alphabetical order
+    QStringList sortedTags(allTags.begin(), allTags.end());
+    sortedTags.sort();
+
+    for (const QString& tag : sortedTags) {
+        QListWidgetItem* item = new QListWidgetItem();
+        item->setText(tag);
+        item->setData(Qt::UserRole, tag);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(Qt::Unchecked);
+
+        m_mainWindow->ui->listWidget_DataENC_Tags->addItem(item);
+    }
+
+    // Connect to checkbox changes
+    connect(m_mainWindow->ui->listWidget_DataENC_Tags, &QListWidget::itemChanged,
+            this, &Operations_EncryptedData::onTagCheckboxChanged);
+
+    qDebug() << "Added" << sortedTags.size() << "tags with checkboxes";
+}
+
+// New method: Handle tag checkbox changes
+void Operations_EncryptedData::onTagCheckboxChanged()
+{
+    if (m_updatingFilters) {
+        return;
+    }
+
+    qDebug() << "Tag selection changed, updating file list";
+
+    // Update file list display based on current tag selection
+    updateFileListDisplay();
+}
+
+// New method: Update the actual file list display
+void Operations_EncryptedData::updateFileListDisplay()
+{
+    qDebug() << "Updating file list display";
+
+    // Clear current file list and pending items
+    m_mainWindow->ui->listWidget_DataENC_FileList->clear();
+    m_pendingThumbnailItems.clear();
+
+    // Get checked tags
+    QStringList checkedTags;
+    for (int i = 0; i < m_mainWindow->ui->listWidget_DataENC_Tags->count(); ++i) {
+        QListWidgetItem* item = m_mainWindow->ui->listWidget_DataENC_Tags->item(i);
+        if (item && item->checkState() == Qt::Checked) {
+            checkedTags.append(item->data(Qt::UserRole).toString());
+        }
+    }
+
+    qDebug() << "Checked tags:" << checkedTags;
+
+    // Filter files by checked tags (AND logic)
+    QStringList finalFilteredFiles;
+
+    for (const QString& filePath : m_currentFilteredFiles) {
+        if (!m_fileMetadataCache.contains(filePath)) {
+            continue;
+        }
+
+        const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
+
+        bool includeFile = true;
+
+        if (!checkedTags.isEmpty()) {
+            // AND logic: file must have ALL checked tags
+            for (const QString& requiredTag : checkedTags) {
+                if (!metadata.tags.contains(requiredTag)) {
+                    includeFile = false;
+                    break;
+                }
+            }
+        }
+
+        if (includeFile) {
+            finalFilteredFiles.append(filePath);
+        }
+    }
+
+    qDebug() << "Final filtered files count:" << finalFilteredFiles.size();
+
+    // Create list items for filtered files
+    for (const QString& encryptedFilePath : finalFilteredFiles) {
+        const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[encryptedFilePath];
+
+        // Determine file type directory from path
+        QFileInfo fileInfo(encryptedFilePath);
+        QString fileTypeDir = fileInfo.dir().dirName(); // e.g., "Image", "Video", etc.
+
+        // Create custom widget for this file
+        EncryptedFileItemWidget* customWidget = new EncryptedFileItemWidget();
+
+        // Set file information
+        customWidget->setFileInfo(metadata.filename, encryptedFilePath, fileTypeDir);
+
+        // Check if we have a cached thumbnail
+        QPixmap icon;
+        bool hasCachedThumbnail = false;
+
+        if (m_thumbnailCache) {
+            // Check for cached thumbnails for both images and videos
+            if (fileTypeDir == "Image" || fileTypeDir == "Video") {
+                hasCachedThumbnail = m_thumbnailCache->hasThumbnail(encryptedFilePath);
+
+                if (hasCachedThumbnail) {
+                    icon = m_thumbnailCache->getThumbnail(encryptedFilePath, EncryptedFileItemWidget::getIconSize());
+                    if (!icon.isNull()) {
+                        qDebug() << "Successfully loaded cached thumbnail for:" << metadata.filename;
+                    } else {
+                        qWarning() << "Failed to load cached thumbnail for:" << metadata.filename;
+                    }
+                }
+            }
+        }
+
+        // If no cached thumbnail, use default icon
+        if (icon.isNull()) {
+            icon = getIconForFileType(metadata.filename, fileTypeDir);
+        }
+
+        customWidget->setIcon(icon);
+
+        // Create list widget item
+        QListWidgetItem* item = new QListWidgetItem();
+        item->setData(Qt::UserRole, encryptedFilePath);
+        item->setData(Qt::UserRole + 1, fileTypeDir);
+        item->setData(Qt::UserRole + 2, metadata.filename);
+
+        // Set item size to accommodate custom widget
+        int itemHeight = EncryptedFileItemWidget::getIconSize() + 8; // icon size + padding
+        item->setSizeHint(QSize(0, itemHeight));
+
+        // Add item to list and set custom widget
+        m_mainWindow->ui->listWidget_DataENC_FileList->addItem(item);
+        m_mainWindow->ui->listWidget_DataENC_FileList->setItemWidget(item, customWidget);
+
+        // Add to pending thumbnails if it's an image or video without cached thumbnail
+        if ((fileTypeDir == "Image" || fileTypeDir == "Video") && m_thumbnailCache && !hasCachedThumbnail) {
+            m_pendingThumbnailItems.append(item);
+            qDebug() << "Added to pending thumbnails:" << metadata.filename;
+        }
     }
 
     // Start lazy loading for visible items
@@ -2498,16 +2750,27 @@ void Operations_EncryptedData::populateEncryptedFilesList()
     // Update button states after populating the list
     updateButtonStates();
 
-    qDebug() << "Populated encrypted files list with" << m_mainWindow->ui->listWidget_DataENC_FileList->count()
-             << "items for sort type:" << currentSortType
-             << "Pending thumbnails:" << m_pendingThumbnailItems.size();
+    qDebug() << "File list display updated with" << finalFilteredFiles.size() << "items";
 }
 
 void Operations_EncryptedData::onSortTypeChanged(const QString& sortType)
 {
     Q_UNUSED(sortType)
-    // Repopulate the list when sort type changes
+    qDebug() << "Sort type changed, repopulating file list and resetting filters";
+
+    // Temporarily disconnect category selection to prevent intermediate updates
+    disconnect(m_mainWindow->ui->listWidget_DataENC_Categories, &QListWidget::currentItemChanged,
+               this, &Operations_EncryptedData::onCategorySelectionChanged);
+
+    // Repopulate the list when sort type changes (this will reset category to "All")
     populateEncryptedFilesList();
+
+    // Reconnect category selection
+    connect(m_mainWindow->ui->listWidget_DataENC_Categories, &QListWidget::currentItemChanged,
+            this, &Operations_EncryptedData::onCategorySelectionChanged);
+
+    // Manually trigger category selection to ensure file list updates
+    onCategorySelectionChanged();
 }
 
 void Operations_EncryptedData::updateButtonStates()
@@ -2913,6 +3176,172 @@ void Operations_EncryptedData::storeVideoThumbnail(const QString& encryptedFileP
 }
 
 
+// New helper method: Refresh after encryption
+void Operations_EncryptedData::refreshAfterEncryption(const QString& encryptedFilePath)
+{
+    qDebug() << "Refreshing after encryption for file:" << encryptedFilePath;
+
+    // Determine the file type that was just encrypted
+    QFileInfo fileInfo(encryptedFilePath);
+    QString fileTypeDir = fileInfo.dir().dirName(); // e.g., "Image", "Video", etc.
+    QString uiSortType = mapDirectoryToSortType(fileTypeDir);
+
+    // Check if combo box needs to be changed
+    QString currentSortType = m_mainWindow->ui->comboBox_DataENC_SortType->currentText();
+
+    if (currentSortType != uiSortType && currentSortType != "All") {
+        qDebug() << "Changing sort type from" << currentSortType << "to" << uiSortType;
+
+        // Change combo box, which will trigger onSortTypeChanged() and repopulate everything
+        int targetIndex = Operations::GetIndexFromText(uiSortType, m_mainWindow->ui->comboBox_DataENC_SortType);
+        if (targetIndex != -1) {
+            m_mainWindow->ui->comboBox_DataENC_SortType->setCurrentIndex(targetIndex);
+            // This will automatically trigger populateEncryptedFilesList()
+        } else {
+            qWarning() << "Failed to find combo box index for:" << uiSortType;
+            populateEncryptedFilesList();
+        }
+    } else {
+        // Same file type or showing "All", just refresh
+        populateEncryptedFilesList();
+    }
+
+    // After the list is populated, read the metadata to determine the actual category
+    EncryptedFileMetadata::FileMetadata metadata;
+    QString categoryToSelect = "Uncategorized"; // Default assumption
+
+    if (m_metadataManager && m_metadataManager->readMetadataFromFile(encryptedFilePath, metadata)) {
+        if (metadata.category.isEmpty()) {
+            categoryToSelect = "Uncategorized";
+        } else {
+            categoryToSelect = metadata.category;
+        }
+        qDebug() << "Detected category for newly encrypted file:" << categoryToSelect;
+    } else {
+        qDebug() << "Could not read metadata, assuming Uncategorized";
+    }
+
+    // Select the appropriate category and file
+    selectCategoryAndFile(categoryToSelect, encryptedFilePath);
+}
+
+// New helper method: Refresh after edit
+void Operations_EncryptedData::refreshAfterEdit(const QString& encryptedFilePath)
+{
+    qDebug() << "Refreshing after edit for file:" << encryptedFilePath;
+
+    // Read the updated metadata to determine the new category
+    EncryptedFileMetadata::FileMetadata metadata;
+    QString categoryToSelect = "Uncategorized"; // Default assumption
+
+    if (m_metadataManager && m_metadataManager->readMetadataFromFile(encryptedFilePath, metadata)) {
+        if (metadata.category.isEmpty()) {
+            categoryToSelect = "Uncategorized";
+        } else {
+            categoryToSelect = metadata.category;
+        }
+        qDebug() << "Detected category for edited file:" << categoryToSelect;
+    } else {
+        qDebug() << "Could not read metadata, assuming Uncategorized";
+    }
+
+    // Refresh the entire list (this will reload metadata cache)
+    populateEncryptedFilesList();
+
+    // Select the appropriate category and file
+    selectCategoryAndFile(categoryToSelect, encryptedFilePath);
+}
+
+// New helper method: Select category and optionally a file
+void Operations_EncryptedData::selectCategoryAndFile(const QString& categoryToSelect, const QString& filePathToSelect)
+{
+    qDebug() << "Selecting category:" << categoryToSelect << "and file:" << filePathToSelect;
+
+    // Find and select the category
+    QListWidget* categoriesList = m_mainWindow->ui->listWidget_DataENC_Categories;
+    bool categoryFound = false;
+
+    for (int i = 0; i < categoriesList->count(); ++i) {
+        QListWidgetItem* item = categoriesList->item(i);
+        if (item && item->data(Qt::UserRole).toString() == categoryToSelect) {
+            categoriesList->setCurrentItem(item);
+            categoryFound = true;
+            qDebug() << "Selected category:" << categoryToSelect;
+            break;
+        }
+    }
+
+    if (!categoryFound) {
+        qWarning() << "Category not found:" << categoryToSelect << "- selecting 'All'";
+        if (categoriesList->count() > 0) {
+            categoriesList->setCurrentRow(0); // "All" is always first
+        }
+    }
+
+    // If a specific file should be selected, wait for the category change to propagate, then select it
+    if (!filePathToSelect.isEmpty()) {
+        // Use a single-shot timer to ensure the file list has been updated after category selection
+        QTimer::singleShot(50, [this, filePathToSelect]() {
+            QListWidget* filesList = m_mainWindow->ui->listWidget_DataENC_FileList;
+
+            for (int i = 0; i < filesList->count(); ++i) {
+                QListWidgetItem* item = filesList->item(i);
+                if (item && item->data(Qt::UserRole).toString() == filePathToSelect) {
+                    filesList->setCurrentItem(item);
+                    filesList->scrollToItem(item); // Ensure the selected item is visible
+                    qDebug() << "Selected file in list:" << filePathToSelect;
+                    break;
+                }
+            }
+        });
+    }
+}
+
+// New helper method: Remove file from cache and refresh display
+void Operations_EncryptedData::removeFileFromCacheAndRefresh(const QString& encryptedFilePath)
+{
+    qDebug() << "Removing file from cache and refreshing display:" << encryptedFilePath;
+
+    // Remove from metadata cache
+    if (m_fileMetadataCache.contains(encryptedFilePath)) {
+        m_fileMetadataCache.remove(encryptedFilePath);
+        qDebug() << "Removed file from metadata cache";
+    }
+
+    // Remove from current filtered files list
+    m_currentFilteredFiles.removeAll(encryptedFilePath);
+
+    // Check if any categories now have no files and need to be removed
+    // We need to rebuild the categories list
+    populateCategoriesList();
+
+    // Get the currently selected category to maintain selection if possible
+    QString selectedCategory = "All"; // Default fallback
+    QListWidgetItem* currentCategoryItem = m_mainWindow->ui->listWidget_DataENC_Categories->currentItem();
+    if (currentCategoryItem) {
+        selectedCategory = currentCategoryItem->data(Qt::UserRole).toString();
+    }
+
+    // Check if the selected category still exists after deletion
+    bool categoryStillExists = false;
+    for (int i = 0; i < m_mainWindow->ui->listWidget_DataENC_Categories->count(); ++i) {
+        QListWidgetItem* item = m_mainWindow->ui->listWidget_DataENC_Categories->item(i);
+        if (item && item->data(Qt::UserRole).toString() == selectedCategory) {
+            m_mainWindow->ui->listWidget_DataENC_Categories->setCurrentItem(item);
+            categoryStillExists = true;
+            break;
+        }
+    }
+
+    // If the category no longer exists, select "All"
+    if (!categoryStillExists && m_mainWindow->ui->listWidget_DataENC_Categories->count() > 0) {
+        m_mainWindow->ui->listWidget_DataENC_Categories->setCurrentRow(0); // "All" is always first
+        selectedCategory = "All";
+    }
+
+    // Manually trigger category selection to refresh tags and file list
+    onCategorySelectionChanged();
+}
 // ============================================================================
 // Context Menu Implementation
 // ============================================================================
@@ -3020,20 +3449,8 @@ void Operations_EncryptedData::onContextMenuEdit()
     int result = editDialog.exec();
 
     if (result == QDialog::Accepted) {
-        // Changes were saved, refresh the file list to show updated information
-        qDebug() << "Edit dialog accepted, refreshing file list";
-        populateEncryptedFilesList();
-
-        // Try to reselect the same file after refresh
-        // Find the item with the same encrypted file path
-        QListWidget* listWidget = m_mainWindow->ui->listWidget_DataENC_FileList;
-        for (int i = 0; i < listWidget->count(); ++i) {
-            QListWidgetItem* item = listWidget->item(i);
-            if (item && item->data(Qt::UserRole).toString() == encryptedFilePath) {
-                listWidget->setCurrentItem(item);
-                break;
-            }
-        }
+        // Changes were saved, refresh and select the edited file
+        refreshAfterEdit(encryptedFilePath);
 
         QMessageBox::information(m_mainWindow, "Changes Saved",
                                  "File metadata has been updated successfully.");
