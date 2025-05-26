@@ -475,8 +475,13 @@ QPixmap FileIconProvider::getDefaultFileIcon(int size)
         return m_defaultIconCache[cacheKey];
     }
 
+    // Use Qt's standard file icon directly instead of system icon
     QPixmap icon = QApplication::style()->standardIcon(QStyle::SP_FileIcon).pixmap(size, size);
-    m_defaultIconCache[cacheKey] = icon;
+
+    if (!icon.isNull()) {
+        m_defaultIconCache[cacheKey] = icon;
+    }
+
     return icon;
 }
 
@@ -507,11 +512,8 @@ QPixmap FileIconProvider::getDefaultImageIcon(int size)
         return QPixmap();
     }
 
-    // Try to get a more specific icon for images
-    QPixmap icon = getIconForExtension("jpg", size);
-    if (icon.isNull()) {
-        icon = QApplication::style()->standardIcon(QStyle::SP_FileIcon).pixmap(size, size);
-    }
+    // Use Qt's standard file icon directly instead of system icon
+    QPixmap icon = QApplication::style()->standardIcon(QStyle::SP_FileIcon).pixmap(size, size);
 
     if (!icon.isNull()) {
         try {
@@ -532,12 +534,13 @@ QPixmap FileIconProvider::getDefaultVideoIcon(int size)
         return m_defaultIconCache[cacheKey];
     }
 
-    // Try to get a video icon
-    QPixmap icon = getIconForExtension("mp4", size);
-    if (icon.isNull()) {
-        icon = QApplication::style()->standardIcon(QStyle::SP_ComputerIcon).pixmap(size, size);
+    // Use Qt's standard media play icon directly instead of system icon
+    QPixmap icon = QApplication::style()->standardIcon(QStyle::SP_MediaPlay).pixmap(size, size);
+
+    if (!icon.isNull()) {
+        m_defaultIconCache[cacheKey] = icon;
     }
-    m_defaultIconCache[cacheKey] = icon;
+
     return icon;
 }
 
@@ -548,11 +551,13 @@ QPixmap FileIconProvider::getDefaultAudioIcon(int size)
         return m_defaultIconCache[cacheKey];
     }
 
-    QPixmap icon = getIconForExtension("mp3", size);
-    if (icon.isNull()) {
-        icon = QApplication::style()->standardIcon(QStyle::SP_MediaPlay).pixmap(size, size);
+    // Use Qt's standard media play icon directly instead of system icon
+    QPixmap icon = QApplication::style()->standardIcon(QStyle::SP_MediaPlay).pixmap(size, size);
+
+    if (!icon.isNull()) {
+        m_defaultIconCache[cacheKey] = icon;
     }
-    m_defaultIconCache[cacheKey] = icon;
+
     return icon;
 }
 
@@ -563,11 +568,13 @@ QPixmap FileIconProvider::getDefaultDocumentIcon(int size)
         return m_defaultIconCache[cacheKey];
     }
 
-    QPixmap icon = getIconForExtension("pdf", size);
-    if (icon.isNull()) {
-        icon = QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView).pixmap(size, size);
+    // Use Qt's standard detailed view icon directly instead of system icon
+    QPixmap icon = QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView).pixmap(size, size);
+
+    if (!icon.isNull()) {
+        m_defaultIconCache[cacheKey] = icon;
     }
-    m_defaultIconCache[cacheKey] = icon;
+
     return icon;
 }
 
@@ -578,10 +585,12 @@ QPixmap FileIconProvider::getDefaultArchiveIcon(int size)
         return m_defaultIconCache[cacheKey];
     }
 
-    QPixmap icon = getIconForExtension("zip", size);
-    if (icon.isNull()) {
-        icon = QApplication::style()->standardIcon(QStyle::SP_DirIcon).pixmap(size, size);
+    // Use Qt's standard directory icon directly instead of system icon
+    QPixmap icon = QApplication::style()->standardIcon(QStyle::SP_DirIcon).pixmap(size, size);
+
+    if (!icon.isNull()) {
+        m_defaultIconCache[cacheKey] = icon;
     }
-    m_defaultIconCache[cacheKey] = icon;
+
     return icon;
 }

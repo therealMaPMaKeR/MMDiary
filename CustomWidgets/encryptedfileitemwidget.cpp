@@ -58,7 +58,7 @@ void EncryptedFileItemWidget::setFileInfo(const QString& originalFilename,
 
     // Set filename with elision if too long
     QFontMetrics fm(m_filenameLabel->font());
-    QString elidedText = fm.elidedText(originalFilename, Qt::ElideMiddle, 200);
+    QString elidedText = fm.elidedText(originalFilename, Qt::ElideMiddle, 1000);
     m_filenameLabel->setText(elidedText);
     m_filenameLabel->setToolTip(originalFilename); // Full filename in tooltip
 }
