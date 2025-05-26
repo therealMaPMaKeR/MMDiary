@@ -35,6 +35,9 @@ private:
     QString m_username;
     EncryptedFileMetadata::FileMetadata m_originalMetadata;
 
+    // NEW: Store the original file extension separately
+    QString m_originalExtension;
+
     // Metadata manager
     EncryptedFileMetadata* m_metadataManager;
 
@@ -48,6 +51,9 @@ private:
     void loadCurrentMetadata();
     void populateFields();
     bool saveMetadata();
+
+    // NEW: Helper method to split filename and extension
+    void splitFilenameAndExtension(const QString& fullFilename, QString& baseName, QString& extension);
 };
 
 #endif // EDITENCRYPTEDFILEDIALOG_H

@@ -3453,8 +3453,8 @@ void Operations_EncryptedData::onContextMenuEdit()
         // Changes were saved, refresh and select the edited file
         refreshAfterEdit(encryptedFilePath);
 
-        QMessageBox::information(m_mainWindow, "Changes Saved",
-                                 "File metadata has been updated successfully.");
+        // Success - no dialog shown, just silently refresh the display
+        qDebug() << "File metadata updated successfully, display refreshed";
     } else {
         qDebug() << "Edit dialog cancelled, no changes made";
     }
