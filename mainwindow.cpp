@@ -35,6 +35,10 @@ MainWindow::MainWindow(QWidget *parent)
     ui->checkBox_Diary_TManLogs->setHidden(true);
     ui->checkBox_TList_LogToDiary->setHidden(true);
 
+    //hide buttons in encrypted data tab, might remove permanently later
+    ui->pushButton_DataENC_Decrypt->setHidden(true);
+    ui->pushButton_DataENC_DeleteFile->setHidden(true);
+
 
 
     //set timestamp Font

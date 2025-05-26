@@ -20,6 +20,8 @@
 #include "Operations-Global/encryptedfilemetadata.h"
 #include <QScrollBar>
 #include <QTimer>
+#include <QEvent>
+#include <QKeyEvent>
 
 class MainWindow;
 
@@ -290,6 +292,10 @@ private slots:
 
     void onCategorySelectionChanged();
     void onTagCheckboxChanged();
+
+protected:
+    // Event filter for Delete key functionality
+    bool eventFilter(QObject* watched, QEvent* event) override;
 };
 
 #endif // OPERATIONS_ENCRYPTEDDATA_H

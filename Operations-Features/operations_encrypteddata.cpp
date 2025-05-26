@@ -719,6 +719,9 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemDoubleClicked,
             this, &Operations_EncryptedData::onFileListDoubleClicked);
 
+    // Install event filter for Delete key functionality
+    m_mainWindow->ui->listWidget_DataENC_FileList->installEventFilter(this);
+
     // Add connections for new filtering system
     connect(m_mainWindow->ui->listWidget_DataENC_Categories, &QListWidget::currentItemChanged,
             this, &Operations_EncryptedData::onCategorySelectionChanged);
@@ -2310,9 +2313,7 @@ void Operations_EncryptedData::deleteSelectedFile()
     if (deleted) {
         // Remove from cache and refresh the display
         removeFileFromCacheAndRefresh(encryptedFilePath);
-
-        QMessageBox::information(m_mainWindow, "File Deleted",
-                                 QString("'%1' has been deleted.").arg(originalFilename));
+        // Success - no dialog shown, file is just deleted silently
     } else {
         QMessageBox::critical(m_mainWindow, "Deletion Failed",
                               QString("Failed to delete '%1'. The file may be in use or you may not have sufficient permissions.").arg(originalFilename));
@@ -3469,4 +3470,26 @@ void Operations_EncryptedData::onContextMenuDelete()
 {
     // Use the existing delete functionality
     deleteSelectedFile();
+}
+
+// event filter
+bool Operations_EncryptedData::eventFilter(QObject* watched, QEvent* event)
+{
+    // Check if this is a key press event on the file list
+    if (watched == m_mainWindow->ui->listWidget_DataENC_FileList && event->type() == QEvent::KeyPress) {
+        QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
+
+        // Handle Delete key press
+        if (keyEvent->key() == Qt::Key_Delete) {
+            // Check if a file is selected
+            QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_DataENC_FileList->currentItem();
+            if (currentItem) {
+                deleteSelectedFile();
+                return true; // Event handled
+            }
+        }
+    }
+
+    // Pass event to parent class
+    return QObject::eventFilter(watched, event);
 }
