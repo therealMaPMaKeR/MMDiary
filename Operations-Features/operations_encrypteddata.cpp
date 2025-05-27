@@ -2949,8 +2949,8 @@ DeletionType Operations_EncryptedData::showDeletionTypeDialog()
     msgBox.setText("What would you like to securely delete?");
     msgBox.setInformativeText("Choose the type of items to delete permanently.");
 
-    QPushButton* filesButton = msgBox.addButton("Multiple Files", QMessageBox::ActionRole);
-    QPushButton* folderButton = msgBox.addButton("Single Folder", QMessageBox::ActionRole);
+    QPushButton* filesButton = msgBox.addButton("Files", QMessageBox::ActionRole);
+    QPushButton* folderButton = msgBox.addButton("Folder", QMessageBox::ActionRole);
     QPushButton* cancelButton = msgBox.addButton("Cancel", QMessageBox::RejectRole);
 
     msgBox.setDefaultButton(cancelButton);
