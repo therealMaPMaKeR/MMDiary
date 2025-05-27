@@ -3451,6 +3451,19 @@ void Operations_EncryptedData::onContextMenuEdit()
     }
     qDebug() << "Encryption key validation successful for edit operation";
 
+    // NEW: Check if file has an existing thumbnail and save it temporarily
+    QPixmap existingThumbnail;
+    bool hadThumbnail = false;
+
+    if (m_thumbnailCache && m_thumbnailCache->hasThumbnail(encryptedFilePath)) {
+        existingThumbnail = m_thumbnailCache->getThumbnail(encryptedFilePath, EncryptedFileItemWidget::getIconSize());
+        hadThumbnail = !existingThumbnail.isNull();
+
+        if (hadThumbnail) {
+            qDebug() << "Preserving existing thumbnail for metadata edit:" << encryptedFilePath;
+        }
+    }
+
     // Create and show edit dialog
     EditEncryptedFileDialog editDialog(m_mainWindow);
     editDialog.initialize(encryptedFilePath, encryptionKey, username);
@@ -3461,6 +3474,20 @@ void Operations_EncryptedData::onContextMenuEdit()
     if (result == QDialog::Accepted) {
         // Changes were saved, refresh and select the edited file
         refreshAfterEdit(encryptedFilePath);
+
+        // NEW: Restore the thumbnail if we had one before editing
+        if (hadThumbnail && m_thumbnailCache) {
+            // The file modification time has changed, so we need to store the thumbnail
+            // with the new cache key that will be generated
+            if (m_thumbnailCache->storeThumbnail(encryptedFilePath, existingThumbnail)) {
+                qDebug() << "Successfully restored thumbnail after metadata edit";
+
+                // Update the UI with the restored thumbnail
+                updateItemThumbnail(encryptedFilePath, existingThumbnail);
+            } else {
+                qWarning() << "Failed to restore thumbnail after metadata edit";
+            }
+        }
 
         // Success - no dialog shown, just silently refresh the display
         qDebug() << "File metadata updated successfully, display refreshed";
