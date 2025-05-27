@@ -246,6 +246,8 @@ private slots:
 
     void on_checkBox_DataENC_ReqPW_stateChanged(int arg1);
 
+    void on_pushButton_DataENC_DecryptALL_clicked();
+
 private:
     void UpdateTasklistTextSize();
     QSystemTrayIcon *trayIcon;

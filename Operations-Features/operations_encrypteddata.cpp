@@ -22,6 +22,12 @@
 #include <QStyle>
 #include <QApplication>
 #include "editencryptedfiledialog.h"
+#include <QProgressBar>
+#include <QLabel>
+#include <QPushButton>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QDialog>
 
 // Windows-specific includes for file association checking
 #ifdef Q_OS_WIN
@@ -29,6 +35,7 @@
 #include <shellapi.h>
 #include <QSettings>
 #endif
+
 
 // ============================================================================
 // EncryptionWorker Implementation
@@ -691,6 +698,8 @@ void TempDecryptionWorker::cancel()
     QMutexLocker locker(&m_cancelMutex);
     m_cancelled = true;
 }
+
+
 
 // ============================================================================
 // Operations_EncryptedData Implementation
@@ -3492,4 +3501,647 @@ bool Operations_EncryptedData::eventFilter(QObject* watched, QEvent* event)
 
     // Pass event to parent class
     return QObject::eventFilter(watched, event);
+}
+
+
+//----------- Batch Decrypt Classes Impl ------------//
+
+// =============================================================================
+// BATCHDECRYPTIONPROGRESSDIALOG METHOD IMPLEMENTATIONS
+// Add these to operations_encrypteddata.cpp
+// =============================================================================
+
+BatchDecryptionProgressDialog::BatchDecryptionProgressDialog(QWidget* parent)
+    : QDialog(parent)
+    , m_overallProgress(nullptr)
+    , m_fileProgress(nullptr)
+    , m_statusLabel(nullptr)
+    , m_cancelButton(nullptr)
+    , m_cancelled(false)
+{
+    setupUI();
+    setWindowModality(Qt::ApplicationModal);
+    setWindowTitle("Decrypting and Exporting Files");
+    setFixedSize(500, 150);
+}
+
+void BatchDecryptionProgressDialog::setOverallProgress(int percentage)
+{
+    if (m_overallProgress) {
+        m_overallProgress->setValue(percentage);
+    }
+}
+
+void BatchDecryptionProgressDialog::setFileProgress(int percentage)
+{
+    if (m_fileProgress) {
+        m_fileProgress->setValue(percentage);
+    }
+}
+
+void BatchDecryptionProgressDialog::setStatusText(const QString& text)
+{
+    if (m_statusLabel) {
+        m_statusLabel->setText(text);
+    }
+}
+
+bool BatchDecryptionProgressDialog::wasCancelled() const
+{
+    return m_cancelled;
+}
+
+void BatchDecryptionProgressDialog::onCancelClicked()
+{
+    m_cancelled = true;
+    m_cancelButton->setEnabled(false);
+    m_cancelButton->setText("Cancelling...");
+    if (onCancelCallback) {
+        onCancelCallback();
+    }
+}
+
+void BatchDecryptionProgressDialog::setupUI()
+{
+    QVBoxLayout* layout = new QVBoxLayout(this);
+
+    // Status label
+    m_statusLabel = new QLabel("Preparing to decrypt files...");
+    m_statusLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(m_statusLabel);
+
+    // Overall progress
+    QLabel* overallLabel = new QLabel("Overall Progress:");
+    layout->addWidget(overallLabel);
+
+    m_overallProgress = new QProgressBar();
+    m_overallProgress->setRange(0, 100);
+    m_overallProgress->setValue(0);
+    layout->addWidget(m_overallProgress);
+
+    // File progress
+    QLabel* fileLabel = new QLabel("Current File Progress:");
+    layout->addWidget(fileLabel);
+
+    m_fileProgress = new QProgressBar();
+    m_fileProgress->setRange(0, 100);
+    m_fileProgress->setValue(0);
+    layout->addWidget(m_fileProgress);
+
+    // Cancel button
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    buttonLayout->addStretch();
+
+    m_cancelButton = new QPushButton("Cancel");
+
+    // Use direct connection instead of signal/slot
+    connect(m_cancelButton, &QPushButton::clicked, [this]() {
+        onCancelClicked();
+    });
+
+    buttonLayout->addWidget(m_cancelButton);
+    buttonLayout->addStretch();
+    layout->addLayout(buttonLayout);
+}
+
+// =============================================================================
+// BATCHDECRYPTIONWORKER METHOD IMPLEMENTATIONS
+// Add these to operations_encrypteddata.cpp
+// =============================================================================
+
+BatchDecryptionWorker::BatchDecryptionWorker(const QList<FileExportInfo>& fileInfos,
+                                             const QByteArray& encryptionKey)
+    : m_fileInfos(fileInfos)
+    , m_encryptionKey(encryptionKey)
+    , m_cancelled(false)
+    , m_metadataManager(new EncryptedFileMetadata(encryptionKey, QString()))
+{
+}
+
+BatchDecryptionWorker::~BatchDecryptionWorker()
+{
+    if (m_metadataManager) {
+        delete m_metadataManager;
+        m_metadataManager = nullptr;
+    }
+}
+
+void BatchDecryptionWorker::doDecryption()
+{
+    try {
+        if (m_fileInfos.isEmpty()) {
+            emit batchDecryptionFinished(false, "No files to decrypt", QStringList(), QStringList());
+            return;
+        }
+
+        // Calculate total size for progress tracking
+        qint64 totalSize = 0;
+        for (const FileExportInfo& info : m_fileInfos) {
+            totalSize += info.fileSize;
+        }
+
+        qint64 processedTotalSize = 0;
+        QStringList successfulFiles;
+        QStringList failedFiles;
+
+        // Process each file
+        for (int fileIndex = 0; fileIndex < m_fileInfos.size(); ++fileIndex) {
+            // Check for cancellation
+            {
+                QMutexLocker locker(&m_cancelMutex);
+                if (m_cancelled) {
+                    emit batchDecryptionFinished(false, "Operation was cancelled",
+                                                 successfulFiles, failedFiles);
+                    return;
+                }
+            }
+
+            const FileExportInfo& fileInfo = m_fileInfos[fileIndex];
+
+            // Emit file started signal
+            emit fileStarted(fileIndex + 1, m_fileInfos.size(), fileInfo.originalFilename);
+
+            // Create target directory if needed
+            QFileInfo targetFileInfo(fileInfo.targetFile);
+            QDir targetDir = targetFileInfo.dir();
+            if (!targetDir.exists()) {
+                if (!targetDir.mkpath(".")) {
+                    failedFiles.append(QString("%1 (failed to create target directory)").arg(fileInfo.originalFilename));
+                    processedTotalSize += fileInfo.fileSize;
+                    continue;
+                }
+            }
+
+            // Decrypt the file
+            bool fileSuccess = decryptSingleFile(fileInfo, processedTotalSize, totalSize);
+
+            if (fileSuccess) {
+                successfulFiles.append(fileInfo.originalFilename);
+            } else {
+                failedFiles.append(fileInfo.originalFilename);
+            }
+
+            processedTotalSize += fileInfo.fileSize;
+
+            // Update overall progress
+            int overallPercentage = static_cast<int>((processedTotalSize * 100) / totalSize);
+            emit overallProgressUpdated(overallPercentage);
+
+            // Reset file progress for next file
+            emit fileProgressUpdated(0);
+
+            // Allow other threads to run
+            QCoreApplication::processEvents();
+        }
+
+        // Emit completion signal
+        bool overallSuccess = !successfulFiles.isEmpty();
+        QString resultMessage;
+
+        if (successfulFiles.size() == m_fileInfos.size()) {
+            resultMessage = QString("All %1 files decrypted successfully").arg(successfulFiles.size());
+        } else if (successfulFiles.isEmpty()) {
+            resultMessage = "All files failed to decrypt";
+            overallSuccess = false;
+        } else {
+            resultMessage = QString("Partial success: %1 of %2 files decrypted successfully")
+            .arg(successfulFiles.size()).arg(m_fileInfos.size());
+        }
+
+        emit batchDecryptionFinished(overallSuccess, resultMessage, successfulFiles, failedFiles);
+
+    } catch (const std::exception& e) {
+        emit batchDecryptionFinished(false, QString("Decryption error: %1").arg(e.what()),
+                                     QStringList(), QStringList());
+    } catch (...) {
+        emit batchDecryptionFinished(false, "Unknown decryption error occurred",
+                                     QStringList(), QStringList());
+    }
+}
+
+void BatchDecryptionWorker::cancel()
+{
+    QMutexLocker locker(&m_cancelMutex);
+    m_cancelled = true;
+}
+
+bool BatchDecryptionWorker::decryptSingleFile(const FileExportInfo& fileInfo,
+                                              qint64 currentTotalProcessed, qint64 totalSize)
+{
+    try {
+        QFile sourceFile(fileInfo.sourceFile);
+        if (!sourceFile.open(QIODevice::ReadOnly)) {
+            qWarning() << "Failed to open source file:" << fileInfo.sourceFile;
+            return false;
+        }
+
+        qint64 fileSize = sourceFile.size();
+        qint64 processedFileSize = 0;
+
+        // Skip the encrypted metadata header (same as in DecryptionWorker)
+        quint32 metadataSize = 0;
+        if (sourceFile.read(reinterpret_cast<char*>(&metadataSize), sizeof(metadataSize)) != sizeof(metadataSize)) {
+            qWarning() << "Failed to read metadata size:" << fileInfo.sourceFile;
+            return false;
+        }
+
+        if (metadataSize == 0 || metadataSize > EncryptedFileMetadata::MAX_ENCRYPTED_METADATA_SIZE) {
+            qWarning() << "Invalid metadata size:" << metadataSize;
+            return false;
+        }
+
+        // Skip the encrypted metadata chunk
+        QByteArray encryptedMetadata = sourceFile.read(metadataSize);
+        if (encryptedMetadata.size() != static_cast<int>(metadataSize)) {
+            qWarning() << "Failed to skip metadata:" << fileInfo.sourceFile;
+            return false;
+        }
+
+        processedFileSize += sizeof(metadataSize) + metadataSize;
+
+        // Create target file
+        QFile targetFile(fileInfo.targetFile);
+        if (!targetFile.open(QIODevice::WriteOnly)) {
+            qWarning() << "Failed to create target file:" << fileInfo.targetFile;
+            return false;
+        }
+
+        // Decrypt file content chunk by chunk
+        while (!sourceFile.atEnd()) {
+            // Check for cancellation
+            {
+                QMutexLocker locker(&m_cancelMutex);
+                if (m_cancelled) {
+                    targetFile.close();
+                    QFile::remove(fileInfo.targetFile);
+                    return false;
+                }
+            }
+
+            // Read chunk size
+            quint32 chunkSize = 0;
+            qint64 bytesRead = sourceFile.read(reinterpret_cast<char*>(&chunkSize), sizeof(chunkSize));
+            if (bytesRead == 0) {
+                break; // End of file
+            }
+            if (bytesRead != sizeof(chunkSize)) {
+                targetFile.close();
+                QFile::remove(fileInfo.targetFile);
+                return false;
+            }
+
+            if (chunkSize == 0 || chunkSize > 10 * 1024 * 1024) { // Max 10MB per chunk
+                targetFile.close();
+                QFile::remove(fileInfo.targetFile);
+                return false;
+            }
+
+            // Read encrypted chunk data
+            QByteArray encryptedChunk = sourceFile.read(chunkSize);
+            if (encryptedChunk.size() != static_cast<int>(chunkSize)) {
+                targetFile.close();
+                QFile::remove(fileInfo.targetFile);
+                return false;
+            }
+
+            // Decrypt chunk
+            QByteArray decryptedChunk = CryptoUtils::Encryption_DecryptBArray(m_encryptionKey, encryptedChunk);
+            if (decryptedChunk.isEmpty()) {
+                targetFile.close();
+                QFile::remove(fileInfo.targetFile);
+                return false;
+            }
+
+            // Write decrypted chunk
+            if (targetFile.write(decryptedChunk) != decryptedChunk.size()) {
+                targetFile.close();
+                QFile::remove(fileInfo.targetFile);
+                return false;
+            }
+
+            processedFileSize += sizeof(chunkSize) + chunkSize;
+
+            // Update file progress
+            int filePercentage = static_cast<int>((processedFileSize * 100) / fileSize);
+            emit fileProgressUpdated(filePercentage);
+
+            // Allow other threads to run
+            QCoreApplication::processEvents();
+        }
+
+        sourceFile.close();
+        targetFile.flush();
+        targetFile.close();
+
+        // Verify file was created successfully
+        if (!QFile::exists(fileInfo.targetFile)) {
+            return false;
+        }
+
+        return true;
+
+    } catch (const std::exception& e) {
+        qWarning() << "Exception during file decryption:" << e.what();
+        return false;
+    } catch (...) {
+        qWarning() << "Unknown exception during file decryption";
+        return false;
+    }
+}
+
+// =============================================================================
+// MAIN IMPLEMENTATION of batch decrypt
+// =============================================================================
+
+void Operations_EncryptedData::decryptAndExportAllFiles()
+{
+    qDebug() << "Starting batch decrypt and export operation";
+
+    // Step 1: Enumerate all encrypted files
+    QList<FileExportInfo> allFiles = enumerateAllEncryptedFiles();
+
+    // Step 2: Check if there are any files to decrypt
+    if (allFiles.isEmpty()) {
+        QMessageBox::information(m_mainWindow, "Database is Empty",
+                                 "Database is Empty. There is no file to decrypt and export.");
+        return;
+    }
+
+    qDebug() << "Found" << allFiles.size() << "files to decrypt";
+
+    // Step 3: Show folder selection dialog
+    QString exportBasePath = QFileDialog::getExistingDirectory(
+        m_mainWindow,
+        "Select Export Location",
+        QDir::homePath(),
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks
+        );
+
+    if (exportBasePath.isEmpty()) {
+        qDebug() << "User cancelled export location selection";
+        return;
+    }
+
+    qDebug() << "Export location selected:" << exportBasePath;
+
+    // Step 4: Calculate total size and create target paths
+    qint64 totalSize = 0;
+    QString username = m_mainWindow->user_Username;
+    QString decryptedDataPath = QDir(exportBasePath).absoluteFilePath("DecryptedData");
+
+    for (FileExportInfo& fileInfo : allFiles) {
+        // Calculate size
+        QFileInfo sourceFileInfo(fileInfo.sourceFile);
+        fileInfo.fileSize = sourceFileInfo.size();
+        totalSize += fileInfo.fileSize;
+
+        // Create target path maintaining folder structure
+        QString relativePath = QDir(QDir::current().absoluteFilePath("Data")).relativeFilePath(fileInfo.sourceFile);
+
+        // Remove username and EncryptedData from path, replace with DecryptedData
+        QStringList pathParts = relativePath.split('/', Qt::SkipEmptyParts);
+        if (pathParts.size() >= 3) { // Data/username/EncryptedData/...
+            pathParts.removeAt(0); // Remove "Data"
+            pathParts.removeAt(0); // Remove username
+            pathParts.removeAt(0); // Remove "EncryptedData"
+
+            // Change .mmenc extension back to original
+            if (pathParts.last().endsWith(".mmenc")) {
+                QString filename = pathParts.last();
+                filename = filename.left(filename.length() - 6); // Remove .mmenc
+
+                // Try to determine original extension from filename
+                QFileInfo originalFileInfo(fileInfo.originalFilename);
+                QString originalExtension = originalFileInfo.suffix();
+                if (!originalExtension.isEmpty()) {
+                    filename += "." + originalExtension;
+                }
+
+                pathParts[pathParts.size() - 1] = filename;
+            }
+        }
+
+        QString targetPath = decryptedDataPath;
+        for (const QString& part : pathParts) {
+            targetPath = QDir(targetPath).absoluteFilePath(part);
+        }
+
+        fileInfo.targetFile = targetPath;
+    }
+
+    // Step 5: Show confirmation dialog
+    QString sizeString = formatFileSize(totalSize);
+    QMessageBox confirmBox(m_mainWindow);
+    confirmBox.setWindowTitle("Confirm Batch Export");
+    confirmBox.setIcon(QMessageBox::Question);
+    confirmBox.setText("You are about to decrypt and export your entire encrypted file database.");
+    confirmBox.setInformativeText(QString("%1 file(s) will be decrypted, for a total approximate size of %2.\n\nAre you sure you wish to continue?")
+                                      .arg(allFiles.size()).arg(sizeString));
+
+    QPushButton* continueButton = confirmBox.addButton("Continue", QMessageBox::YesRole);
+    QPushButton* cancelButton = confirmBox.addButton("Cancel", QMessageBox::NoRole);
+    confirmBox.setDefaultButton(cancelButton);
+
+    confirmBox.exec();
+
+    if (confirmBox.clickedButton() != continueButton) {
+        qDebug() << "User cancelled batch export operation";
+        return;
+    }
+
+    // Step 6: Create DecryptedData directory structure
+    QDir exportDir(exportBasePath);
+    if (!exportDir.mkpath("DecryptedData")) {
+        QMessageBox::critical(m_mainWindow, "Export Failed",
+                              "Failed to create DecryptedData directory in the selected location.");
+        return;
+    }
+
+    // Step 7: Set up progress dialog
+    BatchDecryptionProgressDialog* progressDialog = new BatchDecryptionProgressDialog(m_mainWindow);
+    progressDialog->setStatusText("Preparing to decrypt files...");
+
+    // Step 8: Set up worker thread
+    m_batchDecryptWorkerThread = new QThread(this);
+    m_batchDecryptWorker = new BatchDecryptionWorker(allFiles, m_mainWindow->user_Key);
+    m_batchDecryptWorker->moveToThread(m_batchDecryptWorkerThread);
+
+    // Connect signals
+    connect(m_batchDecryptWorkerThread, &QThread::started,
+            m_batchDecryptWorker, &BatchDecryptionWorker::doDecryption);
+    connect(m_batchDecryptWorker, &BatchDecryptionWorker::overallProgressUpdated,
+            this, &Operations_EncryptedData::onBatchDecryptionOverallProgress);
+    connect(m_batchDecryptWorker, &BatchDecryptionWorker::fileProgressUpdated,
+            this, &Operations_EncryptedData::onBatchDecryptionFileProgress);
+    connect(m_batchDecryptWorker, &BatchDecryptionWorker::fileStarted,
+            this, &Operations_EncryptedData::onBatchDecryptionFileStarted);
+    connect(m_batchDecryptWorker, &BatchDecryptionWorker::batchDecryptionFinished,
+            this, &Operations_EncryptedData::onBatchDecryptionFinished);
+    connect(progressDialog, &::BatchDecryptionProgressDialog::wasCancelled,
+            this, &Operations_EncryptedData::onBatchDecryptionCancelled);
+
+    // Store progress dialog reference for signal handlers
+    m_batchProgressDialog = progressDialog;
+
+    // Start decryption
+    m_batchDecryptWorkerThread->start();
+    progressDialog->exec();
+}
+
+// Helper function to enumerate all encrypted files
+QList<FileExportInfo> Operations_EncryptedData::enumerateAllEncryptedFiles()
+{
+    QList<FileExportInfo> allFiles;
+    QString username = m_mainWindow->user_Username;
+
+    // Build path to encrypted data
+    QString basePath = QDir::current().absoluteFilePath("Data");
+    QString userPath = QDir(basePath).absoluteFilePath(username);
+    QString encDataPath = QDir(userPath).absoluteFilePath("EncryptedData");
+
+    QDir encDataDir(encDataPath);
+    if (!encDataDir.exists()) {
+        qDebug() << "EncryptedData directory doesn't exist for user:" << username;
+        return allFiles;
+    }
+
+    // Scan all subdirectories
+    QStringList typeDirectories = {"Document", "Image", "Audio", "Video", "Archive", "Other"};
+
+    for (const QString& typeDir : typeDirectories) {
+        QString typePath = QDir(encDataPath).absoluteFilePath(typeDir);
+        QDir dir(typePath);
+
+        if (!dir.exists()) {
+            continue;
+        }
+
+        QStringList filters;
+        filters << "*.mmenc";
+        QFileInfoList fileList = dir.entryInfoList(filters, QDir::Files | QDir::Readable, QDir::Name);
+
+        for (const QFileInfo& fileInfo : fileList) {
+            QString encryptedFilePath = fileInfo.absoluteFilePath();
+
+            // Try to get original filename
+            QString originalFilename;
+            if (m_metadataManager) {
+                originalFilename = m_metadataManager->getFilenameFromFile(encryptedFilePath);
+            }
+
+            if (originalFilename.isEmpty()) {
+                // Fallback: use encrypted filename without .mmenc
+                originalFilename = fileInfo.baseName();
+            }
+
+            FileExportInfo info;
+            info.sourceFile = encryptedFilePath;
+            info.originalFilename = originalFilename;
+            info.fileType = typeDir;
+            // targetFile will be set later
+            // fileSize will be calculated later
+
+            allFiles.append(info);
+        }
+    }
+
+    qDebug() << "Enumerated" << allFiles.size() << "encrypted files";
+    return allFiles;
+}
+
+// Helper function to format file sizes
+QString Operations_EncryptedData::formatFileSize(qint64 bytes)
+{
+    const qint64 KB = 1024;
+    const qint64 MB = KB * 1024;
+    const qint64 GB = MB * 1024;
+
+    if (bytes >= GB) {
+        return QString::number(bytes / (double)GB, 'f', 2) + " GB";
+    } else if (bytes >= MB) {
+        return QString::number(bytes / (double)MB, 'f', 2) + " MB";
+    } else if (bytes >= KB) {
+        return QString::number(bytes / (double)KB, 'f', 2) + " KB";
+    } else {
+        return QString::number(bytes) + " bytes";
+    }
+}
+
+// Progress signal handlers
+void Operations_EncryptedData::onBatchDecryptionOverallProgress(int percentage)
+{
+    if (m_batchProgressDialog) {
+        m_batchProgressDialog->setOverallProgress(percentage);
+    }
+}
+
+void Operations_EncryptedData::onBatchDecryptionFileProgress(int percentage)
+{
+    if (m_batchProgressDialog) {
+        m_batchProgressDialog->setFileProgress(percentage);
+    }
+}
+
+void Operations_EncryptedData::onBatchDecryptionFileStarted(int currentFile, int totalFiles, const QString& fileName)
+{
+    if (m_batchProgressDialog) {
+        QString statusText = QString("Decrypting and Exporting: (%1/%2) %3")
+        .arg(currentFile).arg(totalFiles).arg(fileName);
+        m_batchProgressDialog->setStatusText(statusText);
+    }
+}
+
+void Operations_EncryptedData::onBatchDecryptionFinished(bool success, const QString& errorMessage,
+                                                         const QStringList& successfulFiles,
+                                                         const QStringList& failedFiles)
+{
+    if (m_batchProgressDialog) {
+        m_batchProgressDialog->close();
+        m_batchProgressDialog = nullptr; // Clear the pointer
+    }
+
+    if (m_batchDecryptWorkerThread) {
+        m_batchDecryptWorkerThread->quit();
+        m_batchDecryptWorkerThread->wait();
+        m_batchDecryptWorkerThread->deleteLater();
+        m_batchDecryptWorkerThread = nullptr;
+    }
+
+    if (m_batchDecryptWorker) {
+        m_batchDecryptWorker->deleteLater();
+        m_batchDecryptWorker = nullptr;
+    }
+
+    // Show results
+    if (success) {
+        QString message;
+        if (failedFiles.isEmpty()) {
+            message = QString("Export completed successfully!\n\nAll %1 files were decrypted and exported.")
+            .arg(successfulFiles.size());
+            QMessageBox::information(m_mainWindow, "Export Complete", message);
+        } else {
+            message = QString("Export completed with some issues.\n\n%1 files succeeded, %2 files failed.\n\nFailed files:\n%3")
+            .arg(successfulFiles.size())
+                .arg(failedFiles.size())
+                .arg(failedFiles.join("\n"));
+            QMessageBox::warning(m_mainWindow, "Export Complete with Issues", message);
+        }
+    } else {
+        QMessageBox::critical(m_mainWindow, "Export Failed", "Export failed: " + errorMessage);
+    }
+}
+
+void Operations_EncryptedData::onBatchDecryptionCancelled()
+{
+    if (m_batchDecryptWorker) {
+        m_batchDecryptWorker->cancel();
+    }
+
+    if (m_progressDialog) {
+        BatchDecryptionProgressDialog* batchDialog =
+            qobject_cast<BatchDecryptionProgressDialog*>(m_progressDialog);
+        if (batchDialog) {
+            batchDialog->setStatusText("Cancelling operation...");
+        }
+    }
 }

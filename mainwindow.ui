@@ -57,7 +57,7 @@
        </size>
       </property>
       <property name="currentIndex">
-       <number>0</number>
+       <number>4</number>
       </property>
       <widget class="QWidget" name="tab_Diaries">
        <attribute name="title">
@@ -1784,6 +1784,13 @@ li.checked::marker { content: &quot;\2612&quot;; }
               <widget class="QPushButton" name="pushButton_DataENC_SecureDel">
                <property name="text">
                 <string>Secure Delete Unencrypted File</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="pushButton_DataENC_DecryptALL">
+               <property name="text">
+                <string>Export and Decrypt All Files</string>
                </property>
               </widget>
              </item>

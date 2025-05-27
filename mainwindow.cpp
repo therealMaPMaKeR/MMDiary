@@ -668,6 +668,11 @@ void MainWindow::on_pushButton_DataENC_SecureDel_clicked()
     Operations_EncryptedData_ptr->secureDeleteExternalFile();
 }
 
+void MainWindow::on_pushButton_DataENC_DecryptALL_clicked()
+{
+    Operations_EncryptedData_ptr->decryptAndExportAllFiles();
+}
+
 //------Custom Setting Signals-----//
 
 void MainWindow::UpdateTasklistTextSize()
@@ -801,4 +806,5 @@ void MainWindow::on_pushButton_ChangeLog_clicked()
     // Show the dialog and wait for it to close
     dialog.exec();
 }
+
 

@@ -22,6 +22,20 @@
 #include <QTimer>
 #include <QEvent>
 #include <QKeyEvent>
+#include <QProgressBar>
+#include <QLabel>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <functional>
+#include <QDialog>
+
+struct FileExportInfo {
+    QString sourceFile;
+    QString targetFile;
+    QString originalFilename;
+    qint64 fileSize;
+    QString fileType;
+};
 
 class MainWindow;
 
@@ -140,6 +154,67 @@ public:
     void cancel();
 };
 
+// Batch decryption progress dialog
+class BatchDecryptionProgressDialog : public QDialog
+{
+    Q_OBJECT
+public:
+    explicit BatchDecryptionProgressDialog(QWidget* parent = nullptr);
+
+    void setOverallProgress(int percentage);
+    void setFileProgress(int percentage);
+    void setStatusText(const QString& text);
+    bool wasCancelled() const;
+
+    std::function<void()> onCancelCallback;
+
+private:
+    void onCancelClicked();
+    void setupUI();
+
+    QProgressBar* m_overallProgress;
+    QProgressBar* m_fileProgress;
+    QLabel* m_statusLabel;
+    QPushButton* m_cancelButton;
+    bool m_cancelled;
+};
+
+// Forward declaration for Operations_EncryptedData
+class Operations_EncryptedData;
+
+// Batch decryption worker
+class BatchDecryptionWorker : public QObject
+{
+    Q_OBJECT
+
+public:
+    BatchDecryptionWorker(const QList<FileExportInfo>& fileInfos,
+                          const QByteArray& encryptionKey);
+    ~BatchDecryptionWorker();
+
+public slots:
+    void doDecryption();
+    void cancel();
+
+signals:
+    void overallProgressUpdated(int percentage);
+    void fileProgressUpdated(int percentage);
+    void fileStarted(int currentFile, int totalFiles, const QString& fileName);
+    void batchDecryptionFinished(bool success, const QString& errorMessage,
+                                 const QStringList& successfulFiles,
+                                 const QStringList& failedFiles);
+
+private:
+    bool decryptSingleFile(const FileExportInfo& fileInfo,
+                           qint64 currentTotalProcessed, qint64 totalSize);
+
+    QList<FileExportInfo> m_fileInfos;
+    QByteArray m_encryptionKey;
+    bool m_cancelled;
+    QMutex m_cancelMutex;
+    EncryptedFileMetadata* m_metadataManager;
+};
+
 class Operations_EncryptedData : public QObject
 {
     Q_OBJECT
@@ -238,6 +313,26 @@ private:
     void selectCategoryAndFile(const QString& categoryToSelect, const QString& filePathToSelect = QString());
     void removeFileFromCacheAndRefresh(const QString& encryptedFilePath);
 
+    // Batch decryption worker and thread
+    BatchDecryptionWorker* m_batchDecryptWorker;
+    QThread* m_batchDecryptWorkerThread;
+
+    // Helper functions
+
+    QList<FileExportInfo> enumerateAllEncryptedFiles();
+    QString formatFileSize(qint64 bytes);
+
+    // Batch decryption progress slots
+    void onBatchDecryptionOverallProgress(int percentage);
+    void onBatchDecryptionFileProgress(int percentage);
+    void onBatchDecryptionFileStarted(int currentFile, int totalFiles, const QString& fileName);
+    void onBatchDecryptionFinished(bool success, const QString& errorMessage,
+                                   const QStringList& successfulFiles,
+                                   const QStringList& failedFiles);
+    void onBatchDecryptionCancelled();
+
+    BatchDecryptionProgressDialog* m_batchProgressDialog;
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();
@@ -254,6 +349,9 @@ public:
     void deleteSelectedFile();
 
     void secureDeleteExternalFile();
+
+    // Main batch decrypt function
+    void decryptAndExportAllFiles();
 
     // *** NEW: Method to store video thumbnail ***
     void storeVideoThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail);
