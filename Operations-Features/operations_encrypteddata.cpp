@@ -3508,7 +3508,6 @@ bool Operations_EncryptedData::eventFilter(QObject* watched, QEvent* event)
 
 // =============================================================================
 // BATCHDECRYPTIONPROGRESSDIALOG METHOD IMPLEMENTATIONS
-// Add these to operations_encrypteddata.cpp
 // =============================================================================
 
 BatchDecryptionProgressDialog::BatchDecryptionProgressDialog(QWidget* parent)
@@ -3522,7 +3521,7 @@ BatchDecryptionProgressDialog::BatchDecryptionProgressDialog(QWidget* parent)
     setupUI();
     setWindowModality(Qt::ApplicationModal);
     setWindowTitle("Decrypting and Exporting Files");
-    setFixedSize(500, 150);
+    setFixedSize(500, 200);
 }
 
 void BatchDecryptionProgressDialog::setOverallProgress(int percentage)
@@ -3551,24 +3550,51 @@ bool BatchDecryptionProgressDialog::wasCancelled() const
     return m_cancelled;
 }
 
+void BatchDecryptionProgressDialog::closeEvent(QCloseEvent* event)
+{
+    // Trigger cancellation if not already cancelled
+    if (!m_cancelled) {
+        onCancelClicked();
+    }
+
+    // Allow the dialog to close immediately
+    event->accept();
+}
+
+void BatchDecryptionProgressDialog::reject()
+{
+    // Trigger cancellation if not already cancelled
+    if (!m_cancelled) {
+        onCancelClicked();
+    }
+
+    // Allow the dialog to close
+    QDialog::reject();
+}
+
 void BatchDecryptionProgressDialog::onCancelClicked()
 {
     m_cancelled = true;
     m_cancelButton->setEnabled(false);
     m_cancelButton->setText("Cancelling...");
-    if (onCancelCallback) {
-        onCancelCallback();
-    }
+
+    // Emit signal to notify that cancellation was requested
+    emit cancelled();
 }
 
 void BatchDecryptionProgressDialog::setupUI()
 {
     QVBoxLayout* layout = new QVBoxLayout(this);
 
-    // Status label
+    // Status label - CHANGED: Left aligned, for filename only
     m_statusLabel = new QLabel("Preparing to decrypt files...");
-    m_statusLabel->setAlignment(Qt::AlignCenter);
+    m_statusLabel->setAlignment(Qt::AlignLeft);
     layout->addWidget(m_statusLabel);
+
+    // NEW: File count label - separate label for "File: x/y"
+    m_fileCountLabel = new QLabel("");
+    m_fileCountLabel->setAlignment(Qt::AlignLeft);
+    layout->addWidget(m_fileCountLabel);
 
     // Overall progress
     QLabel* overallLabel = new QLabel("Overall Progress:");
@@ -3604,9 +3630,16 @@ void BatchDecryptionProgressDialog::setupUI()
     layout->addLayout(buttonLayout);
 }
 
+// Method to set file count text separately
+void BatchDecryptionProgressDialog::setFileCountText(const QString& text)
+{
+    if (m_fileCountLabel) {
+        m_fileCountLabel->setText(text);
+    }
+}
+
 // =============================================================================
 // BATCHDECRYPTIONWORKER METHOD IMPLEMENTATIONS
-// Add these to operations_encrypteddata.cpp
 // =============================================================================
 
 BatchDecryptionWorker::BatchDecryptionWorker(const QList<FileExportInfo>& fileInfos,
@@ -3884,10 +3917,20 @@ void Operations_EncryptedData::decryptAndExportAllFiles()
 
     qDebug() << "Export location selected:" << exportBasePath;
 
+    // Step 3.5: Check if DecryptedData folder already exists
+    QString decryptedDataPath = QDir(exportBasePath).absoluteFilePath("DecryptedData");
+    if (QDir(decryptedDataPath).exists()) {
+        QMessageBox::critical(m_mainWindow, "Folder Already Exists",
+                              "A DecryptedData folder already exists at the specified location.\n\n"
+                              "Choose a different location or delete the folder.");
+        qDebug() << "DecryptedData folder already exists at:" << decryptedDataPath;
+        return;
+    }
+
     // Step 4: Calculate total size and create target paths
     qint64 totalSize = 0;
     QString username = m_mainWindow->user_Username;
-    QString decryptedDataPath = QDir(exportBasePath).absoluteFilePath("DecryptedData");
+    decryptedDataPath = QDir(exportBasePath).absoluteFilePath("DecryptedData");
 
     for (FileExportInfo& fileInfo : allFiles) {
         // Calculate size
@@ -3895,38 +3938,15 @@ void Operations_EncryptedData::decryptAndExportAllFiles()
         fileInfo.fileSize = sourceFileInfo.size();
         totalSize += fileInfo.fileSize;
 
-        // Create target path maintaining folder structure
-        QString relativePath = QDir(QDir::current().absoluteFilePath("Data")).relativeFilePath(fileInfo.sourceFile);
-
-        // Remove username and EncryptedData from path, replace with DecryptedData
-        QStringList pathParts = relativePath.split('/', Qt::SkipEmptyParts);
-        if (pathParts.size() >= 3) { // Data/username/EncryptedData/...
-            pathParts.removeAt(0); // Remove "Data"
-            pathParts.removeAt(0); // Remove username
-            pathParts.removeAt(0); // Remove "EncryptedData"
-
-            // Change .mmenc extension back to original
-            if (pathParts.last().endsWith(".mmenc")) {
-                QString filename = pathParts.last();
-                filename = filename.left(filename.length() - 6); // Remove .mmenc
-
-                // Try to determine original extension from filename
-                QFileInfo originalFileInfo(fileInfo.originalFilename);
-                QString originalExtension = originalFileInfo.suffix();
-                if (!originalExtension.isEmpty()) {
-                    filename += "." + originalExtension;
-                }
-
-                pathParts[pathParts.size() - 1] = filename;
-            }
-        }
-
-        QString targetPath = decryptedDataPath;
-        for (const QString& part : pathParts) {
-            targetPath = QDir(targetPath).absoluteFilePath(part);
-        }
+        // FIXED: Create target path using fileType and original filename
+        // Structure: ExportLocation/DecryptedData/FileType/originalFilename
+        QString targetPath = QDir(decryptedDataPath).absoluteFilePath(fileInfo.fileType);
+        targetPath = QDir(targetPath).absoluteFilePath(fileInfo.originalFilename);
 
         fileInfo.targetFile = targetPath;
+
+        qDebug() << "Mapped:" << fileInfo.sourceFile << "=>" << fileInfo.targetFile;
+        qDebug() << "File type:" << fileInfo.fileType << "Original name:" << fileInfo.originalFilename;
     }
 
     // Step 5: Show confirmation dialog
@@ -3977,7 +3997,9 @@ void Operations_EncryptedData::decryptAndExportAllFiles()
             this, &Operations_EncryptedData::onBatchDecryptionFileStarted);
     connect(m_batchDecryptWorker, &BatchDecryptionWorker::batchDecryptionFinished,
             this, &Operations_EncryptedData::onBatchDecryptionFinished);
-    connect(progressDialog, &::BatchDecryptionProgressDialog::wasCancelled,
+
+    // FIXED: Connect cancellation signal properly
+    connect(progressDialog, &BatchDecryptionProgressDialog::cancelled,
             this, &Operations_EncryptedData::onBatchDecryptionCancelled);
 
     // Store progress dialog reference for signal handlers
@@ -4085,9 +4107,12 @@ void Operations_EncryptedData::onBatchDecryptionFileProgress(int percentage)
 void Operations_EncryptedData::onBatchDecryptionFileStarted(int currentFile, int totalFiles, const QString& fileName)
 {
     if (m_batchProgressDialog) {
-        QString statusText = QString("Decrypting and Exporting: (%1/%2) %3")
-        .arg(currentFile).arg(totalFiles).arg(fileName);
+        // CHANGED: Use separate labels for filename and file count
+        QString statusText = QString("Exporting: %1").arg(fileName);
+        QString fileCountText = QString("File: %1/%2").arg(currentFile).arg(totalFiles);
+
         m_batchProgressDialog->setStatusText(statusText);
+        m_batchProgressDialog->setFileCountText(fileCountText);
     }
 }
 

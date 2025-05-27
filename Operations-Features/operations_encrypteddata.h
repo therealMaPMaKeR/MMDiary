@@ -28,6 +28,7 @@
 #include <QHBoxLayout>
 #include <functional>
 #include <QDialog>
+#include <QCloseEvent>
 
 struct FileExportInfo {
     QString sourceFile;
@@ -164,6 +165,7 @@ public:
     void setOverallProgress(int percentage);
     void setFileProgress(int percentage);
     void setStatusText(const QString& text);
+    void setFileCountText(const QString& text);
     bool wasCancelled() const;
 
     std::function<void()> onCancelCallback;
@@ -175,8 +177,14 @@ private:
     QProgressBar* m_overallProgress;
     QProgressBar* m_fileProgress;
     QLabel* m_statusLabel;
+    QLabel* m_fileCountLabel;
     QPushButton* m_cancelButton;
     bool m_cancelled;
+protected:
+    void closeEvent(QCloseEvent* event) override;
+    void reject() override;
+signals:
+    void cancelled();
 };
 
 // Forward declaration for Operations_EncryptedData
