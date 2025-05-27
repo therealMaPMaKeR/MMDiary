@@ -55,8 +55,9 @@ void EditEncryptedFileDialog::splitFilenameAndExtension(const QString& fullFilen
 {
     QFileInfo fileInfo(fullFilename);
 
-    // Get the base name (filename without extension)
-    baseName = fileInfo.baseName();
+    // Get the complete base name (filename without the last extension only)
+    // This preserves dots in the filename except for the final extension
+    baseName = fileInfo.completeBaseName();
 
     // Get the extension (including the dot)
     QString suffix = fileInfo.suffix();
