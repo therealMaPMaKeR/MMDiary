@@ -29,6 +29,9 @@
 #include <functional>
 #include <QDialog>
 #include <QCloseEvent>
+#include <QMutex>
+#include <QDirIterator>
+#include <algorithm>
 
 struct FileExportInfo {
     QString sourceFile;
@@ -38,7 +41,34 @@ struct FileExportInfo {
     QString fileType;
 };
 
+enum class DeletionType {
+    Files,
+    Folder,
+    Cancel
+};
+
+struct DeletionItem {
+    QString path;
+    QString displayName;
+    qint64 size;
+    bool isFolder;
+
+    DeletionItem(const QString& p, const QString& dn, qint64 s, bool folder)
+        : path(p), displayName(dn), size(s), isFolder(folder) {}
+};
+
+struct DeletionResult {
+    QStringList successfulItems;
+    QStringList failedItems;
+    qint64 totalSize;
+    int totalFiles;
+
+    DeletionResult() : totalSize(0), totalFiles(0) {}
+};
+
 class MainWindow;
+class SecureDeletionProgressDialog;
+class SecureDeletionWorker;
 
 // Worker class for encryption in separate thread
 class EncryptionWorker : public QObject
@@ -223,6 +253,66 @@ private:
     EncryptedFileMetadata* m_metadataManager;
 };
 
+// Progress dialog class declaration:
+class SecureDeletionProgressDialog : public QDialog
+{
+    Q_OBJECT
+public:
+    explicit SecureDeletionProgressDialog(QWidget* parent = nullptr);
+
+    void setOverallProgress(int percentage);
+    void setCurrentItem(const QString& itemName);
+    void setStatusText(const QString& text);
+    bool wasCancelled() const;
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
+    void reject() override;
+
+private slots:
+    void onCancelClicked();
+
+private:
+    void setupUI();
+
+    QProgressBar* m_overallProgress;
+    QLabel* m_statusLabel;
+    QLabel* m_currentItemLabel;
+    QPushButton* m_cancelButton;
+    bool m_cancelled;
+
+signals:
+    void cancelled();
+};
+
+// Worker class declaration:
+class SecureDeletionWorker : public QObject
+{
+    Q_OBJECT
+
+public:
+    SecureDeletionWorker(const QList<DeletionItem>& items);
+    ~SecureDeletionWorker();
+
+public slots:
+    void doSecureDeletion();
+    void cancel();
+
+signals:
+    void progressUpdated(int percentage);
+    void currentItemChanged(const QString& itemName);
+    void deletionFinished(bool success, const DeletionResult& result, const QString& errorMessage = QString());
+
+private:
+    bool secureDeleteSingleFile(const QString& filePath);
+    bool secureDeleteFolder(const QString& folderPath, int& processedFiles, int totalFiles);
+    QStringList enumerateFilesInFolder(const QString& folderPath);
+
+    QList<DeletionItem> m_items;
+    bool m_cancelled;
+    QMutex m_cancelMutex;
+};
+
 class Operations_EncryptedData : public QObject
 {
     Q_OBJECT
@@ -341,6 +431,16 @@ private:
 
     BatchDecryptionProgressDialog* m_batchProgressDialog;
 
+    SecureDeletionWorker* m_secureDeletionWorker;
+    QThread* m_secureDeletionWorkerThread;
+    SecureDeletionProgressDialog* m_secureDeletionProgressDialog;
+
+    DeletionType showDeletionTypeDialog();
+    bool validateExternalItem(const QString& itemPath, bool isFolder);
+    qint64 calculateItemSize(const QString& itemPath, bool isFolder, int& fileCount);
+    bool showDeletionConfirmationDialog(const QList<DeletionItem>& items);
+    void showDeletionResultsDialog(const DeletionResult& result);
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();
@@ -356,7 +456,7 @@ public:
 
     void deleteSelectedFile();
 
-    void secureDeleteExternalFile();
+    void secureDeleteExternalItems();
 
     // Main batch decrypt function
     void decryptAndExportAllFiles();
@@ -398,6 +498,11 @@ private slots:
 
     void onCategorySelectionChanged();
     void onTagCheckboxChanged();
+
+    void onSecureDeletionProgress(int percentage);
+    void onSecureDeletionCurrentItem(const QString& itemName);
+    void onSecureDeletionFinished(bool success, const DeletionResult& result, const QString& errorMessage);
+    void onSecureDeletionCancelled();
 
 protected:
     // Event filter for Delete key functionality

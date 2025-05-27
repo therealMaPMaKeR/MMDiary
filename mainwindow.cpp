@@ -665,7 +665,7 @@ void MainWindow::on_pushButton_DataENC_DeleteFile_clicked()
 
 void MainWindow::on_pushButton_DataENC_SecureDel_clicked()
 {
-    Operations_EncryptedData_ptr->secureDeleteExternalFile();
+    Operations_EncryptedData_ptr->secureDeleteExternalItems();
 }
 
 void MainWindow::on_pushButton_DataENC_DecryptALL_clicked()

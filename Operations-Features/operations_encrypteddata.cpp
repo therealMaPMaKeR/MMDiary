@@ -716,7 +716,10 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     , m_tempDecryptWorker(nullptr)
     , m_tempDecryptWorkerThread(nullptr)
     , m_tempFileCleanupTimer(nullptr)
-    , m_updatingFilters(false) // Initialize new member
+    , m_updatingFilters(false)
+    , m_secureDeletionWorker(nullptr)
+    , m_secureDeletionWorkerThread(nullptr)
+    , m_secureDeletionProgressDialog(nullptr)
 {
     //Create MetaData Manager Instance
     m_metadataManager = new EncryptedFileMetadata(m_mainWindow->user_Key, m_mainWindow->user_Username);
@@ -860,6 +863,34 @@ Operations_EncryptedData::~Operations_EncryptedData()
     if (m_metadataManager) {
         delete m_metadataManager;
         m_metadataManager = nullptr;
+    }
+
+    // Handle secure deletion worker
+    if (m_secureDeletionWorkerThread && m_secureDeletionWorkerThread->isRunning()) {
+        if (m_secureDeletionWorker) {
+            m_secureDeletionWorker->cancel();
+        }
+        m_secureDeletionWorkerThread->quit();
+        m_secureDeletionWorkerThread->wait(5000);
+        if (m_secureDeletionWorkerThread->isRunning()) {
+            m_secureDeletionWorkerThread->terminate();
+            m_secureDeletionWorkerThread->wait(1000);
+        }
+    }
+
+    if (m_secureDeletionWorker) {
+        m_secureDeletionWorker->deleteLater();
+        m_secureDeletionWorker = nullptr;
+    }
+
+    if (m_secureDeletionWorkerThread) {
+        m_secureDeletionWorkerThread->deleteLater();
+        m_secureDeletionWorkerThread = nullptr;
+    }
+
+    if (m_secureDeletionProgressDialog) {
+        m_secureDeletionProgressDialog->deleteLater();
+        m_secureDeletionProgressDialog = nullptr;
     }
 }
 
@@ -2801,96 +2832,370 @@ void Operations_EncryptedData::updateButtonStates()
     m_mainWindow->ui->pushButton_DataENC_DeleteFile->setStyleSheet(hasSelection ? enabledStyle : disabledStyle);
 }
 
+// ============================================================================
+// Secure Delete Implementation
+// ============================================================================
 
-void Operations_EncryptedData::secureDeleteExternalFile()
+void Operations_EncryptedData::secureDeleteExternalItems()
 {
-    // Open file dialog to select a file for secure deletion
-    QString filePath = QFileDialog::getOpenFileName(
-        m_mainWindow,
-        "Select File to Securely Delete",
-        QDir::homePath(), // Start in user's home directory
-        "All Files (*.*)"
-        );
+    qDebug() << "Starting enhanced secure deletion process";
 
-    // Check if user selected a file (didn't cancel)
-    if (filePath.isEmpty()) {
-        qDebug() << "User cancelled file selection for secure deletion";
+    // Step 1: Show selection type dialog
+    DeletionType deletionType = showDeletionTypeDialog();
+    if (deletionType == DeletionType::Cancel) {
+        qDebug() << "User cancelled deletion type selection";
         return;
     }
 
-    qDebug() << "Selected file for secure deletion:" << filePath;
+    // Step 2: Get user selection based on type
+    QList<DeletionItem> itemsToDelete;
 
-    // Validate the file path
+    if (deletionType == DeletionType::Files) {
+        // Multiple file selection
+        QStringList filePaths = QFileDialog::getOpenFileNames(
+            m_mainWindow,
+            "Select Files to Securely Delete",
+            QDir::homePath(),
+            "All Files (*.*)"
+            );
+
+        if (filePaths.isEmpty()) {
+            qDebug() << "User cancelled file selection";
+            return;
+        }
+
+        qDebug() << "Selected" << filePaths.size() << "files for deletion";
+
+        // Validate and add files
+        for (const QString& filePath : filePaths) {
+            if (validateExternalItem(filePath, false)) {
+                int fileCount = 0;
+                qint64 size = calculateItemSize(filePath, false, fileCount);
+                QFileInfo fileInfo(filePath);
+                itemsToDelete.append(DeletionItem(filePath, fileInfo.fileName(), size, false));
+            }
+        }
+
+    } else if (deletionType == DeletionType::Folder) {
+        // Single folder selection
+        QString folderPath = QFileDialog::getExistingDirectory(
+            m_mainWindow,
+            "Select Folder to Securely Delete",
+            QDir::homePath(),
+            QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks
+            );
+
+        if (folderPath.isEmpty()) {
+            qDebug() << "User cancelled folder selection";
+            return;
+        }
+
+        qDebug() << "Selected folder for deletion:" << folderPath;
+
+        // Validate and add folder
+        if (validateExternalItem(folderPath, true)) {
+            int fileCount = 0;
+            qint64 size = calculateItemSize(folderPath, true, fileCount);
+            QFileInfo folderInfo(folderPath);
+            itemsToDelete.append(DeletionItem(folderPath, folderInfo.fileName(), size, true));
+        }
+    }
+
+    // Step 3: Check if we have valid items
+    if (itemsToDelete.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "No Valid Items",
+                             "No valid items were selected for deletion.");
+        return;
+    }
+
+    // Step 4: Show confirmation dialog
+    if (!showDeletionConfirmationDialog(itemsToDelete)) {
+        qDebug() << "User cancelled deletion confirmation";
+        return;
+    }
+
+    // Step 5: Set up progress dialog
+    m_secureDeletionProgressDialog = new SecureDeletionProgressDialog(m_mainWindow);
+    m_secureDeletionProgressDialog->setStatusText("Preparing secure deletion...");
+
+    // Step 6: Set up worker thread
+    m_secureDeletionWorkerThread = new QThread(this);
+    m_secureDeletionWorker = new SecureDeletionWorker(itemsToDelete);
+    m_secureDeletionWorker->moveToThread(m_secureDeletionWorkerThread);
+
+    // Connect signals
+    connect(m_secureDeletionWorkerThread, &QThread::started,
+            m_secureDeletionWorker, &SecureDeletionWorker::doSecureDeletion);
+    connect(m_secureDeletionWorker, &SecureDeletionWorker::progressUpdated,
+            this, &Operations_EncryptedData::onSecureDeletionProgress);
+    connect(m_secureDeletionWorker, &SecureDeletionWorker::currentItemChanged,
+            this, &Operations_EncryptedData::onSecureDeletionCurrentItem);
+    connect(m_secureDeletionWorker, &SecureDeletionWorker::deletionFinished,
+            this, &Operations_EncryptedData::onSecureDeletionFinished);
+    connect(m_secureDeletionProgressDialog, &SecureDeletionProgressDialog::cancelled,
+            this, &Operations_EncryptedData::onSecureDeletionCancelled);
+
+    // Start deletion
+    m_secureDeletionWorkerThread->start();
+    m_secureDeletionProgressDialog->exec();
+}
+
+// Helper Functions Implementation
+DeletionType Operations_EncryptedData::showDeletionTypeDialog()
+{
+    QMessageBox msgBox(m_mainWindow);
+    msgBox.setWindowTitle("Secure Deletion");
+    msgBox.setIcon(QMessageBox::Question);
+    msgBox.setText("What would you like to securely delete?");
+    msgBox.setInformativeText("Choose the type of items to delete permanently.");
+
+    QPushButton* filesButton = msgBox.addButton("Multiple Files", QMessageBox::ActionRole);
+    QPushButton* folderButton = msgBox.addButton("Single Folder", QMessageBox::ActionRole);
+    QPushButton* cancelButton = msgBox.addButton("Cancel", QMessageBox::RejectRole);
+
+    msgBox.setDefaultButton(cancelButton);
+    msgBox.exec();
+
+    if (msgBox.clickedButton() == filesButton) {
+        return DeletionType::Files;
+    } else if (msgBox.clickedButton() == folderButton) {
+        return DeletionType::Folder;
+    } else {
+        return DeletionType::Cancel;
+    }
+}
+
+bool Operations_EncryptedData::validateExternalItem(const QString& itemPath, bool isFolder)
+{
+    // Validate path
     InputValidation::ValidationResult result = InputValidation::validateInput(
-        filePath, InputValidation::InputType::ExternalFilePath, 1000);
+        itemPath, InputValidation::InputType::ExternalFilePath, 1000);
 
     if (!result.isValid) {
-        QMessageBox::warning(m_mainWindow, "Invalid File Path",
-                             "The selected file path is invalid: " + result.errorMessage);
-        return;
+        QMessageBox::warning(m_mainWindow, "Invalid Path",
+                             QString("Invalid path: %1\n%2").arg(itemPath, result.errorMessage));
+        return false;
     }
 
-    // Check if file exists and is accessible
-    QFileInfo fileInfo(filePath);
-    if (!fileInfo.exists()) {
-        QMessageBox::warning(m_mainWindow, "File Not Found",
-                             "The selected file does not exist or cannot be accessed.");
-        return;
+    // Check existence and type
+    QFileInfo itemInfo(itemPath);
+    if (!itemInfo.exists()) {
+        QMessageBox::warning(m_mainWindow, "Item Not Found",
+                             QString("Item does not exist: %1").arg(itemPath));
+        return false;
     }
 
-    // Check if it's a directory (we only want to delete files)
-    if (fileInfo.isDir()) {
-        QMessageBox::warning(m_mainWindow, "Directory Selected",
-                             "Please select a file, not a directory. Directory deletion is not supported.");
-        return;
+    if (isFolder && !itemInfo.isDir()) {
+        QMessageBox::warning(m_mainWindow, "Not a Folder",
+                             QString("Selected item is not a folder: %1").arg(itemPath));
+        return false;
     }
 
-    // Check if file is writable (needed for secure deletion)
-    if (!fileInfo.isWritable()) {
-        QMessageBox::warning(m_mainWindow, "File Access Error",
-                             "The selected file cannot be deleted. It may be read-only or in use by another application.");
-        return;
+    if (!isFolder && itemInfo.isDir()) {
+        QMessageBox::warning(m_mainWindow, "Not a File",
+                             QString("Selected item is not a file: %1").arg(itemPath));
+        return false;
     }
 
-    // Get just the filename for the confirmation dialog
-    QString filename = fileInfo.fileName();
+    // Check permissions
+    if (!itemInfo.isWritable()) {
+        QMessageBox::warning(m_mainWindow, "Access Denied",
+                             QString("Cannot delete item (read-only or in use): %1").arg(itemPath));
+        return false;
+    }
 
-    // Show confirmation dialog
+    return true;
+}
+
+qint64 Operations_EncryptedData::calculateItemSize(const QString& itemPath, bool isFolder, int& fileCount)
+{
+    qint64 totalSize = 0;
+    fileCount = 0;
+
+    try {
+        if (isFolder) {
+            QDirIterator it(itemPath, QDir::Files, QDirIterator::Subdirectories);
+            while (it.hasNext()) {
+                QString filePath = it.next();
+                QFileInfo fileInfo(filePath);
+                totalSize += fileInfo.size();
+                fileCount++;
+            }
+        } else {
+            QFileInfo fileInfo(itemPath);
+            totalSize = fileInfo.size();
+            fileCount = 1;
+        }
+    } catch (...) {
+        qWarning() << "Error calculating size for:" << itemPath;
+    }
+
+    return totalSize;
+}
+
+bool Operations_EncryptedData::showDeletionConfirmationDialog(const QList<DeletionItem>& items)
+{
+    // Calculate totals
+    qint64 totalSize = 0;
+    int totalFiles = 0;
+
+    for (const DeletionItem& item : items) {
+        totalSize += item.size;
+        if (item.isFolder) {
+            int folderFileCount = 0;
+            calculateItemSize(item.path, true, folderFileCount);
+            totalFiles += folderFileCount;
+        } else {
+            totalFiles++;
+        }
+    }
+
+    QString sizeString = formatFileSize(totalSize);
+
+    // Build item list for display
+    QStringList displayItems;
+    for (const DeletionItem& item : items) {
+        if (item.isFolder) {
+            int folderFileCount = 0;
+            calculateItemSize(item.path, true, folderFileCount);
+            displayItems.append(QString("📁 %1 (%2 files)").arg(item.displayName).arg(folderFileCount));
+        } else {
+            displayItems.append(QString("📄 %1").arg(item.displayName));
+        }
+    }
+
+    // Show confirmation
     QMessageBox confirmBox(m_mainWindow);
     confirmBox.setWindowTitle("Confirm Secure Deletion");
     confirmBox.setIcon(QMessageBox::Warning);
-    confirmBox.setText(QString("Are you sure you want to permanently delete the file '%1'?").arg(filename));
-    confirmBox.setInformativeText("This action cannot be undone. The file will be securely overwritten and permanently deleted.");
+
+    QString mainText;
+    if (items.size() == 1) {
+        if (items.first().isFolder) {
+            mainText = QString("Are you sure you want to permanently delete the folder '%1' and all its contents?")
+            .arg(items.first().displayName);
+        } else {
+            mainText = QString("Are you sure you want to permanently delete the file '%1'?")
+            .arg(items.first().displayName);
+        }
+    } else {
+        mainText = QString("Are you sure you want to permanently delete %1 items?").arg(items.size());
+    }
+
+    confirmBox.setText(mainText);
+
+    QString infoText = QString("Total: %1 files (%2)\n\nThis action cannot be undone. Files will be securely overwritten.")
+                           .arg(totalFiles).arg(sizeString);
+
+    if (items.size() <= 10) {
+        infoText += "\n\nItems to delete:\n" + displayItems.join("\n");
+    }
+
+    confirmBox.setInformativeText(infoText);
 
     QPushButton* deleteButton = confirmBox.addButton("Delete", QMessageBox::YesRole);
     QPushButton* cancelButton = confirmBox.addButton("Cancel", QMessageBox::NoRole);
-    confirmBox.setDefaultButton(cancelButton); // Default to Cancel for safety
+    confirmBox.setDefaultButton(cancelButton);
 
     confirmBox.exec();
 
-    // Check if the delete button was clicked
-    if (confirmBox.clickedButton() != deleteButton) {
-        qDebug() << "User cancelled secure deletion";
-        return; // User cancelled
-    }
-
-    // Perform secure deletion
-    qDebug() << "Starting secure deletion of:" << filePath;
-    bool deleted = OperationsFiles::secureDelete(filePath, 3, true); // Allow external files , 3 passes for secure delete.
-
-    if (deleted) {
-        QMessageBox::information(m_mainWindow, "File Deleted",
-                                 QString("'%1' has been securely deleted.").arg(filename));
-        qDebug() << "Secure deletion successful:" << filePath;
-    } else {
-        QMessageBox::critical(m_mainWindow, "Deletion Failed",
-                              QString("Failed to securely delete '%1'. The file may be in use by another application or you may not have sufficient permissions.").arg(filename));
-        qWarning() << "Secure deletion failed:" << filePath;
-    }
-
+    return (confirmBox.clickedButton() == deleteButton);
 }
 
+void Operations_EncryptedData::showDeletionResultsDialog(const DeletionResult& result)
+{
+    QString title;
+    QMessageBox::Icon icon;
+    QString message;
+
+    if (result.failedItems.isEmpty()) {
+        // Complete success
+        title = "Deletion Complete";
+        icon = QMessageBox::Information;
+        message = QString("Successfully deleted %1 files (%2).")
+                      .arg(result.totalFiles).arg(formatFileSize(result.totalSize));
+    } else if (result.successfulItems.isEmpty()) {
+        // Complete failure
+        title = "Deletion Failed";
+        icon = QMessageBox::Critical;
+        message = QString("Failed to delete any items.\n\nFailed items:\n%1")
+                      .arg(result.failedItems.join("\n"));
+    } else {
+        // Partial success
+        title = "Deletion Partially Complete";
+        icon = QMessageBox::Warning;
+        message = QString("Partially completed: %1 items succeeded, %2 items failed.\n\n")
+                      .arg(result.successfulItems.size()).arg(result.failedItems.size());
+
+        message += QString("Successfully deleted %1 files (%2).\n\n")
+                       .arg(result.totalFiles).arg(formatFileSize(result.totalSize));
+
+        message += QString("Failed items:\n%1").arg(result.failedItems.join("\n"));
+    }
+
+    QMessageBox resultBox(m_mainWindow);
+    resultBox.setWindowTitle(title);
+    resultBox.setIcon(icon);
+    resultBox.setText(message);
+    resultBox.exec();
+}
+
+// Signal Handlers for Secure Deletion
+void Operations_EncryptedData::onSecureDeletionProgress(int percentage)
+{
+    if (m_secureDeletionProgressDialog) {
+        m_secureDeletionProgressDialog->setOverallProgress(percentage);
+    }
+}
+
+void Operations_EncryptedData::onSecureDeletionCurrentItem(const QString& itemName)
+{
+    if (m_secureDeletionProgressDialog) {
+        m_secureDeletionProgressDialog->setCurrentItem(itemName);
+    }
+}
+
+void Operations_EncryptedData::onSecureDeletionFinished(bool success, const DeletionResult& result, const QString& errorMessage)
+{
+    if (m_secureDeletionProgressDialog) {
+        m_secureDeletionProgressDialog->close();
+        m_secureDeletionProgressDialog = nullptr;
+    }
+
+    if (m_secureDeletionWorkerThread) {
+        m_secureDeletionWorkerThread->quit();
+        m_secureDeletionWorkerThread->wait();
+        m_secureDeletionWorkerThread->deleteLater();
+        m_secureDeletionWorkerThread = nullptr;
+    }
+
+    if (m_secureDeletionWorker) {
+        m_secureDeletionWorker->deleteLater();
+        m_secureDeletionWorker = nullptr;
+    }
+
+    // Show results
+    if (success) {
+        showDeletionResultsDialog(result);
+    } else {
+        QMessageBox::critical(m_mainWindow, "Deletion Failed",
+                              "Secure deletion failed: " + errorMessage);
+    }
+}
+
+void Operations_EncryptedData::onSecureDeletionCancelled()
+{
+    if (m_secureDeletionWorker) {
+        m_secureDeletionWorker->cancel();
+    }
+
+    if (m_secureDeletionProgressDialog) {
+        m_secureDeletionProgressDialog->setStatusText("Cancelling operation...");
+    }
+}
+// =================================
 // Thumbnail Generation
+// =================================
 
 QPixmap Operations_EncryptedData::getIconForFileType(const QString& originalFilename, const QString& fileType)
 {
@@ -4196,4 +4501,331 @@ void Operations_EncryptedData::onBatchDecryptionCancelled()
             batchDialog->setStatusText("Cancelling operation...");
         }
     }
+}
+
+
+// ============================================================================
+// SecureDeletionProgressDialog Implementation
+// ============================================================================
+
+SecureDeletionProgressDialog::SecureDeletionProgressDialog(QWidget* parent)
+    : QDialog(parent)
+    , m_overallProgress(nullptr)
+    , m_statusLabel(nullptr)
+    , m_currentItemLabel(nullptr)
+    , m_cancelButton(nullptr)
+    , m_cancelled(false)
+{
+    setupUI();
+    setWindowModality(Qt::ApplicationModal);
+    setWindowTitle("Secure Deletion");
+    setFixedSize(500, 180);
+}
+
+void SecureDeletionProgressDialog::setOverallProgress(int percentage)
+{
+    if (m_overallProgress) {
+        m_overallProgress->setValue(percentage);
+    }
+}
+
+void SecureDeletionProgressDialog::setCurrentItem(const QString& itemName)
+{
+    if (m_currentItemLabel) {
+        // Truncate long filenames for display
+        QString displayName = itemName;
+        if (displayName.length() > 60) {
+            displayName = displayName.left(30) + "..." + displayName.right(27);
+        }
+        m_currentItemLabel->setText(QString("Current: %1").arg(displayName));
+    }
+}
+
+void SecureDeletionProgressDialog::setStatusText(const QString& text)
+{
+    if (m_statusLabel) {
+        m_statusLabel->setText(text);
+    }
+}
+
+bool SecureDeletionProgressDialog::wasCancelled() const
+{
+    return m_cancelled;
+}
+
+void SecureDeletionProgressDialog::closeEvent(QCloseEvent* event)
+{
+    if (!m_cancelled) {
+        onCancelClicked();
+    }
+    event->accept();
+}
+
+void SecureDeletionProgressDialog::reject()
+{
+    if (!m_cancelled) {
+        onCancelClicked();
+    }
+    QDialog::reject();
+}
+
+void SecureDeletionProgressDialog::onCancelClicked()
+{
+    m_cancelled = true;
+    m_cancelButton->setEnabled(false);
+    m_cancelButton->setText("Cancelling...");
+    emit cancelled();
+}
+
+void SecureDeletionProgressDialog::setupUI()
+{
+    QVBoxLayout* layout = new QVBoxLayout(this);
+
+    // Status label
+    m_statusLabel = new QLabel("Preparing secure deletion...");
+    m_statusLabel->setAlignment(Qt::AlignLeft);
+    layout->addWidget(m_statusLabel);
+
+    // Current item label
+    m_currentItemLabel = new QLabel("");
+    m_currentItemLabel->setAlignment(Qt::AlignLeft);
+    layout->addWidget(m_currentItemLabel);
+
+    // Progress bar
+    QLabel* progressLabel = new QLabel("Overall Progress:");
+    layout->addWidget(progressLabel);
+
+    m_overallProgress = new QProgressBar();
+    m_overallProgress->setRange(0, 100);
+    m_overallProgress->setValue(0);
+    layout->addWidget(m_overallProgress);
+
+    // Cancel button
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    buttonLayout->addStretch();
+
+    m_cancelButton = new QPushButton("Cancel");
+    connect(m_cancelButton, &QPushButton::clicked, [this]() {
+        onCancelClicked();
+    });
+
+    buttonLayout->addWidget(m_cancelButton);
+    buttonLayout->addStretch();
+    layout->addLayout(buttonLayout);
+}
+
+// ============================================================================
+// SecureDeletionWorker Implementation
+// ============================================================================
+
+SecureDeletionWorker::SecureDeletionWorker(const QList<DeletionItem>& items)
+    : m_items(items)
+    , m_cancelled(false)
+{
+}
+
+SecureDeletionWorker::~SecureDeletionWorker()
+{
+}
+
+void SecureDeletionWorker::doSecureDeletion()
+{
+    try {
+        if (m_items.isEmpty()) {
+            emit deletionFinished(false, DeletionResult(), "No items to delete");
+            return;
+        }
+
+        DeletionResult result;
+        result.totalSize = 0;
+        result.totalFiles = 0;
+
+        // Calculate total files for progress tracking
+        int totalFilesToProcess = 0;
+        for (const DeletionItem& item : m_items) {
+            if (item.isFolder) {
+                QStringList filesInFolder = enumerateFilesInFolder(item.path);
+                totalFilesToProcess += filesInFolder.size();
+            } else {
+                totalFilesToProcess++;
+            }
+        }
+
+        int processedFiles = 0;
+
+        // Process each item
+        for (const DeletionItem& item : m_items) {
+            // Check for cancellation
+            {
+                QMutexLocker locker(&m_cancelMutex);
+                if (m_cancelled) {
+                    emit deletionFinished(false, result, "Operation was cancelled");
+                    return;
+                }
+            }
+
+            emit currentItemChanged(item.displayName);
+
+            bool itemSuccess = false;
+            int itemFileCount = 0;
+
+            if (item.isFolder) {
+                // Count files in folder BEFORE deleting
+                QStringList filesInFolder = enumerateFilesInFolder(item.path);
+                itemFileCount = filesInFolder.size();
+
+                // Delete folder and its contents
+                itemSuccess = secureDeleteFolder(item.path, processedFiles, totalFilesToProcess);
+                if (itemSuccess) {
+                    result.totalFiles += itemFileCount;
+                }
+            } else {
+                // Delete single file
+                itemSuccess = secureDeleteSingleFile(item.path);
+                processedFiles++;
+                if (itemSuccess) {
+                    result.totalFiles++;
+                }
+            }
+
+            if (itemSuccess) {
+                result.successfulItems.append(item.displayName);
+                result.totalSize += item.size;
+            } else {
+                result.failedItems.append(item.displayName);
+            }
+
+            // Update overall progress
+            int overallPercentage = static_cast<int>((processedFiles * 100) / totalFilesToProcess);
+            emit progressUpdated(overallPercentage);
+
+            // Allow other threads to run
+            QCoreApplication::processEvents();
+        }
+
+        // Final progress update
+        emit progressUpdated(100);
+
+        // Determine overall success
+        bool overallSuccess = !result.successfulItems.isEmpty();
+        QString resultMessage;
+
+        if (result.successfulItems.size() == m_items.size()) {
+            resultMessage = "All items deleted successfully";
+        } else if (result.successfulItems.isEmpty()) {
+            resultMessage = "All items failed to delete";
+            overallSuccess = false;
+        } else {
+            resultMessage = QString("Partial success: %1 of %2 items deleted")
+            .arg(result.successfulItems.size()).arg(m_items.size());
+        }
+
+        emit deletionFinished(overallSuccess, result, resultMessage);
+
+    } catch (const std::exception& e) {
+        emit deletionFinished(false, DeletionResult(), QString("Deletion error: %1").arg(e.what()));
+    } catch (...) {
+        emit deletionFinished(false, DeletionResult(), "Unknown deletion error occurred");
+    }
+}
+
+void SecureDeletionWorker::cancel()
+{
+    QMutexLocker locker(&m_cancelMutex);
+    m_cancelled = true;
+}
+
+bool SecureDeletionWorker::secureDeleteSingleFile(const QString& filePath)
+{
+    // Check for cancellation
+    {
+        QMutexLocker locker(&m_cancelMutex);
+        if (m_cancelled) {
+            return false;
+        }
+    }
+
+    // Use the existing secure delete function with external file support
+    return OperationsFiles::secureDelete(filePath, 3, true);
+}
+
+bool SecureDeletionWorker::secureDeleteFolder(const QString& folderPath, int& processedFiles, int totalFiles)
+{
+    try {
+        // Get all files in the folder recursively
+        QStringList allFiles = enumerateFilesInFolder(folderPath);
+
+        // Delete all files first
+        for (const QString& filePath : allFiles) {
+            // Check for cancellation
+            {
+                QMutexLocker locker(&m_cancelMutex);
+                if (m_cancelled) {
+                    return false;
+                }
+            }
+
+            // Update current item display
+            QFileInfo fileInfo(filePath);
+            emit currentItemChanged(QString("Deleting: %1").arg(fileInfo.fileName()));
+
+            // Securely delete the file
+            if (!secureDeleteSingleFile(filePath)) {
+                qWarning() << "Failed to delete file:" << filePath;
+                // Continue with other files even if one fails
+            }
+
+            processedFiles++;
+
+            // Update progress
+            int percentage = static_cast<int>((processedFiles * 100) / totalFiles);
+            emit progressUpdated(percentage);
+
+            // Allow other threads to run
+            QCoreApplication::processEvents();
+        }
+
+        // Remove empty directories (bottom-up)
+        QDir dir(folderPath);
+        QStringList subdirs;
+
+        // Collect all subdirectories
+        QDirIterator it(folderPath, QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            subdirs.append(it.next());
+        }
+
+        // Sort by depth (deeper first) for bottom-up removal
+        std::sort(subdirs.begin(), subdirs.end(), [](const QString& a, const QString& b) {
+            return a.count('/') > b.count('/');
+        });
+
+        // Remove subdirectories
+        for (const QString& subdir : subdirs) {
+            QDir(subdir).rmdir(".");
+        }
+
+        // Finally, remove the main directory
+        QDir parentDir(QFileInfo(folderPath).absolutePath());
+        return parentDir.rmdir(QFileInfo(folderPath).fileName());
+
+    } catch (const std::exception& e) {
+        qWarning() << "Exception during folder deletion:" << e.what();
+        return false;
+    } catch (...) {
+        qWarning() << "Unknown exception during folder deletion";
+        return false;
+    }
+}
+
+QStringList SecureDeletionWorker::enumerateFilesInFolder(const QString& folderPath)
+{
+    QStringList allFiles;
+
+    QDirIterator it(folderPath, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        allFiles.append(it.next());
+    }
+
+    return allFiles;
 }
