@@ -69,6 +69,40 @@ struct DeletionResult {
 class MainWindow;
 class SecureDeletionProgressDialog;
 class SecureDeletionWorker;
+class EncryptionProgressDialog;
+
+class EncryptionProgressDialog : public QDialog
+{
+    Q_OBJECT
+public:
+    explicit EncryptionProgressDialog(QWidget* parent = nullptr);
+
+    void setOverallProgress(int percentage);
+    void setFileProgress(int percentage);
+    void setStatusText(const QString& text);
+    void setFileCountText(const QString& text);
+    bool wasCancelled() const;
+
+    std::function<void()> onCancelCallback;
+
+private:
+    void onCancelClicked();
+    void setupUI();
+
+    QProgressBar* m_overallProgress;
+    QProgressBar* m_fileProgress;
+    QLabel* m_statusLabel;
+    QLabel* m_fileCountLabel;
+    QPushButton* m_cancelButton;
+    bool m_cancelled;
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
+    void reject() override;
+
+signals:
+    void cancelled();
+};
 
 // Worker class for encryption in separate thread
 class EncryptionWorker : public QObject
@@ -107,6 +141,8 @@ signals:
     void multiFileEncryptionFinished(bool success, const QString& errorMessage,
                                      const QStringList& successfulFiles,
                                      const QStringList& failedFiles);
+
+    void currentFileProgressUpdated(int percentage);
 
     // REMOVED: Video thumbnail extraction signal (no longer needed with embedded thumbnails)
     // void videoThumbnailExtracted(const QString& encryptedFilePath, const QPixmap& thumbnail);
@@ -329,6 +365,7 @@ private:
 
     // Progress dialog
     QProgressDialog* m_progressDialog;
+    EncryptionProgressDialog* m_encryptionProgressDialog;
     EncryptionWorker* m_worker;
     QThread* m_workerThread;
 
@@ -465,6 +502,7 @@ public slots:
     void onFileListDoubleClicked(QListWidgetItem* item);
 
 private slots:
+    void onCurrentFileProgressUpdate(int percentage);
     void onEncryptionProgress(int percentage);
     void onEncryptionFinished(bool success, const QString& errorMessage = QString());
     void onEncryptionCancelled();

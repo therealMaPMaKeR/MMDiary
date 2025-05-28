@@ -263,7 +263,7 @@ void EncryptionWorker::doEncryption()
 
             qDebug() << "EncryptionWorker: Successfully wrote" << bytesWritten << "bytes of metadata with square thumbnail";
 
-            // Encrypt and write file content in chunks (same as before)
+            // Encrypt and write file content in chunks (UPDATED with file progress)
             const qint64 chunkSize = 1024 * 1024; // 1MB chunks
             QByteArray buffer;
             qint64 processedFileSize = 0;
@@ -318,8 +318,12 @@ void EncryptionWorker::doEncryption()
                 processedTotalSize += buffer.size();
 
                 // Update overall progress
-                int percentage = static_cast<int>((processedTotalSize * 100) / totalSize);
-                emit progressUpdated(percentage);
+                int overallPercentage = static_cast<int>((processedTotalSize * 100) / totalSize);
+                emit progressUpdated(overallPercentage);
+
+                // NEW: Update current file progress
+                int filePercentage = static_cast<int>((processedFileSize * 100) / currentFileSize);
+                emit currentFileProgressUpdated(filePercentage);
 
                 // Allow other threads to run
                 QCoreApplication::processEvents();
@@ -740,6 +744,7 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     : QObject(mainWindow)
     , m_mainWindow(mainWindow)
     , m_progressDialog(nullptr)
+    , m_encryptionProgressDialog(nullptr)
     , m_worker(nullptr)
     , m_workerThread(nullptr)
     , m_decryptWorker(nullptr)
@@ -876,6 +881,11 @@ Operations_EncryptedData::~Operations_EncryptedData()
     if (m_progressDialog) {
         m_progressDialog->deleteLater();
         m_progressDialog = nullptr;
+    }
+
+    if (m_encryptionProgressDialog) {
+        m_encryptionProgressDialog->deleteLater();
+        m_encryptionProgressDialog = nullptr;
     }
 
     // Clean up metadata manager
@@ -1525,6 +1535,7 @@ bool Operations_EncryptedData::isFileInUse(const QString& filePath)
 
 void Operations_EncryptedData::onTempDecryptionProgress(int percentage)
 {
+    // Create a separate QProgressDialog for temp decryption since we use EncryptionProgressDialog for encryption
     if (m_progressDialog) {
         m_progressDialog->setValue(percentage);
     }
@@ -1692,7 +1703,7 @@ void Operations_EncryptedData::encryptSelectedFile()
         }
     }
 
-    // UPDATED: Extract video thumbnails in main thread before encryption (still needed for video files)
+    // Extract video thumbnails in main thread before encryption
     QMap<QString, QPixmap> videoThumbnails;
     QStringList videoExtensions = {"mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp", "mpg", "mpeg", "m2v", "divx", "xvid"};
 
@@ -1761,61 +1772,77 @@ void Operations_EncryptedData::encryptSelectedFile()
         }
     }
 
-    // Set up progress dialog
-    QString progressText;
+    // Set up enhanced progress dialog
+    m_encryptionProgressDialog = new EncryptionProgressDialog(m_mainWindow);
+
+    // Set initial status based on file count
     if (validFiles.size() == 1) {
-        progressText = "Encrypting file...";
+        QFileInfo singleFile(validFiles.first());
+        m_encryptionProgressDialog->setStatusText(QString("Encrypting: %1").arg(singleFile.fileName()));
+        m_encryptionProgressDialog->setFileCountText("File: 1/1");
     } else {
-        progressText = QString("Encrypting %1 files...").arg(validFiles.size());
+        m_encryptionProgressDialog->setStatusText("Preparing to encrypt files...");
+        m_encryptionProgressDialog->setFileCountText(QString("Files: 0/%1").arg(validFiles.size()));
     }
 
-    m_progressDialog = new QProgressDialog(progressText, "Cancel", 0, 100, m_mainWindow);
-    m_progressDialog->setWindowTitle("File Encryption");
-    m_progressDialog->setWindowModality(Qt::WindowModal);
-    m_progressDialog->setMinimumDuration(0);
-    m_progressDialog->setValue(0);
-
-    // Set up worker thread - PASS PRE-EXTRACTED THUMBNAILS (for video files)
+    // Set up worker thread
     m_workerThread = new QThread(this);
     m_worker = new EncryptionWorker(validFiles, targetPaths, encryptionKey, username, videoThumbnails);
     m_worker->moveToThread(m_workerThread);
 
-    // Connect signals - choose appropriate connections based on file count
+    // Connect signals
     connect(m_workerThread, &QThread::started, m_worker, &EncryptionWorker::doEncryption);
     connect(m_worker, &EncryptionWorker::progressUpdated, this, &Operations_EncryptedData::onEncryptionProgress);
-    connect(m_progressDialog, &QProgressDialog::canceled, this, &Operations_EncryptedData::onEncryptionCancelled);
+    connect(m_encryptionProgressDialog, &EncryptionProgressDialog::cancelled, this, &Operations_EncryptedData::onEncryptionCancelled);
 
-    // NOTE: videoThumbnailExtracted signal removed - thumbnails now embedded directly
+    // Connect the file progress update signal (works for both single and multiple files)
+    connect(m_worker, &EncryptionWorker::fileProgressUpdate, this, &Operations_EncryptedData::onFileProgressUpdate);
 
+    // NEW: Connect current file progress signal
+    connect(m_worker, &EncryptionWorker::currentFileProgressUpdated, this, &Operations_EncryptedData::onCurrentFileProgressUpdate);
+
+    // Connect completion signals based on file count
     if (validFiles.size() == 1) {
         // Single file - use backward compatible signal
         connect(m_worker, &EncryptionWorker::encryptionFinished, this, &Operations_EncryptedData::onEncryptionFinished);
     } else {
-        // Multiple files - use new signals
-        connect(m_worker, &EncryptionWorker::fileProgressUpdate, this, &Operations_EncryptedData::onFileProgressUpdate);
+        // Multiple files - use new signal
         connect(m_worker, &EncryptionWorker::multiFileEncryptionFinished, this, &Operations_EncryptedData::onMultiFileEncryptionFinished);
     }
 
     // Start encryption
     m_workerThread->start();
-    m_progressDialog->exec();
+    m_encryptionProgressDialog->exec();
 }
 
 // New slot for file progress updates
 void Operations_EncryptedData::onFileProgressUpdate(int currentFile, int totalFiles, const QString& fileName)
 {
-    if (m_progressDialog) {
-        QString progressText = QString("Encrypting file %1 of %2: %3").arg(currentFile).arg(totalFiles).arg(fileName);
-        m_progressDialog->setLabelText(progressText);
+    if (m_encryptionProgressDialog) {
+        QString statusText = QString("Encrypting: %1").arg(fileName);
+        QString fileCountText = QString("File: %1/%2").arg(currentFile).arg(totalFiles);
+
+        m_encryptionProgressDialog->setStatusText(statusText);
+        m_encryptionProgressDialog->setFileCountText(fileCountText);
+
+        // Reset file progress for the new file
+        m_encryptionProgressDialog->setFileProgress(0);
     }
 }
 
+void Operations_EncryptedData::onCurrentFileProgressUpdate(int percentage)
+{
+    if (m_encryptionProgressDialog) {
+        m_encryptionProgressDialog->setFileProgress(percentage);
+    }
+}
 
 void Operations_EncryptedData::onMultiFileEncryptionFinished(bool success, const QString& errorMessage,
                                                              const QStringList& successfulFiles, const QStringList& failedFiles)
 {
-    if (m_progressDialog) {
-        m_progressDialog->close();
+    if (m_encryptionProgressDialog) {
+        m_encryptionProgressDialog->close();
+        m_encryptionProgressDialog = nullptr;
     }
 
     if (m_workerThread) {
@@ -2082,15 +2109,16 @@ void Operations_EncryptedData::showSuccessDialog(const QString& encryptedFile, c
 
 void Operations_EncryptedData::onEncryptionProgress(int percentage)
 {
-    if (m_progressDialog) {
-        m_progressDialog->setValue(percentage);
+    if (m_encryptionProgressDialog) {
+        m_encryptionProgressDialog->setOverallProgress(percentage);
     }
 }
 
 void Operations_EncryptedData::onEncryptionFinished(bool success, const QString& errorMessage)
 {
-    if (m_progressDialog) {
-        m_progressDialog->close();
+    if (m_encryptionProgressDialog) {
+        m_encryptionProgressDialog->close();
+        m_encryptionProgressDialog = nullptr;
     }
 
     if (m_workerThread) {
@@ -2126,9 +2154,9 @@ void Operations_EncryptedData::onEncryptionCancelled()
         m_worker->cancel();
     }
 
-    if (m_progressDialog) {
-        m_progressDialog->setLabelText("Cancelling...");
-        m_progressDialog->setCancelButton(nullptr); // Disable cancel button while cancelling
+    if (m_encryptionProgressDialog) {
+        m_encryptionProgressDialog->setStatusText("Cancelling...");
+        // The cancel button is already disabled by the dialog itself
     }
 }
 
@@ -3546,6 +3574,138 @@ bool Operations_EncryptedData::eventFilter(QObject* watched, QEvent* event)
 }
 
 
+// =============================================================================
+// EncryptionProgressDialog Implementation
+// =============================================================================
+
+EncryptionProgressDialog::EncryptionProgressDialog(QWidget* parent)
+    : QDialog(parent)
+    , m_overallProgress(nullptr)
+    , m_fileProgress(nullptr)
+    , m_statusLabel(nullptr)
+    , m_fileCountLabel(nullptr)
+    , m_cancelButton(nullptr)
+    , m_cancelled(false)
+{
+    setupUI();
+    setWindowModality(Qt::ApplicationModal);
+    setWindowTitle("Encrypting Files");
+    setFixedSize(500, 200);
+}
+
+void EncryptionProgressDialog::setOverallProgress(int percentage)
+{
+    if (m_overallProgress) {
+        m_overallProgress->setValue(percentage);
+    }
+}
+
+void EncryptionProgressDialog::setFileProgress(int percentage)
+{
+    if (m_fileProgress) {
+        m_fileProgress->setValue(percentage);
+    }
+}
+
+void EncryptionProgressDialog::setStatusText(const QString& text)
+{
+    if (m_statusLabel) {
+        m_statusLabel->setText(text);
+    }
+}
+
+void EncryptionProgressDialog::setFileCountText(const QString& text)
+{
+    if (m_fileCountLabel) {
+        m_fileCountLabel->setText(text);
+    }
+}
+
+bool EncryptionProgressDialog::wasCancelled() const
+{
+    return m_cancelled;
+}
+
+void EncryptionProgressDialog::closeEvent(QCloseEvent* event)
+{
+    // Trigger cancellation if not already cancelled
+    if (!m_cancelled) {
+        onCancelClicked();
+    }
+
+    // Allow the dialog to close immediately
+    event->accept();
+}
+
+void EncryptionProgressDialog::reject()
+{
+    // Trigger cancellation if not already cancelled
+    if (!m_cancelled) {
+        onCancelClicked();
+    }
+
+    // Allow the dialog to close
+    QDialog::reject();
+}
+
+void EncryptionProgressDialog::onCancelClicked()
+{
+    m_cancelled = true;
+    m_cancelButton->setEnabled(false);
+    m_cancelButton->setText("Cancelling...");
+
+    // Emit signal to notify that cancellation was requested
+    emit cancelled();
+}
+
+void EncryptionProgressDialog::setupUI()
+{
+    QVBoxLayout* layout = new QVBoxLayout(this);
+
+    // Status label - for filename only
+    m_statusLabel = new QLabel("Preparing to encrypt files...");
+    m_statusLabel->setAlignment(Qt::AlignLeft);
+    layout->addWidget(m_statusLabel);
+
+    // File count label - separate label for "File: x/y"
+    m_fileCountLabel = new QLabel("");
+    m_fileCountLabel->setAlignment(Qt::AlignLeft);
+    layout->addWidget(m_fileCountLabel);
+
+    // Overall progress
+    QLabel* overallLabel = new QLabel("Overall Progress:");
+    layout->addWidget(overallLabel);
+
+    m_overallProgress = new QProgressBar();
+    m_overallProgress->setRange(0, 100);
+    m_overallProgress->setValue(0);
+    layout->addWidget(m_overallProgress);
+
+    // File progress
+    QLabel* fileLabel = new QLabel("Current File Progress:");
+    layout->addWidget(fileLabel);
+
+    m_fileProgress = new QProgressBar();
+    m_fileProgress->setRange(0, 100);
+    m_fileProgress->setValue(0);
+    layout->addWidget(m_fileProgress);
+
+    // Cancel button
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    buttonLayout->addStretch();
+
+    m_cancelButton = new QPushButton("Cancel");
+
+    // Use direct connection
+    connect(m_cancelButton, &QPushButton::clicked, [this]() {
+        onCancelClicked();
+    });
+
+    buttonLayout->addWidget(m_cancelButton);
+    buttonLayout->addStretch();
+    layout->addLayout(buttonLayout);
+}
+
 //----------- Batch Decrypt Classes Impl ------------//
 
 // =============================================================================
@@ -4194,12 +4354,9 @@ void Operations_EncryptedData::onBatchDecryptionCancelled()
         m_batchDecryptWorker->cancel();
     }
 
-    if (m_progressDialog) {
-        BatchDecryptionProgressDialog* batchDialog =
-            qobject_cast<BatchDecryptionProgressDialog*>(m_progressDialog);
-        if (batchDialog) {
-            batchDialog->setStatusText("Cancelling operation...");
-        }
+    // Fix: Use proper dialog reference for batch decryption
+    if (m_batchProgressDialog) {
+        m_batchProgressDialog->setStatusText("Cancelling operation...");
     }
 }
 
