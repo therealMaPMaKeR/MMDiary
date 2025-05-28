@@ -186,7 +186,7 @@ void EncryptionWorker::doEncryption()
                 continue;
             }
 
-            // UPDATED: Generate thumbnail during encryption
+            // UPDATED: Generate thumbnail during encryption with square padding
             QByteArray thumbnailData;
             QFileInfo sourceInfo(sourceFile);
             QString originalFilename = sourceInfo.fileName();
@@ -194,22 +194,28 @@ void EncryptionWorker::doEncryption()
 
             // Generate thumbnail based on file type
             if (imageExtensions.contains(extension)) {
-                qDebug() << "Generating thumbnail for image:" << originalFilename;
+                qDebug() << "Generating square thumbnail for image:" << originalFilename;
                 QPixmap thumbnail = EncryptedFileMetadata::createThumbnailFromImage(sourceFile, 64);
                 if (!thumbnail.isNull()) {
                     thumbnailData = EncryptedFileMetadata::compressThumbnail(thumbnail, 85);
-                    qDebug() << "Generated image thumbnail, compressed size:" << thumbnailData.size() << "bytes";
+                    qDebug() << "Generated square image thumbnail, compressed size:" << thumbnailData.size() << "bytes";
                 } else {
-                    qDebug() << "Failed to generate image thumbnail for:" << originalFilename;
+                    qDebug() << "Failed to generate square image thumbnail for:" << originalFilename;
                 }
             } else if (videoExtensions.contains(extension)) {
-                qDebug() << "Generating thumbnail for video:" << originalFilename;
+                qDebug() << "Generating square thumbnail for video:" << originalFilename;
                 // Check if we have pre-extracted video thumbnail
                 if (m_videoThumbnails.contains(sourceFile)) {
                     QPixmap videoThumbnail = m_videoThumbnails[sourceFile];
                     if (!videoThumbnail.isNull()) {
-                        thumbnailData = EncryptedFileMetadata::compressThumbnail(videoThumbnail, 85);
-                        qDebug() << "Using pre-extracted video thumbnail, compressed size:" << thumbnailData.size() << "bytes";
+                        // UPDATED: Create square thumbnail with black padding for video
+                        QPixmap squareVideoThumbnail = EncryptedFileMetadata::createSquareThumbnail(videoThumbnail, 64);
+                        if (!squareVideoThumbnail.isNull()) {
+                            thumbnailData = EncryptedFileMetadata::compressThumbnail(squareVideoThumbnail, 85);
+                            qDebug() << "Using pre-extracted video thumbnail with square padding, compressed size:" << thumbnailData.size() << "bytes";
+                        } else {
+                            qDebug() << "Failed to create square thumbnail for video:" << originalFilename;
+                        }
                     }
                 } else {
                     qDebug() << "No pre-extracted video thumbnail available for:" << originalFilename;
@@ -241,7 +247,7 @@ void EncryptionWorker::doEncryption()
                 continue;
             }
 
-            qDebug() << "EncryptionWorker: About to write" << fixedSizeMetadata.size() << "bytes of metadata with thumbnail";
+            qDebug() << "EncryptionWorker: About to write" << fixedSizeMetadata.size() << "bytes of metadata with square thumbnail";
 
             // Write the complete fixed-size metadata block (no additional headers needed)
             qint64 bytesWritten = target.write(fixedSizeMetadata);
@@ -255,7 +261,7 @@ void EncryptionWorker::doEncryption()
                 continue;
             }
 
-            qDebug() << "EncryptionWorker: Successfully wrote" << bytesWritten << "bytes of metadata with thumbnail";
+            qDebug() << "EncryptionWorker: Successfully wrote" << bytesWritten << "bytes of metadata with square thumbnail";
 
             // Encrypt and write file content in chunks (same as before)
             const qint64 chunkSize = 1024 * 1024; // 1MB chunks
@@ -324,7 +330,7 @@ void EncryptionWorker::doEncryption()
 
             if (fileSuccess) {
                 successfulFiles.append(QFileInfo(sourceFile).fileName());
-                qDebug() << "Successfully encrypted file with embedded thumbnail:" << originalFilename;
+                qDebug() << "Successfully encrypted file with embedded square thumbnail:" << originalFilename;
             } else {
                 QString fileName = QFileInfo(sourceFile).fileName();
                 failedFiles.append(QString("%1 (encryption failed)").arg(fileName));

@@ -10,6 +10,7 @@
 #include <QImageReader>
 #include <QImageWriter>
 #include <cstring>
+#include <QPainter>
 
 EncryptedFileMetadata::EncryptedFileMetadata(const QByteArray& encryptionKey, const QString& username)
     : m_encryptionKey(encryptionKey), m_username(username)
@@ -74,6 +75,41 @@ bool EncryptedFileMetadata::isValidFilename(const QString& filename)
 // NEW: Thumbnail Utility Methods
 // ============================================================================
 
+QPixmap EncryptedFileMetadata::createSquareThumbnail(const QPixmap& sourcePixmap, int size)
+{
+    if (sourcePixmap.isNull()) {
+        qWarning() << "Source pixmap is null for square thumbnail creation";
+        return QPixmap();
+    }
+
+    qDebug() << "Creating square thumbnail from source size:" << sourcePixmap.size() << "target size:" << size;
+
+    // Scale the source to fit within the target size while keeping aspect ratio
+    QPixmap scaled = sourcePixmap.scaled(size, size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+    qDebug() << "Scaled source to:" << scaled.size();
+
+    // Create a square black canvas
+    QPixmap square(size, size);
+    square.fill(Qt::black);
+
+    // Calculate position to center the scaled image
+    int x = (size - scaled.width()) / 2;
+    int y = (size - scaled.height()) / 2;
+
+    qDebug() << "Centering scaled image at position:" << x << "," << y;
+
+    // Draw the scaled image onto the black canvas
+    QPainter painter(&square);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    painter.drawPixmap(x, y, scaled);
+    painter.end();
+
+    qDebug() << "Created square thumbnail with black padding, final size:" << square.size();
+    return square;
+}
+
 QByteArray EncryptedFileMetadata::compressThumbnail(const QPixmap& thumbnail, int quality)
 {
     if (thumbnail.isNull()) {
@@ -117,10 +153,17 @@ QPixmap EncryptedFileMetadata::createThumbnailFromImage(const QString& imagePath
         return QPixmap();
     }
 
-    // Create thumbnail with proper aspect ratio
-    QPixmap thumbnail = originalPixmap.scaled(size, size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    qDebug() << "Loaded original image:" << imagePath << "size:" << originalPixmap.size();
 
-    qDebug() << "Created thumbnail from image:" << imagePath << "size:" << thumbnail.size();
+    // UPDATED: Create square thumbnail with black padding instead of aspect-ratio scaling
+    QPixmap thumbnail = createSquareThumbnail(originalPixmap, size);
+
+    if (!thumbnail.isNull()) {
+        qDebug() << "Created square thumbnail from image:" << imagePath << "final size:" << thumbnail.size();
+    } else {
+        qWarning() << "Failed to create square thumbnail from image:" << imagePath;
+    }
+
     return thumbnail;
 }
 

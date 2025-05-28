@@ -72,6 +72,8 @@ public:
     static const int MAX_TAG_LENGTH = 50;
     static const int MAX_THUMBNAIL_SIZE = 15360; // 15KB max for thumbnail data
 
+    static QPixmap createSquareThumbnail(const QPixmap& sourcePixmap, int size = 64);
+
 private:
     QByteArray m_encryptionKey;
     QString m_username;
