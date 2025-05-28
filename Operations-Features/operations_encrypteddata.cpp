@@ -97,8 +97,6 @@ void EncryptionWorker::doEncryption()
         // Determine if this is single or multiple file operation
         bool isMultipleFiles = (m_sourceFiles.size() > 1);
 
-        // *** REMOVED: Video thumbnail extraction (now done in main thread) ***
-
         // Calculate total size of all files for progress tracking
         qint64 totalSize = 0;
         QList<qint64> fileSizes;
@@ -122,6 +120,10 @@ void EncryptionWorker::doEncryption()
         qint64 processedTotalSize = 0;
         QStringList successfulFiles;
         QStringList failedFiles;
+
+        // Define file extensions for thumbnail generation
+        QStringList imageExtensions = {"jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "webp"};
+        QStringList videoExtensions = {"mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp", "mpg", "mpeg"};
 
         // Process each file
         for (int fileIndex = 0; fileIndex < m_sourceFiles.size(); ++fileIndex) {
@@ -184,12 +186,38 @@ void EncryptionWorker::doEncryption()
                 continue;
             }
 
-            // Write fixed-size encrypted metadata header (40KB only, no extra size header)
+            // UPDATED: Generate thumbnail during encryption
+            QByteArray thumbnailData;
             QFileInfo sourceInfo(sourceFile);
             QString originalFilename = sourceInfo.fileName();
+            QString extension = sourceInfo.suffix().toLower();
 
-            // Create metadata with just filename (empty category and tags)
-            EncryptedFileMetadata::FileMetadata metadata(originalFilename);
+            // Generate thumbnail based on file type
+            if (imageExtensions.contains(extension)) {
+                qDebug() << "Generating thumbnail for image:" << originalFilename;
+                QPixmap thumbnail = EncryptedFileMetadata::createThumbnailFromImage(sourceFile, 64);
+                if (!thumbnail.isNull()) {
+                    thumbnailData = EncryptedFileMetadata::compressThumbnail(thumbnail, 85);
+                    qDebug() << "Generated image thumbnail, compressed size:" << thumbnailData.size() << "bytes";
+                } else {
+                    qDebug() << "Failed to generate image thumbnail for:" << originalFilename;
+                }
+            } else if (videoExtensions.contains(extension)) {
+                qDebug() << "Generating thumbnail for video:" << originalFilename;
+                // Check if we have pre-extracted video thumbnail
+                if (m_videoThumbnails.contains(sourceFile)) {
+                    QPixmap videoThumbnail = m_videoThumbnails[sourceFile];
+                    if (!videoThumbnail.isNull()) {
+                        thumbnailData = EncryptedFileMetadata::compressThumbnail(videoThumbnail, 85);
+                        qDebug() << "Using pre-extracted video thumbnail, compressed size:" << thumbnailData.size() << "bytes";
+                    }
+                } else {
+                    qDebug() << "No pre-extracted video thumbnail available for:" << originalFilename;
+                }
+            }
+
+            // Create metadata with filename and thumbnail
+            EncryptedFileMetadata::FileMetadata metadata(originalFilename, "", QStringList(), thumbnailData);
 
             // Create fixed-size encrypted metadata block (40KB) - this includes the size header internally
             QByteArray fixedSizeMetadata = m_metadataManager->createEncryptedMetadataChunk(metadata);
@@ -197,6 +225,7 @@ void EncryptionWorker::doEncryption()
                 QString fileName = QFileInfo(sourceFile).fileName();
                 failedFiles.append(QString("%1 (failed to create metadata)").arg(fileName));
                 source.close();
+                target.close();
                 processedTotalSize += currentFileSize;
                 continue;
             }
@@ -204,35 +233,31 @@ void EncryptionWorker::doEncryption()
             // Verify fixed-size metadata block
             if (fixedSizeMetadata.size() != Constants::METADATA_RESERVED_SIZE) {
                 QString fileName = QFileInfo(sourceFile).fileName();
-                failedFiles.append(QString("%1 (invalid metadata size %2, expected %3)").arg(fileName).arg(fixedSizeMetadata.size()).arg(Constants::METADATA_RESERVED_SIZE));
+                failedFiles.append(QString("%1 (invalid metadata size %2, expected %3)")
+                                       .arg(fileName).arg(fixedSizeMetadata.size()).arg(Constants::METADATA_RESERVED_SIZE));
                 source.close();
+                target.close();
                 processedTotalSize += currentFileSize;
                 continue;
             }
 
-            qDebug() << "EncryptionWorker: About to write" << fixedSizeMetadata.size() << "bytes of metadata";
-            qDebug() << "EncryptionWorker: First 16 bytes to write (hex):" << fixedSizeMetadata.left(16).toHex();
+            qDebug() << "EncryptionWorker: About to write" << fixedSizeMetadata.size() << "bytes of metadata with thumbnail";
 
             // Write the complete fixed-size metadata block (no additional headers needed)
             qint64 bytesWritten = target.write(fixedSizeMetadata);
             if (bytesWritten != fixedSizeMetadata.size()) {
                 QString fileName = QFileInfo(sourceFile).fileName();
-                failedFiles.append(QString("%1 (failed to write metadata, wrote %2 of %3 bytes)").arg(fileName).arg(bytesWritten).arg(fixedSizeMetadata.size()));
+                failedFiles.append(QString("%1 (failed to write metadata, wrote %2 of %3 bytes)")
+                                       .arg(fileName).arg(bytesWritten).arg(fixedSizeMetadata.size()));
                 source.close();
+                target.close();
                 processedTotalSize += currentFileSize;
                 continue;
             }
 
-            qDebug() << "EncryptionWorker: Successfully wrote" << bytesWritten << "bytes of metadata to target file";
+            qDebug() << "EncryptionWorker: Successfully wrote" << bytesWritten << "bytes of metadata with thumbnail";
 
-            // Debug: Verify what we just wrote by reading it back
-            qint64 currentPos = target.pos();
-            target.seek(0);
-            QByteArray verifyData = target.read(16);
-            qDebug() << "EncryptionWorker: First 16 bytes actually written to file (hex):" << verifyData.toHex();
-            target.seek(currentPos); // Restore position
-
-            // Encrypt and write file content in chunks
+            // Encrypt and write file content in chunks (same as before)
             const qint64 chunkSize = 1024 * 1024; // 1MB chunks
             QByteArray buffer;
             qint64 processedFileSize = 0;
@@ -299,12 +324,7 @@ void EncryptionWorker::doEncryption()
 
             if (fileSuccess) {
                 successfulFiles.append(QFileInfo(sourceFile).fileName());
-
-                // *** UPDATED: Use pre-extracted video thumbnail if available ***
-                if (m_videoThumbnails.contains(sourceFile)) {
-                    qDebug() << "Using pre-extracted video thumbnail for encrypted file:" << targetFile;
-                    emit videoThumbnailExtracted(targetFile, m_videoThumbnails[sourceFile]);
-                }
+                qDebug() << "Successfully encrypted file with embedded thumbnail:" << originalFilename;
             } else {
                 QString fileName = QFileInfo(sourceFile).fileName();
                 failedFiles.append(QString("%1 (encryption failed)").arg(fileName));
@@ -726,8 +746,9 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     , m_secureDeletionWorkerThread(nullptr)
     , m_secureDeletionProgressDialog(nullptr)
 {
-    //Create MetaData Manager Instance
+    // Create MetaData Manager Instance
     m_metadataManager = new EncryptedFileMetadata(m_mainWindow->user_Key, m_mainWindow->user_Username);
+
     // Connect selection changed signal to update button states
     connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemSelectionChanged,
             this, &Operations_EncryptedData::updateButtonStates);
@@ -743,8 +764,6 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     connect(m_mainWindow->ui->listWidget_DataENC_Categories, &QListWidget::currentItemChanged,
             this, &Operations_EncryptedData::onCategorySelectionChanged);
 
-    // Note: Tag checkboxes will be connected dynamically when created
-
     // Set initial button states (disabled since no files loaded yet)
     updateButtonStates();
 
@@ -754,24 +773,12 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     // Clean up any orphaned temp files from previous sessions
     cleanupTempFiles();
 
-    // Initialize icon provider and thumbnail cache
+    // Initialize icon provider (still needed for default icons and video thumbnail extraction)
     qDebug() << "About to create FileIconProvider...";
     m_iconProvider = new FileIconProvider(this);
     qDebug() << "FileIconProvider created, address:" << m_iconProvider;
 
-    qDebug() << "About to create ThumbnailCache...";
-    m_thumbnailCache = new ThumbnailCache(m_mainWindow->user_Username, m_mainWindow->user_Key, this);
-    qDebug() << "ThumbnailCache created, address:" << m_thumbnailCache;
-
-    // Initialize lazy loading timer
-    m_lazyLoadTimer = new QTimer(this);
-    m_lazyLoadTimer->setSingleShot(true);
-    m_lazyLoadTimer->setInterval(100); // 100ms delay for lazy loading
-    connect(m_lazyLoadTimer, &QTimer::timeout, this, &Operations_EncryptedData::onLazyLoadTimeout);
-
-    // Connect scroll events for lazy loading
-    connect(m_mainWindow->ui->listWidget_DataENC_FileList->verticalScrollBar(), &QScrollBar::valueChanged,
-            this, &Operations_EncryptedData::onListScrolled);
+    // NOTE: ThumbnailCache removed - thumbnails now embedded in metadata
 
     // Set up context menu for the encrypted files list
     m_mainWindow->ui->listWidget_DataENC_FileList->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -864,13 +871,14 @@ Operations_EncryptedData::~Operations_EncryptedData()
         m_progressDialog->deleteLater();
         m_progressDialog = nullptr;
     }
+
     // Clean up metadata manager
     if (m_metadataManager) {
         delete m_metadataManager;
         m_metadataManager = nullptr;
     }
 
-    // Handle secure deletion worker
+    // Handle secure deletion worker (existing code)
     if (m_secureDeletionWorkerThread && m_secureDeletionWorkerThread->isRunning()) {
         if (m_secureDeletionWorker) {
             m_secureDeletionWorker->cancel();
@@ -897,6 +905,8 @@ Operations_EncryptedData::~Operations_EncryptedData()
         m_secureDeletionProgressDialog->deleteLater();
         m_secureDeletionProgressDialog = nullptr;
     }
+
+    // NOTE: ThumbnailCache cleanup removed - no longer used
 }
 
 // ============================================================================
@@ -1676,7 +1686,7 @@ void Operations_EncryptedData::encryptSelectedFile()
         }
     }
 
-    // *** NEW: Extract video thumbnails in main thread before encryption ***
+    // UPDATED: Extract video thumbnails in main thread before encryption (still needed for video files)
     QMap<QString, QPixmap> videoThumbnails;
     QStringList videoExtensions = {"mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp", "mpg", "mpeg", "m2v", "divx", "xvid"};
 
@@ -1759,7 +1769,7 @@ void Operations_EncryptedData::encryptSelectedFile()
     m_progressDialog->setMinimumDuration(0);
     m_progressDialog->setValue(0);
 
-    // Set up worker thread - PASS PRE-EXTRACTED THUMBNAILS
+    // Set up worker thread - PASS PRE-EXTRACTED THUMBNAILS (for video files)
     m_workerThread = new QThread(this);
     m_worker = new EncryptionWorker(validFiles, targetPaths, encryptionKey, username, videoThumbnails);
     m_worker->moveToThread(m_workerThread);
@@ -1768,8 +1778,8 @@ void Operations_EncryptedData::encryptSelectedFile()
     connect(m_workerThread, &QThread::started, m_worker, &EncryptionWorker::doEncryption);
     connect(m_worker, &EncryptionWorker::progressUpdated, this, &Operations_EncryptedData::onEncryptionProgress);
     connect(m_progressDialog, &QProgressDialog::canceled, this, &Operations_EncryptedData::onEncryptionCancelled);
-    connect(m_worker, &EncryptionWorker::videoThumbnailExtracted,
-            this, &Operations_EncryptedData::storeVideoThumbnail);
+
+    // NOTE: videoThumbnailExtracted signal removed - thumbnails now embedded directly
 
     if (validFiles.size() == 1) {
         // Single file - use backward compatible signal
@@ -2417,7 +2427,7 @@ QString Operations_EncryptedData::mapDirectoryToSortType(const QString& director
 
 void Operations_EncryptedData::populateEncryptedFilesList()
 {
-    qDebug() << "Starting populateEncryptedFilesList with hierarchical filtering";
+    qDebug() << "Starting populateEncryptedFilesList with embedded thumbnails";
 
     // Prevent recursive updates
     if (m_updatingFilters) {
@@ -2428,7 +2438,7 @@ void Operations_EncryptedData::populateEncryptedFilesList()
     // Clear current state
     m_fileMetadataCache.clear();
     m_currentFilteredFiles.clear();
-    m_pendingThumbnailItems.clear();
+    // NOTE: m_pendingThumbnailItems removed - no longer needed
 
     // Get current sort type from combo box
     QString currentSortType = m_mainWindow->ui->comboBox_DataENC_SortType->currentText();
@@ -2457,9 +2467,6 @@ void Operations_EncryptedData::populateEncryptedFilesList()
         directoriesToScan << mappedDirectory;
     }
 
-    // Collect all valid file paths for cache cleanup
-    QStringList allValidFilePaths;
-
     // Scan each directory for encrypted files and load metadata
     for (const QString& dirName : directoriesToScan) {
         QString dirPath = QDir(encDataPath).absoluteFilePath(dirName);
@@ -2476,16 +2483,16 @@ void Operations_EncryptedData::populateEncryptedFilesList()
         for (const QFileInfo& fileInfo : fileList) {
             QString encryptedFilePath = fileInfo.absoluteFilePath();
 
-            // Try to read metadata for this file
+            // Try to read metadata for this file (now includes embedded thumbnail)
             EncryptedFileMetadata::FileMetadata metadata;
             if (m_metadataManager && m_metadataManager->readMetadataFromFile(encryptedFilePath, metadata)) {
                 // Valid metadata found
                 m_fileMetadataCache[encryptedFilePath] = metadata;
-                allValidFilePaths.append(encryptedFilePath);
 
                 qDebug() << "Loaded metadata for:" << metadata.filename
                          << "category:" << metadata.category
-                         << "tags:" << metadata.tags.join(", ");
+                         << "tags:" << metadata.tags.join(", ")
+                         << "has thumbnail:" << (!metadata.thumbnailData.isEmpty());
             } else {
                 // Fallback: try to get original filename using legacy method
                 QString originalFilename = getOriginalFilename(encryptedFilePath);
@@ -2493,7 +2500,6 @@ void Operations_EncryptedData::populateEncryptedFilesList()
                     // Create basic metadata with just filename
                     metadata = EncryptedFileMetadata::FileMetadata(originalFilename);
                     m_fileMetadataCache[encryptedFilePath] = metadata;
-                    allValidFilePaths.append(encryptedFilePath);
 
                     qDebug() << "Using legacy filename for:" << originalFilename;
                 }
@@ -2503,11 +2509,7 @@ void Operations_EncryptedData::populateEncryptedFilesList()
 
     qDebug() << "Loaded metadata for" << m_fileMetadataCache.size() << "files";
 
-    // Clean up orphaned thumbnail cache entries
-    if (m_thumbnailCache && currentSortType == "All") {
-        qDebug() << "Running thumbnail cleanup (showing All files)";
-        m_thumbnailCache->cleanupOrphanedThumbnails(allValidFilePaths);
-    }
+    // NOTE: Thumbnail cleanup removed - no longer needed
 
     // Populate categories list based on loaded metadata
     populateCategoriesList();
@@ -2682,11 +2684,11 @@ void Operations_EncryptedData::onTagCheckboxChanged()
 // New method: Update the actual file list display
 void Operations_EncryptedData::updateFileListDisplay()
 {
-    qDebug() << "Updating file list display";
+    qDebug() << "Updating file list display with embedded thumbnails";
 
-    // Clear current file list and pending items
+    // Clear current file list
     m_mainWindow->ui->listWidget_DataENC_FileList->clear();
-    m_pendingThumbnailItems.clear();
+    // NOTE: m_pendingThumbnailItems removed - no longer needed
 
     // Get checked tags
     QStringList checkedTags;
@@ -2742,28 +2744,28 @@ void Operations_EncryptedData::updateFileListDisplay()
         // Set file information
         customWidget->setFileInfo(metadata.filename, encryptedFilePath, fileTypeDir);
 
-        // Check if we have a cached thumbnail
+        // UPDATED: Get thumbnail from embedded metadata instead of cache
         QPixmap icon;
-        bool hasCachedThumbnail = false;
+        bool hasEmbeddedThumbnail = !metadata.thumbnailData.isEmpty();
 
-        if (m_thumbnailCache) {
-            // Check for cached thumbnails for both images and videos
-            if (fileTypeDir == "Image" || fileTypeDir == "Video") {
-                hasCachedThumbnail = m_thumbnailCache->hasThumbnail(encryptedFilePath);
-
-                if (hasCachedThumbnail) {
-                    icon = m_thumbnailCache->getThumbnail(encryptedFilePath, EncryptedFileItemWidget::getIconSize());
-                    if (!icon.isNull()) {
-                        qDebug() << "Successfully loaded cached thumbnail for:" << metadata.filename;
-                    } else {
-                        qWarning() << "Failed to load cached thumbnail for:" << metadata.filename;
-                    }
+        if (hasEmbeddedThumbnail) {
+            // Use embedded thumbnail
+            icon = EncryptedFileMetadata::decompressThumbnail(metadata.thumbnailData);
+            if (!icon.isNull()) {
+                // Scale to widget size if needed
+                int iconSize = EncryptedFileItemWidget::getIconSize();
+                if (icon.width() != iconSize || icon.height() != iconSize) {
+                    icon = icon.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
                 }
+                qDebug() << "Using embedded thumbnail for:" << metadata.filename;
+            } else {
+                qWarning() << "Failed to decompress embedded thumbnail for:" << metadata.filename;
+                hasEmbeddedThumbnail = false; // Fall back to default icon
             }
         }
 
-        // If no cached thumbnail, use default icon
-        if (icon.isNull()) {
+        // If no embedded thumbnail or decompression failed, use default icon
+        if (!hasEmbeddedThumbnail) {
             icon = getIconForFileType(metadata.filename, fileTypeDir);
         }
 
@@ -2782,21 +2784,14 @@ void Operations_EncryptedData::updateFileListDisplay()
         // Add item to list and set custom widget
         m_mainWindow->ui->listWidget_DataENC_FileList->addItem(item);
         m_mainWindow->ui->listWidget_DataENC_FileList->setItemWidget(item, customWidget);
-
-        // Add to pending thumbnails if it's an image or video without cached thumbnail
-        if ((fileTypeDir == "Image" || fileTypeDir == "Video") && m_thumbnailCache && !hasCachedThumbnail) {
-            m_pendingThumbnailItems.append(item);
-            qDebug() << "Added to pending thumbnails:" << metadata.filename;
-        }
     }
 
-    // Start lazy loading for visible items
-    startLazyLoadTimer();
+    // NOTE: Lazy loading removed - thumbnails are now immediately available
 
     // Update button states after populating the list
     updateButtonStates();
 
-    qDebug() << "File list display updated with" << finalFilteredFiles.size() << "items";
+    qDebug() << "File list display updated with" << finalFilteredFiles.size() << "items (embedded thumbnails)";
 }
 
 void Operations_EncryptedData::onSortTypeChanged(const QString& sortType)
@@ -3198,9 +3193,6 @@ void Operations_EncryptedData::onSecureDeletionCancelled()
         m_secureDeletionProgressDialog->setStatusText("Cancelling operation...");
     }
 }
-// =================================
-// Thumbnail Generation
-// =================================
 
 QPixmap Operations_EncryptedData::getIconForFileType(const QString& originalFilename, const QString& fileType)
 {
@@ -3225,267 +3217,6 @@ QPixmap Operations_EncryptedData::getIconForFileType(const QString& originalFile
 
     return icon;
 }
-
-void Operations_EncryptedData::startLazyLoadTimer()
-{
-    if (m_lazyLoadTimer && !m_pendingThumbnailItems.isEmpty()) {
-        m_lazyLoadTimer->start();
-    }
-}
-
-void Operations_EncryptedData::onLazyLoadTimeout()
-{
-    checkVisibleItems();
-}
-
-void Operations_EncryptedData::onListScrolled()
-{
-    // Restart the lazy load timer when user scrolls
-    if (m_lazyLoadTimer) {
-        m_lazyLoadTimer->start();
-    }
-}
-
-void Operations_EncryptedData::checkVisibleItems()
-{
-    if (!m_mainWindow || !m_mainWindow->ui->listWidget_DataENC_FileList) {
-        return;
-    }
-
-    QListWidget* listWidget = m_mainWindow->ui->listWidget_DataENC_FileList;
-
-    // Get visible area
-    QRect visibleRect = listWidget->viewport()->rect();
-
-    // Check each pending thumbnail item
-    QList<QListWidgetItem*> itemsToProcess;
-    for (QListWidgetItem* item : m_pendingThumbnailItems) {
-        if (!item) continue;
-
-        QRect itemRect = listWidget->visualItemRect(item);
-        if (visibleRect.intersects(itemRect)) {
-            itemsToProcess.append(item);
-        }
-
-        // Limit processing to avoid blocking the UI
-        if (itemsToProcess.size() >= 3) {
-            break;
-        }
-    }
-
-    // Process visible items
-    for (QListWidgetItem* item : itemsToProcess) {
-        generateThumbnailForItem(item);
-        m_pendingThumbnailItems.removeOne(item);
-    }
-
-    // Continue processing if there are more items
-    if (!m_pendingThumbnailItems.isEmpty() && m_lazyLoadTimer) {
-        m_lazyLoadTimer->start();
-    }
-}
-
-void Operations_EncryptedData::generateThumbnailForItem(QListWidgetItem* item)
-{
-    if (!item) return;
-
-    QString encryptedFilePath = item->data(Qt::UserRole).toString();
-    QString fileType = item->data(Qt::UserRole + 1).toString();
-    QString originalFilename = item->data(Qt::UserRole + 2).toString();
-
-    // Generate thumbnails for both images and videos
-    if (fileType == "Image") {
-        generateImageThumbnail(encryptedFilePath, originalFilename);
-    } else if (fileType == "Video") {
-        // For videos, we should already have the thumbnail cached from encryption
-        // If not, we can't generate it from the encrypted file, so just use default icon
-        qDebug() << "Video file without cached thumbnail (expected after encryption):" << originalFilename;
-    }
-}
-
-void Operations_EncryptedData::generateImageThumbnail(const QString& encryptedFilePath, const QString& originalFilename)
-{
-    if (!m_thumbnailCache) {
-        qWarning() << "ThumbnailCache not available for thumbnail generation";
-        return;
-    }
-
-    qDebug() << "Generating thumbnail for:" << originalFilename;
-
-    // Create a temporary file for decryption
-    QString tempDir = QDir::tempPath();
-    QString tempFileName = QString("temp_thumb_%1_%2").arg(
-                                                          QDateTime::currentMSecsSinceEpoch()).arg(QFileInfo(originalFilename).fileName());
-    QString tempFilePath = QDir(tempDir).absoluteFilePath(tempFileName);
-
-    try {
-        // Decrypt the image file to temp location
-        QByteArray encryptionKey = m_mainWindow->user_Key;
-
-        // Validate encryption key
-        if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey)) {
-            qWarning() << "Invalid encryption key for thumbnail generation:" << encryptedFilePath;
-            return;
-        }
-
-        // Read and decrypt the file
-        QFile encryptedFile(encryptedFilePath);
-        if (!encryptedFile.open(QIODevice::ReadOnly)) {
-            qWarning() << "Failed to open encrypted file for thumbnail:" << encryptedFilePath;
-            return;
-        }
-
-        // Skip the fixed-size metadata header (40KB)
-        QByteArray metadataBlock = encryptedFile.read(Constants::METADATA_RESERVED_SIZE);
-        if (metadataBlock.size() != Constants::METADATA_RESERVED_SIZE) {
-            qWarning() << "Failed to skip fixed-size metadata for thumbnail";
-            return;
-        }
-
-        qDebug() << "Thumbnail generation: Skipped" << Constants::METADATA_RESERVED_SIZE << "bytes of metadata";
-
-        // Read and decrypt the image data in chunks
-        QFile tempFile(tempFilePath);
-        if (!tempFile.open(QIODevice::WriteOnly)) {
-            qWarning() << "Failed to create temp file for thumbnail:" << tempFilePath;
-            return;
-        }
-
-        while (!encryptedFile.atEnd()) {
-            // Read chunk size
-            quint32 chunkSize = 0;
-            qint64 bytesRead = encryptedFile.read(reinterpret_cast<char*>(&chunkSize), sizeof(chunkSize));
-            if (bytesRead == 0) {
-                break; // End of file
-            }
-            if (bytesRead != sizeof(chunkSize)) {
-                qWarning() << "Failed to read chunk size for thumbnail";
-                break;
-            }
-
-            if (chunkSize == 0 || chunkSize > 10 * 1024 * 1024) { // Max 10MB per chunk
-                qWarning() << "Invalid chunk size for thumbnail:" << chunkSize;
-                break;
-            }
-
-            // Read encrypted chunk data
-            QByteArray encryptedChunk = encryptedFile.read(chunkSize);
-            if (encryptedChunk.size() != static_cast<int>(chunkSize)) {
-                qWarning() << "Failed to read complete encrypted chunk for thumbnail";
-                break;
-            }
-
-            // Decrypt chunk
-            QByteArray decryptedChunk = CryptoUtils::Encryption_DecryptBArray(encryptionKey, encryptedChunk);
-            if (decryptedChunk.isEmpty()) {
-                qWarning() << "Decryption failed for thumbnail chunk";
-                break;
-            }
-
-            // Write decrypted chunk
-            tempFile.write(decryptedChunk);
-        }
-
-        encryptedFile.close();
-        tempFile.close();
-
-        // Generate thumbnail from temp file
-        QPixmap thumbnail = createImageThumbnail(tempFilePath, EncryptedFileItemWidget::getIconSize());
-
-        if (!thumbnail.isNull()) {
-            // Cache the thumbnail
-            if (m_thumbnailCache->storeThumbnail(encryptedFilePath, thumbnail)) {
-                qDebug() << "Successfully generated and cached thumbnail for:" << originalFilename;
-
-                // Update the UI with the new thumbnail
-                updateItemThumbnail(encryptedFilePath, thumbnail);
-            } else {
-                qWarning() << "Failed to cache thumbnail for:" << originalFilename;
-            }
-        } else {
-            qWarning() << "Failed to create thumbnail from:" << tempFilePath;
-        }
-
-    } catch (const std::exception& e) {
-        qWarning() << "Exception during thumbnail generation:" << e.what();
-    } catch (...) {
-        qWarning() << "Unknown exception during thumbnail generation";
-    }
-
-    // Clean up temp file
-    if (QFile::exists(tempFilePath)) {
-        QFile::remove(tempFilePath);
-    }
-}
-
-QPixmap Operations_EncryptedData::createImageThumbnail(const QString& tempImagePath, int size)
-{
-    QPixmap originalPixmap;
-    if (!originalPixmap.load(tempImagePath)) {
-        qWarning() << "Failed to load image for thumbnail:" << tempImagePath;
-        return QPixmap();
-    }
-
-    // Create thumbnail with proper aspect ratio
-    QPixmap thumbnail = originalPixmap.scaled(size, size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-
-    // Add a subtle border to make thumbnails look more polished
-    QPixmap borderedThumbnail(size, size);
-    borderedThumbnail.fill(Qt::transparent);
-
-    QPainter painter(&borderedThumbnail);
-    painter.setRenderHint(QPainter::Antialiasing);
-
-    // Center the thumbnail
-    int x = (size - thumbnail.width()) / 2;
-    int y = (size - thumbnail.height()) / 2;
-
-    // Draw thumbnail
-    painter.drawPixmap(x, y, thumbnail);
-
-    // Draw subtle border
-    painter.setPen(QPen(QColor(100, 100, 100), 1));
-    painter.drawRect(x, y, thumbnail.width() - 1, thumbnail.height() - 1);
-
-    return borderedThumbnail;
-}
-
-void Operations_EncryptedData::updateItemThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail)
-{
-    // Find the item in the list and update its thumbnail
-    QListWidget* listWidget = m_mainWindow->ui->listWidget_DataENC_FileList;
-
-    for (int i = 0; i < listWidget->count(); ++i) {
-        QListWidgetItem* item = listWidget->item(i);
-        if (item && item->data(Qt::UserRole).toString() == encryptedFilePath) {
-            EncryptedFileItemWidget* widget = qobject_cast<EncryptedFileItemWidget*>(listWidget->itemWidget(item));
-            if (widget) {
-                widget->setIcon(thumbnail);
-                qDebug() << "Updated thumbnail in UI for:" << widget->getOriginalFilename();
-            }
-            break;
-        }
-    }
-}
-
-void Operations_EncryptedData::storeVideoThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail)
-{
-    if (!m_thumbnailCache || thumbnail.isNull()) {
-        return;
-    }
-
-    qDebug() << "Storing video thumbnail for encrypted file:" << encryptedFilePath;
-
-    if (m_thumbnailCache->storeThumbnail(encryptedFilePath, thumbnail)) {
-        qDebug() << "Successfully stored video thumbnail in cache";
-
-        // Update the UI if this file is currently visible
-        updateItemThumbnail(encryptedFilePath, thumbnail);
-    } else {
-        qWarning() << "Failed to store video thumbnail in cache";
-    }
-}
-
 
 // New helper method: Refresh after encryption
 void Operations_EncryptedData::refreshAfterEncryption(const QString& encryptedFilePath)
@@ -3752,18 +3483,7 @@ void Operations_EncryptedData::onContextMenuEdit()
     }
     qDebug() << "Encryption key validation successful for edit operation";
 
-    // NEW: Check if file has an existing thumbnail and save it temporarily
-    QPixmap existingThumbnail;
-    bool hadThumbnail = false;
-
-    if (m_thumbnailCache && m_thumbnailCache->hasThumbnail(encryptedFilePath)) {
-        existingThumbnail = m_thumbnailCache->getThumbnail(encryptedFilePath, EncryptedFileItemWidget::getIconSize());
-        hadThumbnail = !existingThumbnail.isNull();
-
-        if (hadThumbnail) {
-            qDebug() << "Preserving existing thumbnail for metadata edit:" << encryptedFilePath;
-        }
-    }
+    // NOTE: Thumbnail preservation logic removed - thumbnails are now embedded and preserved automatically
 
     // Create and show edit dialog
     EditEncryptedFileDialog editDialog(m_mainWindow);
@@ -3776,19 +3496,7 @@ void Operations_EncryptedData::onContextMenuEdit()
         // Changes were saved, refresh and select the edited file
         refreshAfterEdit(encryptedFilePath);
 
-        // NEW: Restore the thumbnail if we had one before editing
-        if (hadThumbnail && m_thumbnailCache) {
-            // The file modification time has changed, so we need to store the thumbnail
-            // with the new cache key that will be generated
-            if (m_thumbnailCache->storeThumbnail(encryptedFilePath, existingThumbnail)) {
-                qDebug() << "Successfully restored thumbnail after metadata edit";
-
-                // Update the UI with the restored thumbnail
-                updateItemThumbnail(encryptedFilePath, existingThumbnail);
-            } else {
-                qWarning() << "Failed to restore thumbnail after metadata edit";
-            }
-        }
+        // NOTE: Thumbnail restoration removed - thumbnails are preserved automatically in metadata
 
         // Success - no dialog shown, just silently refresh the display
         qDebug() << "File metadata updated successfully, display refreshed";

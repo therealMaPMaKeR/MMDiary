@@ -336,10 +336,10 @@ bool EditEncryptedFileDialog::saveMetadata()
         return false; // Validation should have shown error message
     }
 
-    // Create new metadata with the reconstructed filename
-    EncryptedFileMetadata::FileMetadata newMetadata(fullFilename, category, tags);
+    // FIXED: Create new metadata with the original thumbnail data preserved
+    EncryptedFileMetadata::FileMetadata newMetadata(fullFilename, category, tags, m_originalMetadata.thumbnailData);
 
-    // Check if metadata actually changed
+    // Check if metadata actually changed (excluding thumbnail data since we're preserving it)
     bool hasChanges = (newMetadata.filename != m_originalMetadata.filename ||
                        newMetadata.category != m_originalMetadata.category ||
                        newMetadata.tags != m_originalMetadata.tags);
@@ -349,10 +349,11 @@ bool EditEncryptedFileDialog::saveMetadata()
         return true; // No changes, but that's OK
     }
 
-    qDebug() << "Saving metadata changes:"
+    qDebug() << "Saving metadata changes (preserving thumbnail):"
              << "Old filename:" << m_originalMetadata.filename << "-> New:" << newMetadata.filename
              << "Old category:" << m_originalMetadata.category << "-> New:" << newMetadata.category
-             << "Old tags:" << m_originalMetadata.tags << "-> New:" << newMetadata.tags;
+             << "Old tags:" << m_originalMetadata.tags << "-> New:" << newMetadata.tags
+             << "Thumbnail preserved:" << (!newMetadata.thumbnailData.isEmpty()) << "bytes:" << newMetadata.thumbnailData.size();
 
     // Save metadata to file
     if (!m_metadataManager->updateMetadataInFile(m_encryptedFilePath, newMetadata)) {
@@ -361,7 +362,7 @@ bool EditEncryptedFileDialog::saveMetadata()
         return false;
     }
 
-    qDebug() << "Successfully saved metadata changes";
+    qDebug() << "Successfully saved metadata changes with preserved thumbnail";
     return true;
 }
 

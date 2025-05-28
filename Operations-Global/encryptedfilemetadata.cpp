@@ -6,6 +6,9 @@
 #include <QDebug>
 #include <QIODevice>
 #include <QCryptographicHash>
+#include <QBuffer>
+#include <QImageReader>
+#include <QImageWriter>
 #include <cstring>
 
 EncryptedFileMetadata::EncryptedFileMetadata(const QByteArray& encryptionKey, const QString& username)
@@ -20,7 +23,7 @@ EncryptedFileMetadata::~EncryptedFileMetadata()
 }
 
 // ============================================================================
-// Static Validation Methods
+// Static Validation Methods (Updated)
 // ============================================================================
 
 bool EncryptedFileMetadata::isValidCategory(const QString& category)
@@ -68,7 +71,96 @@ bool EncryptedFileMetadata::isValidFilename(const QString& filename)
 }
 
 // ============================================================================
-// Core File Operations
+// NEW: Thumbnail Utility Methods
+// ============================================================================
+
+QByteArray EncryptedFileMetadata::compressThumbnail(const QPixmap& thumbnail, int quality)
+{
+    if (thumbnail.isNull()) {
+        return QByteArray();
+    }
+
+    QByteArray thumbnailData;
+    QBuffer buffer(&thumbnailData);
+    buffer.open(QIODevice::WriteOnly);
+
+    // Save as JPEG with specified quality for good compression
+    if (!thumbnail.save(&buffer, "JPEG", quality)) {
+        qWarning() << "Failed to compress thumbnail to JPEG";
+        return QByteArray();
+    }
+
+    qDebug() << "Compressed thumbnail size:" << thumbnailData.size() << "bytes";
+    return thumbnailData;
+}
+
+QPixmap EncryptedFileMetadata::decompressThumbnail(const QByteArray& thumbnailData)
+{
+    if (thumbnailData.isEmpty()) {
+        return QPixmap();
+    }
+
+    QPixmap thumbnail;
+    if (!thumbnail.loadFromData(thumbnailData, "JPEG")) {
+        qWarning() << "Failed to decompress thumbnail from JPEG data";
+        return QPixmap();
+    }
+
+    return thumbnail;
+}
+
+QPixmap EncryptedFileMetadata::createThumbnailFromImage(const QString& imagePath, int size)
+{
+    QPixmap originalPixmap;
+    if (!originalPixmap.load(imagePath)) {
+        qWarning() << "Failed to load image for thumbnail:" << imagePath;
+        return QPixmap();
+    }
+
+    // Create thumbnail with proper aspect ratio
+    QPixmap thumbnail = originalPixmap.scaled(size, size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+    qDebug() << "Created thumbnail from image:" << imagePath << "size:" << thumbnail.size();
+    return thumbnail;
+}
+
+// ============================================================================
+// NEW: Thumbnail Access Methods
+// ============================================================================
+
+QPixmap EncryptedFileMetadata::getThumbnailFromFile(const QString& filePath, int size)
+{
+    FileMetadata metadata;
+    if (!readMetadataFromFile(filePath, metadata)) {
+        return QPixmap();
+    }
+
+    if (metadata.thumbnailData.isEmpty()) {
+        return QPixmap();
+    }
+
+    QPixmap thumbnail = decompressThumbnail(metadata.thumbnailData);
+
+    // Scale to requested size if different
+    if (!thumbnail.isNull() && (thumbnail.width() != size || thumbnail.height() != size)) {
+        thumbnail = thumbnail.scaled(size, size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    }
+
+    return thumbnail;
+}
+
+bool EncryptedFileMetadata::hasThumbnail(const QString& filePath)
+{
+    FileMetadata metadata;
+    if (!readMetadataFromFile(filePath, metadata)) {
+        return false;
+    }
+
+    return !metadata.thumbnailData.isEmpty();
+}
+
+// ============================================================================
+// Core File Operations (existing methods unchanged)
 // ============================================================================
 
 bool EncryptedFileMetadata::writeMetadataToFile(const QString& filePath, const FileMetadata& metadata)
@@ -161,12 +253,12 @@ QByteArray EncryptedFileMetadata::createEncryptedMetadataChunk(const FileMetadat
 }
 
 // ============================================================================
-// UPDATED: Fixed-Size Metadata Operations
+// UPDATED: Fixed-Size Metadata Operations (Updated for Thumbnails)
 // ============================================================================
 
 QByteArray EncryptedFileMetadata::createFixedSizeEncryptedMetadata(const FileMetadata& metadata)
 {
-    // Create raw metadata chunk
+    // Create raw metadata chunk (now includes thumbnail)
     QByteArray metadataChunk = createMetadataChunk(metadata);
     if (metadataChunk.isEmpty()) {
         qWarning() << "Failed to create metadata chunk";
@@ -180,7 +272,7 @@ QByteArray EncryptedFileMetadata::createFixedSizeEncryptedMetadata(const FileMet
         return QByteArray();
     }
 
-    qDebug() << "Raw metadata size:" << metadataChunk.size() << "bytes";
+    qDebug() << "Raw metadata size (with thumbnail):" << metadataChunk.size() << "bytes";
 
     // Encrypt the metadata chunk
     QByteArray encryptedMetadata = CryptoUtils::Encryption_EncryptBArray(
@@ -224,10 +316,6 @@ QByteArray EncryptedFileMetadata::createFixedSizeEncryptedMetadata(const FileMet
              << "bytes (data:" << (sizeof(metadataSize) + encryptedMetadata.size())
              << ", padding:" << paddingNeeded << ")";
 
-    // Debug: Show first 16 bytes of created block
-    QByteArray firstBytes = fixedSizeBlock.left(16);
-    qDebug() << "First 16 bytes of created block (hex):" << firstBytes.toHex();
-
     return fixedSizeBlock;
 }
 
@@ -246,10 +334,6 @@ bool EncryptedFileMetadata::readFixedSizeEncryptedMetadata(QIODevice* file, File
                        << metadataBlock.size() << "expected:" << Constants::METADATA_RESERVED_SIZE;
             return false;
         }
-
-        // Debug: Show first 16 bytes of metadata block
-        QByteArray firstBytes = metadataBlock.left(16);
-        qDebug() << "First 16 bytes of metadata block (hex):" << firstBytes.toHex();
 
         // Extract metadata size from first 4 bytes
         quint32 metadataSize = 0;
@@ -282,7 +366,7 @@ bool EncryptedFileMetadata::readFixedSizeEncryptedMetadata(QIODevice* file, File
             return false;
         }
 
-        // Parse metadata
+        // Parse metadata (now includes thumbnail)
         return parseMetadataChunk(metadataChunk, metadata);
 
     } catch (const std::exception& e) {
@@ -335,7 +419,7 @@ bool EncryptedFileMetadata::writeFixedSizeEncryptedMetadata(QIODevice* file, con
 }
 
 // ============================================================================
-// Internal Metadata Chunk Operations (unchanged)
+// UPDATED: Internal Metadata Chunk Operations (Updated for Thumbnails)
 // ============================================================================
 
 QByteArray EncryptedFileMetadata::createMetadataChunk(const FileMetadata& metadata)
@@ -353,6 +437,13 @@ QByteArray EncryptedFileMetadata::createMetadataChunk(const FileMetadata& metada
 
     if (!isValidTagList(metadata.tags)) {
         qWarning() << "Invalid tag list for metadata";
+        return QByteArray();
+    }
+
+    // Validate thumbnail size
+    if (!metadata.thumbnailData.isEmpty() && metadata.thumbnailData.size() > MAX_THUMBNAIL_SIZE) {
+        qWarning() << "Thumbnail data too large:" << metadata.thumbnailData.size()
+        << "bytes (max:" << MAX_THUMBNAIL_SIZE << ")";
         return QByteArray();
     }
 
@@ -381,6 +472,14 @@ QByteArray EncryptedFileMetadata::createMetadataChunk(const FileMetadata& metada
         chunk.append(tagBytes);
     }
 
+    // 4. NEW: Write thumbnail data
+    quint32 thumbnailLength = static_cast<quint32>(metadata.thumbnailData.size());
+    chunk.append(reinterpret_cast<const char*>(&thumbnailLength), sizeof(thumbnailLength));
+    if (thumbnailLength > 0) {
+        chunk.append(metadata.thumbnailData);
+        qDebug() << "Added thumbnail data to metadata chunk:" << thumbnailLength << "bytes";
+    }
+
     // Check size limit for raw metadata
     if (chunk.size() > Constants::MAX_RAW_METADATA_SIZE) {
         qWarning() << "Raw metadata chunk too large:" << chunk.size()
@@ -388,6 +487,7 @@ QByteArray EncryptedFileMetadata::createMetadataChunk(const FileMetadata& metada
         return QByteArray();
     }
 
+    qDebug() << "Created metadata chunk with thumbnail:" << chunk.size() << "bytes";
     return chunk;
 }
 
@@ -490,6 +590,25 @@ bool EncryptedFileMetadata::parseMetadataChunk(const QByteArray& chunk, FileMeta
             metadata.tags.append(tag);
         }
 
+        // 4. NEW: Read thumbnail data
+        quint32 thumbnailLength = 0;
+        if (!safeRead(data, pos, totalSize, &thumbnailLength, sizeof(thumbnailLength))) {
+            return false;
+        }
+
+        if (thumbnailLength > MAX_THUMBNAIL_SIZE) {
+            qWarning() << "Invalid thumbnail length in metadata:" << thumbnailLength;
+            return false;
+        }
+
+        if (thumbnailLength > 0) {
+            metadata.thumbnailData.resize(thumbnailLength);
+            if (!safeRead(data, pos, totalSize, metadata.thumbnailData.data(), thumbnailLength)) {
+                return false;
+            }
+            qDebug() << "Read thumbnail data from metadata:" << thumbnailLength << "bytes";
+        }
+
         // Verify we consumed all data
         if (pos != totalSize) {
             qWarning() << "Metadata chunk has extra data. Expected" << pos << "bytes, got" << totalSize;
@@ -520,10 +639,6 @@ bool EncryptedFileMetadata::writeMetadataToOpenFile(QIODevice* file, const FileM
 {
     return writeFixedSizeEncryptedMetadata(file, metadata);
 }
-
-// ============================================================================
-// Helper for Format Detection
-// ============================================================================
 
 // ============================================================================
 // Safety Helpers (unchanged)

@@ -108,15 +108,15 @@ signals:
                                      const QStringList& successfulFiles,
                                      const QStringList& failedFiles);
 
-    // *** NEW: Signal for video thumbnail extraction ***
-    void videoThumbnailExtracted(const QString& encryptedFilePath, const QPixmap& thumbnail);
+    // REMOVED: Video thumbnail extraction signal (no longer needed with embedded thumbnails)
+    // void videoThumbnailExtracted(const QString& encryptedFilePath, const QPixmap& thumbnail);
 
 private:
     QByteArray m_encryptionKey;
     QString m_username;
     bool m_cancelled;
     QMutex m_cancelMutex;
-    QMap<QString, QPixmap> m_videoThumbnails;
+    QMap<QString, QPixmap> m_videoThumbnails; // Still used for pre-extracted video thumbnails
 
     EncryptedFileMetadata* m_metadataManager;
 
@@ -368,27 +368,24 @@ private:
                                     const QStringList& successfulFiles,
                                     const QStringList& failedFiles);
 
-    // Icon and thumbnail management
-    ThumbnailCache* m_thumbnailCache = nullptr;
+    // UPDATED: Icon management (removed thumbnail cache dependencies)
     FileIconProvider* m_iconProvider = nullptr;
 
-    // Lazy loading management
-    QTimer* m_lazyLoadTimer = nullptr;
-    QList<QListWidgetItem*> m_pendingThumbnailItems;
-
-    // Thumbnail generation
-    void generateThumbnailForItem(QListWidgetItem* item);
-    void generateImageThumbnail(const QString& encryptedFilePath, const QString& originalFilename);
-    QPixmap createImageThumbnail(const QString& tempImagePath, int size = 64);
+    // REMOVED: Thumbnail cache and lazy loading members
+    // ThumbnailCache* m_thumbnailCache = nullptr;
+    // QTimer* m_lazyLoadTimer = nullptr;
+    // QList<QListWidgetItem*> m_pendingThumbnailItems;
 
     // Icon management
     QPixmap getIconForFileType(const QString& originalFilename, const QString& fileType);
 
-    // Lazy loading
-    void checkVisibleItems();
-    void startLazyLoadTimer();
-
-    void updateItemThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail);
+    // REMOVED: Thumbnail generation and lazy loading methods
+    // void generateThumbnailForItem(QListWidgetItem* item);
+    // void generateImageThumbnail(const QString& encryptedFilePath, const QString& originalFilename);
+    // QPixmap createImageThumbnail(const QString& tempImagePath, int size = 64);
+    // void checkVisibleItems();
+    // void startLazyLoadTimer();
+    // void updateItemThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail);
 
     EncryptedFileMetadata* m_metadataManager;
 
@@ -416,7 +413,6 @@ private:
     QThread* m_batchDecryptWorkerThread;
 
     // Helper functions
-
     QList<FileExportInfo> enumerateAllEncryptedFiles();
     QString formatFileSize(qint64 bytes);
 
@@ -461,8 +457,8 @@ public:
     // Main batch decrypt function
     void decryptAndExportAllFiles();
 
-    // *** NEW: Method to store video thumbnail ***
-    void storeVideoThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail);
+    // REMOVED: Video thumbnail storage method (no longer needed with embedded thumbnails)
+    // void storeVideoThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail);
 
 public slots:
     void onSortTypeChanged(const QString& sortType);
@@ -493,8 +489,9 @@ private slots:
                                        const QStringList& successfulFiles,
                                        const QStringList& failedFiles);
 
-    void onLazyLoadTimeout();
-    void onListScrolled();
+    // REMOVED: Lazy loading and thumbnail-related slots
+    // void onLazyLoadTimeout();
+    // void onListScrolled();
 
     void onCategorySelectionChanged();
     void onTagCheckboxChanged();
