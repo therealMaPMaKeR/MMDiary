@@ -5,7 +5,7 @@
 namespace Constants
 {
 // Global
-const QString AppVer = "4.1.4";
+const QString AppVer = "4.1.5";
 // Error Messages
 const QString ErrorMessage_Default = "ERROR";
 const QString ErrorMessage_INVUSER = "ERROR - INVALID USER";
@@ -77,6 +77,9 @@ const QString Diary_TimeStampStart = "<!TimeStampStart!>";
 const QString Diary_TaskManagerStart = "<!TaskManagerStart!>";
 //Diary
 const QString TASK_MANAGER_TEXT = "Task Manager";
+// Encrypted File Metadata
+const int METADATA_RESERVED_SIZE = 40960; // 40KB reserved for metadata (fixed size)
+const int MAX_RAW_METADATA_SIZE = 32768;   // 32KB limit for raw metadata before encryption
 
 
 QString GetCPUNMessage(CPUNType type, CPUNCategory category)

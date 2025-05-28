@@ -77,6 +77,9 @@ extern const QString Diary_TimeStampStart;
 extern const QString Diary_TaskManagerStart;
 //Diary
 extern const QString TASK_MANAGER_TEXT;
+// Encrypted File Metadata
+extern const int METADATA_RESERVED_SIZE;
+extern const int MAX_RAW_METADATA_SIZE;
 // Enum classes
 enum class CPUNType {
     Congrat,

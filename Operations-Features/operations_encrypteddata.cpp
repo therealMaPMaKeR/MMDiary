@@ -184,16 +184,16 @@ void EncryptionWorker::doEncryption()
                 continue;
             }
 
-            // Write encrypted metadata header
+            // Write fixed-size encrypted metadata header (40KB only, no extra size header)
             QFileInfo sourceInfo(sourceFile);
             QString originalFilename = sourceInfo.fileName();
 
             // Create metadata with just filename (empty category and tags)
             EncryptedFileMetadata::FileMetadata metadata(originalFilename);
 
-            // Create encrypted metadata chunk
-            QByteArray encryptedMetadata = m_metadataManager->createEncryptedMetadataChunk(metadata);
-            if (encryptedMetadata.isEmpty()) {
+            // Create fixed-size encrypted metadata block (40KB) - this includes the size header internally
+            QByteArray fixedSizeMetadata = m_metadataManager->createEncryptedMetadataChunk(metadata);
+            if (fixedSizeMetadata.isEmpty()) {
                 QString fileName = QFileInfo(sourceFile).fileName();
                 failedFiles.append(QString("%1 (failed to create metadata)").arg(fileName));
                 source.close();
@@ -201,10 +201,36 @@ void EncryptionWorker::doEncryption()
                 continue;
             }
 
-            // Write metadata size and encrypted metadata
-            quint32 metadataSize = static_cast<quint32>(encryptedMetadata.size());
-            target.write(reinterpret_cast<const char*>(&metadataSize), sizeof(metadataSize));
-            target.write(encryptedMetadata);
+            // Verify fixed-size metadata block
+            if (fixedSizeMetadata.size() != Constants::METADATA_RESERVED_SIZE) {
+                QString fileName = QFileInfo(sourceFile).fileName();
+                failedFiles.append(QString("%1 (invalid metadata size %2, expected %3)").arg(fileName).arg(fixedSizeMetadata.size()).arg(Constants::METADATA_RESERVED_SIZE));
+                source.close();
+                processedTotalSize += currentFileSize;
+                continue;
+            }
+
+            qDebug() << "EncryptionWorker: About to write" << fixedSizeMetadata.size() << "bytes of metadata";
+            qDebug() << "EncryptionWorker: First 16 bytes to write (hex):" << fixedSizeMetadata.left(16).toHex();
+
+            // Write the complete fixed-size metadata block (no additional headers needed)
+            qint64 bytesWritten = target.write(fixedSizeMetadata);
+            if (bytesWritten != fixedSizeMetadata.size()) {
+                QString fileName = QFileInfo(sourceFile).fileName();
+                failedFiles.append(QString("%1 (failed to write metadata, wrote %2 of %3 bytes)").arg(fileName).arg(bytesWritten).arg(fixedSizeMetadata.size()));
+                source.close();
+                processedTotalSize += currentFileSize;
+                continue;
+            }
+
+            qDebug() << "EncryptionWorker: Successfully wrote" << bytesWritten << "bytes of metadata to target file";
+
+            // Debug: Verify what we just wrote by reading it back
+            qint64 currentPos = target.pos();
+            target.seek(0);
+            QByteArray verifyData = target.read(16);
+            qDebug() << "EncryptionWorker: First 16 bytes actually written to file (hex):" << verifyData.toHex();
+            target.seek(currentPos); // Restore position
 
             // Encrypt and write file content in chunks
             const qint64 chunkSize = 1024 * 1024; // 1MB chunks
@@ -379,27 +405,16 @@ void DecryptionWorker::doDecryption()
         qint64 totalSize = sourceFile.size();
         qint64 processedSize = 0;
 
-        // Skip the encrypted metadata header
-        quint32 metadataSize = 0;
-        if (sourceFile.read(reinterpret_cast<char*>(&metadataSize), sizeof(metadataSize)) != sizeof(metadataSize)) {
-            emit decryptionFinished(false, "Failed to read metadata size from encrypted file");
+        // Skip the fixed-size encrypted metadata header (40KB)
+        QByteArray metadataBlock = sourceFile.read(Constants::METADATA_RESERVED_SIZE);
+        if (metadataBlock.size() != Constants::METADATA_RESERVED_SIZE) {
+            emit decryptionFinished(false, "Failed to skip fixed-size metadata header");
             return;
         }
 
-        // Validate metadata size
-        if (metadataSize == 0 || metadataSize > EncryptedFileMetadata::MAX_ENCRYPTED_METADATA_SIZE) {
-            emit decryptionFinished(false, "Invalid metadata size in encrypted file");
-            return;
-        }
+        processedSize += Constants::METADATA_RESERVED_SIZE;
 
-        // Skip the encrypted metadata chunk
-        QByteArray encryptedMetadata = sourceFile.read(metadataSize);
-        if (encryptedMetadata.size() != static_cast<int>(metadataSize)) {
-            emit decryptionFinished(false, "Failed to skip metadata in encrypted file");
-            return;
-        }
-
-        processedSize += sizeof(metadataSize) + metadataSize;
+        qDebug() << "DecryptionWorker: Skipped" << Constants::METADATA_RESERVED_SIZE << "bytes of metadata";
 
         // Create target directory if it doesn't exist
         QFileInfo targetInfo(m_targetFile);
@@ -543,6 +558,7 @@ TempDecryptionWorker::~TempDecryptionWorker()
         m_metadataManager = nullptr;
     }
 }
+
 void TempDecryptionWorker::doDecryption()
 {
     try {
@@ -556,27 +572,16 @@ void TempDecryptionWorker::doDecryption()
         qint64 totalSize = sourceFile.size();
         qint64 processedSize = 0;
 
-        // Skip the encrypted metadata header
-        quint32 metadataSize = 0;
-        if (sourceFile.read(reinterpret_cast<char*>(&metadataSize), sizeof(metadataSize)) != sizeof(metadataSize)) {
-            emit decryptionFinished(false, "Failed to read metadata size from encrypted file");
+        // Skip the fixed-size encrypted metadata header (40KB)
+        QByteArray metadataBlock = sourceFile.read(Constants::METADATA_RESERVED_SIZE);
+        if (metadataBlock.size() != Constants::METADATA_RESERVED_SIZE) {
+            emit decryptionFinished(false, "Failed to skip fixed-size metadata header");
             return;
         }
 
-        // Validate metadata size
-        if (metadataSize == 0 || metadataSize > EncryptedFileMetadata::MAX_ENCRYPTED_METADATA_SIZE) {
-            emit decryptionFinished(false, "Invalid metadata size in encrypted file");
-            return;
-        }
+        processedSize += Constants::METADATA_RESERVED_SIZE;
 
-        // Skip the encrypted metadata chunk
-        QByteArray encryptedMetadata = sourceFile.read(metadataSize);
-        if (encryptedMetadata.size() != static_cast<int>(metadataSize)) {
-            emit decryptionFinished(false, "Failed to skip metadata in encrypted file");
-            return;
-        }
-
-        processedSize += sizeof(metadataSize) + metadataSize;
+        qDebug() << "TempDecryptionWorker: Skipped" << Constants::METADATA_RESERVED_SIZE << "bytes of metadata";
 
         // Create target directory if it doesn't exist
         QFileInfo targetInfo(m_targetFile);
@@ -3330,23 +3335,14 @@ void Operations_EncryptedData::generateImageThumbnail(const QString& encryptedFi
             return;
         }
 
-        // Skip the filename header
-        quint32 filenameLength = 0;
-        if (encryptedFile.read(reinterpret_cast<char*>(&filenameLength), sizeof(filenameLength)) != sizeof(filenameLength)) {
-            qWarning() << "Failed to read filename length for thumbnail";
+        // Skip the fixed-size metadata header (40KB)
+        QByteArray metadataBlock = encryptedFile.read(Constants::METADATA_RESERVED_SIZE);
+        if (metadataBlock.size() != Constants::METADATA_RESERVED_SIZE) {
+            qWarning() << "Failed to skip fixed-size metadata for thumbnail";
             return;
         }
 
-        if (filenameLength == 0 || filenameLength > 1000) {
-            qWarning() << "Invalid filename length for thumbnail:" << filenameLength;
-            return;
-        }
-
-        // Skip the filename bytes
-        if (encryptedFile.read(filenameLength).size() != static_cast<int>(filenameLength)) {
-            qWarning() << "Failed to skip filename for thumbnail";
-            return;
-        }
+        qDebug() << "Thumbnail generation: Skipped" << Constants::METADATA_RESERVED_SIZE << "bytes of metadata";
 
         // Read and decrypt the image data in chunks
         QFile tempFile(tempFilePath);
@@ -4103,26 +4099,16 @@ bool BatchDecryptionWorker::decryptSingleFile(const FileExportInfo& fileInfo,
         qint64 fileSize = sourceFile.size();
         qint64 processedFileSize = 0;
 
-        // Skip the encrypted metadata header (same as in DecryptionWorker)
-        quint32 metadataSize = 0;
-        if (sourceFile.read(reinterpret_cast<char*>(&metadataSize), sizeof(metadataSize)) != sizeof(metadataSize)) {
-            qWarning() << "Failed to read metadata size:" << fileInfo.sourceFile;
+        // Skip the fixed-size encrypted metadata header (40KB)
+        QByteArray metadataBlock = sourceFile.read(Constants::METADATA_RESERVED_SIZE);
+        if (metadataBlock.size() != Constants::METADATA_RESERVED_SIZE) {
+            qWarning() << "Failed to skip fixed-size metadata header:" << fileInfo.sourceFile;
             return false;
         }
 
-        if (metadataSize == 0 || metadataSize > EncryptedFileMetadata::MAX_ENCRYPTED_METADATA_SIZE) {
-            qWarning() << "Invalid metadata size:" << metadataSize;
-            return false;
-        }
+        processedFileSize += Constants::METADATA_RESERVED_SIZE;
 
-        // Skip the encrypted metadata chunk
-        QByteArray encryptedMetadata = sourceFile.read(metadataSize);
-        if (encryptedMetadata.size() != static_cast<int>(metadataSize)) {
-            qWarning() << "Failed to skip metadata:" << fileInfo.sourceFile;
-            return false;
-        }
-
-        processedFileSize += sizeof(metadataSize) + metadataSize;
+        qDebug() << "BatchDecryptionWorker: Skipped" << Constants::METADATA_RESERVED_SIZE << "bytes of metadata for" << fileInfo.originalFilename;
 
         // Create target file
         QFile targetFile(fileInfo.targetFile);

@@ -1,9 +1,11 @@
 #include "encryptedfilemetadata.h"
 #include "inputvalidation.h"
 #include "CryptoUtils.h"
+#include "constants.h"
 #include <QFile>
 #include <QDebug>
 #include <QIODevice>
+#include <QCryptographicHash>
 #include <cstring>
 
 EncryptedFileMetadata::EncryptedFileMetadata(const QByteArray& encryptionKey, const QString& username)
@@ -97,61 +99,37 @@ bool EncryptedFileMetadata::readMetadataFromFile(const QString& filePath, FileMe
 
 bool EncryptedFileMetadata::updateMetadataInFile(const QString& filePath, const FileMetadata& newMetadata)
 {
-    // This is a more complex operation that requires rewriting the entire file
-    // For now, we'll implement a simple approach that reads all content and rewrites it
+    qDebug() << "Updating metadata in-place using fixed-size approach for:" << filePath;
 
-    QFile originalFile(filePath);
-    if (!originalFile.open(QIODevice::ReadOnly)) {
-        qWarning() << "Failed to open file for metadata update:" << filePath;
+    try {
+        // Open file for read/write
+        QFile file(filePath);
+        if (!file.open(QIODevice::ReadWrite)) {
+            qWarning() << "Failed to open file for metadata update:" << filePath;
+            return false;
+        }
+
+        // Seek to beginning and overwrite the fixed-size metadata block
+        file.seek(0);
+        bool result = writeFixedSizeEncryptedMetadata(&file, newMetadata);
+
+        if (result) {
+            file.flush(); // Ensure data is written to disk
+            qDebug() << "Successfully updated metadata in-place";
+        } else {
+            qWarning() << "Failed to write updated metadata";
+        }
+
+        file.close();
+        return result;
+
+    } catch (const std::exception& e) {
+        qWarning() << "Exception updating metadata in file:" << e.what();
+        return false;
+    } catch (...) {
+        qWarning() << "Unknown exception updating metadata in file";
         return false;
     }
-
-    // Read current metadata to get the size
-    quint32 currentMetadataSize = 0;
-    if (originalFile.read(reinterpret_cast<char*>(&currentMetadataSize), sizeof(currentMetadataSize)) != sizeof(currentMetadataSize)) {
-        qWarning() << "Failed to read current metadata size";
-        originalFile.close();
-        return false;
-    }
-
-    if (currentMetadataSize == 0 || currentMetadataSize > MAX_ENCRYPTED_METADATA_SIZE) {
-        qWarning() << "Invalid current metadata size:" << currentMetadataSize;
-        originalFile.close();
-        return false;
-    }
-
-    // Skip current metadata
-    originalFile.seek(sizeof(currentMetadataSize) + currentMetadataSize);
-
-    // Read remaining file content (the actual data chunks)
-    QByteArray remainingContent = originalFile.readAll();
-    originalFile.close();
-
-    // Create new metadata chunk
-    QByteArray newEncryptedMetadata = createEncryptedMetadataChunk(newMetadata);
-    if (newEncryptedMetadata.isEmpty()) {
-        qWarning() << "Failed to create new metadata chunk";
-        return false;
-    }
-
-    // Rewrite the file with new metadata
-    QFile newFile(filePath);
-    if (!newFile.open(QIODevice::WriteOnly)) {
-        qWarning() << "Failed to open file for rewriting with new metadata:" << filePath;
-        return false;
-    }
-
-    // Write new metadata size and data
-    quint32 newMetadataSize = static_cast<quint32>(newEncryptedMetadata.size());
-    newFile.write(reinterpret_cast<const char*>(&newMetadataSize), sizeof(newMetadataSize));
-    newFile.write(newEncryptedMetadata);
-
-    // Write original content
-    newFile.write(remainingContent);
-    newFile.close();
-
-    qDebug() << "Successfully updated metadata for file:" << filePath;
-    return true;
 }
 
 QString EncryptedFileMetadata::getFilenameFromFile(const QString& filePath)
@@ -165,30 +143,44 @@ QString EncryptedFileMetadata::getFilenameFromFile(const QString& filePath)
 
 bool EncryptedFileMetadata::hasNewFormat(const QString& filePath)
 {
+    // Since we're only supporting new format now, always return true
+    // if file exists and is large enough
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
         return false;
     }
 
-    // Try to read metadata size
-    quint32 metadataSize = 0;
-    bool hasNewFormat = (file.read(reinterpret_cast<char*>(&metadataSize), sizeof(metadataSize)) == sizeof(metadataSize));
-
-    if (hasNewFormat) {
-        // Additional check: metadata size should be reasonable
-        hasNewFormat = (metadataSize > 0 && metadataSize <= MAX_ENCRYPTED_METADATA_SIZE);
-    }
-
+    bool hasNewFormat = (file.size() >= Constants::METADATA_RESERVED_SIZE);
     file.close();
     return hasNewFormat;
 }
 
 QByteArray EncryptedFileMetadata::createEncryptedMetadataChunk(const FileMetadata& metadata)
 {
+    return createFixedSizeEncryptedMetadata(metadata);
+}
+
+// ============================================================================
+// UPDATED: Fixed-Size Metadata Operations
+// ============================================================================
+
+QByteArray EncryptedFileMetadata::createFixedSizeEncryptedMetadata(const FileMetadata& metadata)
+{
+    // Create raw metadata chunk
     QByteArray metadataChunk = createMetadataChunk(metadata);
     if (metadataChunk.isEmpty()) {
+        qWarning() << "Failed to create metadata chunk";
         return QByteArray();
     }
+
+    // Check if raw metadata exceeds maximum size
+    if (metadataChunk.size() > Constants::MAX_RAW_METADATA_SIZE) {
+        qWarning() << "Raw metadata too large:" << metadataChunk.size()
+        << "bytes (max:" << Constants::MAX_RAW_METADATA_SIZE << ")";
+        return QByteArray();
+    }
+
+    qDebug() << "Raw metadata size:" << metadataChunk.size() << "bytes";
 
     // Encrypt the metadata chunk
     QByteArray encryptedMetadata = CryptoUtils::Encryption_EncryptBArray(
@@ -199,11 +191,151 @@ QByteArray EncryptedFileMetadata::createEncryptedMetadataChunk(const FileMetadat
         return QByteArray();
     }
 
-    return encryptedMetadata;
+    qDebug() << "Encrypted metadata size:" << encryptedMetadata.size() << "bytes";
+
+    // Check if encrypted metadata fits in reserved space (leaving room for size header)
+    const int availableSpace = Constants::METADATA_RESERVED_SIZE - sizeof(quint32);
+    if (encryptedMetadata.size() > availableSpace) {
+        qWarning() << "Encrypted metadata too large:" << encryptedMetadata.size()
+        << "bytes (max:" << availableSpace << ")";
+        return QByteArray();
+    }
+
+    // Create fixed-size block
+    QByteArray fixedSizeBlock;
+    fixedSizeBlock.reserve(Constants::METADATA_RESERVED_SIZE);
+
+    // Write metadata size (4 bytes)
+    quint32 metadataSize = static_cast<quint32>(encryptedMetadata.size());
+    fixedSizeBlock.append(reinterpret_cast<const char*>(&metadataSize), sizeof(metadataSize));
+
+    qDebug() << "Writing metadata size to fixed block:" << metadataSize << "bytes";
+
+    // Write encrypted metadata
+    fixedSizeBlock.append(encryptedMetadata);
+
+    // Pad to exactly METADATA_RESERVED_SIZE with zeros
+    int paddingNeeded = Constants::METADATA_RESERVED_SIZE - fixedSizeBlock.size();
+    if (paddingNeeded > 0) {
+        fixedSizeBlock.append(QByteArray(paddingNeeded, 0));
+    }
+
+    qDebug() << "Created fixed-size metadata block:" << fixedSizeBlock.size()
+             << "bytes (data:" << (sizeof(metadataSize) + encryptedMetadata.size())
+             << ", padding:" << paddingNeeded << ")";
+
+    // Debug: Show first 16 bytes of created block
+    QByteArray firstBytes = fixedSizeBlock.left(16);
+    qDebug() << "First 16 bytes of created block (hex):" << firstBytes.toHex();
+
+    return fixedSizeBlock;
+}
+
+bool EncryptedFileMetadata::readFixedSizeEncryptedMetadata(QIODevice* file, FileMetadata& metadata)
+{
+    if (!file || !file->isReadable()) {
+        qWarning() << "Invalid file for reading fixed-size metadata";
+        return false;
+    }
+
+    try {
+        // Read the entire fixed-size metadata block
+        QByteArray metadataBlock = file->read(Constants::METADATA_RESERVED_SIZE);
+        if (metadataBlock.size() != Constants::METADATA_RESERVED_SIZE) {
+            qWarning() << "Failed to read complete metadata block, got:"
+                       << metadataBlock.size() << "expected:" << Constants::METADATA_RESERVED_SIZE;
+            return false;
+        }
+
+        // Debug: Show first 16 bytes of metadata block
+        QByteArray firstBytes = metadataBlock.left(16);
+        qDebug() << "First 16 bytes of metadata block (hex):" << firstBytes.toHex();
+
+        // Extract metadata size from first 4 bytes
+        quint32 metadataSize = 0;
+        memcpy(&metadataSize, metadataBlock.constData(), sizeof(metadataSize));
+
+        qDebug() << "Read metadata size from fixed block:" << metadataSize << "bytes";
+
+        // Validate metadata size
+        const int maxAllowedSize = Constants::METADATA_RESERVED_SIZE - sizeof(quint32);
+        if (metadataSize == 0 || metadataSize > static_cast<quint32>(maxAllowedSize)) {
+            qWarning() << "Invalid metadata size in fixed block:" << metadataSize
+                       << "(max allowed:" << maxAllowedSize << ")";
+            return false;
+        }
+
+        // Extract encrypted metadata
+        QByteArray encryptedMetadata = metadataBlock.mid(sizeof(metadataSize), metadataSize);
+        if (encryptedMetadata.size() != static_cast<int>(metadataSize)) {
+            qWarning() << "Failed to extract encrypted metadata from fixed block";
+            return false;
+        }
+
+        qDebug() << "Read fixed-size metadata: block size:" << metadataBlock.size()
+                 << ", metadata size:" << metadataSize;
+
+        // Decrypt metadata
+        QByteArray metadataChunk = CryptoUtils::Encryption_DecryptBArray(m_encryptionKey, encryptedMetadata);
+        if (metadataChunk.isEmpty()) {
+            qWarning() << "Failed to decrypt metadata chunk from fixed block";
+            return false;
+        }
+
+        // Parse metadata
+        return parseMetadataChunk(metadataChunk, metadata);
+
+    } catch (const std::exception& e) {
+        qWarning() << "Exception reading fixed-size metadata:" << e.what();
+        return false;
+    } catch (...) {
+        qWarning() << "Unknown exception reading fixed-size metadata";
+        return false;
+    }
+}
+
+bool EncryptedFileMetadata::writeFixedSizeEncryptedMetadata(QIODevice* file, const FileMetadata& metadata)
+{
+    if (!file || !file->isWritable()) {
+        qWarning() << "Invalid file for writing fixed-size metadata";
+        return false;
+    }
+
+    try {
+        // Create fixed-size encrypted metadata block
+        QByteArray fixedSizeBlock = createFixedSizeEncryptedMetadata(metadata);
+        if (fixedSizeBlock.isEmpty()) {
+            qWarning() << "Failed to create fixed-size metadata block";
+            return false;
+        }
+
+        // Verify block size
+        if (fixedSizeBlock.size() != Constants::METADATA_RESERVED_SIZE) {
+            qWarning() << "Fixed-size block has wrong size:" << fixedSizeBlock.size()
+            << "expected:" << Constants::METADATA_RESERVED_SIZE;
+            return false;
+        }
+
+        // Write the fixed-size block
+        if (file->write(fixedSizeBlock) != fixedSizeBlock.size()) {
+            qWarning() << "Failed to write complete fixed-size metadata block";
+            return false;
+        }
+
+        qDebug() << "Successfully wrote fixed-size metadata block:" << fixedSizeBlock.size() << "bytes";
+        return true;
+
+    } catch (const std::exception& e) {
+        qWarning() << "Exception writing fixed-size metadata:" << e.what();
+        return false;
+    } catch (...) {
+        qWarning() << "Unknown exception writing fixed-size metadata";
+        return false;
+    }
 }
 
 // ============================================================================
-// Internal Metadata Chunk Operations
+// Internal Metadata Chunk Operations (unchanged)
 // ============================================================================
 
 QByteArray EncryptedFileMetadata::createMetadataChunk(const FileMetadata& metadata)
@@ -249,9 +381,10 @@ QByteArray EncryptedFileMetadata::createMetadataChunk(const FileMetadata& metada
         chunk.append(tagBytes);
     }
 
-    // Check size limit
-    if (chunk.size() > MAX_METADATA_SIZE) {
-        qWarning() << "Metadata chunk too large:" << chunk.size() << "bytes (max:" << MAX_METADATA_SIZE << ")";
+    // Check size limit for raw metadata
+    if (chunk.size() > Constants::MAX_RAW_METADATA_SIZE) {
+        qWarning() << "Raw metadata chunk too large:" << chunk.size()
+        << "bytes (max:" << Constants::MAX_RAW_METADATA_SIZE << ")";
         return QByteArray();
     }
 
@@ -375,97 +508,25 @@ bool EncryptedFileMetadata::parseMetadataChunk(const QByteArray& chunk, FileMeta
 }
 
 // ============================================================================
-// File I/O Helpers
+// File I/O Helpers (updated to use fixed-size operations)
 // ============================================================================
 
 bool EncryptedFileMetadata::readMetadataFromOpenFile(QIODevice* file, FileMetadata& metadata)
 {
-    if (!file || !file->isReadable()) {
-        qWarning() << "Invalid file for reading metadata";
-        return false;
-    }
-
-    try {
-        // Read metadata size
-        quint32 metadataSize = 0;
-        if (file->read(reinterpret_cast<char*>(&metadataSize), sizeof(metadataSize)) != sizeof(metadataSize)) {
-            qWarning() << "Failed to read metadata size";
-            return false;
-        }
-
-        // Validate metadata size
-        if (metadataSize == 0 || metadataSize > MAX_ENCRYPTED_METADATA_SIZE) {
-            qWarning() << "Invalid metadata size:" << metadataSize;
-            return false;
-        }
-
-        // Read encrypted metadata
-        QByteArray encryptedMetadata = file->read(metadataSize);
-        if (encryptedMetadata.size() != static_cast<int>(metadataSize)) {
-            qWarning() << "Failed to read complete encrypted metadata";
-            return false;
-        }
-
-        // Decrypt metadata
-        QByteArray metadataChunk = CryptoUtils::Encryption_DecryptBArray(m_encryptionKey, encryptedMetadata);
-        if (metadataChunk.isEmpty()) {
-            qWarning() << "Failed to decrypt metadata chunk";
-            return false;
-        }
-
-        // Parse metadata
-        return parseMetadataChunk(metadataChunk, metadata);
-
-    } catch (const std::exception& e) {
-        qWarning() << "Exception reading metadata from file:" << e.what();
-        return false;
-    } catch (...) {
-        qWarning() << "Unknown exception reading metadata from file";
-        return false;
-    }
+    return readFixedSizeEncryptedMetadata(file, metadata);
 }
 
 bool EncryptedFileMetadata::writeMetadataToOpenFile(QIODevice* file, const FileMetadata& metadata)
 {
-    if (!file || !file->isWritable()) {
-        qWarning() << "Invalid file for writing metadata";
-        return false;
-    }
-
-    try {
-        // Create encrypted metadata chunk
-        QByteArray encryptedMetadata = createEncryptedMetadataChunk(metadata);
-        if (encryptedMetadata.isEmpty()) {
-            qWarning() << "Failed to create encrypted metadata chunk";
-            return false;
-        }
-
-        // Write metadata size
-        quint32 metadataSize = static_cast<quint32>(encryptedMetadata.size());
-        if (file->write(reinterpret_cast<const char*>(&metadataSize), sizeof(metadataSize)) != sizeof(metadataSize)) {
-            qWarning() << "Failed to write metadata size";
-            return false;
-        }
-
-        // Write encrypted metadata
-        if (file->write(encryptedMetadata) != encryptedMetadata.size()) {
-            qWarning() << "Failed to write encrypted metadata";
-            return false;
-        }
-
-        return true;
-
-    } catch (const std::exception& e) {
-        qWarning() << "Exception writing metadata to file:" << e.what();
-        return false;
-    } catch (...) {
-        qWarning() << "Unknown exception writing metadata to file";
-        return false;
-    }
+    return writeFixedSizeEncryptedMetadata(file, metadata);
 }
 
 // ============================================================================
-// Safety Helpers
+// Helper for Format Detection
+// ============================================================================
+
+// ============================================================================
+// Safety Helpers (unchanged)
 // ============================================================================
 
 bool EncryptedFileMetadata::safeRead(const char* data, int& pos, int totalSize, void* dest, int size)

@@ -1,6 +1,6 @@
 #include "inputvalidation.h"
 #include "Operations-Global/CryptoUtils.h"
-
+#include "../constants.h"
 #include <QRegularExpression>
 #include <QString>
 #include <QDir>
@@ -488,54 +488,59 @@ bool validateEncryptionKey(const QString& filePath, const QByteArray& expectedEn
 }
 
 bool validateEncryptionKey(const QString& filePath, const QByteArray& expectedEncryptionKey, bool useNewMetadataFormat) {
-    if (!useNewMetadataFormat) {
-        // Use the existing validation method for old format files
-        return validateEncryptionKey(filePath, expectedEncryptionKey);
-    }
-
-    // New metadata format validation (for encrypted data files)
+    // All files now use the new fixed-size metadata format
     QFile encryptedFile(filePath);
     if (!encryptedFile.exists() || encryptedFile.size() == 0) {
         qWarning() << "File doesn't exist or is empty:" << filePath;
         return false;
     }
 
+    // Check if file is large enough to contain fixed-size metadata
+    if (encryptedFile.size() < Constants::METADATA_RESERVED_SIZE) {
+        qWarning() << "File too small to contain fixed-size metadata:" << encryptedFile.size()
+        << "bytes, expected at least:" << Constants::METADATA_RESERVED_SIZE;
+        return false;
+    }
+
     if (!encryptedFile.open(QIODevice::ReadOnly)) {
-        qWarning() << "Failed to open encrypted file:" << filePath;
+        qWarning() << "Failed to open encrypted file for key validation:" << filePath;
         return false;
     }
 
     try {
-        // Read metadata size (first 4 bytes)
-        quint32 metadataSize = 0;
-        if (encryptedFile.read(reinterpret_cast<char*>(&metadataSize), sizeof(metadataSize)) != sizeof(metadataSize)) {
-            qWarning() << "Failed to read metadata size for key validation:" << filePath;
-            encryptedFile.close();
-            return false;
-        }
-
-        // Validate metadata size (reasonable limits)
-        if (metadataSize == 0 || metadataSize > 1024 * 1024) { // Max 1MB for encrypted metadata
-            qWarning() << "Invalid metadata size for key validation:" << metadataSize << filePath;
-            encryptedFile.close();
-            return false;
-        }
-
-        // Read the encrypted metadata chunk
-        QByteArray encryptedMetadata = encryptedFile.read(metadataSize);
-        if (encryptedMetadata.size() != static_cast<int>(metadataSize)) {
-            qWarning() << "Failed to read complete encrypted metadata for key validation:" << filePath;
+        // Read the fixed-size metadata block (40KB)
+        QByteArray metadataBlock = encryptedFile.read(Constants::METADATA_RESERVED_SIZE);
+        if (metadataBlock.size() != Constants::METADATA_RESERVED_SIZE) {
+            qWarning() << "Failed to read complete fixed-size metadata for key validation:" << filePath;
             encryptedFile.close();
             return false;
         }
 
         encryptedFile.close();
 
+        // Extract metadata size from first 4 bytes
+        quint32 metadataSize = 0;
+        memcpy(&metadataSize, metadataBlock.constData(), sizeof(metadataSize));
+
+        // Validate metadata size (reasonable limits)
+        const int maxAllowedSize = Constants::METADATA_RESERVED_SIZE - sizeof(quint32);
+        if (metadataSize == 0 || metadataSize > static_cast<quint32>(maxAllowedSize)) {
+            qWarning() << "Invalid metadata size for key validation:" << metadataSize << filePath;
+            return false;
+        }
+
+        // Extract the encrypted metadata chunk
+        QByteArray encryptedMetadata = metadataBlock.mid(sizeof(metadataSize), metadataSize);
+        if (encryptedMetadata.size() != static_cast<int>(metadataSize)) {
+            qWarning() << "Failed to extract encrypted metadata for key validation:" << filePath;
+            return false;
+        }
+
         // Try to decrypt the metadata chunk to validate the key
         QByteArray decryptedMetadata = CryptoUtils::Encryption_DecryptBArray(expectedEncryptionKey, encryptedMetadata);
 
         if (decryptedMetadata.isEmpty()) {
-            qWarning() << "Failed to decrypt metadata for key validation:" << filePath;
+            qWarning() << "Failed to decrypt fixed-size metadata for key validation:" << filePath;
             return false;
         }
 
@@ -562,7 +567,7 @@ bool validateEncryptionKey(const QString& filePath, const QByteArray& expectedEn
         }
 
         // If we got this far, the key successfully decrypted valid metadata
-        qDebug() << "Encryption key validation successful for new format file:" << filePath;
+        qDebug() << "Encryption key validation successful for fixed-size format file:" << filePath;
         return true;
 
     } catch (const std::exception& e) {

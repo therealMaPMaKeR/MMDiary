@@ -5,6 +5,7 @@
 #include <QString>
 #include <QStringList>
 #include <QByteArray>
+#include "constants.h"
 
 class EncryptedFileMetadata
 {
@@ -50,9 +51,7 @@ public:
     static bool isValidTagList(const QStringList& tags);
     static bool isValidFilename(const QString& filename);
 
-    // Constants
-    static const int MAX_METADATA_SIZE = 65536; // 64KB limit for raw metadata
-    static const int MAX_ENCRYPTED_METADATA_SIZE = 1048576; // 1MB limit for encrypted metadata
+    // Constants for validation limits
     static const int MAX_TAGS = 50;
     static const int MAX_CATEGORY_LENGTH = 50;
     static const int MAX_TAG_LENGTH = 50;
@@ -65,12 +64,20 @@ private:
     QByteArray createMetadataChunk(const FileMetadata& metadata);
     bool parseMetadataChunk(const QByteArray& chunk, FileMetadata& metadata);
 
+    // UPDATED: Fixed-size metadata operations
+    QByteArray createFixedSizeEncryptedMetadata(const FileMetadata& metadata);
+    bool readFixedSizeEncryptedMetadata(QIODevice* file, FileMetadata& metadata);
+    bool writeFixedSizeEncryptedMetadata(QIODevice* file, const FileMetadata& metadata);
+
     // File I/O helpers
     bool readMetadataFromOpenFile(QIODevice* file, FileMetadata& metadata);
     bool writeMetadataToOpenFile(QIODevice* file, const FileMetadata& metadata);
 
     // Safety helpers
     bool safeRead(const char* data, int& pos, int totalSize, void* dest, int size);
+
+
+
 };
 
 #endif // ENCRYPTEDFILEMETADATA_H
