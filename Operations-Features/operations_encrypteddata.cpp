@@ -28,7 +28,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QDialog>
-
+#include <QRandomGenerator>
 // Windows-specific includes for file association checking
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -760,6 +760,9 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     // Create MetaData Manager Instance
     m_metadataManager = new EncryptedFileMetadata(m_mainWindow->user_Key, m_mainWindow->user_Username);
 
+    // scan for corrupted metadata and prompt user for repairs
+    repairCorruptedMetadata();
+
     // Connect selection changed signal to update button states
     connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemSelectionChanged,
             this, &Operations_EncryptedData::updateButtonStates);
@@ -1262,14 +1265,18 @@ QString Operations_EncryptedData::createTempFilePath(const QString& originalFile
     QFileInfo fileInfo(originalFilename);
     QString extension = fileInfo.suffix();
 
-    // Generate obfuscated filename with original extension
-    QString obfuscatedName = generateRandomFilename();
+    // Generate obfuscated filename - don't include the original extension in the random part
+    // since this is for temporary files, we want the final name to match the original
+    QString obfuscatedBaseName = generateRandomFilename(""); // Empty extension for temp files
+    // Remove the .mmenc extension that was added
+    obfuscatedBaseName = obfuscatedBaseName.replace(".mmenc", "");
 
-    // Replace .mmenc extension with the original file extension
+    // Build final temp filename with original extension
+    QString obfuscatedName;
     if (!extension.isEmpty()) {
-        obfuscatedName = obfuscatedName.replace(".mmenc", "." + extension);
+        obfuscatedName = obfuscatedBaseName + "." + extension;
     } else {
-        obfuscatedName = obfuscatedName.replace(".mmenc", "");
+        obfuscatedName = obfuscatedBaseName;
     }
 
     // Ensure filename is unique in temp directory
@@ -2017,7 +2024,7 @@ QString Operations_EncryptedData::determineFileType(const QString& filePath)
     return "Other";
 }
 
-QString Operations_EncryptedData::generateRandomFilename()
+QString Operations_EncryptedData::generateRandomFilename(const QString& originalExtension)
 {
     const QString chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     const int length = 32; // Generate a 32-character random string
@@ -2028,7 +2035,12 @@ QString Operations_EncryptedData::generateRandomFilename()
         randomString.append(chars[index]);
     }
 
-    return randomString + ".mmenc";
+    // Build filename: randomstring.originalext.mmenc
+    if (originalExtension.isEmpty()) {
+        return randomString + ".mmenc";
+    } else {
+        return randomString + "." + originalExtension.toLower() + ".mmenc";
+    }
 }
 
 bool Operations_EncryptedData::checkFilenameExists(const QString& folderPath, const QString& filename)
@@ -2057,13 +2069,17 @@ QString Operations_EncryptedData::createTargetPath(const QString& sourceFile, co
         }
     }
 
-    // Generate unique filename
+    // Extract original file extension
+    QFileInfo sourceFileInfo(sourceFile);
+    QString originalExtension = sourceFileInfo.suffix(); // Get the file extension
+
+    // Generate unique filename with original extension preserved
     QString filename;
     int attempts = 0;
     const int maxAttempts = 100;
 
     do {
-        filename = generateRandomFilename();
+        filename = generateRandomFilename(originalExtension);
         attempts++;
 
         if (attempts > maxAttempts) {
@@ -3464,6 +3480,20 @@ void Operations_EncryptedData::showContextMenu_FileList(const QPoint& pos)
     deleteAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_TrashIcon));
     connect(deleteAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuDelete);
 
+#ifdef QT_DEBUG
+    // Add debug separator and debug options (only in debug builds)
+    contextMenu.addSeparator();
+
+    // Add debug section label
+    QAction* debugLabelAction = contextMenu.addAction("--- DEBUG OPTIONS ---");
+    debugLabelAction->setEnabled(false); // Make it a non-clickable label
+
+    // Add debug corrupt metadata action
+    QAction* debugCorruptAction = contextMenu.addAction("DEBUG: Corrupt Metadata");
+    debugCorruptAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_MessageBoxCritical));
+    connect(debugCorruptAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuDebugCorruptMetadata);
+#endif
+
     // Show context menu at the cursor position
     QPoint globalPos = m_mainWindow->ui->listWidget_DataENC_FileList->mapToGlobal(pos);
     contextMenu.exec(globalPos);
@@ -4686,3 +4716,424 @@ QStringList SecureDeletionWorker::enumerateFilesInFolder(const QString& folderPa
 
     return allFiles;
 }
+
+
+// METADATA REPAIRS
+
+void Operations_EncryptedData::repairCorruptedMetadata()
+{
+    qDebug() << "Starting metadata corruption scan...";
+
+    // Scan for corrupted metadata files
+    QStringList corruptedFiles = scanForCorruptedMetadata();
+
+    if (corruptedFiles.isEmpty()) {
+        qDebug() << "No corrupted metadata files found";
+        return;
+    }
+
+    qDebug() << "Found" << corruptedFiles.size() << "files with corrupted metadata";
+
+    // Show repair dialog to user
+    bool userWantsRepair = showMetadataRepairDialog(corruptedFiles.size());
+
+    if (!userWantsRepair) {
+        qDebug() << "User declined metadata repair";
+        return;
+    }
+
+    // Attempt to repair the corrupted files
+    bool repairSuccess = repairMetadataFiles(corruptedFiles);
+
+    if (repairSuccess) {
+        QMessageBox::information(m_mainWindow, "Repair Complete",
+                                 QString("Successfully repaired %1 files with corrupted metadata.\n\n"
+                                         "The files have been given generic names with their original file extensions preserved "
+                                         "and can now be accessed normally.")
+                                     .arg(corruptedFiles.size()));
+    } else {
+        QMessageBox::warning(m_mainWindow, "Repair Partially Complete",
+                             "Some files could not be repaired. Please check the application logs for details.");
+    }
+}
+
+QStringList Operations_EncryptedData::scanForCorruptedMetadata()
+{
+    QStringList corruptedFiles;
+    QString username = m_mainWindow->user_Username;
+
+    // Build path to encrypted data
+    QString basePath = QDir::current().absoluteFilePath("Data");
+    QString userPath = QDir(basePath).absoluteFilePath(username);
+    QString encDataPath = QDir(userPath).absoluteFilePath("EncryptedData");
+
+    QDir encDataDir(encDataPath);
+    if (!encDataDir.exists()) {
+        qDebug() << "EncryptedData directory doesn't exist for user:" << username;
+        return corruptedFiles;
+    }
+
+    // Scan all subdirectories for .mmenc files
+    QStringList typeDirectories = {"Document", "Image", "Audio", "Video", "Archive", "Other"};
+
+    for (const QString& typeDir : typeDirectories) {
+        QString typePath = QDir(encDataPath).absoluteFilePath(typeDir);
+        QDir dir(typePath);
+
+        if (!dir.exists()) {
+            continue;
+        }
+
+        // Get all .mmenc files in this directory
+        QStringList filters;
+        filters << "*.mmenc";
+        QFileInfoList fileList = dir.entryInfoList(filters, QDir::Files | QDir::Readable, QDir::Name);
+
+        for (const QFileInfo& fileInfo : fileList) {
+            QString encryptedFilePath = fileInfo.absoluteFilePath();
+
+            // Try to read metadata for this file
+            EncryptedFileMetadata::FileMetadata metadata;
+            bool metadataValid = false;
+
+            try {
+                if (m_metadataManager) {
+                    metadataValid = m_metadataManager->readMetadataFromFile(encryptedFilePath, metadata);
+                }
+            } catch (const std::exception& e) {
+                qWarning() << "Exception reading metadata for" << encryptedFilePath << ":" << e.what();
+                metadataValid = false;
+            } catch (...) {
+                qWarning() << "Unknown exception reading metadata for" << encryptedFilePath;
+                metadataValid = false;
+            }
+
+            if (!metadataValid) {
+                qDebug() << "Found corrupted metadata in file:" << encryptedFilePath;
+                corruptedFiles.append(encryptedFilePath);
+            }
+        }
+    }
+
+    qDebug() << "Metadata scan complete. Found" << corruptedFiles.size() << "corrupted files";
+    return corruptedFiles;
+}
+
+bool Operations_EncryptedData::showMetadataRepairDialog(int corruptedCount)
+{
+    QMessageBox msgBox(m_mainWindow);
+    msgBox.setWindowTitle("Metadata Corruption Detected");
+    msgBox.setIcon(QMessageBox::Warning);
+    msgBox.setText(QString("%1 files found with invalid metadata.").arg(corruptedCount));
+    msgBox.setInformativeText("This may prevent these files from being displayed or accessed properly.\n\n"
+                              "Do you want to attempt repairs?\n\n"
+                              "Note: Repaired files will be given generic names based on their encrypted filenames, "
+                              "but their original file extensions will be preserved. "
+                              "The actual file content will not be affected.");
+
+    QPushButton* repairButton = msgBox.addButton("Repair Files", QMessageBox::YesRole);
+    QPushButton* skipButton = msgBox.addButton("Skip Repair", QMessageBox::NoRole);
+    msgBox.setDefaultButton(repairButton);
+
+    msgBox.exec();
+
+    return (msgBox.clickedButton() == repairButton);
+}
+
+bool Operations_EncryptedData::repairMetadataFiles(const QStringList& corruptedFiles)
+{
+    if (corruptedFiles.isEmpty()) {
+        return true;
+    }
+
+    qDebug() << "Starting repair of" << corruptedFiles.size() << "corrupted files";
+
+    int successCount = 0;
+    int failCount = 0;
+
+    // Create a simple progress dialog for the repair process
+    QProgressDialog progressDialog("Repairing corrupted metadata files...", "Cancel", 0, corruptedFiles.size(), m_mainWindow);
+    progressDialog.setWindowTitle("Repairing Files");
+    progressDialog.setWindowModality(Qt::WindowModal);
+    progressDialog.setMinimumDuration(0);
+    progressDialog.setValue(0);
+
+    for (int i = 0; i < corruptedFiles.size(); ++i) {
+        // Check if user cancelled
+        if (progressDialog.wasCanceled()) {
+            qDebug() << "User cancelled metadata repair operation";
+            break;
+        }
+
+        const QString& filePath = corruptedFiles[i];
+        QFileInfo fileInfo(filePath);
+
+        progressDialog.setLabelText(QString("Repairing: %1").arg(fileInfo.fileName()));
+        progressDialog.setValue(i);
+
+        // Allow GUI to update
+        QCoreApplication::processEvents();
+
+        // Attempt to repair this file
+        if (repairSingleFileMetadata(filePath)) {
+            successCount++;
+            qDebug() << "Successfully repaired:" << filePath;
+        } else {
+            failCount++;
+            qWarning() << "Failed to repair:" << filePath;
+        }
+    }
+
+    progressDialog.setValue(corruptedFiles.size());
+
+    qDebug() << "Repair operation complete. Success:" << successCount << "Failed:" << failCount;
+
+    return (successCount > 0); // Return true if at least one file was repaired
+}
+
+bool Operations_EncryptedData::repairSingleFileMetadata(const QString& encryptedFilePath)
+{
+    if (!QFile::exists(encryptedFilePath)) {
+        qWarning() << "File does not exist for repair:" << encryptedFilePath;
+        return false;
+    }
+
+    try {
+        QFileInfo fileInfo(encryptedFilePath);
+        QString fullFileName = fileInfo.fileName(); // e.g., "randomstring.jpg.mmenc"
+
+        // Extract the filename with preserved extension by removing only the final ".mmenc"
+        QString obfuscatedName;
+        if (fullFileName.endsWith(".mmenc", Qt::CaseInsensitive)) {
+            // Remove the ".mmenc" extension, keeping everything else
+            obfuscatedName = fullFileName.left(fullFileName.length() - 6); // Remove last 6 characters (".mmenc")
+        } else {
+            // Fallback: use baseName if the file doesn't end with .mmenc
+            obfuscatedName = fileInfo.baseName();
+        }
+
+        if (obfuscatedName.isEmpty()) {
+            qWarning() << "Could not extract filename from:" << encryptedFilePath;
+            return false;
+        }
+
+        qDebug() << "Repairing metadata for" << encryptedFilePath;
+        qDebug() << "Full filename:" << fullFileName;
+        qDebug() << "Extracted name with extension:" << obfuscatedName;
+
+        // Create generic metadata with the obfuscated filename (now includes original extension)
+        EncryptedFileMetadata::FileMetadata genericMetadata;
+        genericMetadata.filename = obfuscatedName;
+        genericMetadata.category = "";  // Empty category
+        genericMetadata.tags.clear();   // Empty tags list
+        genericMetadata.thumbnailData.clear(); // Empty thumbnail data
+
+        // Validate the generic metadata before attempting to write
+        if (!EncryptedFileMetadata::isValidFilename(genericMetadata.filename)) {
+            qWarning() << "Generated generic filename is invalid:" << genericMetadata.filename;
+            return false;
+        }
+
+        // Attempt to update the metadata in place
+        if (!m_metadataManager) {
+            qWarning() << "Metadata manager not available for repair";
+            return false;
+        }
+
+        bool updateSuccess = m_metadataManager->updateMetadataInFile(encryptedFilePath, genericMetadata);
+
+        if (updateSuccess) {
+            qDebug() << "Successfully updated metadata for:" << encryptedFilePath;
+
+            // Verify the repair by trying to read the metadata back
+            EncryptedFileMetadata::FileMetadata verifyMetadata;
+            if (m_metadataManager->readMetadataFromFile(encryptedFilePath, verifyMetadata)) {
+                qDebug() << "Repair verification successful for:" << encryptedFilePath;
+                qDebug() << "Restored filename:" << verifyMetadata.filename;
+                return true;
+            } else {
+                qWarning() << "Repair verification failed for:" << encryptedFilePath;
+                return false;
+            }
+        } else {
+            qWarning() << "Failed to update metadata for:" << encryptedFilePath;
+            return false;
+        }
+
+    } catch (const std::exception& e) {
+        qWarning() << "Exception during repair of" << encryptedFilePath << ":" << e.what();
+        return false;
+    } catch (...) {
+        qWarning() << "Unknown exception during repair of" << encryptedFilePath;
+        return false;
+    }
+}
+
+// ============================================================================
+// Debug Functions Implementation - Add these methods to operations_encrypteddata.cpp
+// ============================================================================
+
+#ifdef QT_DEBUG
+bool Operations_EncryptedData::debugCorruptFileMetadata(const QString& encryptedFilePath)
+{
+    if (!QFile::exists(encryptedFilePath)) {
+        qWarning() << "File does not exist for debug corruption:" << encryptedFilePath;
+        return false;
+    }
+
+    try {
+        qDebug() << "DEBUG: Purposefully corrupting metadata for:" << encryptedFilePath;
+
+        // Open file for read/write
+        QFile file(encryptedFilePath);
+        if (!file.open(QIODevice::ReadWrite)) {
+            qWarning() << "Failed to open file for debug corruption:" << encryptedFilePath;
+            return false;
+        }
+
+        // Check file size to ensure it has the expected metadata block
+        if (file.size() < Constants::METADATA_RESERVED_SIZE) {
+            qWarning() << "File too small to contain metadata:" << file.size() << "bytes";
+            file.close();
+            return false;
+        }
+
+        // Seek to the beginning of the file (metadata area)
+        file.seek(0);
+
+        // Read the current metadata size (first 4 bytes)
+        quint32 originalMetadataSize = 0;
+        if (file.read(reinterpret_cast<char*>(&originalMetadataSize), sizeof(originalMetadataSize)) != sizeof(originalMetadataSize)) {
+            qWarning() << "Failed to read original metadata size";
+            file.close();
+            return false;
+        }
+
+        qDebug() << "Original metadata size:" << originalMetadataSize << "bytes";
+
+        // Go back to beginning and corrupt the metadata
+        file.seek(0);
+
+        // Create corrupted data - overwrite first 64 bytes with random data
+        // This will corrupt both the size header and the beginning of the encrypted metadata
+        QByteArray corruptedData(64, 0);
+        for (int i = 0; i < corruptedData.size(); ++i) {
+            corruptedData[i] = static_cast<char>(QRandomGenerator::global()->bounded(256));
+        }
+
+        // Write the corrupted data
+        qint64 bytesWritten = file.write(corruptedData);
+        if (bytesWritten != corruptedData.size()) {
+            qWarning() << "Failed to write corrupted data, wrote:" << bytesWritten << "expected:" << corruptedData.size();
+            file.close();
+            return false;
+        }
+
+        // Ensure data is written to disk
+        file.flush();
+        file.close();
+
+        qDebug() << "DEBUG: Successfully corrupted" << bytesWritten << "bytes of metadata";
+
+        // Verify corruption by trying to read metadata
+        EncryptedFileMetadata::FileMetadata testMetadata;
+        bool canReadMetadata = false;
+
+        try {
+            if (m_metadataManager) {
+                canReadMetadata = m_metadataManager->readMetadataFromFile(encryptedFilePath, testMetadata);
+            }
+        } catch (...) {
+            canReadMetadata = false;
+        }
+
+        if (canReadMetadata) {
+            qWarning() << "DEBUG: Corruption may not have been effective - metadata is still readable";
+            return false;
+        } else {
+            qDebug() << "DEBUG: Corruption confirmed - metadata is no longer readable";
+            return true;
+        }
+
+    } catch (const std::exception& e) {
+        qWarning() << "Exception during debug corruption:" << e.what();
+        return false;
+    } catch (...) {
+        qWarning() << "Unknown exception during debug corruption";
+        return false;
+    }
+}
+
+void Operations_EncryptedData::onContextMenuDebugCorruptMetadata()
+{
+    // Get the currently selected item
+    QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_DataENC_FileList->currentItem();
+    if (!currentItem) {
+        return;
+    }
+
+    // Get the encrypted file path from the item's user data
+    QString encryptedFilePath = currentItem->data(Qt::UserRole).toString();
+    if (encryptedFilePath.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to retrieve encrypted file path.");
+        return;
+    }
+
+    // Verify the encrypted file still exists
+    if (!QFile::exists(encryptedFilePath)) {
+        QMessageBox::critical(m_mainWindow, "File Not Found",
+                              "The encrypted file no longer exists.");
+        populateEncryptedFilesList(); // Refresh the list
+        return;
+    }
+
+    // Get original filename for display
+    QString originalFilename;
+    if (m_fileMetadataCache.contains(encryptedFilePath)) {
+        originalFilename = m_fileMetadataCache[encryptedFilePath].filename;
+    } else {
+        originalFilename = getOriginalFilename(encryptedFilePath);
+        if (originalFilename.isEmpty()) {
+            QFileInfo fileInfo(encryptedFilePath);
+            originalFilename = fileInfo.fileName();
+        }
+    }
+
+    // Show confirmation dialog
+    int ret = QMessageBox::question(
+        m_mainWindow,
+        "DEBUG: Corrupt Metadata",
+        QString("Are you sure you want to purposefully corrupt the metadata of '%1'?\n\n"
+                "This is for testing purposes only. The file content will remain intact, "
+                "but the metadata will become unreadable until repaired.\n\n"
+                "Note: The file extension is preserved in the encrypted filename, so repair "
+                "will restore a generic filename with the correct extension.").arg(originalFilename),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No // Default to No for safety
+        );
+
+    if (ret != QMessageBox::Yes) {
+        return; // User cancelled
+    }
+
+    // Attempt to corrupt the metadata
+    bool corruptionSuccess = debugCorruptFileMetadata(encryptedFilePath);
+
+    if (corruptionSuccess) {
+        // Remove from cache and refresh display since metadata is now corrupted
+        removeFileFromCacheAndRefresh(encryptedFilePath);
+
+        QMessageBox::information(m_mainWindow, "DEBUG: Corruption Complete",
+                                 QString("Metadata for '%1' has been purposefully corrupted.\n\n"
+                                         "The file will no longer appear in the list until its metadata is repaired. "
+                                         "You can test the repair functionality by restarting the application.\n\n"
+                                         "When repaired, the file will have a generic name but keep its original extension.")
+                                     .arg(originalFilename));
+    } else {
+        QMessageBox::critical(m_mainWindow, "DEBUG: Corruption Failed",
+                              QString("Failed to corrupt metadata for '%1'. Please check the application logs for details.")
+                                  .arg(originalFilename));
+    }
+}
+#endif // QT_DEBUG

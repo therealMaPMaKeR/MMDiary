@@ -358,7 +358,7 @@ private:
 
     // Helper functions
     QString determineFileType(const QString& filePath);
-    QString generateRandomFilename();
+    QString generateRandomFilename(const QString& originalExtension = QString());
     bool checkFilenameExists(const QString& folderPath, const QString& filename);
     QString createTargetPath(const QString& sourceFile, const QString& username);
     void showSuccessDialog(const QString& encryptedFile, const QString& originalFile);
@@ -473,6 +473,19 @@ private:
     qint64 calculateItemSize(const QString& itemPath, bool isFolder, int& fileCount);
     bool showDeletionConfirmationDialog(const QList<DeletionItem>& items);
     void showDeletionResultsDialog(const DeletionResult& result);
+
+    // Metadata repair functions
+    void repairCorruptedMetadata();
+    QStringList scanForCorruptedMetadata();
+    bool showMetadataRepairDialog(int corruptedCount);
+    bool repairMetadataFiles(const QStringList& corruptedFiles);
+    bool repairSingleFileMetadata(const QString& encryptedFilePath);
+
+#ifdef QT_DEBUG
+    // Debug function to purposefully corrupt metadata for testing
+    bool debugCorruptFileMetadata(const QString& encryptedFilePath);
+    void onContextMenuDebugCorruptMetadata();
+#endif
 
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
