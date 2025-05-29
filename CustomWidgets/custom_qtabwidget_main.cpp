@@ -1,26 +1,27 @@
 #include "custom_qtabwidget_main.h"
+#include "../Operations-Global/operations.h"
 #include <QEvent>
 #include <QMouseEvent>
 
 custom_QTabWidget_Main::custom_QTabWidget_Main(QWidget *parent)
-    : QTabWidget{parent}
+    : QTabWidget{parent}, m_settingsTabObjectName("tab_Settings")
 {
     // Install event filter on the tab bar
     tabBar()->installEventFilter(this);
 }
 
-void custom_QTabWidget_Main::setRequirePasswordForTab(int tabIndex, bool required)
+void custom_QTabWidget_Main::setRequirePasswordForTab(const QString& tabObjectName, bool required)
 {
     if (required) {
-        m_passwordProtectedTabs.insert(tabIndex);
+        m_passwordProtectedTabs.insert(tabObjectName);
     } else {
-        m_passwordProtectedTabs.remove(tabIndex);
+        m_passwordProtectedTabs.remove(tabObjectName);
     }
 }
 
-void custom_QTabWidget_Main::setSettingsTabIndex(int tabIndex)
+void custom_QTabWidget_Main::setSettingsTabObjectName(const QString& tabObjectName)
 {
-    m_settingsTabIndex = tabIndex;
+    m_settingsTabObjectName = tabObjectName;
 }
 
 bool custom_QTabWidget_Main::eventFilter(QObject *watched, QEvent *event)
@@ -31,12 +32,30 @@ bool custom_QTabWidget_Main::eventFilter(QObject *watched, QEvent *event)
 
         // Get the tab that was clicked
         int clickedTab = tabBar()->tabAt(mouseEvent->pos());
+        if (clickedTab == -1) {
+            // Click was not on a tab
+            return QTabWidget::eventFilter(watched, event);
+        }
 
         // Get the current tab
         int currentTab = currentIndex();
 
+        // Get tab object names by finding the widget at each index
+        QString clickedTabObjectName;
+        QString currentTabObjectName;
+
+        QWidget* clickedWidget = widget(clickedTab);
+        QWidget* currentWidget = widget(currentTab);
+
+        if (clickedWidget) {
+            clickedTabObjectName = clickedWidget->objectName();
+        }
+        if (currentWidget) {
+            currentTabObjectName = currentWidget->objectName();
+        }
+
         // First check: Are we trying to leave the settings tab?
-        if (currentTab == m_settingsTabIndex && clickedTab != m_settingsTabIndex) {
+        if (currentTabObjectName == m_settingsTabObjectName && clickedTabObjectName != m_settingsTabObjectName) {
             // Emit signal to check for unsaved changes
             emit unsavedChangesCheckRequested(clickedTab, currentTab);
 
@@ -45,7 +64,7 @@ bool custom_QTabWidget_Main::eventFilter(QObject *watched, QEvent *event)
         }
 
         // Second check: Are we trying to access a password-protected tab?
-        if (m_passwordProtectedTabs.contains(clickedTab)) {
+        if (m_passwordProtectedTabs.contains(clickedTabObjectName)) {
             // Emit signal to request password validation
             emit passwordValidationRequested(clickedTab, currentTab);
 

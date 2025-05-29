@@ -59,6 +59,9 @@
       <property name="currentIndex">
        <number>3</number>
       </property>
+      <property name="movable">
+       <bool>true</bool>
+      </property>
       <widget class="QWidget" name="tab_Diaries">
        <attribute name="title">
         <string>Diaries</string>

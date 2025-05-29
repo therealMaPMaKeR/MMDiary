@@ -1263,24 +1263,21 @@ bool Operations_Settings::handleUnsavedChanges(const QString& settingsType, int 
 
 void Operations_Settings::onSettingsTabChanged(int newIndex)
 {
-    // Determine which settings type is currently being displayed
-    QString currentSettingsType;
-    switch (m_previousSettingsTabIndex) {
-    case 0: // Diary tab
-        currentSettingsType = Constants::DBSettings_Type_Diary;
-        break;
-    case 1: // Task Lists tab
-        currentSettingsType = Constants::DBSettings_Type_Tasklists;
-        break;
-    case 2: // Password Manager tab
-        currentSettingsType = Constants::DBSettings_Type_PWManager;
-        break;
-    case 3: // Encrypted Data tab
-        currentSettingsType = Constants::DBSettings_Type_EncryptedData;
-        break;
-    default:
-        currentSettingsType = Constants::DBSettings_Type_Diary; // Default
+    // Get the object name of the previous settings tab using the stored index
+    QString previousTabObjectName = getTabObjectNameByIndex(m_mainWindow->ui->tabWidget_Settings, m_previousSettingsTabIndex);
+
+    if (previousTabObjectName.isEmpty()) {
+        qDebug() << "Could not determine previous settings tab object name for index:" << m_previousSettingsTabIndex;
+        // Update the previous index and continue without checking for changes
+        m_previousSettingsTabIndex = newIndex;
+        return;
     }
+
+    // Convert object name to settings type
+    QString currentSettingsType = getSettingsTypeFromTabObjectName(previousTabObjectName);
+
+    qDebug() << "Settings tab changed from object name:" << previousTabObjectName
+             << "(" << currentSettingsType << ") to index:" << newIndex;
 
     // Handle unsaved changes
     if (!handleUnsavedChanges(currentSettingsType, newIndex)) {
@@ -1296,10 +1293,17 @@ void Operations_Settings::onSettingsTabChanged(int newIndex)
 
 void Operations_Settings::onMainTabChanged(int newIndex)
 {
-    int settingsTabIndex = 3; // Settings is tab index 3 in tabWidget_Main
+    // Use dynamic lookup instead of hardcoded index
+    int settingsTabIndex = Operations::GetTabIndexByObjectName("tab_Settings", m_mainWindow->ui->tabWidget_Main);
+
+    if (settingsTabIndex == -1) {
+        qWarning() << "Could not find Settings tab by object name";
+        return; // Safety check - if we can't find the settings tab, don't proceed
+    }
 
     // Debug output
     qDebug() << "Main tab changed from" << m_previousMainTabIndex << "to" << newIndex;
+    qDebug() << "Settings tab is at index:" << settingsTabIndex;
 
     // Only check for unsaved changes if we're moving away from the Settings tab
     if (m_previousMainTabIndex == settingsTabIndex && newIndex != settingsTabIndex) {
@@ -1432,6 +1436,40 @@ void Operations_Settings::ClearSettingDescription()
 {
     m_mainWindow->ui->label_Settings_Desc_Name->setText("Description");
     m_mainWindow->ui->textBrowser_SettingDesc->clear();
+}
+
+QString Operations_Settings::getTabObjectNameByIndex(QTabWidget* tabWidget, int index)
+{
+    if (!tabWidget || index < 0 || index >= tabWidget->count()) {
+        return QString(); // Invalid index or null widget
+    }
+
+    QWidget* tabPage = tabWidget->widget(index);
+    if (tabPage) {
+        return tabPage->objectName();
+    }
+
+    return QString();
+}
+
+QString Operations_Settings::getSettingsTypeFromTabObjectName(const QString& tabObjectName)
+{
+    if (tabObjectName == "tab_Settings_Diaries") {
+        return Constants::DBSettings_Type_Diary;
+    }
+    else if (tabObjectName == "tab_Settings_Tasklists") {
+        return Constants::DBSettings_Type_Tasklists;
+    }
+    else if (tabObjectName == "tab_Settings_PWManager") {
+        return Constants::DBSettings_Type_PWManager;
+    }
+    else if (tabObjectName == "tab_Settings_EncryptedData") {
+        return Constants::DBSettings_Type_EncryptedData;
+    }
+    else {
+        qDebug() << "Unknown settings tab object name:" << tabObjectName;
+        return Constants::DBSettings_Type_Diary; // Default fallback
+    }
 }
 
 //-----------Slots------------//

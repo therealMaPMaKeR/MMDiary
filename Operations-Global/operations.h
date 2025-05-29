@@ -22,6 +22,7 @@ QListWidgetItem* GetLastListItem(QListWidget* list);
 int GetIndexFromText(const QString& text, QComboBox* comboBox);
 int GetIndexFromText(const QString& text, QTabWidget* tabWidget);
 int GetIndexFromText(const QString& text, QListWidget* listWidget);
+int GetTabIndexByObjectName(const QString& objectName, QTabWidget* tabWidget);
 };
 
 #endif // OPERATIONS_H

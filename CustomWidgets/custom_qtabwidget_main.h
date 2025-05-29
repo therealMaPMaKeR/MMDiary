@@ -12,11 +12,11 @@ class custom_QTabWidget_Main : public QTabWidget
 public:
     explicit custom_QTabWidget_Main(QWidget *parent = nullptr);
 
-    // Allow setting whether password validation is required for specific tabs
-    void setRequirePasswordForTab(int tabIndex, bool required);
+    // Allow setting whether password validation is required for specific tabs by object name
+    void setRequirePasswordForTab(const QString& tabObjectName, bool required);
 
-    // Add a method to set the settings tab index
-    void setSettingsTabIndex(int tabIndex);
+    // Add a method to set the settings tab object name
+    void setSettingsTabObjectName(const QString& tabObjectName);
 
 signals:
     // Signal to request password validation
@@ -30,8 +30,8 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
-    QSet<int> m_passwordProtectedTabs; // Set of tab indices that require password
-    int m_settingsTabIndex = 3;       // Settings tab index (default to 3)
+    QSet<QString> m_passwordProtectedTabs; // Set of tab object names that require password
+    QString m_settingsTabObjectName;       // Settings tab object name (default to "tab_Settings")
 };
 
 #endif // CUSTOM_QTABWIDGET_MAIN_H

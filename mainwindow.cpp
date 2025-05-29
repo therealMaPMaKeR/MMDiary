@@ -40,17 +40,11 @@ MainWindow::MainWindow(QWidget *parent)
     ui->pushButton_DataENC_DeleteFile->setHidden(true);
     ui->pushButton_DataENC_DecryptALL->setHidden(true);
 
-
-
-    //set timestamp Font
-    //font_TimeStamp.setStyleHint(QFont::Helvetica); // set the value of the font used for timestamps
-    //font_TimeStamp.setBold(true);
-    //font_TimeStamp.setPointSize(10);
-    //font_TimeStamp.setStretch(112);
-    // Set default values for widgets
+    // Set default values for Diary widgets
     ui->DiaryTextDisplay->clear();
     ui->DiaryTextInput->clear();
     ui->DiaryTextInput->setFocus();
+
 
     // about qt
     connect(ui->pushButton_AboutQT, &QPushButton::clicked, this, []() {
@@ -98,10 +92,12 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->tabWidget_Main, &custom_QTabWidget_Main::unsavedChangesCheckRequested,
             this, &MainWindow::onUnsavedChangesCheckRequested);
 
-    // Set the settings tab index and password tab index
-    ui->tabWidget_Main->setSettingsTabIndex(3); // Assuming 3 is the index of the settings tab
-    ui->tabWidget_Main->setRequirePasswordForTab(2, setting_PWMan_ReqPassword);     // Password Manager tab
-    ui->tabWidget_Main->setRequirePasswordForTab(4, setting_DataENC_ReqPassword);  // Encrypted Data tab
+    // Set up password protection for specific tabs using object names directly
+    ui->tabWidget_Main->setRequirePasswordForTab("tab_Passwords", setting_PWMan_ReqPassword);
+    ui->tabWidget_Main->setRequirePasswordForTab("tab_DataEncryption", setting_DataENC_ReqPassword);
+
+    // Set the settings tab object name
+    ui->tabWidget_Main->setSettingsTabObjectName("tab_Settings");
 
     connect(ui->tabWidget_Main, &QTabWidget::currentChanged,
             this, &MainWindow::onTabChanged);
@@ -204,8 +200,8 @@ void MainWindow::ApplySettings()
     Operations_Diary_ptr->DiaryLoader(); // reload diaries
 
     // Update password protection settings for tabs
-    ui->tabWidget_Main->setRequirePasswordForTab(2, setting_PWMan_ReqPassword);     // Password Manager tab
-    ui->tabWidget_Main->setRequirePasswordForTab(4, setting_DataENC_ReqPassword);  // Encrypted Data tab
+    ui->tabWidget_Main->setRequirePasswordForTab("tab_Passwords", setting_PWMan_ReqPassword);
+    ui->tabWidget_Main->setRequirePasswordForTab("tab_DataEncryption", setting_DataENC_ReqPassword);
 }
 
 void MainWindow::showAndActivate() {

@@ -238,4 +238,23 @@ int GetIndexFromText(const QString& text, QListWidget* listWidget)
     return -1;
 }
 
+int GetTabIndexByObjectName(const QString& objectName, QTabWidget* tabWidget)
+{
+    // Return -1 if the tabWidget is null
+    if (!tabWidget) {
+        return -1;
+    }
+
+    // Loop through all tabs to find the one with matching object name
+    for (int i = 0; i < tabWidget->count(); ++i) {
+        QWidget* tabPage = tabWidget->widget(i);
+        if (tabPage && tabPage->objectName() == objectName) {
+            return i;
+        }
+    }
+
+    // Object name not found
+    return -1;
+}
+
 }

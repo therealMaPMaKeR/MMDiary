@@ -25,6 +25,8 @@ private:
     void UpdateButtonStates(const QString& settingsType);
     bool ValidateSettingsInput(const QString& settingsType);
     bool ValidatePassword(const QString& settingsType);
+    QString getSettingsTypeFromTabObjectName(const QString& tabObjectName);
+    QString getTabObjectNameByIndex(QTabWidget* tabWidget, int index);
 
 
     // Setting description functions
