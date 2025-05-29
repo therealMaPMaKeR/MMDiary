@@ -7,31 +7,39 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 CONFIG += c++17
 
-# Static OpenSSL configuration for Windows
+# OpenSSL configuration for Windows
 win32 {
-    # Use relative path to included OpenSSL
     OPENSSL_PATH = $$PWD/3rdparty/openssl
 
-    # Verify OpenSSL files exist
-    !exists($$OPENSSL_PATH/include/openssl/ssl.h) {
-        error("OpenSSL headers not found. Please see README for setup instructions.")
+    CONFIG(debug, debug|release) {
+        # Debug mode: Use system OpenSSL DLLs
+        message("Debug build: Using system OpenSSL at C:/Projects/OpenSSL-Win64")
+
+        # Use system OpenSSL headers and libraries
+        INCLUDEPATH += "C:/Projects/OpenSSL-Win64/include"
+        #LIBS += -L"C:/Projects/OpenSSL-Win64/lib" -llibssl -llibcrypto
+        #LIBS += -L"C:/Projects/OpenSSL-Win64/lib" -lssl -lcrypto
+        LIBS += -L"C:/Projects/OpenSSL-Win64/lib/VC/x64/MDd" -llibssl -llibcrypto
+
+        # Windows dependencies
+        LIBS += -lUser32 -lAdvapi32 -lGdi32 -lCrypt32 -lWs2_32
+
+        # No OPENSSL_STATIC for dynamic linking
     }
 
-    !exists($$OPENSSL_PATH/lib/VC/x64/MD/libssl_static.lib) {
-        error("OpenSSL libraries not found. Please see README for setup instructions.")
+    CONFIG(release, debug|release) {
+        # Release mode: Use your bundled static libraries
+        message("Release build: Using bundled static OpenSSL")
+
+        !exists($$OPENSSL_PATH/lib/VC/x64/MD/libssl_static.lib) {
+            error("OpenSSL static libraries not found.")
+        }
+
+        INCLUDEPATH += $$OPENSSL_PATH/include
+        LIBS += -L$$OPENSSL_PATH/lib/VC/x64/MD -llibssl_static -llibcrypto_static
+        LIBS += -lUser32 -lAdvapi32 -lGdi32 -lCrypt32 -lWs2_32
+        DEFINES += OPENSSL_STATIC
     }
-
-    # Include path
-    INCLUDEPATH += $$OPENSSL_PATH/include
-
-    # Static libraries
-    LIBS += -L$$OPENSSL_PATH/lib/VC/x64/MD -llibssl_static -llibcrypto_static
-
-    # Additional dependencies required by static OpenSSL on Windows
-    LIBS += -lUser32 -lAdvapi32 -lGdi32 -lCrypt32 -lWs2_32
-
-    # Define this to prevent OpenSSL from using DLL import/export specifiers
-    DEFINES += OPENSSL_STATIC
 }
 win32:LIBS += -lole32 -lshell32 -luuid
 #win32:QMAKE_LFLAGS += /NODEFAULTLIB:MSVCRT

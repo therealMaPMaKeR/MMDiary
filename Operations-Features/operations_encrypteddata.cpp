@@ -1897,35 +1897,39 @@ void Operations_EncryptedData::showMultiFileSuccessDialog(const QStringList& ori
     msgBox.setWindowTitle("Encryption Complete");
     msgBox.setIcon(QMessageBox::Information);
 
-    QString message;
+    QString mainText;
+
     if (failedFiles.isEmpty()) {
         // All files succeeded
-        message = QString("All %1 files encrypted successfully!").arg(successfulFiles.size());
-        msgBox.setText(message);
-        msgBox.setInformativeText("Would you like to securely delete the original unencrypted files?");
+        mainText = QString("All %1 files encrypted successfully!\n\n"
+                          "Choose how to handle the original unencrypted files:").arg(successfulFiles.size());
     } else if (successfulFiles.isEmpty()) {
         // All files failed
-        message = QString("Failed to encrypt any files.");
-        msgBox.setText(message);
-        msgBox.setInformativeText(QString("Failed files:\n%1").arg(failedFiles.join("\n")));
+        mainText = QString("Failed to encrypt any files.\n\nFailed files:\n%1").arg(failedFiles.join("\n"));
+        msgBox.setText(mainText);
         msgBox.addButton(QMessageBox::Ok);
         msgBox.exec();
         return;
     } else {
         // Partial success
-        message = QString("Partial success: %1 of %2 files encrypted successfully").arg(successfulFiles.size()).arg(originalFiles.size());
-        msgBox.setText(message);
-        msgBox.setInformativeText("Would you like to securely delete the original files that were successfully encrypted?");
+        mainText = QString("Partial success: %1 of %2 files encrypted successfully.\n\n"
+                          "Choose how to handle the original files that were successfully encrypted:")
+                          .arg(successfulFiles.size()).arg(originalFiles.size());
     }
 
-    QPushButton* deleteButton = msgBox.addButton("Delete Originals", QMessageBox::YesRole);
-    QPushButton* keepButton = msgBox.addButton("Keep Originals", QMessageBox::NoRole);
+    msgBox.setText(mainText);
+
+    QPushButton* deleteButton = msgBox.addButton("Delete Files", QMessageBox::ActionRole);
+    QPushButton* safeDeleteButton = msgBox.addButton("Safe Delete Files", QMessageBox::ActionRole);
+    QPushButton* keepButton = msgBox.addButton("Keep Files", QMessageBox::RejectRole);
     msgBox.setDefaultButton(keepButton);
 
     msgBox.exec();
 
-    // Check if the delete button was clicked
-    if (msgBox.clickedButton() == deleteButton) {
+    // Handle user choice
+    if (msgBox.clickedButton() == deleteButton || msgBox.clickedButton() == safeDeleteButton) {
+        bool useSecureDeletion = (msgBox.clickedButton() == safeDeleteButton);
+
         // Find the original file paths for successfully encrypted files
         QStringList filesToDelete;
         for (const QString& originalFile : originalFiles) {
@@ -1936,12 +1940,20 @@ void Operations_EncryptedData::showMultiFileSuccessDialog(const QStringList& ori
         }
 
         if (!filesToDelete.isEmpty()) {
-            // Securely delete the original files
+            // Delete the original files using the chosen method
             QStringList deletedFiles;
             QStringList deletionFailures;
 
             for (const QString& filePath : filesToDelete) {
-                if (OperationsFiles::secureDelete(filePath, 3, true)) {
+                bool deleted = false;
+
+                if (useSecureDeletion) {
+                    deleted = OperationsFiles::secureDelete(filePath, 3, true);
+                } else {
+                    deleted = QFile::remove(filePath);
+                }
+
+                if (deleted) {
                     deletedFiles.append(QFileInfo(filePath).fileName());
                 } else {
                     deletionFailures.append(QFileInfo(filePath).fileName());
@@ -1950,17 +1962,36 @@ void Operations_EncryptedData::showMultiFileSuccessDialog(const QStringList& ori
 
             // Show deletion results
             QString deletionMessage;
-            if (deletionFailures.isEmpty()) {
-                deletionMessage = QString("All %1 original files have been securely deleted.").arg(deletedFiles.size());
-                QMessageBox::information(m_mainWindow, "Files Deleted", deletionMessage);
+            QString deletionTitle;
+
+            if (useSecureDeletion) {
+                deletionTitle = deletionFailures.isEmpty() ? "Files Safely Deleted" : "Partial Safe Deletion";
+                if (deletionFailures.isEmpty()) {
+                    deletionMessage = QString("All %1 original files have been securely deleted.").arg(deletedFiles.size());
+                } else {
+                    deletionMessage = QString("Successfully securely deleted %1 files.\n\nFailed to delete:\n%2")
+                        .arg(deletedFiles.size())
+                        .arg(deletionFailures.join("\n"));
+                }
             } else {
-                deletionMessage = QString("Successfully deleted %1 files.\n\nFailed to delete:\n%2")
-                .arg(deletedFiles.size())
-                    .arg(deletionFailures.join("\n"));
-                QMessageBox::warning(m_mainWindow, "Partial Deletion", deletionMessage);
+                deletionTitle = deletionFailures.isEmpty() ? "Files Deleted" : "Partial Deletion";
+                if (deletionFailures.isEmpty()) {
+                    deletionMessage = QString("All %1 original files have been deleted.").arg(deletedFiles.size());
+                } else {
+                    deletionMessage = QString("Successfully deleted %1 files.\n\nFailed to delete:\n%2")
+                        .arg(deletedFiles.size())
+                        .arg(deletionFailures.join("\n"));
+                }
+            }
+
+            if (deletionFailures.isEmpty()) {
+                QMessageBox::information(m_mainWindow, deletionTitle, deletionMessage);
+            } else {
+                QMessageBox::warning(m_mainWindow, deletionTitle, deletionMessage);
             }
         }
     }
+    // If keepButton was clicked, do nothing
 }
 
 QString Operations_EncryptedData::determineFileType(const QString& filePath)
@@ -2096,30 +2127,43 @@ void Operations_EncryptedData::showSuccessDialog(const QString& encryptedFile, c
     QMessageBox msgBox(m_mainWindow);
     msgBox.setWindowTitle("Encryption Complete");
     msgBox.setIcon(QMessageBox::Information);
-    msgBox.setText("File encrypted successfully!");
-    msgBox.setInformativeText("The file has been encrypted and saved securely.\n\n"
-                              "Would you like to securely delete the original unencrypted file?");
+    msgBox.setText("The file has been encrypted and saved securely.\n\n"
+                   "Choose how to handle the original unencrypted file:");
 
-    QPushButton* deleteButton = msgBox.addButton("Delete Original", QMessageBox::YesRole);
-    QPushButton* keepButton = msgBox.addButton("Keep Original", QMessageBox::NoRole);
+    QPushButton* deleteButton = msgBox.addButton("Delete Files", QMessageBox::ActionRole);
+    QPushButton* safeDeleteButton = msgBox.addButton("Safe Delete Files", QMessageBox::ActionRole);
+    QPushButton* keepButton = msgBox.addButton("Keep Files", QMessageBox::RejectRole);
     msgBox.setDefaultButton(keepButton);
 
     msgBox.exec();
 
-    // Check if the delete button was clicked by comparing button text
-    if (msgBox.clickedButton() && msgBox.clickedButton()->text() == "Delete Original") {
-        // Securely delete the original file
-        bool deleted = OperationsFiles::secureDelete(originalFile, 3, true); // allow external file
+    // Handle user choice
+    if (msgBox.clickedButton() == deleteButton) {
+        // Regular deletion
+        bool deleted = QFile::remove(originalFile);
 
         if (deleted) {
             QMessageBox::information(m_mainWindow, "File Deleted",
-                                     "The original file has been securely deleted.");
+                                     "The original file has been deleted.");
         } else {
             QMessageBox::warning(m_mainWindow, "Deletion Failed",
+                                 "Failed to delete the original file. "
+                                 "You may need to delete it manually.");
+        }
+    } else if (msgBox.clickedButton() == safeDeleteButton) {
+        // Secure deletion
+        bool deleted = OperationsFiles::secureDelete(originalFile, 3, true); // allow external file
+
+        if (deleted) {
+            QMessageBox::information(m_mainWindow, "File Safely Deleted",
+                                     "The original file has been securely deleted.");
+        } else {
+            QMessageBox::warning(m_mainWindow, "Safe Deletion Failed",
                                  "Failed to securely delete the original file. "
                                  "You may need to delete it manually.");
         }
     }
+    // If keepButton was clicked, do nothing
 }
 
 void Operations_EncryptedData::onEncryptionProgress(int percentage)
