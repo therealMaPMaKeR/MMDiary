@@ -16,7 +16,6 @@
 #include "../Operations-Global/inputvalidation.h"
 #include "../CustomWidgets/encryptedfileitemwidget.h"
 #include "../Operations-Global/fileiconprovider.h"
-#include "../Operations-Global/thumbnailcache.h"
 #include "Operations-Global/encryptedfilemetadata.h"
 #include <QScrollBar>
 #include <QTimer>
@@ -31,7 +30,6 @@
 #include <QCloseEvent>
 #include <QMutex>
 #include <QDirIterator>
-#include <algorithm>
 
 struct FileExportInfo {
     QString sourceFile;
@@ -487,6 +485,12 @@ private:
     void onContextMenuDebugCorruptMetadata();
 #endif
 
+    QString generateUniqueFilePath(const QString& targetDirectory, const QString& originalFilename);
+    QString generateUniqueFilenameInDirectory(const QString& targetDirectory, const QString& originalFilename,
+                                              const QStringList& usedFilenames);
+
+    QList<FileExportInfo> enumerateVisibleEncryptedFiles();
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();
@@ -505,7 +509,7 @@ public:
     void secureDeleteExternalItems();
 
     // Main batch decrypt function
-    void decryptAndExportAllFiles();
+    void decryptAndExportVisibleFiles();
 
     // REMOVED: Video thumbnail storage method (no longer needed with embedded thumbnails)
     // void storeVideoThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail);
@@ -551,6 +555,8 @@ private slots:
     void onSecureDeletionCurrentItem(const QString& itemName);
     void onSecureDeletionFinished(bool success, const DeletionResult& result, const QString& errorMessage);
     void onSecureDeletionCancelled();
+
+    void onContextMenuExportListed();
 
 protected:
     // Event filter for Delete key functionality

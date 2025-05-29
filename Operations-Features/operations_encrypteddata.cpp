@@ -4,7 +4,6 @@
 #include "../constants.h"
 #include "../CustomWidgets/encryptedfileitemwidget.h"
 #include "../Operations-Global/fileiconprovider.h"
-#include "../Operations-Global/thumbnailcache.h"
 #include "qpainter.h"
 #include "ui_mainwindow.h"
 #include <QDir>
@@ -2224,18 +2223,21 @@ void Operations_EncryptedData::decryptSelectedFile()
     }
 
     // Open save dialog with original filename pre-filled
-    QString suggestedPath = QDir::homePath() + "/" + originalFilename;
-    QString targetPath = QFileDialog::getSaveFileName(
+    QString suggestedDir = QDir::homePath();
+    QString targetDirectory = QFileDialog::getExistingDirectory(
         m_mainWindow,
-        "Save Decrypted File As",
-        suggestedPath,
-        "All Files (*.*)"
+        "Select Directory to Save Decrypted File",
+        suggestedDir,
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks
         );
 
-    if (targetPath.isEmpty()) {
-        qDebug() << "User cancelled file save dialog";
+    if (targetDirectory.isEmpty()) {
+        qDebug() << "User cancelled directory selection";
         return;
     }
+
+    // Generate unique target path (automatically handles duplicates)
+    QString targetPath = generateUniqueFilePath(targetDirectory, originalFilename);
 
     // Validate the target path
     InputValidation::ValidationResult result = InputValidation::validateInput(
@@ -2243,19 +2245,18 @@ void Operations_EncryptedData::decryptSelectedFile()
 
     if (!result.isValid) {
         QMessageBox::warning(m_mainWindow, "Invalid File Path",
-                             "The selected save path is invalid: " + result.errorMessage);
+                             "The generated save path is invalid: " + result.errorMessage);
         return;
     }
 
-    // Check if target file already exists
-    if (QFile::exists(targetPath)) {
-        int ret = QMessageBox::question(m_mainWindow, "File Exists",
-                                        "The target file already exists. Do you want to overwrite it?",
-                                        QMessageBox::Yes | QMessageBox::No,
-                                        QMessageBox::No);
-        if (ret != QMessageBox::Yes) {
-            return;
-        }
+    // Inform user if filename was modified due to duplicates
+    QFileInfo targetInfo(targetPath);
+    if (targetInfo.fileName() != originalFilename) {
+        QMessageBox::information(m_mainWindow, "Filename Modified",
+                                 QString("A file with the name '%1' already exists.\n\n"
+                                         "The file will be saved as '%2' instead.")
+                                     .arg(originalFilename)
+                                     .arg(targetInfo.fileName()));
     }
 
     // Set up progress dialog
@@ -2307,12 +2308,15 @@ void Operations_EncryptedData::onDecryptionFinished(bool success, const QString&
 
         if (success) {
             // Show success dialog and ask about deleting encrypted file
+            QFileInfo decryptedFileInfo(decryptedFile);
+
             QMessageBox msgBox(m_mainWindow);
             msgBox.setWindowTitle("Decryption Complete");
             msgBox.setIcon(QMessageBox::Information);
             msgBox.setText("File decrypted successfully!");
-            msgBox.setInformativeText("The file has been decrypted and saved.\n\n"
-                                      "Would you like to delete the encrypted copy?");
+            msgBox.setInformativeText(QString("The file has been decrypted and saved as:\n%1\n\n"
+                                              "Would you like to delete the encrypted copy?")
+                                          .arg(decryptedFileInfo.fileName()));
 
             QPushButton* deleteButton = msgBox.addButton("Delete Encrypted Copy", QMessageBox::YesRole);
             QPushButton* keepButton = msgBox.addButton("Keep Encrypted Copy", QMessageBox::NoRole);
@@ -3190,6 +3194,103 @@ void Operations_EncryptedData::showDeletionResultsDialog(const DeletionResult& r
     resultBox.exec();
 }
 
+QString Operations_EncryptedData::generateUniqueFilePath(const QString& targetDirectory, const QString& originalFilename)
+{
+    // Ensure target directory exists
+    QDir dir(targetDirectory);
+    if (!dir.exists()) {
+        // If directory doesn't exist, the original filename will be unique
+        return QDir(targetDirectory).absoluteFilePath(originalFilename);
+    }
+
+    // Start with the original filename
+    QString basePath = QDir(targetDirectory).absoluteFilePath(originalFilename);
+
+    // If the file doesn't exist, return the original path
+    if (!QFile::exists(basePath)) {
+        return basePath;
+    }
+
+    // Extract the base name and extension for suffix generation
+    QFileInfo fileInfo(originalFilename);
+    QString baseName = fileInfo.completeBaseName(); // filename without extension
+    QString extension = fileInfo.suffix(); // extension without the dot
+
+    // Generate unique filename with suffix pattern: "filename (n).ext"
+    int counter = 1;
+    QString uniquePath;
+
+    do {
+        QString uniqueFilename;
+        if (extension.isEmpty()) {
+            // No extension case
+            uniqueFilename = QString("%1 (%2)").arg(baseName).arg(counter);
+        } else {
+            // With extension case
+            uniqueFilename = QString("%1 (%2).%3").arg(baseName).arg(counter).arg(extension);
+        }
+
+        uniquePath = QDir(targetDirectory).absoluteFilePath(uniqueFilename);
+        counter++;
+
+        // Safety check to prevent infinite loop
+        if (counter > 9999) {
+            qWarning() << "Failed to generate unique filename after 9999 attempts for:" << originalFilename;
+            break;
+        }
+
+    } while (QFile::exists(uniquePath));
+
+    qDebug() << "Generated unique path:" << uniquePath << "for original:" << originalFilename;
+    return uniquePath;
+}
+
+QString Operations_EncryptedData::generateUniqueFilenameInDirectory(const QString& targetDirectory,
+                                                                    const QString& originalFilename,
+                                                                    const QStringList& usedFilenames)
+{
+    // Start with the original filename
+    QString candidateFilename = originalFilename;
+
+    // If it's not in the used list and won't conflict with existing files, use it
+    if (!usedFilenames.contains(candidateFilename)) {
+        QString fullPath = QDir(targetDirectory).absoluteFilePath(candidateFilename);
+        if (!QFile::exists(fullPath)) {
+            return candidateFilename;
+        }
+    }
+
+    // Extract the base name and extension for suffix generation
+    QFileInfo fileInfo(originalFilename);
+    QString baseName = fileInfo.completeBaseName(); // filename without extension
+    QString extension = fileInfo.suffix(); // extension without the dot
+
+    // Generate unique filename with suffix pattern: "filename (n).ext"
+    int counter = 1;
+
+    do {
+        if (extension.isEmpty()) {
+            // No extension case
+            candidateFilename = QString("%1 (%2)").arg(baseName).arg(counter);
+        } else {
+            // With extension case
+            candidateFilename = QString("%1 (%2).%3").arg(baseName).arg(counter).arg(extension);
+        }
+
+        counter++;
+
+        // Safety check to prevent infinite loop
+        if (counter > 9999) {
+            qWarning() << "Failed to generate unique filename after 9999 attempts for:" << originalFilename;
+            break;
+        }
+
+    } while (usedFilenames.contains(candidateFilename) ||
+             QFile::exists(QDir(targetDirectory).absoluteFilePath(candidateFilename)));
+
+    return candidateFilename;
+}
+
 // Signal Handlers for Secure Deletion
 void Operations_EncryptedData::onSecureDeletionProgress(int percentage)
 {
@@ -3467,10 +3568,15 @@ void Operations_EncryptedData::showContextMenu_FileList(const QPoint& pos)
     // Add separator
     contextMenu.addSeparator();
 
-    // Add Decrypt and Export action
+    // Add Decrypt and Export action (single file)
     QAction* decryptAction = contextMenu.addAction("Decrypt and Export");
     decryptAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_DialogSaveButton));
     connect(decryptAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuDecryptExport);
+
+    // Add Export Listed Files action (all visible files)
+    QAction* exportListedAction = contextMenu.addAction("Export All Listed Files");
+    exportListedAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_DirIcon));
+    connect(exportListedAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuExportListed);
 
     // Add separator
     contextMenu.addSeparator();
@@ -3579,6 +3685,14 @@ void Operations_EncryptedData::onContextMenuDelete()
 {
     // Use the existing delete functionality
     deleteSelectedFile();
+}
+
+void Operations_EncryptedData::onContextMenuExportListed()
+{
+    qDebug() << "Context menu: Export Listed Files triggered";
+
+    // Call the existing function to export all visible files
+    decryptAndExportVisibleFiles();
 }
 
 // event filter
@@ -4108,21 +4222,22 @@ bool BatchDecryptionWorker::decryptSingleFile(const FileExportInfo& fileInfo,
 // MAIN IMPLEMENTATION of batch decrypt
 // =============================================================================
 
-void Operations_EncryptedData::decryptAndExportAllFiles()
+void Operations_EncryptedData::decryptAndExportVisibleFiles()
 {
-    qDebug() << "Starting batch decrypt and export operation";
+    qDebug() << "Starting batch decrypt and export operation for visible files";
 
-    // Step 1: Enumerate all encrypted files
-    QList<FileExportInfo> allFiles = enumerateAllEncryptedFiles();
+    // Step 1: Get currently visible encrypted files from the UI
+    QList<FileExportInfo> visibleFiles = enumerateVisibleEncryptedFiles();
 
     // Step 2: Check if there are any files to decrypt
-    if (allFiles.isEmpty()) {
-        QMessageBox::information(m_mainWindow, "Database is Empty",
-                                 "Database is Empty. There is no file to decrypt and export.");
+    if (visibleFiles.isEmpty()) {
+        QMessageBox::information(m_mainWindow, "No Files to Export",
+                                 "No files are currently visible to export.\n\n"
+                                 "Adjust your filters or add files to see exportable content.");
         return;
     }
 
-    qDebug() << "Found" << allFiles.size() << "files to decrypt";
+    qDebug() << "Found" << visibleFiles.size() << "visible files to decrypt";
 
     // Step 3: Show folder selection dialog
     QString exportBasePath = QFileDialog::getExistingDirectory(
@@ -4139,59 +4254,93 @@ void Operations_EncryptedData::decryptAndExportAllFiles()
 
     qDebug() << "Export location selected:" << exportBasePath;
 
-    // Step 3.5: Check if DecryptedData folder already exists
-    QString decryptedDataPath = QDir(exportBasePath).absoluteFilePath("DecryptedData");
-    if (QDir(decryptedDataPath).exists()) {
-        QMessageBox::critical(m_mainWindow, "Folder Already Exists",
-                              "A DecryptedData folder already exists at the specified location.\n\n"
-                              "Choose a different location or delete the folder.");
-        qDebug() << "DecryptedData folder already exists at:" << decryptedDataPath;
-        return;
-    }
-
-    // Step 4: Calculate total size and create target paths
+    // Step 4: Calculate total size and create target paths with unique naming
     qint64 totalSize = 0;
     QString username = m_mainWindow->user_Username;
-    decryptedDataPath = QDir(exportBasePath).absoluteFilePath("DecryptedData");
+    QString decryptedDataPath = QDir(exportBasePath).absoluteFilePath("DecryptedData");
 
-    for (FileExportInfo& fileInfo : allFiles) {
+    // Track used filenames per directory to handle duplicates efficiently
+    QMap<QString, QStringList> usedFilenamesPerDir;
+
+    for (FileExportInfo& fileInfo : visibleFiles) {
         // Calculate size
         QFileInfo sourceFileInfo(fileInfo.sourceFile);
         fileInfo.fileSize = sourceFileInfo.size();
         totalSize += fileInfo.fileSize;
 
-        // FIXED: Create target path using fileType and original filename
-        // Structure: ExportLocation/DecryptedData/FileType/originalFilename
-        QString targetPath = QDir(decryptedDataPath).absoluteFilePath(fileInfo.fileType);
-        targetPath = QDir(targetPath).absoluteFilePath(fileInfo.originalFilename);
+        // Create target directory path: ExportLocation/DecryptedData/FileType/
+        QString targetDirectory = QDir(decryptedDataPath).absoluteFilePath(fileInfo.fileType);
 
-        fileInfo.targetFile = targetPath;
+        // Generate unique filename for this directory
+        QString uniqueFilename = generateUniqueFilenameInDirectory(
+            targetDirectory, fileInfo.originalFilename, usedFilenamesPerDir[targetDirectory]);
+
+        // Add the unique filename to the used list for this directory
+        usedFilenamesPerDir[targetDirectory].append(uniqueFilename);
+
+        // Create full target path
+        fileInfo.targetFile = QDir(targetDirectory).absoluteFilePath(uniqueFilename);
 
         qDebug() << "Mapped:" << fileInfo.sourceFile << "=>" << fileInfo.targetFile;
         qDebug() << "File type:" << fileInfo.fileType << "Original name:" << fileInfo.originalFilename;
+
+        if (uniqueFilename != fileInfo.originalFilename) {
+            qDebug() << "Filename modified for uniqueness: " << fileInfo.originalFilename << "=>" << uniqueFilename;
+        }
     }
 
     // Step 5: Show confirmation dialog
     QString sizeString = formatFileSize(totalSize);
+
+    // Get current filter information for user context
+    QString currentCategory = "All";
+    QListWidgetItem* categoryItem = m_mainWindow->ui->listWidget_DataENC_Categories->currentItem();
+    if (categoryItem) {
+        currentCategory = categoryItem->text();
+    }
+
+    // Count selected tags
+    int selectedTagCount = 0;
+    for (int i = 0; i < m_mainWindow->ui->listWidget_DataENC_Tags->count(); ++i) {
+        QListWidgetItem* tagItem = m_mainWindow->ui->listWidget_DataENC_Tags->item(i);
+        if (tagItem && tagItem->checkState() == Qt::Checked) {
+            selectedTagCount++;
+        }
+    }
+
+    QString filterInfo;
+    if (currentCategory != "All" || selectedTagCount > 0) {
+        filterInfo = QString("\n\nCurrent filters:\n• Category: %1").arg(currentCategory);
+        if (selectedTagCount > 0) {
+            filterInfo += QString("\n• Tags: %1 selected").arg(selectedTagCount);
+        }
+    } else {
+        filterInfo = "\n\nShowing all files (no filters applied).";
+    }
+
     QMessageBox confirmBox(m_mainWindow);
-    confirmBox.setWindowTitle("Confirm Batch Export");
+    confirmBox.setWindowTitle("Confirm Export");
     confirmBox.setIcon(QMessageBox::Question);
-    confirmBox.setText("You are about to decrypt and export your entire encrypted file database.");
-    confirmBox.setInformativeText(QString("%1 file(s) will be decrypted, for a total approximate size of %2.\n\nAre you sure you wish to continue?")
-                                      .arg(allFiles.size()).arg(sizeString));
+    confirmBox.setText("You are about to decrypt and export the currently visible files.");
+    confirmBox.setInformativeText(QString("%1 file(s) will be decrypted, for a total approximate size of %2.%3\n\n"
+                                          "Files with duplicate names will be automatically renamed to prevent overwrites.\n\n"
+                                          "Are you sure you wish to continue?")
+                                      .arg(visibleFiles.size())
+                                      .arg(sizeString)
+                                      .arg(filterInfo));
 
     QPushButton* continueButton = confirmBox.addButton("Continue", QMessageBox::YesRole);
     QPushButton* cancelButton = confirmBox.addButton("Cancel", QMessageBox::NoRole);
-    confirmBox.setDefaultButton(cancelButton);
+    confirmBox.setDefaultButton(continueButton);
 
     confirmBox.exec();
 
     if (confirmBox.clickedButton() != continueButton) {
-        qDebug() << "User cancelled batch export operation";
+        qDebug() << "User cancelled export operation";
         return;
     }
 
-    // Step 6: Create DecryptedData directory structure
+    // Step 6: Create DecryptedData directory structure (no need to check if it exists - we handle duplicates now)
     QDir exportDir(exportBasePath);
     if (!exportDir.mkpath("DecryptedData")) {
         QMessageBox::critical(m_mainWindow, "Export Failed",
@@ -4205,7 +4354,7 @@ void Operations_EncryptedData::decryptAndExportAllFiles()
 
     // Step 8: Set up worker thread
     m_batchDecryptWorkerThread = new QThread(this);
-    m_batchDecryptWorker = new BatchDecryptionWorker(allFiles, m_mainWindow->user_Key);
+    m_batchDecryptWorker = new BatchDecryptionWorker(visibleFiles, m_mainWindow->user_Key);
     m_batchDecryptWorker->moveToThread(m_batchDecryptWorkerThread);
 
     // Connect signals
@@ -4220,7 +4369,6 @@ void Operations_EncryptedData::decryptAndExportAllFiles()
     connect(m_batchDecryptWorker, &BatchDecryptionWorker::batchDecryptionFinished,
             this, &Operations_EncryptedData::onBatchDecryptionFinished);
 
-    // FIXED: Connect cancellation signal properly
     connect(progressDialog, &BatchDecryptionProgressDialog::cancelled,
             this, &Operations_EncryptedData::onBatchDecryptionCancelled);
 
@@ -4230,6 +4378,50 @@ void Operations_EncryptedData::decryptAndExportAllFiles()
     // Start decryption
     m_batchDecryptWorkerThread->start();
     progressDialog->exec();
+}
+
+// Helper function to enumerate only visible files:
+QList<FileExportInfo> Operations_EncryptedData::enumerateVisibleEncryptedFiles()
+{
+    QList<FileExportInfo> visibleFiles;
+
+    // Get files directly from the currently displayed list widget
+    QListWidget* fileList = m_mainWindow->ui->listWidget_DataENC_FileList;
+
+    for (int i = 0; i < fileList->count(); ++i) {
+        QListWidgetItem* item = fileList->item(i);
+        if (!item) {
+            continue;
+        }
+
+        // Get encrypted file path from item data
+        QString encryptedFilePath = item->data(Qt::UserRole).toString();
+        QString fileTypeDir = item->data(Qt::UserRole + 1).toString();
+        QString originalFilename = item->data(Qt::UserRole + 2).toString();
+
+        if (encryptedFilePath.isEmpty() || originalFilename.isEmpty() || fileTypeDir.isEmpty()) {
+            qWarning() << "Incomplete item data for list item" << i;
+            continue;
+        }
+
+        // Verify file still exists
+        if (!QFile::exists(encryptedFilePath)) {
+            qWarning() << "Visible file no longer exists:" << encryptedFilePath;
+            continue;
+        }
+
+        // Create export info structure
+        FileExportInfo info;
+        info.sourceFile = encryptedFilePath;
+        info.originalFilename = originalFilename;
+        info.fileType = fileTypeDir;
+        // targetFile and fileSize will be set later
+
+        visibleFiles.append(info);
+    }
+
+    qDebug() << "Enumerated" << visibleFiles.size() << "visible encrypted files";
+    return visibleFiles;
 }
 
 // Helper function to enumerate all encrypted files
@@ -4344,7 +4536,7 @@ void Operations_EncryptedData::onBatchDecryptionFinished(bool success, const QSt
 {
     if (m_batchProgressDialog) {
         m_batchProgressDialog->close();
-        m_batchProgressDialog = nullptr; // Clear the pointer
+        m_batchProgressDialog = nullptr;
     }
 
     if (m_batchDecryptWorkerThread) {
@@ -4363,11 +4555,14 @@ void Operations_EncryptedData::onBatchDecryptionFinished(bool success, const QSt
     if (success) {
         QString message;
         if (failedFiles.isEmpty()) {
-            message = QString("Export completed successfully!\n\nAll %1 files were decrypted and exported.")
+            message = QString("Export completed successfully!\n\nAll %1 visible files were decrypted and exported.\n\n"
+                            "Note: Files with duplicate names were automatically renamed to prevent overwrites.")
             .arg(successfulFiles.size());
             QMessageBox::information(m_mainWindow, "Export Complete", message);
         } else {
-            message = QString("Export completed with some issues.\n\n%1 files succeeded, %2 files failed.\n\nFailed files:\n%3")
+            message = QString("Export completed with some issues.\n\n%1 files succeeded, %2 files failed.\n\n"
+                            "Note: Files with duplicate names were automatically renamed to prevent overwrites.\n\n"
+                            "Failed files:\n%3")
             .arg(successfulFiles.size())
                 .arg(failedFiles.size())
                 .arg(failedFiles.join("\n"));

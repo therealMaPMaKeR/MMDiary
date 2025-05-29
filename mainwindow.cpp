@@ -38,6 +38,7 @@ MainWindow::MainWindow(QWidget *parent)
     //hide buttons in encrypted data tab, might remove permanently later
     ui->pushButton_DataENC_Decrypt->setHidden(true);
     ui->pushButton_DataENC_DeleteFile->setHidden(true);
+    ui->pushButton_DataENC_DecryptALL->setHidden(true);
 
 
 
@@ -670,7 +671,7 @@ void MainWindow::on_pushButton_DataENC_SecureDel_clicked()
 
 void MainWindow::on_pushButton_DataENC_DecryptALL_clicked()
 {
-    Operations_EncryptedData_ptr->decryptAndExportAllFiles();
+    Operations_EncryptedData_ptr->decryptAndExportVisibleFiles();
 }
 
 //------Custom Setting Signals-----//

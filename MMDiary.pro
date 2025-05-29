@@ -61,7 +61,6 @@ SOURCES += \
     Operations-Global/operations_files.cpp \
     Operations-Global/passwordvalidation.cpp \
     Operations-Global/sqlite-database-impl.cpp \
-    Operations-Global/thumbnailcache.cpp \
     QT_AESGCM256/aesgcm256.cpp \
     changepassword.cpp \
     constants.cpp \
@@ -92,7 +91,6 @@ HEADERS += \
     Operations-Global/operations_files.h \
     Operations-Global/passwordvalidation.h \
     Operations-Global/sqlite-database-handler.h \
-    Operations-Global/thumbnailcache.h \
     QT_AESGCM256/aesgcm256.h \
     changepassword.h \
     constants.h \
