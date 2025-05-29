@@ -10,6 +10,7 @@
 #include "Operations-Features/operations_settings.h"
 #include "Operations-Features/operations_encrypteddata.h"
 #include "Operations-Global/passwordvalidation.h"
+#include "Operations-Global/operations_files.h"
 #include "constants.h"
 #include "loginscreen.h"
 #include "changepassword.h"
@@ -320,7 +321,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     else if(quitToLogin == false && setting_MinToTray == false) // close app entirely
     {
-        Operations_EncryptedData_ptr->cleanupTempFiles(); // cleanup temp files for encrypted data feature
+        OperationsFiles::cleanupAllUserTempFolders();
         trayIcon->hide();
         trayIcon->disconnect();
         trayIcon->deleteLater();
@@ -328,7 +329,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     else if(quitToLogin == true) // log out
     {
-        Operations_EncryptedData_ptr->cleanupTempFiles(); // cleanup temp files for encrypted data feature
+        OperationsFiles::cleanupAllUserTempFolders();
         trayIcon->hide();
         trayIcon->disconnect();
         trayIcon->deleteLater();

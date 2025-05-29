@@ -1850,4 +1850,98 @@ bool createNewTasklistFile(const QString& filePath, const QByteArray& encryption
     return writeTasklistFile(filePath, encryptionKey, emptyList);
 }
 
+// Cleanup all user temp folders on startup
+bool cleanupAllUserTempFolders() {
+    qDebug() << "Starting cleanup of all user temp folders...";
+
+    // Get the Data directory path
+    QString dataPath = QDir::cleanPath(QDir::current().path() + "/Data");
+    QDir dataDir(dataPath);
+
+    if (!dataDir.exists()) {
+        qDebug() << "Data directory doesn't exist, no cleanup needed:" << dataPath;
+        return true; // Not an error if Data directory doesn't exist yet
+    }
+
+    // Get all subdirectories in Data (these should be usernames)
+    QStringList userDirs = dataDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+
+    if (userDirs.isEmpty()) {
+        qDebug() << "No user directories found, no cleanup needed";
+        return true;
+    }
+
+    int totalFilesDeleted = 0;
+    int totalErrors = 0;
+
+    // Process each user directory
+    for (const QString& userDir : userDirs) {
+        QString userPath = QDir::cleanPath(dataPath + "/" + userDir);
+        QString tempPath = QDir::cleanPath(userPath + "/Temp");
+
+        QDir tempDir(tempPath);
+        if (!tempDir.exists()) {
+            continue; // No temp directory for this user, skip
+        }
+
+        qDebug() << "Found temp directory for user:" << userDir;
+
+        // Get all files in the temp directory
+        QStringList tempFiles = tempDir.entryList(QDir::Files | QDir::Hidden);
+
+        if (tempFiles.isEmpty()) {
+            qDebug() << "Temp directory is empty for user:" << userDir;
+            continue;
+        }
+
+        qDebug() << "Found" << tempFiles.size() << "temp files for user:" << userDir;
+
+        // Delete each file in the temp directory
+        for (const QString& fileName : tempFiles) {
+            QString filePath = QDir::cleanPath(tempPath + "/" + fileName);
+
+            // Validate that the file path is within our expected directory structure
+            if (!isWithinAllowedDirectory(filePath, "Data")) {
+                qWarning() << "Skipping file outside allowed directory:" << filePath;
+                totalErrors++;
+                continue;
+            }
+
+            qDebug() << "Deleting temp file:" << filePath;
+
+            // Use existing secureDelete function with allowExternalFiles = false
+            // since these files are within our Data directory
+            bool deleteResult = secureDelete(filePath, 1, false); // Use 1 pass for performance
+
+            if (deleteResult) {
+                totalFilesDeleted++;
+                qDebug() << "Successfully deleted temp file:" << fileName;
+            } else {
+                totalErrors++;
+                qWarning() << "Failed to delete temp file:" << filePath;
+            }
+        }
+
+        // Try to remove the empty temp directory if all files were deleted successfully
+        QStringList remainingFiles = tempDir.entryList(QDir::Files | QDir::Hidden);
+        if (remainingFiles.isEmpty()) {
+            if (tempDir.rmdir(".")) {
+                qDebug() << "Removed empty temp directory for user:" << userDir;
+            } else {
+                qDebug() << "Could not remove temp directory (may not be empty):" << tempPath;
+            }
+        }
+    }
+
+    if (totalFilesDeleted > 0 || totalErrors > 0) {
+        qDebug() << "Temp folder cleanup completed - Files deleted:"
+                 << totalFilesDeleted << "Errors:" << totalErrors;
+    } else {
+        qDebug() << "Temp folder cleanup completed - No files found to delete";
+    }
+
+    // Return true even if some files couldn't be deleted - this is a best-effort cleanup
+    return true;
+}
+
 } // end namespace OperationsFiles

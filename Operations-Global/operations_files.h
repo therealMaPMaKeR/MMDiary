@@ -39,6 +39,8 @@ private:
     bool m_cleanup;
 };
 
+bool cleanupAllUserTempFolders(); // fallback function, triggered on app launch.
+
 void setUsername(const QString& username);
 QString getUsername();
 

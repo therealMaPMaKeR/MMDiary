@@ -11,6 +11,7 @@
 #include <QFile>
 #include <QtDebug>
 #include <openssl/ssl.h>
+#include "Operations-Global/operations_files.h"
 
 // for writing debug to text file
 /*
@@ -46,6 +47,7 @@ int main(int argc, char *argv[])
     OPENSSL_init_ssl(0, NULL);
     QApplication a(argc, argv);
 
+
     QDir appDir(QCoreApplication::applicationDirPath());
     if (!appDir.exists("Data")) {
         qDebug() << "Data directory doesn't exist, creating it...";
@@ -57,6 +59,9 @@ int main(int argc, char *argv[])
     } else {
         qDebug() << "Data directory already exists at:" << appDir.absoluteFilePath("Data");
     }
+
+    // Cleanup any leftover temp files from previous runs
+    OperationsFiles::cleanupAllUserTempFolders();
 
     a.setQuitOnLastWindowClosed(false); // prevents closing the app on last window closed.
     a.setStyle("Fusion");
