@@ -28,6 +28,7 @@
 #include <QHBoxLayout>
 #include <QDialog>
 #include <QRandomGenerator>
+#include <QStandardPaths>
 // Windows-specific includes for file association checking
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -35,6 +36,15 @@
 #include <QSettings>
 #endif
 
+QString getOpenWithExePath()
+{
+    wchar_t systemDir[MAX_PATH] = {0};
+    UINT len = GetSystemDirectoryW(systemDir, MAX_PATH);
+    if (len == 0 || len > MAX_PATH)
+        return QString(); // Failed
+
+    return QString::fromWCharArray(systemDir) + "\\OpenWith.exe";
+}
 
 // ============================================================================
 // EncryptionWorker Implementation
@@ -990,54 +1000,26 @@ void Operations_EncryptedData::onFileListDoubleClicked(QListWidgetItem* item)
     qDebug() << "Default app found:" << (defaultApp.isEmpty() ? "None" : defaultApp);
 
     if (defaultApp.isEmpty()) {
-        // No default app - show dialog to select one
+        // No default app - show simplified dialog (Cancel or Select App)
         AppChoice choice = showNoDefaultAppDialog();
         qDebug() << "No default app dialog choice (int):" << static_cast<int>(choice);
-        qDebug() << "Comparing with SelectApp (" << static_cast<int>(AppChoice::SelectApp) << ")";
 
         if (choice == AppChoice::Cancel) {
             qDebug() << "User cancelled - no default app dialog";
             return;
         } else if (choice == AppChoice::SelectApp) {
-            qDebug() << "User chose to select app - calling selectApplication()";
-            appToUse = selectApplication();
-            qDebug() << "selectApplication() returned:" << appToUse;
-            if (appToUse.isEmpty()) {
-                qDebug() << "User cancelled app selection";
-                return; // User cancelled app selection
-            }
-        } else {
-            qDebug() << "WARNING: Unexpected choice value in no default app dialog:" << static_cast<int>(choice);
+            qDebug() << "User chose to select app - will use Windows Open With dialog";
+            appToUse = "openwith"; // Use Windows native Open With dialog
         }
     } else {
-        // Default app exists - show dialog with options
-        AppChoice choice = showDefaultAppDialog(defaultApp);
-        qDebug() << "Default app dialog choice (int):" << static_cast<int>(choice);
-        qDebug() << "Comparing with Cancel (" << static_cast<int>(AppChoice::Cancel) << "), UseDefault (" << static_cast<int>(AppChoice::UseDefault) << "), SelectApp (" << static_cast<int>(AppChoice::SelectApp) << ")";
-
-        if (choice == AppChoice::Cancel) {
-            qDebug() << "User cancelled - default app dialog";
-            return;
-        } else if (choice == AppChoice::UseDefault) {
-            appToUse = "default"; // Special marker for default app
-            qDebug() << "User chose UseDefault - appToUse set to 'default'";
-        } else if (choice == AppChoice::SelectApp) {
-            qDebug() << "User chose to select app - calling selectApplication()";
-            appToUse = selectApplication();
-            qDebug() << "selectApplication() returned:" << appToUse;
-            if (appToUse.isEmpty()) {
-                qDebug() << "User cancelled app selection";
-                return; // User cancelled app selection
-            }
-        } else {
-            qDebug() << "WARNING: Unexpected choice value in default app dialog:" << static_cast<int>(choice);
-        }
+        // Default app exists - use it automatically
+        appToUse = "default";
+        qDebug() << "Using default app automatically:" << defaultApp;
     }
 
-    // Safety check - this should never happen but let's handle it
+    // Safety check
     if (appToUse.isEmpty()) {
         qDebug() << "ERROR: appToUse is still empty after dialog logic!";
-        qDebug() << "This should not happen - showing fallback dialog";
         QMessageBox::critical(m_mainWindow, "Error",
                               "No application was selected to open the file.");
         return;
@@ -1176,7 +1158,7 @@ Operations_EncryptedData::AppChoice Operations_EncryptedData::showDefaultAppDial
 
 Operations_EncryptedData::AppChoice Operations_EncryptedData::showNoDefaultAppDialog()
 {
-    qDebug() << "Showing no default app dialog";
+    qDebug() << "Showing simplified no default app dialog";
 
     QMessageBox msgBox(m_mainWindow);
     msgBox.setWindowTitle("Open Encrypted File");
@@ -1191,21 +1173,17 @@ Operations_EncryptedData::AppChoice Operations_EncryptedData::showNoDefaultAppDi
 
     qDebug() << "Dialog exec result:" << result;
     qDebug() << "Clicked button text:" << (msgBox.clickedButton() ? msgBox.clickedButton()->text() : "nullptr");
-    qDebug() << "Clicked button pointer:" << msgBox.clickedButton();
-    qDebug() << "Cancel button pointer:" << cancelButton;
-    qDebug() << "Select App button pointer:" << selectAppButton;
 
     AppChoice choice = AppChoice::Cancel; // Default
 
     if (msgBox.clickedButton() == cancelButton) {
         choice = AppChoice::Cancel;
-        qDebug() << "User clicked Cancel button (pointer match)";
+        qDebug() << "User clicked Cancel button";
     } else if (msgBox.clickedButton() == selectAppButton) {
         choice = AppChoice::SelectApp;
-        qDebug() << "User clicked Select an App button (pointer match)";
+        qDebug() << "User clicked Select an App button";
     } else {
         qDebug() << "Button pointer comparison failed - using text fallback";
-        // Fallback based on button text
         if (msgBox.clickedButton() && msgBox.clickedButton()->text() == "Select an App") {
             choice = AppChoice::SelectApp;
             qDebug() << "Fallback: Detected Select an App by text";
@@ -1217,6 +1195,73 @@ Operations_EncryptedData::AppChoice Operations_EncryptedData::showNoDefaultAppDi
 
     qDebug() << "Final no default app dialog result:" << static_cast<int>(choice);
     return choice;
+}
+
+void Operations_EncryptedData::showWindowsOpenWithDialog(const QString& tempFilePath)
+{
+#ifdef Q_OS_WIN
+    // Ensure file exists and is readable
+    QFileInfo fileInfo(tempFilePath);
+    if (!fileInfo.exists() || !fileInfo.isReadable()) {
+        QMessageBox::critical(m_mainWindow, "File Error",
+                              "The temporary file could not be accessed.");
+        return;
+    }
+
+    qDebug() << "Showing Windows Open With dialog for:" << tempFilePath;
+
+    // Convert path to native separators
+    QString nativePath = QDir::toNativeSeparators(tempFilePath);
+
+    // Method 1: Try using OpenWith.exe (available on Windows Vista+)
+    // This shows the full dialog with "Always use this app" checkbox
+    QString openWithPath = getOpenWithExePath();
+    QStringList openWithArgs;
+    openWithArgs << nativePath;
+
+    if (!openWithPath.isEmpty() && QFile::exists(openWithPath) &&
+        QProcess::startDetached(openWithPath, openWithArgs)) {
+        qDebug() << "Successfully launched OpenWith.exe dialog";
+        return;
+    }
+
+    qDebug() << "OpenWith.exe not available, trying alternative method";
+
+    // Method 2: Use rundll32 with different parameters that show the full dialog
+    QString command = "rundll32.exe";
+    QStringList args;
+    args << "shell32.dll,OpenAs_RunDLLW" << nativePath;
+
+    if (QProcess::startDetached(command, args)) {
+        qDebug() << "Successfully launched rundll32 OpenAs_RunDLLW dialog";
+        return;
+    }
+
+    qDebug() << "OpenAs_RunDLLW failed, trying standard OpenAs_RunDLL";
+
+    // Method 3: Fallback to the simpler dialog (without checkbox)
+    args.clear();
+    args << "shell32.dll,OpenAs_RunDLL" << nativePath;
+
+    if (QProcess::startDetached(command, args)) {
+        qDebug() << "Successfully launched rundll32 OpenAs_RunDLL dialog (no default option)";
+        return;
+    }
+
+    qWarning() << "All Windows Open With methods failed, falling back to app selection";
+
+    // Final fallback: manual app selection
+    QString appPath = selectApplication();
+    if (!appPath.isEmpty()) {
+        openFileWithApp(tempFilePath, appPath);
+    }
+#else
+    // Non-Windows fallback
+    QString appPath = selectApplication();
+    if (!appPath.isEmpty()) {
+        openFileWithApp(tempFilePath, appPath);
+    }
+#endif
 }
 
 QString Operations_EncryptedData::selectApplication()
@@ -1320,7 +1365,14 @@ void Operations_EncryptedData::openFileWithApp(const QString& tempFile, const QS
 
     qDebug() << "Attempting to open file:" << tempFile;
     qDebug() << "File size:" << fileInfo.size() << "bytes";
-    qDebug() << "Using app:" << (appPath == "default" ? "default system app" : appPath);
+    qDebug() << "Using app:" << (appPath == "default" ? "default system app" :
+                                 appPath == "openwith" ? "Windows Open With dialog" : appPath);
+
+    // Handle "Open With" dialog case
+    if (appPath == "openwith") {
+        showWindowsOpenWithDialog(tempFile);
+        return;
+    }
 
     // Safety check for empty app path
     if (appPath.isEmpty()) {
@@ -3604,6 +3656,11 @@ void Operations_EncryptedData::showContextMenu_FileList(const QPoint& pos)
     openAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView));
     connect(openAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuOpen);
 
+    // Add Open With action
+    QAction* openWithAction = contextMenu.addAction("Open With...");
+    openWithAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_ComputerIcon));
+    connect(openWithAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuOpenWith);
+
     // Add Edit action
     QAction* editAction = contextMenu.addAction("Edit");
     editAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView));
@@ -3657,6 +3714,87 @@ void Operations_EncryptedData::onContextMenuOpen()
         // Use the existing double-click functionality
         onFileListDoubleClicked(currentItem);
     }
+}
+
+
+void Operations_EncryptedData::onContextMenuOpenWith()
+{
+    // Get the currently selected item
+    QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_DataENC_FileList->currentItem();
+    if (!currentItem) {
+        return;
+    }
+
+    // Get the encrypted file path from the item's user data
+    QString encryptedFilePath = currentItem->data(Qt::UserRole).toString();
+    if (encryptedFilePath.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to retrieve encrypted file path.");
+        return;
+    }
+
+    // Verify the encrypted file still exists
+    if (!QFile::exists(encryptedFilePath)) {
+        QMessageBox::critical(m_mainWindow, "File Not Found",
+                              "The encrypted file no longer exists.");
+        populateEncryptedFilesList(); // Refresh the list
+        return;
+    }
+
+    // Get the original filename
+    QString originalFilename = getOriginalFilename(encryptedFilePath);
+    if (originalFilename.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to extract original filename from encrypted file.");
+        return;
+    }
+
+    // Validate encryption key before proceeding
+    qDebug() << "Validating encryption key for Open With:" << encryptedFilePath;
+    QByteArray encryptionKey = m_mainWindow->user_Key;
+    if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey, true)) {
+        QMessageBox::critical(m_mainWindow, "Invalid Encryption Key",
+                              "The encryption key is invalid or the file is corrupted. "
+                              "Please ensure you are using the correct user account.");
+        return;
+    }
+    qDebug() << "Encryption key validation successful for Open With";
+
+    // Create temp file path with obfuscated name
+    QString tempFilePath = createTempFilePath(originalFilename);
+    if (tempFilePath.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to create temporary file path.");
+        return;
+    }
+
+    // Store "openwith" as the app to open (special marker for Open With dialog)
+    m_pendingAppToOpen = "openwith";
+    qDebug() << "Stored 'openwith' in m_pendingAppToOpen for Open With dialog";
+
+    qDebug() << "Starting temporary decryption for Open With";
+
+    // Set up progress dialog
+    m_progressDialog = new QProgressDialog("Decrypting file for opening...", "Cancel", 0, 100, m_mainWindow);
+    m_progressDialog->setWindowTitle("Opening Encrypted File");
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setMinimumDuration(0);
+    m_progressDialog->setValue(0);
+
+    // Set up worker thread for temp decryption
+    m_tempDecryptWorkerThread = new QThread(this);
+    m_tempDecryptWorker = new TempDecryptionWorker(encryptedFilePath, tempFilePath, encryptionKey);
+    m_tempDecryptWorker->moveToThread(m_tempDecryptWorkerThread);
+
+    // Connect signals
+    connect(m_tempDecryptWorkerThread, &QThread::started, m_tempDecryptWorker, &TempDecryptionWorker::doDecryption);
+    connect(m_tempDecryptWorker, &TempDecryptionWorker::progressUpdated, this, &Operations_EncryptedData::onTempDecryptionProgress);
+    connect(m_tempDecryptWorker, &TempDecryptionWorker::decryptionFinished, this, &Operations_EncryptedData::onTempDecryptionFinished);
+    connect(m_progressDialog, &QProgressDialog::canceled, this, &Operations_EncryptedData::onTempDecryptionCancelled);
+
+    // Start decryption
+    m_tempDecryptWorkerThread->start();
+    m_progressDialog->exec();
 }
 
 void Operations_EncryptedData::onContextMenuEdit()

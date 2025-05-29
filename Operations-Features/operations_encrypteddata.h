@@ -491,6 +491,8 @@ private:
 
     QList<FileExportInfo> enumerateVisibleEncryptedFiles();
 
+    void showWindowsOpenWithDialog(const QString& tempFilePath);
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();
@@ -557,6 +559,8 @@ private slots:
     void onSecureDeletionCancelled();
 
     void onContextMenuExportListed();
+
+    void onContextMenuOpenWith();
 
 protected:
     // Event filter for Delete key functionality
