@@ -711,9 +711,11 @@ void MainWindow::on_pushButton_Acc_ChangePW_clicked()
 
 void MainWindow::onTabChanged(int index)
 {
-    // If we're switching to the Password Manager tab
-    if (index == 2) { // Assuming 2 is the index of the password tab
-        // Update password masking state
+    // Find the Password Manager tab dynamically instead of using hardcoded index
+    int passwordTabIndex = Operations::GetTabIndexByObjectName("tab_Passwords", ui->tabWidget_Main);
+
+    if (passwordTabIndex != -1 && index == passwordTabIndex) {
+        // Update password masking state when switching to Password Manager tab
         Operations_PasswordManager_ptr->UpdatePasswordMasking();
     }
 }
@@ -728,11 +730,15 @@ void MainWindow::onPasswordValidationRequested(int targetTabIndex, int currentIn
     bool passwordRequired = false;
     QString operationName;
 
+    // Get tab indices dynamically
+    int passwordTabIndex = Operations::GetTabIndexByObjectName("tab_Passwords", ui->tabWidget_Main);
+    int dataEncTabIndex = Operations::GetTabIndexByObjectName("tab_DataEncryption", ui->tabWidget_Main);
+
     // Determine which tab requires password validation
-    if (targetTabIndex == 2 && setting_PWMan_ReqPassword) {
+    if (targetTabIndex == passwordTabIndex && setting_PWMan_ReqPassword) {
         passwordRequired = true;
         operationName = "Access Password Manager";
-    } else if (targetTabIndex == 4 && setting_DataENC_ReqPassword) {
+    } else if (targetTabIndex == dataEncTabIndex && setting_DataENC_ReqPassword) {
         passwordRequired = true;
         operationName = "Access Encrypted Data";
     }
@@ -759,12 +765,16 @@ void MainWindow::onUnsavedChangesCheckRequested(int targetTabIndex, int currentI
     bool canProceed = Operations_Settings_ptr->handleUnsavedChanges(Constants::DBSettings_Type_ALL, targetTabIndex);
 
     if (canProceed) {
+        // Get tab indices dynamically
+        int passwordTabIndex = Operations::GetTabIndexByObjectName("tab_Passwords", ui->tabWidget_Main);
+        int dataEncTabIndex = Operations::GetTabIndexByObjectName("tab_DataEncryption", ui->tabWidget_Main);
+
         // Check if the target tab requires password validation
         bool needsPasswordValidation = false;
 
-        if (targetTabIndex == 2 && setting_PWMan_ReqPassword) {
+        if (targetTabIndex == passwordTabIndex && setting_PWMan_ReqPassword) {
             needsPasswordValidation = true;
-        } else if (targetTabIndex == 4 && setting_DataENC_ReqPassword) {
+        } else if (targetTabIndex == dataEncTabIndex && setting_DataENC_ReqPassword) {
             needsPasswordValidation = true;
         }
 
