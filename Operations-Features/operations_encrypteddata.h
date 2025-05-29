@@ -493,6 +493,12 @@ private:
 
     void showWindowsOpenWithDialog(const QString& tempFilePath);
 
+    //Tag filter performance opt
+    QTimer* m_tagFilterDebounceTimer;
+    static const int TAG_FILTER_DEBOUNCE_DELAY = 150; // milliseconds
+    QMap<QString, QPixmap> m_thumbnailCache; // Cache for decompressed thumbnails
+    void clearThumbnailCache();
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();

@@ -772,6 +772,13 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     // scan for corrupted metadata and prompt user for repairs
     repairCorruptedMetadata();
 
+    // Initialize tag filter debounce timer
+    m_tagFilterDebounceTimer = new QTimer(this);
+    m_tagFilterDebounceTimer->setSingleShot(true);
+    m_tagFilterDebounceTimer->setInterval(TAG_FILTER_DEBOUNCE_DELAY);
+    connect(m_tagFilterDebounceTimer, &QTimer::timeout,
+            this, &Operations_EncryptedData::updateFileListDisplay);
+
     // Connect selection changed signal to update button states
     connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemSelectionChanged,
             this, &Operations_EncryptedData::updateButtonStates);
@@ -2579,6 +2586,9 @@ void Operations_EncryptedData::populateEncryptedFilesList()
 {
     qDebug() << "Starting populateEncryptedFilesList with embedded thumbnails";
 
+    // Clear thumbnail cache when repopulating files
+    clearThumbnailCache();
+
     // Prevent recursive updates
     if (m_updatingFilters) {
         return;
@@ -2825,10 +2835,12 @@ void Operations_EncryptedData::onTagCheckboxChanged()
         return;
     }
 
-    qDebug() << "Tag selection changed, updating file list";
+    qDebug() << "Tag selection changed, scheduling update";
 
-    // Update file list display based on current tag selection
-    updateFileListDisplay();
+    // Stop any existing timer and restart it
+    // This batches rapid checkbox changes together
+    m_tagFilterDebounceTimer->stop();
+    m_tagFilterDebounceTimer->start();
 }
 
 // New method: Update the actual file list display
@@ -2838,9 +2850,8 @@ void Operations_EncryptedData::updateFileListDisplay()
 
     // Clear current file list
     m_mainWindow->ui->listWidget_DataENC_FileList->clear();
-    // NOTE: m_pendingThumbnailItems removed - no longer needed
 
-    // Get checked tags
+    // Get checked tags (same as before)
     QStringList checkedTags;
     for (int i = 0; i < m_mainWindow->ui->listWidget_DataENC_Tags->count(); ++i) {
         QListWidgetItem* item = m_mainWindow->ui->listWidget_DataENC_Tags->item(i);
@@ -2851,20 +2862,17 @@ void Operations_EncryptedData::updateFileListDisplay()
 
     qDebug() << "Checked tags:" << checkedTags;
 
-    // Filter files by checked tags (AND logic)
+    // Filter files by checked tags (AND logic) - same as before
     QStringList finalFilteredFiles;
-
     for (const QString& filePath : m_currentFilteredFiles) {
         if (!m_fileMetadataCache.contains(filePath)) {
             continue;
         }
 
         const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
-
         bool includeFile = true;
 
         if (!checkedTags.isEmpty()) {
-            // AND logic: file must have ALL checked tags
             for (const QString& requiredTag : checkedTags) {
                 if (!metadata.tags.contains(requiredTag)) {
                     includeFile = false;
@@ -2880,37 +2888,40 @@ void Operations_EncryptedData::updateFileListDisplay()
 
     qDebug() << "Final filtered files count:" << finalFilteredFiles.size();
 
-    // Create list items for filtered files
+    // Create list items for filtered files with thumbnail caching
     for (const QString& encryptedFilePath : finalFilteredFiles) {
         const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[encryptedFilePath];
 
-        // Determine file type directory from path
         QFileInfo fileInfo(encryptedFilePath);
-        QString fileTypeDir = fileInfo.dir().dirName(); // e.g., "Image", "Video", etc.
+        QString fileTypeDir = fileInfo.dir().dirName();
 
-        // Create custom widget for this file
         EncryptedFileItemWidget* customWidget = new EncryptedFileItemWidget();
-
-        // Set file information
         customWidget->setFileInfo(metadata.filename, encryptedFilePath, fileTypeDir);
 
-        // UPDATED: Get thumbnail from embedded metadata instead of cache
+        // OPTIMIZED: Use thumbnail cache to avoid repeated decompression
         QPixmap icon;
         bool hasEmbeddedThumbnail = !metadata.thumbnailData.isEmpty();
 
         if (hasEmbeddedThumbnail) {
-            // Use embedded thumbnail
-            icon = EncryptedFileMetadata::decompressThumbnail(metadata.thumbnailData);
-            if (!icon.isNull()) {
-                // Scale to widget size if needed
-                int iconSize = EncryptedFileItemWidget::getIconSize();
-                if (icon.width() != iconSize || icon.height() != iconSize) {
-                    icon = icon.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                }
-                qDebug() << "Using embedded thumbnail for:" << metadata.filename;
+            // Check cache first
+            if (m_thumbnailCache.contains(encryptedFilePath)) {
+                icon = m_thumbnailCache[encryptedFilePath];
+                qDebug() << "Using cached thumbnail for:" << metadata.filename;
             } else {
-                qWarning() << "Failed to decompress embedded thumbnail for:" << metadata.filename;
-                hasEmbeddedThumbnail = false; // Fall back to default icon
+                // Decompress and cache the thumbnail
+                icon = EncryptedFileMetadata::decompressThumbnail(metadata.thumbnailData);
+                if (!icon.isNull()) {
+                    int iconSize = EncryptedFileItemWidget::getIconSize();
+                    if (icon.width() != iconSize || icon.height() != iconSize) {
+                        icon = icon.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                    }
+                    // Cache the processed thumbnail
+                    m_thumbnailCache[encryptedFilePath] = icon;
+                    qDebug() << "Decompressed and cached thumbnail for:" << metadata.filename;
+                } else {
+                    qWarning() << "Failed to decompress embedded thumbnail for:" << metadata.filename;
+                    hasEmbeddedThumbnail = false;
+                }
             }
         }
 
@@ -2921,27 +2932,21 @@ void Operations_EncryptedData::updateFileListDisplay()
 
         customWidget->setIcon(icon);
 
-        // Create list widget item
+        // Create list widget item (same as before)
         QListWidgetItem* item = new QListWidgetItem();
         item->setData(Qt::UserRole, encryptedFilePath);
         item->setData(Qt::UserRole + 1, fileTypeDir);
         item->setData(Qt::UserRole + 2, metadata.filename);
 
-        // Set item size to accommodate custom widget
-        int itemHeight = EncryptedFileItemWidget::getIconSize() + 8; // icon size + padding
+        int itemHeight = EncryptedFileItemWidget::getIconSize() + 8;
         item->setSizeHint(QSize(0, itemHeight));
 
-        // Add item to list and set custom widget
         m_mainWindow->ui->listWidget_DataENC_FileList->addItem(item);
         m_mainWindow->ui->listWidget_DataENC_FileList->setItemWidget(item, customWidget);
     }
 
-    // NOTE: Lazy loading removed - thumbnails are now immediately available
-
-    // Update button states after populating the list
     updateButtonStates();
-
-    qDebug() << "File list display updated with" << finalFilteredFiles.size() << "items (embedded thumbnails)";
+    qDebug() << "File list display updated with" << finalFilteredFiles.size() << "items (with thumbnail caching)";
 }
 
 void Operations_EncryptedData::onSortTypeChanged(const QString& sortType)
@@ -5514,3 +5519,11 @@ void Operations_EncryptedData::onContextMenuDebugCorruptMetadata()
     }
 }
 #endif // QT_DEBUG
+
+//Thumbnail Caching
+
+void Operations_EncryptedData::clearThumbnailCache()
+{
+    m_thumbnailCache.clear();
+    qDebug() << "Thumbnail cache cleared";
+}

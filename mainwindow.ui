@@ -57,7 +57,7 @@
        </size>
       </property>
       <property name="currentIndex">
-       <number>4</number>
+       <number>3</number>
       </property>
       <widget class="QWidget" name="tab_Diaries">
        <attribute name="title">
@@ -921,7 +921,7 @@
            </size>
           </property>
           <property name="currentIndex">
-           <number>3</number>
+           <number>2</number>
           </property>
           <widget class="QWidget" name="tab_Settings_Diaries">
            <attribute name="title">
@@ -1289,7 +1289,7 @@
                <item row="1" column="0">
                 <widget class="QLabel" name="label_23">
                  <property name="text">
-                  <string>Require password for Passwords tab:</string>
+                  <string>Require password to view tab:</string>
                  </property>
                 </widget>
                </item>
