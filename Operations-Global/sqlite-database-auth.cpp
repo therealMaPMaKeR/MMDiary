@@ -1,6 +1,9 @@
 #include "sqlite-database-auth.h"
 #include "constants.h"
 #include <QDebug>
+#include <QFile>
+#include <QFileInfo>
+#include <QDir>
 
 DatabaseAuthManager::DatabaseAuthManager()
 {
@@ -19,6 +22,12 @@ DatabaseAuthManager& DatabaseAuthManager::instance()
 
 bool DatabaseAuthManager::connect()
 {
+    // Check for migration from MMDiary.db to users.db
+    if (!checkForMigrationFromMMDiary()) {
+        qCritical() << "Failed to migrate from MMDiary.db";
+        return false;
+    }
+
     return m_dbManager.connect(Constants::DBPath_User);
 }
 
@@ -139,6 +148,12 @@ bool DatabaseAuthManager::UpdateUserData_TEXT(QString username, QString index, Q
         return false;
     }
 
+    // Create backup before modification
+    if (!createBackupBeforeWrite()) {
+        qWarning() << "Failed to create backup before TEXT data update";
+        // Continue anyway - backup failure shouldn't prevent data update
+    }
+
     // Check if column exists in the table using the database manager's methods
     QVector<QMap<QString, QVariant>> pragmaResults = m_dbManager.select("pragma_table_info('users')");
     bool columnExists = false;
@@ -180,6 +195,12 @@ bool DatabaseAuthManager::UpdateUserData_BLOB(QString username, QString index, Q
     if (!isConnected() && !connect()) {
         qDebug() << "Failed to connect to auth database";
         return false;
+    }
+
+    // Create backup before modification
+    if (!createBackupBeforeWrite()) {
+        qWarning() << "Failed to create backup before BLOB data update";
+        // Continue anyway - backup failure shouldn't prevent data update
     }
 
     // Check if column exists in the table using the database manager's methods
@@ -263,6 +284,12 @@ bool DatabaseAuthManager::authRollbackCallback(int version)
 // Migrate to v2, Technically the First Version.
 bool DatabaseAuthManager::migrateToV2()
 {
+    // Create backup before migration
+    if (!createBackupBeforeWrite()) {
+        qWarning() << "Failed to create backup before V2 migration";
+        // Continue anyway - backup failure shouldn't prevent migration
+    }
+
     // Create a users table if it doesn't exist
     QMap<QString, QString> userTableColumns;
     userTableColumns["id"] = "INTEGER PRIMARY KEY AUTOINCREMENT";
@@ -305,6 +332,12 @@ bool DatabaseAuthManager::migrateToV2()
 
 bool DatabaseAuthManager::migrateToV3()
 {
+    // Create backup before migration
+    if (!createBackupBeforeWrite()) {
+        qWarning() << "Failed to create backup before V3 migration";
+        // Continue anyway - backup failure shouldn't prevent migration
+    }
+
     if (!m_dbManager.executeQuery("ALTER TABLE users ADD COLUMN " + Constants::SettingsT_Index_DataENC_ReqPassword + " TEXT")) {
         qWarning() << "Failed to add DataENC_ReqPassword column to users table:" << m_dbManager.lastError();
         return false;
@@ -314,6 +347,12 @@ bool DatabaseAuthManager::migrateToV3()
 
 bool DatabaseAuthManager::migrateToV4()
 {
+    // Create backup before migration
+    if (!createBackupBeforeWrite()) {
+        qWarning() << "Failed to create backup before V4 migration";
+        // Continue anyway - backup failure shouldn't prevent migration
+    }
+
     // Instead of removing columns one by one (which recreates the table 19 times),
     // we'll recreate the table once with only the core user columns
 
@@ -371,6 +410,7 @@ bool DatabaseAuthManager::migrateToV4()
     qInfo() << "Migration to V4 completed - recreated users table with only core columns";
     return true;
 }
+
 
 // Example rollback: Remove users table. This shouldn't ever happen, because v2 is basically first version.
 bool DatabaseAuthManager::rollbackFromV2()
@@ -479,6 +519,12 @@ bool DatabaseAuthManager::CreateUser(const QString& username, const QString& has
         return false;
     }
 
+    // Create backup before modification
+    if (!createBackupBeforeWrite()) {
+        qWarning() << "Failed to create backup before user creation";
+        // Continue anyway - backup failure shouldn't prevent user creation
+    }
+
     // Prepare user data
     QMap<QString, QVariant> userData;
     userData[Constants::UserT_Index_Username] = username;
@@ -518,4 +564,123 @@ bool DatabaseAuthManager::DeleteUser(const QString& username)
     QMap<QString, QVariant> bindValues = {{":username", username}};
 
     return m_dbManager.remove("users", whereClause, bindValues);
+}
+
+//Backup + MMDiary.db migration
+
+bool DatabaseAuthManager::checkForMigrationFromMMDiary()
+{
+    QString oldDbPath = "Data/MMDiary.db";
+    QString newDbPath = Constants::DBPath_User;
+
+    // Check if migration is needed
+    if (QFile::exists(oldDbPath) && !QFile::exists(newDbPath)) {
+        qInfo() << "Migrating from MMDiary.db to users.db";
+
+        // Ensure Data directory exists
+        QDir dataDir("Data");
+        if (!dataDir.exists()) {
+            if (!dataDir.mkpath(".")) {
+                qCritical() << "Failed to create Data directory for migration";
+                return false;
+            }
+        }
+
+        // Copy MMDiary.db to users.db
+        if (!QFile::copy(oldDbPath, newDbPath)) {
+            qCritical() << "Failed to copy MMDiary.db to users.db during migration";
+            return false;
+        }
+
+        qInfo() << "Successfully migrated MMDiary.db to users.db";
+    }
+
+    return true;
+}
+
+bool DatabaseAuthManager::createBackupBeforeWrite()
+{
+    QString dbPath = Constants::DBPath_User;
+
+    // Only create backup if the database file exists
+    if (!QFile::exists(dbPath)) {
+        return true; // No file to backup yet
+    }
+
+    // Rotate existing backups (delete oldest, shift others)
+    QString backup5 = getBackupFileName(5);
+    if (QFile::exists(backup5)) {
+        if (!QFile::remove(backup5)) {
+            qWarning() << "Failed to remove oldest backup:" << backup5;
+        }
+    }
+
+    // Shift backups: 4->5, 3->4, 2->3, 1->2
+    for (int i = 4; i >= 1; i--) {
+        QString currentBackup = getBackupFileName(i);
+        QString nextBackup = getBackupFileName(i + 1);
+
+        if (QFile::exists(currentBackup)) {
+            // Remove target if it exists (shouldn't happen due to rotation, but safety)
+            if (QFile::exists(nextBackup)) {
+                QFile::remove(nextBackup);
+            }
+
+            if (!QFile::rename(currentBackup, nextBackup)) {
+                qWarning() << "Failed to rotate backup from" << currentBackup << "to" << nextBackup;
+            }
+        }
+    }
+
+    // Move current database to backup1
+    QString backup1 = getBackupFileName(1);
+    if (QFile::exists(backup1)) {
+        QFile::remove(backup1);
+    }
+
+    if (!QFile::copy(dbPath, backup1)) {
+        qWarning() << "Failed to create backup1 from current database";
+        return false;
+    }
+
+    qDebug() << "Successfully created backup before database modification";
+
+    // Check if we should clean up old MMDiary.db
+    cleanupOldDatabaseIfNeeded();
+
+    return true;
+}
+
+bool DatabaseAuthManager::cleanupOldDatabaseIfNeeded()
+{
+    QString oldDbPath = "Data/MMDiary.db";
+
+    // Only clean up if MMDiary.db exists and we have 5 backups
+    if (QFile::exists(oldDbPath) && countExistingBackups() >= 5) {
+        if (QFile::remove(oldDbPath)) {
+            qInfo() << "Cleaned up old MMDiary.db file - 5 backups now available";
+            return true;
+        } else {
+            qWarning() << "Failed to remove old MMDiary.db file";
+            return false;
+        }
+    }
+
+    return true; // Nothing to clean up or not enough backups yet
+}
+
+QString DatabaseAuthManager::getBackupFileName(int index) const
+{
+    return QString("Data/usersdb%1.bkup").arg(index);
+}
+
+int DatabaseAuthManager::countExistingBackups() const
+{
+    int count = 0;
+    for (int i = 1; i <= 5; i++) {
+        if (QFile::exists(getBackupFileName(i))) {
+            count++;
+        }
+    }
+    return count;
 }

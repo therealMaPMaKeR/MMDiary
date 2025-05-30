@@ -38,7 +38,7 @@ const QString DBSettings_Type_Tasklists = "Tasklists";
 const QString DBSettings_Type_PWManager = "PWManager";
 const QString DBSettings_Type_EncryptedData = "ENCRYPTEDDATA";
 // User Database
-const QString DBPath_User = "Data/MMDiary.db";
+const QString DBPath_User = "Data/users.db";
 // User Database Table Indexes - User Info
 const QString UserT_Index_Username = "username";
 const QString UserT_Index_Password = "password";

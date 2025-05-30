@@ -51,6 +51,10 @@ public:
     // Get last insert ID
     int lastInsertId() const;
 
+    bool checkForMigrationFromMMDiary();
+    bool createBackupBeforeWrite();
+    bool cleanupOldDatabaseIfNeeded();
+
 private:
     DatabaseAuthManager();
     ~DatabaseAuthManager();
@@ -68,6 +72,10 @@ private:
     // Migration callback function for generic migration system
     bool authMigrationCallback(int version);
     bool authRollbackCallback(int version);
+
+    // Backup helper methods
+    QString getBackupFileName(int index) const;
+    int countExistingBackups() const;
 
     // Latest version for auth database
     static const int LATEST_AUTH_VERSION = 4;
