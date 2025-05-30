@@ -5,6 +5,7 @@
 #include <QString>
 #include <QByteArray>
 #include <functional>
+#include "../constants.h"
 
 class DatabaseAuthManager
 {
@@ -21,6 +22,22 @@ public:
     bool isConnected() const;
     void close();
 
+    // Database initialization and migration
+    bool initializeVersioning();
+    bool migrateAuthDatabase();
+
+    // Transaction management (wrapper methods)
+    bool beginTransaction();
+    bool commitTransaction();
+    bool rollbackTransaction();
+
+    // User management operations
+    bool CreateUser(const QString& username, const QString& hashedPassword,
+                    const QByteArray& encryptionKey, const QByteArray& salt,
+                    const QString& displayName);
+    bool UserExists(const QString& username);
+    bool DeleteUser(const QString& username);
+
     // User data validation and access
     bool IndexIsValid(QString index, QString type);
     QString GetUserData_String(QString username, QString index);
@@ -28,19 +45,19 @@ public:
     bool UpdateUserData_TEXT(QString username, QString index, QString data);
     bool UpdateUserData_BLOB(QString username, QString index, QByteArray data);
 
-    // Migration management for auth database
-    bool migrateAuthDatabase();
-
     // Get last error from underlying database manager
     QString lastError() const;
+
+    // Get last insert ID
+    int lastInsertId() const;
 
 private:
     // Private constructor for singleton
     DatabaseAuthManager();
     ~DatabaseAuthManager();
 
-    // Database manager instance for auth operations
-    DatabaseManager m_dbManager;
+    // Reference to the singleton database manager instance
+    DatabaseManager& m_dbManager;
 
     // Auth-specific migration methods
     bool migrateToV2();

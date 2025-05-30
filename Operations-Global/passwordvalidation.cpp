@@ -1,7 +1,7 @@
 #include "passwordvalidation.h"
 #include "ui_passwordvalidation.h"
 #include "CryptoUtils.h"
-#include "sqlite-database-handler.h"
+#include "sqlite-database-auth.h"
 #include <QMessageBox>
 #include "../constants.h"
 
@@ -71,7 +71,7 @@ bool PasswordValidation::validatePasswordForOperation(QWidget* parent, const QSt
     QString enteredPassword = dialog.getPassword();
 
     // Get database manager instance
-    DatabaseManager& dbManager = DatabaseManager::instance();
+    DatabaseAuthManager& dbManager = DatabaseAuthManager::instance();
 
     // Ensure database connection
     if (!dbManager.isConnected()) {
@@ -111,7 +111,7 @@ bool PasswordValidation::validatePasswordWithCustomCancel(QWidget* parent, const
     QString enteredPassword = dialog.getPassword();
 
     // Get database manager instance
-    DatabaseManager& dbManager = DatabaseManager::instance();
+    DatabaseAuthManager& dbManager = DatabaseAuthManager::instance();
 
     // Ensure database connection
     if (!dbManager.isConnected()) {

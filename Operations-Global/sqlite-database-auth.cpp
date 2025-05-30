@@ -2,9 +2,9 @@
 #include "constants.h"
 #include <QDebug>
 
-DatabaseAuthManager::DatabaseAuthManager()
+DatabaseAuthManager::DatabaseAuthManager() : m_dbManager(DatabaseManager::instance())
 {
-    // Constructor - database manager is initialized automatically
+    // Constructor - database manager reference is initialized to singleton instance
 }
 
 DatabaseAuthManager::~DatabaseAuthManager()
@@ -356,4 +356,90 @@ bool DatabaseAuthManager::rollbackFromV3()
         return false;
     }
     return true;
+}
+
+
+//Generic Methods
+
+bool DatabaseAuthManager::initializeVersioning()
+{
+    return m_dbManager.initializeVersioning();
+}
+
+bool DatabaseAuthManager::beginTransaction()
+{
+    return m_dbManager.beginTransaction();
+}
+
+bool DatabaseAuthManager::commitTransaction()
+{
+    return m_dbManager.commitTransaction();
+}
+
+bool DatabaseAuthManager::rollbackTransaction()
+{
+    return m_dbManager.rollbackTransaction();
+}
+
+int DatabaseAuthManager::lastInsertId() const
+{
+    return m_dbManager.lastInsertId();
+}
+
+bool DatabaseAuthManager::CreateUser(const QString& username, const QString& hashedPassword,
+                                     const QByteArray& encryptionKey, const QByteArray& salt,
+                                     const QString& displayName)
+{
+    // Ensure database connection
+    if (!isConnected() && !connect()) {
+        qDebug() << "Failed to connect to auth database for user creation";
+        return false;
+    }
+
+    // Check if user already exists
+    if (UserExists(username)) {
+        qDebug() << "User already exists:" << username;
+        return false;
+    }
+
+    // Prepare user data
+    QMap<QString, QVariant> userData;
+    userData[Constants::UserT_Index_Username] = username;
+    userData[Constants::UserT_Index_Password] = hashedPassword;
+    userData[Constants::UserT_Index_EncryptionKey] = encryptionKey;
+    userData[Constants::UserT_Index_Salt] = salt;
+    userData[Constants::UserT_Index_Iterations] = "500000"; // Default iterations
+    userData[Constants::UserT_Index_Displayname] = displayName;
+
+    return m_dbManager.insert("users", userData);
+}
+
+bool DatabaseAuthManager::UserExists(const QString& username)
+{
+    // Ensure database connection
+    if (!isConnected() && !connect()) {
+        qDebug() << "Failed to connect to auth database for user existence check";
+        return false;
+    }
+
+    QStringList columns = {Constants::UserT_Index_Username};
+    QString whereClause = "LOWER(username) = LOWER(:username)";
+    QMap<QString, QVariant> bindValues = {{":username", username}};
+    QVector<QMap<QString, QVariant>> results = m_dbManager.select("users", columns, whereClause, bindValues);
+
+    return !results.isEmpty();
+}
+
+bool DatabaseAuthManager::DeleteUser(const QString& username)
+{
+    // Ensure database connection
+    if (!isConnected() && !connect()) {
+        qDebug() << "Failed to connect to auth database for user deletion";
+        return false;
+    }
+
+    QString whereClause = "LOWER(username) = LOWER(:username)";
+    QMap<QString, QVariant> bindValues = {{":username", username}};
+
+    return m_dbManager.remove("users", whereClause, bindValues);
 }

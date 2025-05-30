@@ -3,7 +3,7 @@
 #include "ui_changepassword.h"
 #include "Operations-Global/CryptoUtils.h"
 #include "Operations-Global/inputvalidation.h"
-#include "Operations-Global/sqlite-database-handler.h"
+#include "Operations-Global/sqlite-database-auth.h"
 #include "constants.h"
 #include <QMessageBox>
 
@@ -105,10 +105,10 @@ bool ChangePassword::validateUserInput()
 
 bool ChangePassword::verifyCurrentPassword()
 {
-    DatabaseManager& db = DatabaseManager::instance();
+    DatabaseAuthManager& db = DatabaseAuthManager::instance();
 
     // Connect to the database
-    if (!db.isConnected() && !db.connect(Constants::DBPath_User)) {
+    if (!db.isConnected() && !db.connect()) {
         qCritical() << "Failed to connect to database:" << db.lastError();
         return false;
     }
@@ -126,10 +126,10 @@ bool ChangePassword::verifyCurrentPassword()
 
 bool ChangePassword::changePassword()
 {
-    DatabaseManager& db = DatabaseManager::instance();
+    DatabaseAuthManager& db = DatabaseAuthManager::instance();
 
     // Connect to the database
-    if (!db.isConnected() && !db.connect(Constants::DBPath_User)) {
+    if (!db.isConnected() && !db.connect()) {
         qCritical() << "Failed to connect to database:" << db.lastError();
         return false;
     }

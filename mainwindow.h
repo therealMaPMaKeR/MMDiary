@@ -22,6 +22,7 @@
 #include <QSystemTrayIcon>
 #include "CustomWidgets/custom_qcheckboxwidget.h"
 #include "Operations-Global/sqlite-database-handler.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
+#include "Operations-Global/sqlite-database-auth.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
 
 
 //Forward Declarations

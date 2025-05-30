@@ -11,6 +11,7 @@
 #include "Operations-Features/operations_encrypteddata.h"
 #include "Operations-Global/passwordvalidation.h"
 #include "Operations-Global/operations_files.h"
+#include "Operations-Global/sqlite-database-auth.h"
 #include "constants.h"
 #include "loginscreen.h"
 #include "changepassword.h"
@@ -118,9 +119,9 @@ void MainWindow::FinishInitialization()
 {
     initFinished = false;
 
-    DatabaseManager& db = DatabaseManager::instance();
+    DatabaseAuthManager& db = DatabaseAuthManager::instance();
     // Connect to the database
-    if (!db.connect(Constants::DBPath_User)) {
+    if (!db.connect()) {
         qCritical() << "Failed to connect to database:" << db.lastError();
         return;
     }
@@ -158,9 +159,9 @@ void MainWindow::FinishInitialization()
         //PasswordManager Settings
         QTimer::singleShot(25, this, [=]() {
             if(setting_PWMan_HidePasswords == true && setting_PWMan_DefSortingMethod == "Password")
-                {
-                    Operations_PasswordManager_ptr->on_SortByChanged("Account");
-                }
+            {
+                Operations_PasswordManager_ptr->on_SortByChanged("Account");
+            }
             else
             {
                 Operations_PasswordManager_ptr->on_SortByChanged(setting_PWMan_DefSortingMethod);

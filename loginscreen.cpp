@@ -4,6 +4,7 @@
 #include "Operations-Global/CryptoUtils.h"
 #include "Operations-Global/inputvalidation.h"
 #include "Operations-Global/operations_files.h"
+#include "Operations-Global/sqlite-database-auth.h"
 #include "constants.h"
 #include "Operations-Global/default_usersettings.h"
 
@@ -24,9 +25,9 @@ loginscreen::loginscreen(QWidget *parent)
     ui->lineEdit_Password->setValidator(validator);
     ui->lineEdit_Username->setValidator(validator);
 
-    DatabaseManager& db = DatabaseManager::instance();
+    DatabaseAuthManager& db = DatabaseAuthManager::instance();
     // Connect to the database
-    if (!db.connect(Constants::DBPath_User)) {
+    if (!db.connect()) {
         qCritical() << "Failed to connect to database:" << db.lastError();
         return;
     }
@@ -38,7 +39,7 @@ loginscreen::loginscreen(QWidget *parent)
     }
 
     // Apply all pending migrations
-    if (!db.migrateDatabase()) {
+    if (!db.migrateAuthDatabase()) {
         qCritical() << "Failed to migrate database:" << db.lastError();
         return;
     }
@@ -87,9 +88,9 @@ void loginscreen::on_pushButton_Login_clicked()
 {
     if(isUserInputValid())
     {
-        DatabaseManager& db = DatabaseManager::instance();
+        DatabaseAuthManager& db = DatabaseAuthManager::instance();
         // Connect to the database
-        if (!db.connect(Constants::DBPath_User)) {
+        if (!db.connect()) {
             qCritical() << "Failed to connect to database:" << db.lastError();
             return;
         }
@@ -135,52 +136,51 @@ void loginscreen::on_pushButton_NewAccount_clicked()
             ui->label_ErrorDisplay->setText("Username cannot be MMDiary.db");
             return;
         }
-        DatabaseManager& db = DatabaseManager::instance();
+        DatabaseAuthManager& db = DatabaseAuthManager::instance();
         // Connect to the database
-        if (!db.connect(Constants::DBPath_User)) {
+        if (!db.connect()) {
             qCritical() << "Failed to connect to database:" << db.lastError();
             return;
         }
         if(db.GetUserData_String(ui->lineEdit_Username->text(),Constants::UserT_Index_Username) == Constants::ErrorMessage_INVUSER) // if we return INVALIDUSER, it means that the user does not already exist, so we can create it.
         {
             OperationsFiles::setUsername(ui->lineEdit_Username->text()); // set the username in OperationsFiles so that we may create temp files at the correct location
-            // Get database manager instance
-            DatabaseManager& db = DatabaseManager::instance();
+
             // Make sure we're connected
             if (!db.isConnected()) {
-                if (!db.connect(Constants::DBPath_User)) {
+                if (!db.connect()) {
                     qCritical() << "Failed to connect to database:" << db.lastError();
                 }
             }
-            QMap<QString, QVariant> userData;
-            //add user to database
-            userData[Constants::UserT_Index_Username] = ui->lineEdit_Username->text(); // set user username
-            userData[Constants::UserT_Index_Password] = CryptoUtils::Hashing_HashPassword(ui->lineEdit_Password->text()); // set user password
+
+            // Prepare user creation data
+            QString hashedPassword = CryptoUtils::Hashing_HashPassword(ui->lineEdit_Password->text());
+
             QByteArray salt;
             QByteArray derivedKeyWithSalt = CryptoUtils::Encryption_DeriveKey(ui->lineEdit_Password->text(), &salt);
             // Extract just the derivedKey part (remove the salt)
             QByteArray derivedKey = derivedKeyWithSalt.mid(salt.size());
             QByteArray encryptionKey = CryptoUtils::Encryption_GenerateKey(); // creates the encryption key
-            userData[Constants::UserT_Index_Salt] = salt; // store the salt value of the key we will use to encrypt the encryption key. This way, we don't need to store any sensitive information.
-            userData[Constants::UserT_Index_EncryptionKey] = CryptoUtils::Encryption_EncryptBArray(derivedKey, encryptionKey,ui->lineEdit_Username->text());  //encrypts the key using a key derived from password.
-            // set default setting values
-            userData[Constants::UserT_Index_Displayname] = ui->lineEdit_Username->text(); // set the users display name as their username by default. they can change it later.
-            userData[Constants::UserT_Index_Iterations] = "500000";
-            if (db.insert("users", userData)) {
-                qDebug() << "User added with ID:" << db.lastInsertId();
+            QByteArray encryptedKey = CryptoUtils::Encryption_EncryptBArray(derivedKey, encryptionKey, ui->lineEdit_Username->text());
+
+            // Create user using the new CreateUser method
+            if (db.CreateUser(ui->lineEdit_Username->text(), hashedPassword, encryptedKey, salt, ui->lineEdit_Username->text())) {
+                qDebug() << "User created with ID:" << db.lastInsertId();
+
+                if(!Default_UserSettings::SetAllDefaults(ui->lineEdit_Username->text())) // set user defaults
+                {
+                    this->close(); // if unable to do so, exit app
+                }
+                MainWindow *mw =  new MainWindow(this->parentWidget());
+                connect(this, &loginscreen::passDataMW_Signal, mw, &MainWindow::ReceiveDataLogin_Slot);
+                passDataMW_Signal(ui->lineEdit_Username->text(), encryptionKey);
+                mw->show();
+                loggingIn = true;
+                this->close();
             } else {
-                qWarning() << "Failed to add user:" << db.lastError();
+                qWarning() << "Failed to create user:" << db.lastError();
+                ui->label_ErrorDisplay->setText("Failed to create user account.");
             }
-            if(!Default_UserSettings::SetAllDefaults(ui->lineEdit_Username->text())) // set user defaults
-            {
-                this->close(); // if unable to do so, exit app
-            }
-            MainWindow *mw =  new MainWindow(this->parentWidget());
-            connect(this, &loginscreen::passDataMW_Signal, mw, &MainWindow::ReceiveDataLogin_Slot);
-            passDataMW_Signal(ui->lineEdit_Username->text(), encryptionKey);
-            mw->show();
-            loggingIn = true;
-            this->close();
         }
         else // the user does exist
         {

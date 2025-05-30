@@ -1,13 +1,13 @@
 #include "default_usersettings.h"
-#include "sqlite-database-handler.h"
+#include "sqlite-database-auth.h"
 #include "../constants.h"
 
 namespace Default_UserSettings{
 bool SetDefault_GlobalSettings(QString username)
 {
-    DatabaseManager& db = DatabaseManager::instance();
+    DatabaseAuthManager& db = DatabaseAuthManager::instance();
     // Connect to the database
-    if (!db.connect(Constants::DBPath_User)) {
+    if (!db.connect()) {
         qCritical() << "Failed to connect to database:" << db.lastError();
         qDebug() << "Unable to set default Global settings";
         return false;
@@ -27,9 +27,9 @@ bool SetDefault_GlobalSettings(QString username)
 
 bool SetDefault_DiarySettings(QString username)
 {
-    DatabaseManager& db = DatabaseManager::instance();
+    DatabaseAuthManager& db = DatabaseAuthManager::instance();
     // Connect to the database
-    if (!db.connect(Constants::DBPath_User)) {
+    if (!db.connect()) {
         qCritical() << "Failed to connect to database:" << db.lastError();
         qDebug() << "Unable to set default settings for Diary";
         return false;
@@ -51,9 +51,9 @@ bool SetDefault_DiarySettings(QString username)
 
 bool SetDefault_TasklistsSettings(QString username)
 {
-    DatabaseManager& db = DatabaseManager::instance();
+    DatabaseAuthManager& db = DatabaseAuthManager::instance();
     // Connect to the database
-    if (!db.connect(Constants::DBPath_User)) {
+    if (!db.connect()) {
         qCritical() << "Failed to connect to database:" << db.lastError();
         qDebug() << "Unable to set default settings for Tasklists";
         return false;
@@ -76,9 +76,9 @@ bool SetDefault_TasklistsSettings(QString username)
 
 bool SetDefault_PWManagerSettings(QString username)
 {
-    DatabaseManager& db = DatabaseManager::instance();
+    DatabaseAuthManager& db = DatabaseAuthManager::instance();
     // Connect to the database
-    if (!db.connect(Constants::DBPath_User)) {
+    if (!db.connect()) {
         qCritical() << "Failed to connect to database:" << db.lastError();
         qDebug() << "Unable to set default settings for PWManager";
         return false;
@@ -98,9 +98,9 @@ bool SetDefault_PWManagerSettings(QString username)
 
 bool SetDefault_EncryptedDataSettings(QString username)
 {
-    DatabaseManager& db = DatabaseManager::instance();
+    DatabaseAuthManager& db = DatabaseAuthManager::instance();
     // Connect to the database
-    if (!db.connect(Constants::DBPath_User)) {
+    if (!db.connect()) {
         qCritical() << "Failed to connect to database:" << db.lastError();
         qDebug() << "Unable to set default settings for EncryptedData";
         return false;
