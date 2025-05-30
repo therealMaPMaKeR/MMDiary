@@ -62,15 +62,17 @@ private:
     // Auth-specific migration methods
     bool migrateToV2();
     bool migrateToV3();
+    bool migrateToV4();
     bool rollbackFromV2();
     bool rollbackFromV3();
+    bool rollbackFromV4();
 
     // Migration callback function for generic migration system
     bool authMigrationCallback(int version);
     bool authRollbackCallback(int version);
 
     // Latest version for auth database
-    static const int LATEST_AUTH_VERSION = 3;
+    static const int LATEST_AUTH_VERSION = 4;
 };
 
 #endif // SQLITE_DATABASE_AUTH_H

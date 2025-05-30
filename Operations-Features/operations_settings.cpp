@@ -8,6 +8,7 @@
 #include <QClipboard>
 #include <QGuiApplication>
 #include "../Operations-Global/default_usersettings.h"
+#include "../Operations-Global/sqlite-database-settings.h"
 
 Operations_Settings::Operations_Settings(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
@@ -42,8 +43,9 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
 
 void Operations_Settings::LoadSettings(const QString& settingsType)
 {
-    // Get the username from MainWindow
+    // Get the username and encryption key from MainWindow
     QString username = m_mainWindow->user_Username;
+    QByteArray encryptionKey = m_mainWindow->user_Key;
 
     if (username.isEmpty()) {
         qDebug() << "Cannot load settings: No username provided";
@@ -51,12 +53,12 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
     }
 
     // Get database manager instance
-    DatabaseAuthManager& db = DatabaseAuthManager::instance();
+    DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
 
     // Ensure database connection
     if (!db.isConnected()) {
-        if (!db.connect()) {
-            qDebug() << "Failed to connect to database";
+        if (!db.connect(username, encryptionKey)) {
+            qDebug() << "Failed to connect to settings database";
             return;
         }
     }
@@ -67,8 +69,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         bool validationFailed = false;
 
         // Display Name
-        QString displayName = db.GetUserData_String(username, Constants::UserT_Index_Displayname);
-        if (displayName != Constants::ErrorMessage_Default && displayName != Constants::ErrorMessage_INVUSER) {
+        QString displayName = db.GetSettingsData_String(Constants::SettingsT_Index_Displayname);
+        if (displayName != Constants::ErrorMessage_Default) {
             // Validate display name
             InputValidation::ValidationResult result = InputValidation::validateInput(
                 displayName, InputValidation::InputType::DisplayName, 30);
@@ -86,8 +88,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Display Name Color
-        QString displayNameColor = db.GetUserData_String(username, Constants::UserT_Index_DisplaynameColor);
-        if (displayNameColor != Constants::ErrorMessage_Default && displayNameColor != Constants::ErrorMessage_INVUSER) {
+        QString displayNameColor = db.GetSettingsData_String(Constants::SettingsT_Index_DisplaynameColor);
+        if (displayNameColor != Constants::ErrorMessage_Default) {
             // Validate color name
             InputValidation::ValidationResult result = InputValidation::validateInput(
                 displayNameColor, InputValidation::InputType::ColorName, 20);
@@ -111,8 +113,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Minimize to Tray
-        QString minToTray = db.GetUserData_String(username, Constants::UserT_Index_MinToTray);
-        if (minToTray != Constants::ErrorMessage_Default && minToTray != Constants::ErrorMessage_INVUSER) {
+        QString minToTray = db.GetSettingsData_String(Constants::SettingsT_Index_MinToTray);
+        if (minToTray != Constants::ErrorMessage_Default) {
             if (minToTray == "0" || minToTray == "1") {
                 bool value = (minToTray == "1");
                 m_mainWindow->ui->checkBox_MinToTray->setChecked(value);
@@ -127,8 +129,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Ask Password After Minimize
-        QString askPW = db.GetUserData_String(username, Constants::UserT_Index_AskPWAfterMinToTray);
-        if (askPW != Constants::ErrorMessage_Default && askPW != Constants::ErrorMessage_INVUSER) {
+        QString askPW = db.GetSettingsData_String(Constants::SettingsT_Index_AskPWAfterMinToTray);
+        if (askPW != Constants::ErrorMessage_Default) {
             if (askPW == "0" || askPW == "1") {
                 bool value = (askPW == "1");
                 m_mainWindow->ui->checkBox_AskPW->setChecked(value);
@@ -145,7 +147,7 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         // If any validation failed, reset to defaults
         if (validationFailed) {
             qDebug() << "Some global settings failed validation, resetting to defaults";
-            Default_UserSettings::SetDefault_GlobalSettings(username);
+            Default_UserSettings::SetDefault_GlobalSettings(username, encryptionKey);
             LoadSettings(Constants::DBSettings_Type_Global); // Reload with default values
             return;
         }
@@ -157,8 +159,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         bool validationFailed = false;
 
         // Diary Text Size
-        QString diaryTextSize = db.GetUserData_String(username, Constants::UserT_Index_Diary_TextSize);
-        if (diaryTextSize != Constants::ErrorMessage_Default && diaryTextSize != Constants::ErrorMessage_INVUSER) {
+        QString diaryTextSize = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_TextSize);
+        if (diaryTextSize != Constants::ErrorMessage_Default) {
             bool ok;
             int size = diaryTextSize.toInt(&ok);
             if (ok && size >= 5 && size <= 30) {
@@ -175,8 +177,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Timestamp Timer
-        QString tsTimer = db.GetUserData_String(username, Constants::UserT_Index_Diary_TStampTimer);
-        if (tsTimer != Constants::ErrorMessage_Default && tsTimer != Constants::ErrorMessage_INVUSER) {
+        QString tsTimer = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_TStampTimer);
+        if (tsTimer != Constants::ErrorMessage_Default) {
             bool ok;
             int timer = tsTimer.toInt(&ok);
             if (ok && timer >= 1 && timer <= 60) {
@@ -192,8 +194,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Timestamp Counter
-        QString tsCounter = db.GetUserData_String(username, Constants::UserT_Index_Diary_TStampCounter);
-        if (tsCounter != Constants::ErrorMessage_Default && tsCounter != Constants::ErrorMessage_INVUSER) {
+        QString tsCounter = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_TStampCounter);
+        if (tsCounter != Constants::ErrorMessage_Default) {
             bool ok;
             int counter = tsCounter.toInt(&ok);
             if (ok && counter >= 1 && counter <= 100) {
@@ -209,8 +211,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Can Edit Recent
-        QString canEditRecent = db.GetUserData_String(username, Constants::UserT_Index_Diary_CanEditRecent);
-        if (canEditRecent != Constants::ErrorMessage_Default && canEditRecent != Constants::ErrorMessage_INVUSER) {
+        QString canEditRecent = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_CanEditRecent);
+        if (canEditRecent != Constants::ErrorMessage_Default) {
             if (canEditRecent == "0" || canEditRecent == "1") {
                 bool value = (canEditRecent == "1");
                 m_mainWindow->ui->checkBox_Diary_CanEditRecent->setChecked(value);
@@ -225,8 +227,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Show Task Manager Logs
-        QString showTManLogs = db.GetUserData_String(username, Constants::UserT_Index_Diary_ShowTManLogs);
-        if (showTManLogs != Constants::ErrorMessage_Default && showTManLogs != Constants::ErrorMessage_INVUSER) {
+        QString showTManLogs = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_ShowTManLogs);
+        if (showTManLogs != Constants::ErrorMessage_Default) {
             if (showTManLogs == "0" || showTManLogs == "1") {
                 bool value = (showTManLogs == "1");
                 m_mainWindow->ui->checkBox_Diary_TManLogs->setChecked(value);
@@ -243,7 +245,7 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         // If any validation failed, reset to defaults
         if (validationFailed) {
             qDebug() << "Some diary settings failed validation, resetting to defaults";
-            Default_UserSettings::SetDefault_DiarySettings(username);
+            Default_UserSettings::SetDefault_DiarySettings(username, encryptionKey);
             LoadSettings(Constants::DBSettings_Type_Diary); // Reload with default values
             return;
         }
@@ -255,8 +257,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         bool validationFailed = false;
 
         // Log to Diary
-        QString logToDiary = db.GetUserData_String(username, Constants::UserT_Index_TLists_LogToDiary);
-        if (logToDiary != Constants::ErrorMessage_Default && logToDiary != Constants::ErrorMessage_INVUSER) {
+        QString logToDiary = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_LogToDiary);
+        if (logToDiary != Constants::ErrorMessage_Default) {
             if (logToDiary == "0" || logToDiary == "1") {
                 bool value = (logToDiary == "1");
                 m_mainWindow->ui->checkBox_TList_LogToDiary->setChecked(value);
@@ -271,8 +273,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Task Type
-        QString taskType = db.GetUserData_String(username, Constants::UserT_Index_TLists_TaskType);
-        if (taskType != Constants::ErrorMessage_Default && taskType != Constants::ErrorMessage_INVUSER) {
+        QString taskType = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_TaskType);
+        if (taskType != Constants::ErrorMessage_Default) {
             QStringList validTaskTypes = {"Simple", "Time Limit", "Recurrent"};
             if (validTaskTypes.contains(taskType)) {
                 int index = m_mainWindow->ui->comboBox_TList_TaskType->findText(taskType);
@@ -293,8 +295,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Congratulatory Message
-        QString cMess = db.GetUserData_String(username, Constants::UserT_Index_TLists_CMess);
-        if (cMess != Constants::ErrorMessage_Default && cMess != Constants::ErrorMessage_INVUSER) {
+        QString cMess = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_CMess);
+        if (cMess != Constants::ErrorMessage_Default) {
             QStringList validMessageTypes = {"None", "Simple", "Advanced", "Intense", "Extreme"};
             if (validMessageTypes.contains(cMess)) {
                 int index = m_mainWindow->ui->comboBox_TList_CMess->findText(cMess);
@@ -315,8 +317,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Punitive Message
-        QString pMess = db.GetUserData_String(username, Constants::UserT_Index_TLists_PMess);
-        if (pMess != Constants::ErrorMessage_Default && pMess != Constants::ErrorMessage_INVUSER) {
+        QString pMess = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_PMess);
+        if (pMess != Constants::ErrorMessage_Default) {
             QStringList validMessageTypes = {"None", "Simple", "Advanced", "Intense", "Extreme"};
             if (validMessageTypes.contains(pMess)) {
                 int index = m_mainWindow->ui->comboBox_TList_PMess->findText(pMess);
@@ -337,8 +339,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Notifications
-        QString notif = db.GetUserData_String(username, Constants::UserT_Index_TLists_Notif);
-        if (notif != Constants::ErrorMessage_Default && notif != Constants::ErrorMessage_INVUSER) {
+        QString notif = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_Notif);
+        if (notif != Constants::ErrorMessage_Default) {
             if (notif == "0" || notif == "1") {
                 bool value = (notif == "1");
                 m_mainWindow->ui->checkBox_TList_Notif->setChecked(value);
@@ -353,8 +355,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Text Size
-        QString tlistTextSize = db.GetUserData_String(username, Constants::UserT_Index_TLists_TextSize);
-        if (tlistTextSize != Constants::ErrorMessage_Default && tlistTextSize != Constants::ErrorMessage_INVUSER) {
+        QString tlistTextSize = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_TextSize);
+        if (tlistTextSize != Constants::ErrorMessage_Default) {
             bool ok;
             int size = tlistTextSize.toInt(&ok);
             if (ok && size >= 5 && size <= 30) {
@@ -372,7 +374,7 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         // If any validation failed, reset to defaults
         if (validationFailed) {
             qDebug() << "Some task list settings failed validation, resetting to defaults";
-            Default_UserSettings::SetDefault_TasklistsSettings(username);
+            Default_UserSettings::SetDefault_TasklistsSettings(username, encryptionKey);
             LoadSettings(Constants::DBSettings_Type_Tasklists); // Reload with default values
             return;
         }
@@ -384,8 +386,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         bool validationFailed = false;
 
         // Default Sorting Method
-        QString defSortingMethod = db.GetUserData_String(username, Constants::UserT_Index_PWMan_DefSortingMethod);
-        if (defSortingMethod != Constants::ErrorMessage_Default && defSortingMethod != Constants::ErrorMessage_INVUSER) {
+        QString defSortingMethod = db.GetSettingsData_String(Constants::SettingsT_Index_PWMan_DefSortingMethod);
+        if (defSortingMethod != Constants::ErrorMessage_Default) {
             QStringList validSortingMethods = {"Password", "Account", "Service"};
             if (validSortingMethods.contains(defSortingMethod)) {
                 int index = m_mainWindow->ui->comboBox_PWMan_SortBy->findText(defSortingMethod);
@@ -406,8 +408,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Require Password
-        QString reqPassword = db.GetUserData_String(username, Constants::UserT_Index_PWMan_ReqPassword);
-        if (reqPassword != Constants::ErrorMessage_Default && reqPassword != Constants::ErrorMessage_INVUSER) {
+        QString reqPassword = db.GetSettingsData_String(Constants::SettingsT_Index_PWMan_ReqPassword);
+        if (reqPassword != Constants::ErrorMessage_Default) {
             if (reqPassword == "0" || reqPassword == "1") {
                 bool value = (reqPassword == "1");
                 m_mainWindow->ui->checkBox_PWMan_ReqPW->setChecked(value);
@@ -422,8 +424,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
 
         // Hide Passwords
-        QString hidePasswords = db.GetUserData_String(username, Constants::UserT_Index_PWMan_HidePasswords);
-        if (hidePasswords != Constants::ErrorMessage_Default && hidePasswords != Constants::ErrorMessage_INVUSER) {
+        QString hidePasswords = db.GetSettingsData_String(Constants::SettingsT_Index_PWMan_HidePasswords);
+        if (hidePasswords != Constants::ErrorMessage_Default) {
             if (hidePasswords == "0" || hidePasswords == "1") {
                 bool value = (hidePasswords == "1");
                 m_mainWindow->ui->checkBox_PWMan_HidePWS->setChecked(value);
@@ -440,7 +442,7 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         // If any validation failed, reset to defaults
         if (validationFailed) {
             qDebug() << "Some password manager settings failed validation, resetting to defaults";
-            Default_UserSettings::SetDefault_PWManagerSettings(username);
+            Default_UserSettings::SetDefault_PWManagerSettings(username, encryptionKey);
             LoadSettings(Constants::DBSettings_Type_PWManager); // Reload with default values
             return;
         }
@@ -452,8 +454,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         bool validationFailed = false;
 
         // Require Password
-        QString reqPassword = db.GetUserData_String(username, Constants::UserT_Index_DataENC_ReqPassword);
-        if (reqPassword != Constants::ErrorMessage_Default && reqPassword != Constants::ErrorMessage_INVUSER) {
+        QString reqPassword = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_ReqPassword);
+        if (reqPassword != Constants::ErrorMessage_Default) {
             if (reqPassword == "0" || reqPassword == "1") {
                 bool value = (reqPassword == "1");
                 m_mainWindow->ui->checkBox_DataENC_ReqPW->setChecked(value);
@@ -470,7 +472,7 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         // If any validation failed, reset to defaults
         if (validationFailed) {
             qDebug() << "Some encrypted data settings failed validation, resetting to defaults";
-            Default_UserSettings::SetDefault_EncryptedDataSettings(username);
+            Default_UserSettings::SetDefault_EncryptedDataSettings(username, encryptionKey);
             LoadSettings(Constants::DBSettings_Type_EncryptedData); // Reload with default values
             return;
         }
@@ -489,8 +491,9 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         return; // Validation failed, don't save
     }
 
-    // Get the username from MainWindow
+    // Get the username and encryption key from MainWindow
     QString username = m_mainWindow->user_Username;
+    QByteArray encryptionKey = m_mainWindow->user_Key;
 
     if (username.isEmpty()) {
         qDebug() << "Cannot save settings: No username provided";
@@ -498,12 +501,12 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
     }
 
     // Get database manager instance
-    DatabaseAuthManager& db = DatabaseAuthManager::instance();
+    DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
 
     // Ensure database connection
     if (!db.isConnected()) {
-        if (!db.connect()) {
-            qDebug() << "Failed to connect to database";
+        if (!db.connect(username, encryptionKey)) {
+            qDebug() << "Failed to connect to settings database";
             return;
         }
     }
@@ -513,24 +516,24 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
     {
         // Display Name
         QString displayName = m_mainWindow->ui->lineEdit_DisplayName->text();
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_Displayname, displayName);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_Displayname, displayName);
         m_mainWindow->user_Displayname = displayName; // Update member variable
 
         // Display Name Color
         QString displayNameColor = m_mainWindow->ui->comboBox_DisplayNameColor->currentText();
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_DisplaynameColor, displayNameColor);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DisplaynameColor, displayNameColor);
         m_mainWindow->user_nameColor = displayNameColor; // Update member variable
 
         // Minimize to Tray
         bool minToTray = m_mainWindow->ui->checkBox_MinToTray->isChecked();
         QString minToTrayStr = minToTray ? "1" : "0";
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_MinToTray, minToTrayStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_MinToTray, minToTrayStr);
         m_mainWindow->setting_MinToTray = minToTray; // Update member variable
 
         // Ask Password After Minimize
         bool askPW = m_mainWindow->ui->checkBox_AskPW->isChecked();
         QString askPWStr = askPW ? "1" : "0";
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_AskPWAfterMinToTray, askPWStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_AskPWAfterMinToTray, askPWStr);
         m_mainWindow->setting_AskPWAfterMin = askPW; // Update member variable
     }
 
@@ -540,31 +543,31 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         // Diary Text Size
         int diaryTextSize = m_mainWindow->ui->spinBox_Diary_TextSize->value();
         QString diaryTextSizeStr = QString::number(diaryTextSize);
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_Diary_TextSize, diaryTextSizeStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_Diary_TextSize, diaryTextSizeStr);
         m_mainWindow->setting_Diary_TextSize = diaryTextSize; // Update member variable
 
         // Timestamp Timer
         int tsTimer = m_mainWindow->ui->spinBox_Diary_TStampTimer->value();
         QString tsTimerStr = QString::number(tsTimer);
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_Diary_TStampTimer, tsTimerStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_Diary_TStampTimer, tsTimerStr);
         m_mainWindow->setting_Diary_TStampTimer = tsTimer; // Update member variable
 
         // Timestamp Counter
         int tsCounter = m_mainWindow->ui->spinBox_Diary_TStampReset->value();
         QString tsCounterStr = QString::number(tsCounter);
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_Diary_TStampCounter, tsCounterStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_Diary_TStampCounter, tsCounterStr);
         m_mainWindow->setting_Diary_TStampCounter = tsCounter; // Update member variable
 
         // Can Edit Recent
         bool canEditRecent = m_mainWindow->ui->checkBox_Diary_CanEditRecent->isChecked();
         QString canEditRecentStr = canEditRecent ? "1" : "0";
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_Diary_CanEditRecent, canEditRecentStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_Diary_CanEditRecent, canEditRecentStr);
         m_mainWindow->setting_Diary_CanEditRecent = canEditRecent; // Update member variable
 
         // Show Task Manager Logs
         bool showTManLogs = m_mainWindow->ui->checkBox_Diary_TManLogs->isChecked();
         QString showTManLogsStr = showTManLogs ? "1" : "0";
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_Diary_ShowTManLogs, showTManLogsStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_Diary_ShowTManLogs, showTManLogsStr);
         m_mainWindow->setting_Diary_ShowTManLogs = showTManLogs; // Update member variable
     }
 
@@ -574,34 +577,34 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         // Log to Diary
         bool logToDiary = m_mainWindow->ui->checkBox_TList_LogToDiary->isChecked();
         QString logToDiaryStr = logToDiary ? "1" : "0";
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_TLists_LogToDiary, logToDiaryStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_LogToDiary, logToDiaryStr);
         m_mainWindow->setting_TLists_LogToDiary = logToDiary; // Update member variable
 
         // Task Type
         QString taskType = m_mainWindow->ui->comboBox_TList_TaskType->currentText();
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_TLists_TaskType, taskType);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_TaskType, taskType);
         m_mainWindow->setting_TLists_TaskType = taskType; // Update member variable
 
         // Congratulatory Message
         QString cMess = m_mainWindow->ui->comboBox_TList_CMess->currentText();
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_TLists_CMess, cMess);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_CMess, cMess);
         m_mainWindow->setting_TLists_CMess = cMess; // Update member variable
 
         // Punitive Message
         QString pMess = m_mainWindow->ui->comboBox_TList_PMess->currentText();
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_TLists_PMess, pMess);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_PMess, pMess);
         m_mainWindow->setting_TLists_PMess = pMess; // Update member variable
 
         // Notifications
         bool notif = m_mainWindow->ui->checkBox_TList_Notif->isChecked();
         QString notifStr = notif ? "1" : "0";
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_TLists_Notif, notifStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_Notif, notifStr);
         m_mainWindow->setting_TLists_Notif = notif; // Update member variable
 
         // Text Size
         int tlistTextSize = m_mainWindow->ui->spinBox_TList_TextSize->value();
         QString tlistTextSizeStr = QString::number(tlistTextSize);
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_TLists_TextSize, tlistTextSizeStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_TextSize, tlistTextSizeStr);
         m_mainWindow->setting_TLists_TextSize = tlistTextSize; // Update member variable
     }
 
@@ -610,20 +613,20 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
     {
         // Default Sorting Method
         QString defSortingMethod = m_mainWindow->ui->comboBox_PWMan_SortBy->currentText();
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_PWMan_DefSortingMethod, defSortingMethod);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_PWMan_DefSortingMethod, defSortingMethod);
         m_mainWindow->setting_PWMan_DefSortingMethod = defSortingMethod; // Update member variable
         m_mainWindow->ui->comboBox_PWSortBy->setCurrentIndex(Operations::GetIndexFromText(m_mainWindow->setting_PWMan_DefSortingMethod, m_mainWindow->ui->comboBox_PWSortBy)); // set current value for pwmanager combo box to that of saved settings for default
 
         // Require Password
         bool reqPassword = m_mainWindow->ui->checkBox_PWMan_ReqPW->isChecked();
         QString reqPasswordStr = reqPassword ? "1" : "0";
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_PWMan_ReqPassword, reqPasswordStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_PWMan_ReqPassword, reqPasswordStr);
         m_mainWindow->setting_PWMan_ReqPassword = reqPassword; // Update member variable
 
         // Hide Passwords
         bool hidePasswords = m_mainWindow->ui->checkBox_PWMan_HidePWS->isChecked();
         QString hidePasswordsStr = hidePasswords ? "1" : "0";
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_PWMan_HidePasswords, hidePasswordsStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_PWMan_HidePasswords, hidePasswordsStr);
         m_mainWindow->setting_PWMan_HidePasswords = hidePasswords; // Update member variable
     }
 
@@ -633,7 +636,7 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         // Require Password
         bool reqPassword = m_mainWindow->ui->checkBox_DataENC_ReqPW->isChecked();
         QString reqPasswordStr = reqPassword ? "1" : "0";
-        db.UpdateUserData_TEXT(username, Constants::UserT_Index_DataENC_ReqPassword, reqPasswordStr);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_ReqPassword, reqPasswordStr);
         m_mainWindow->setting_DataENC_ReqPassword = reqPassword; // update member variable
     }
 
@@ -759,14 +762,16 @@ bool Operations_Settings::ValidateSettingsInput(const QString& settingsType)
 void Operations_Settings::UpdateButtonStates(const QString& settingsType)
 {
     QString username = m_mainWindow->user_Username;
+    QByteArray encryptionKey = m_mainWindow->user_Key;
+
     if (username.isEmpty()) {
         return;
     }
 
-    DatabaseAuthManager& db = DatabaseAuthManager::instance();
+    DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
     if (!db.isConnected()) {
-        if (!db.connect()) {
-            qDebug() << "Failed to connect to database";
+        if (!db.connect(username, encryptionKey)) {
+            qDebug() << "Failed to connect to settings database";
             return;
         }
     }
@@ -781,14 +786,14 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         bool matchesDefault = true;
 
         // Display Name
-        QString dbDisplayName = db.GetUserData_String(username, Constants::UserT_Index_Displayname);
+        QString dbDisplayName = db.GetSettingsData_String(Constants::SettingsT_Index_Displayname);
         QString uiDisplayName = m_mainWindow->ui->lineEdit_DisplayName->text();
         if (dbDisplayName != uiDisplayName) {
             matchesDatabase = false;
         }
 
         // Display Name Color
-        QString dbColor = db.GetUserData_String(username, Constants::UserT_Index_DisplaynameColor);
+        QString dbColor = db.GetSettingsData_String(Constants::SettingsT_Index_DisplaynameColor);
         QString uiColor = m_mainWindow->ui->comboBox_DisplayNameColor->currentText();
         if (dbColor != uiColor) {
             matchesDatabase = false;
@@ -798,7 +803,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Minimize to Tray
-        QString dbMinToTray = db.GetUserData_String(username, Constants::UserT_Index_MinToTray);
+        QString dbMinToTray = db.GetSettingsData_String(Constants::SettingsT_Index_MinToTray);
         QString uiMinToTray = m_mainWindow->ui->checkBox_MinToTray->isChecked() ? "1" : "0";
         if (dbMinToTray != uiMinToTray) {
             matchesDatabase = false;
@@ -808,7 +813,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Ask Password After Minimize
-        QString dbAskPW = db.GetUserData_String(username, Constants::UserT_Index_AskPWAfterMinToTray);
+        QString dbAskPW = db.GetSettingsData_String(Constants::SettingsT_Index_AskPWAfterMinToTray);
         QString uiAskPW = m_mainWindow->ui->checkBox_AskPW->isChecked() ? "1" : "0";
         if (dbAskPW != uiAskPW) {
             matchesDatabase = false;
@@ -832,7 +837,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         bool matchesDefault = true;
 
         // Diary Text Size
-        QString dbTextSize = db.GetUserData_String(username, Constants::UserT_Index_Diary_TextSize);
+        QString dbTextSize = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_TextSize);
         QString uiTextSize = QString::number(m_mainWindow->ui->spinBox_Diary_TextSize->value());
         if (dbTextSize != uiTextSize) {
             matchesDatabase = false;
@@ -842,7 +847,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Timestamp Timer
-        QString dbTimer = db.GetUserData_String(username, Constants::UserT_Index_Diary_TStampTimer);
+        QString dbTimer = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_TStampTimer);
         QString uiTimer = QString::number(m_mainWindow->ui->spinBox_Diary_TStampTimer->value());
         if (dbTimer != uiTimer) {
             matchesDatabase = false;
@@ -852,7 +857,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Timestamp Counter
-        QString dbCounter = db.GetUserData_String(username, Constants::UserT_Index_Diary_TStampCounter);
+        QString dbCounter = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_TStampCounter);
         QString uiCounter = QString::number(m_mainWindow->ui->spinBox_Diary_TStampReset->value());
         if (dbCounter != uiCounter) {
             matchesDatabase = false;
@@ -862,7 +867,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Can Edit Recent
-        QString dbCanEdit = db.GetUserData_String(username, Constants::UserT_Index_Diary_CanEditRecent);
+        QString dbCanEdit = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_CanEditRecent);
         QString uiCanEdit = m_mainWindow->ui->checkBox_Diary_CanEditRecent->isChecked() ? "1" : "0";
         if (dbCanEdit != uiCanEdit) {
             matchesDatabase = false;
@@ -872,7 +877,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Show Task Manager Logs
-        QString dbShowLogs = db.GetUserData_String(username, Constants::UserT_Index_Diary_ShowTManLogs);
+        QString dbShowLogs = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_ShowTManLogs);
         QString uiShowLogs = m_mainWindow->ui->checkBox_Diary_TManLogs->isChecked() ? "1" : "0";
         if (dbShowLogs != uiShowLogs) {
             matchesDatabase = false;
@@ -898,7 +903,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         bool matchesDefault = true;
 
         // Log to Diary
-        QString dbLogToDiary = db.GetUserData_String(username, Constants::UserT_Index_TLists_LogToDiary);
+        QString dbLogToDiary = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_LogToDiary);
         QString uiLogToDiary = m_mainWindow->ui->checkBox_TList_LogToDiary->isChecked() ? "1" : "0";
         if (dbLogToDiary != uiLogToDiary) {
             matchesDatabase = false;
@@ -908,7 +913,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Task Type
-        QString dbTaskType = db.GetUserData_String(username, Constants::UserT_Index_TLists_TaskType);
+        QString dbTaskType = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_TaskType);
         QString uiTaskType = m_mainWindow->ui->comboBox_TList_TaskType->currentText();
         if (dbTaskType != uiTaskType) {
             matchesDatabase = false;
@@ -918,7 +923,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Congratulatory Message
-        QString dbCMess = db.GetUserData_String(username, Constants::UserT_Index_TLists_CMess);
+        QString dbCMess = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_CMess);
         QString uiCMess = m_mainWindow->ui->comboBox_TList_CMess->currentText();
         if (dbCMess != uiCMess) {
             matchesDatabase = false;
@@ -928,7 +933,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Punitive Message
-        QString dbPMess = db.GetUserData_String(username, Constants::UserT_Index_TLists_PMess);
+        QString dbPMess = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_PMess);
         QString uiPMess = m_mainWindow->ui->comboBox_TList_PMess->currentText();
         if (dbPMess != uiPMess) {
             matchesDatabase = false;
@@ -938,7 +943,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Notifications
-        QString dbNotif = db.GetUserData_String(username, Constants::UserT_Index_TLists_Notif);
+        QString dbNotif = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_Notif);
         QString uiNotif = m_mainWindow->ui->checkBox_TList_Notif->isChecked() ? "1" : "0";
         if (dbNotif != uiNotif) {
             matchesDatabase = false;
@@ -948,7 +953,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Text Size
-        QString dbTextSize = db.GetUserData_String(username, Constants::UserT_Index_TLists_TextSize);
+        QString dbTextSize = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_TextSize);
         QString uiTextSize = QString::number(m_mainWindow->ui->spinBox_TList_TextSize->value());
         if (dbTextSize != uiTextSize) {
             matchesDatabase = false;
@@ -974,7 +979,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         bool matchesDefault = true;
 
         // Default Sorting Method
-        QString dbSortBy = db.GetUserData_String(username, Constants::UserT_Index_PWMan_DefSortingMethod);
+        QString dbSortBy = db.GetSettingsData_String(Constants::SettingsT_Index_PWMan_DefSortingMethod);
         QString uiSortBy = m_mainWindow->ui->comboBox_PWMan_SortBy->currentText();
         if (dbSortBy != uiSortBy) {
             matchesDatabase = false;
@@ -984,7 +989,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Require Password
-        QString dbReqPW = db.GetUserData_String(username, Constants::UserT_Index_PWMan_ReqPassword);
+        QString dbReqPW = db.GetSettingsData_String(Constants::SettingsT_Index_PWMan_ReqPassword);
         QString uiReqPW = m_mainWindow->ui->checkBox_PWMan_ReqPW->isChecked() ? "1" : "0";
         if (dbReqPW != uiReqPW) {
             matchesDatabase = false;
@@ -994,7 +999,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         }
 
         // Hide Passwords
-        QString dbHidePW = db.GetUserData_String(username, Constants::UserT_Index_PWMan_HidePasswords);
+        QString dbHidePW = db.GetSettingsData_String(Constants::SettingsT_Index_PWMan_HidePasswords);
         QString uiHidePW = m_mainWindow->ui->checkBox_PWMan_HidePWS->isChecked() ? "1" : "0";
         if (dbHidePW != uiHidePW) {
             matchesDatabase = false;
@@ -1020,7 +1025,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         bool matchesDefault = true;
 
         // Require Password
-        QString dbReqPW = db.GetUserData_String(username, Constants::UserT_Index_DataENC_ReqPassword);
+        QString dbReqPW = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_ReqPassword);
         QString uiReqPW = m_mainWindow->ui->checkBox_DataENC_ReqPW->isChecked() ? "1" : "0";
         if (dbReqPW != uiReqPW) {
             matchesDatabase = false;
@@ -1044,6 +1049,7 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
 void Operations_Settings::InitializeCustomCheckboxes()
 {
     QString username = m_mainWindow->user_Username;
+    QByteArray encryptionKey = m_mainWindow->user_Key;
 
     // Get the custom checkboxes
     custom_QCheckboxWidget* hidePasswordsCheckbox =
@@ -1065,9 +1071,12 @@ void Operations_Settings::InitializeCustomCheckboxes()
         hidePasswordsCheckbox->setRequireValidation(true);
         hidePasswordsCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
         // Add a database value getter for the Hide Passwords setting
-        hidePasswordsCheckbox->setDatabaseValueGetter([ username]() {
-            DatabaseAuthManager& db = DatabaseAuthManager::instance();
-            QString dbValue = db.GetUserData_String(username, Constants::UserT_Index_PWMan_HidePasswords);
+        hidePasswordsCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
+            DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
+            if (!db.connect(username, encryptionKey)) {
+                return false;
+            }
+            QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_PWMan_HidePasswords);
             return (dbValue == "1");
         });
     }
@@ -1077,9 +1086,12 @@ void Operations_Settings::InitializeCustomCheckboxes()
             "Disable 'Require Password' in Password Manager", username);
         reqPasswordCheckbox->setRequireValidation(true);
         reqPasswordCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
-        reqPasswordCheckbox->setDatabaseValueGetter([ username]() {
-            DatabaseAuthManager& db = DatabaseAuthManager::instance();
-            QString dbValue = db.GetUserData_String(username, Constants::UserT_Index_PWMan_ReqPassword);
+        reqPasswordCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
+            DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
+            if (!db.connect(username, encryptionKey)) {
+                return false;
+            }
+            QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_PWMan_ReqPassword);
             return (dbValue == "1");
         });
     }
@@ -1089,9 +1101,12 @@ void Operations_Settings::InitializeCustomCheckboxes()
             "Disable 'Ask Password on Close' in Account Settings", username);
         askPWOnCloseCheckbox->setRequireValidation(true);
         askPWOnCloseCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
-        askPWOnCloseCheckbox->setDatabaseValueGetter([ username]() {
-            DatabaseAuthManager& db = DatabaseAuthManager::instance();
-            QString dbValue = db.GetUserData_String(username, Constants::UserT_Index_AskPWAfterMinToTray);
+        askPWOnCloseCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
+            DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
+            if (!db.connect(username, encryptionKey)) {
+                return false;
+            }
+            QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_AskPWAfterMinToTray);
             return (dbValue == "1");
         });
     }
@@ -1101,9 +1116,12 @@ void Operations_Settings::InitializeCustomCheckboxes()
             "Disable 'Require Password' in Encrypted Data Settings", username);
         dataEncReqPWCheckbox->setRequireValidation(true);
         dataEncReqPWCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
-        dataEncReqPWCheckbox->setDatabaseValueGetter([ username]() {
-            DatabaseAuthManager& db = DatabaseAuthManager::instance();
-            QString dbValue = db.GetUserData_String(username, Constants::UserT_Index_DataENC_ReqPassword);
+        dataEncReqPWCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
+            DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
+            if (!db.connect(username, encryptionKey)) {
+                return false;
+            }
+            QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_ReqPassword);
             return (dbValue == "1");
         });
     }
@@ -1476,8 +1494,9 @@ QString Operations_Settings::getSettingsTypeFromTabObjectName(const QString& tab
 
 void Operations_Settings::Slot_ButtonPressed(const QString button)
 {
-    // Get the username from MainWindow
+    // Get the username and encryption key from MainWindow
     QString username = m_mainWindow->user_Username;
+    QByteArray encryptionKey = m_mainWindow->user_Key;
 
     if (username.isEmpty()) {
         qDebug() << "Cannot process button press: No username provided";
@@ -1494,7 +1513,7 @@ void Operations_Settings::Slot_ButtonPressed(const QString button)
     else if (button == Constants::SettingsButton_ResetGlobal) {
         // Validate password if needed before reset
         if (ValidatePassword(Constants::DBSettings_Type_Global)) {
-            if (Default_UserSettings::SetDefault_GlobalSettings(username)) {
+            if (Default_UserSettings::SetDefault_GlobalSettings(username, encryptionKey)) {
                 LoadSettings(Constants::DBSettings_Type_Global);
             }
         }
@@ -1508,7 +1527,7 @@ void Operations_Settings::Slot_ButtonPressed(const QString button)
         LoadSettings(Constants::DBSettings_Type_Diary);
     }
     else if (button == Constants::SettingsButton_ResetDiary) {
-        if (Default_UserSettings::SetDefault_DiarySettings(username)) {
+        if (Default_UserSettings::SetDefault_DiarySettings(username, encryptionKey)) {
             LoadSettings(Constants::DBSettings_Type_Diary);
         }
     }
@@ -1521,7 +1540,7 @@ void Operations_Settings::Slot_ButtonPressed(const QString button)
         LoadSettings(Constants::DBSettings_Type_Tasklists);
     }
     else if (button == Constants::SettingsButton_ResetTasklists) {
-        if (Default_UserSettings::SetDefault_TasklistsSettings(username)) {
+        if (Default_UserSettings::SetDefault_TasklistsSettings(username, encryptionKey)) {
             LoadSettings(Constants::DBSettings_Type_Tasklists);
         }
     }
@@ -1536,7 +1555,7 @@ void Operations_Settings::Slot_ButtonPressed(const QString button)
     else if (button == Constants::SettingsButton_ResetPWManager) {
         // Validate password if needed before reset
         if (ValidatePassword(Constants::DBSettings_Type_PWManager)) {
-            if (Default_UserSettings::SetDefault_PWManagerSettings(username)) {
+            if (Default_UserSettings::SetDefault_PWManagerSettings(username, encryptionKey)) {
                 LoadSettings(Constants::DBSettings_Type_PWManager);
             }
         }
@@ -1552,7 +1571,7 @@ void Operations_Settings::Slot_ButtonPressed(const QString button)
     else if (button == Constants::SettingsButton_ResetEncryptedData) {
         // Validate password if needed before reset
         if (ValidatePassword(Constants::DBSettings_Type_EncryptedData)) {
-            if (Default_UserSettings::SetDefault_EncryptedDataSettings(username)) {
+            if (Default_UserSettings::SetDefault_EncryptedDataSettings(username, encryptionKey)) {
                 LoadSettings(Constants::DBSettings_Type_EncryptedData);
             }
         }

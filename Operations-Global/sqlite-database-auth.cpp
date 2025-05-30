@@ -51,35 +51,6 @@ bool DatabaseAuthManager::IndexIsValid(QString index, QString type)
         columnTypes[Constants::UserT_Index_EncryptionKey] = Constants::DataType_QByteArray;
         columnTypes[Constants::UserT_Index_Salt] = Constants::DataType_QByteArray;
         columnTypes[Constants::UserT_Index_Iterations] = Constants::DataType_QString;
-
-        // Global Settings columns
-        columnTypes[Constants::UserT_Index_Displayname] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_DisplaynameColor] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_MinToTray] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_AskPWAfterMinToTray] = Constants::DataType_QString;
-
-        // Diary Settings columns
-        columnTypes[Constants::UserT_Index_Diary_TextSize] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_Diary_TStampTimer] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_Diary_TStampCounter] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_Diary_CanEditRecent] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_Diary_ShowTManLogs] = Constants::DataType_QString;
-
-        // Tasklists Settings columns
-        columnTypes[Constants::UserT_Index_TLists_TextSize] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_TLists_LogToDiary] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_TLists_TaskType] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_TLists_CMess] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_TLists_PMess] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_TLists_Notif] = Constants::DataType_QString;
-
-        // Password Manager Settings columns
-        columnTypes[Constants::UserT_Index_PWMan_DefSortingMethod] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_PWMan_ReqPassword] = Constants::DataType_QString;
-        columnTypes[Constants::UserT_Index_PWMan_HidePasswords] = Constants::DataType_QString;
-
-        // Encrypted Data Settings columns
-        columnTypes[Constants::UserT_Index_DataENC_ReqPassword] = Constants::DataType_QString;
     }
 
     // Check if the column exists in our map
@@ -267,6 +238,8 @@ bool DatabaseAuthManager::authMigrationCallback(int version)
         return migrateToV2();
     case 3:
         return migrateToV3();
+    case 4:
+        return migrateToV4();
     default:
         qWarning() << "No auth migration defined for version" << version;
         return false;
@@ -280,6 +253,8 @@ bool DatabaseAuthManager::authRollbackCallback(int version)
         return rollbackFromV2();
     case 3:
         return rollbackFromV3();
+    case 4:
+        return rollbackFromV4();
     default:
         qWarning() << "No auth rollback defined for version" << version;
         return false;
@@ -299,27 +274,27 @@ bool DatabaseAuthManager::migrateToV2()
     userTableColumns[Constants::UserT_Index_Salt] = "BLOB NOT NULL";
     userTableColumns[Constants::UserT_Index_Iterations] = "TEXT NOT NULL";
     // Global Settings
-    userTableColumns[Constants::UserT_Index_Displayname] = "TEXT";
-    userTableColumns[Constants::UserT_Index_DisplaynameColor] = "TEXT";
-    userTableColumns[Constants::UserT_Index_MinToTray] = "TEXT";
-    userTableColumns[Constants::UserT_Index_AskPWAfterMinToTray] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_Displayname] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_DisplaynameColor] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_MinToTray] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_AskPWAfterMinToTray] = "TEXT";
     // Diary Settings
-    userTableColumns[Constants::UserT_Index_Diary_TextSize] = "TEXT";
-    userTableColumns[Constants::UserT_Index_Diary_TStampTimer] = "TEXT";
-    userTableColumns[Constants::UserT_Index_Diary_TStampCounter] = "TEXT";
-    userTableColumns[Constants::UserT_Index_Diary_CanEditRecent] = "TEXT";
-    userTableColumns[Constants::UserT_Index_Diary_ShowTManLogs] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_Diary_TextSize] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_Diary_TStampTimer] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_Diary_TStampCounter] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_Diary_CanEditRecent] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_Diary_ShowTManLogs] = "TEXT";
     // Tasklists Settings
-    userTableColumns[Constants::UserT_Index_TLists_TextSize] = "TEXT";
-    userTableColumns[Constants::UserT_Index_TLists_LogToDiary] = "TEXT";
-    userTableColumns[Constants::UserT_Index_TLists_TaskType] = "TEXT";
-    userTableColumns[Constants::UserT_Index_TLists_CMess] = "TEXT";
-    userTableColumns[Constants::UserT_Index_TLists_PMess] = "TEXT";
-    userTableColumns[Constants::UserT_Index_TLists_Notif] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_TLists_TextSize] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_TLists_LogToDiary] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_TLists_TaskType] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_TLists_CMess] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_TLists_PMess] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_TLists_Notif] = "TEXT";
     // Password Manager Settings
-    userTableColumns[Constants::UserT_Index_PWMan_DefSortingMethod] = "TEXT";
-    userTableColumns[Constants::UserT_Index_PWMan_ReqPassword] = "TEXT";
-    userTableColumns[Constants::UserT_Index_PWMan_HidePasswords] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_PWMan_DefSortingMethod] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_PWMan_ReqPassword] = "TEXT";
+    userTableColumns[Constants::SettingsT_Index_PWMan_HidePasswords] = "TEXT";
 
     if (!m_dbManager.createTable("users", userTableColumns)) {
         qWarning() << "Failed to create users table:" << m_dbManager.lastError();
@@ -331,10 +306,49 @@ bool DatabaseAuthManager::migrateToV2()
 
 bool DatabaseAuthManager::migrateToV3()
 {
-    if (!m_dbManager.executeQuery("ALTER TABLE users ADD COLUMN " + Constants::UserT_Index_DataENC_ReqPassword + " TEXT")) {
+    if (!m_dbManager.executeQuery("ALTER TABLE users ADD COLUMN " + Constants::SettingsT_Index_DataENC_ReqPassword + " TEXT")) {
         qWarning() << "Failed to add DataENC_ReqPassword column to users table:" << m_dbManager.lastError();
         return false;
     }
+    return true;
+}
+
+bool DatabaseAuthManager::migrateToV4()
+{
+    // Remove all settings columns from users table
+    QStringList settingsColumns = {
+        "displayname",
+        "displaynamecolor",
+        "MinToTray",
+        "AskPWAfterMinToTray",
+        "Diary_TextSize",
+        "Diary_TStampTimer",
+        "Diary_TStampCounter",
+        "Diary_CanEditRecent",
+        "Diary_ShowTManLogs",
+        "TLists_TextSize",
+        "TLists_LogToDiary",
+        "TLists_TaskType",
+        "TLists_CMess",
+        "TLists_PMess",
+        "TLists_Notif",
+        "PWMan_DefSortingMethod",
+        "PWMan_ReqPassword",
+        "PWMan_HidePasswords",
+        "ENCRYPTEDDATA_ReqPassword"
+    };
+
+    // Remove each settings column
+    for (const QString& column : settingsColumns) {
+        if (!m_dbManager.removeColumn("users", column)) {
+            qWarning() << "Failed to remove column:" << column << "Error:" << m_dbManager.lastError();
+            // Continue with other columns even if one fails
+        } else {
+            qDebug() << "Successfully removed settings column:" << column;
+        }
+    }
+
+    qInfo() << "Migration to V4 completed - removed all settings columns from users table";
     return true;
 }
 
@@ -351,13 +365,56 @@ bool DatabaseAuthManager::rollbackFromV2()
 
 bool DatabaseAuthManager::rollbackFromV3()
 {
-    if (!m_dbManager.removeColumn("users", Constants::UserT_Index_DataENC_ReqPassword)) {
+    if (!m_dbManager.removeColumn("users", Constants::SettingsT_Index_DataENC_ReqPassword)) {
         qWarning() << "Failed to remove DataENC_ReqPassword column:" << m_dbManager.lastError();
         return false;
     }
     return true;
 }
 
+bool DatabaseAuthManager::rollbackFromV4()
+{
+    // Re-add all the settings columns that were removed in V4
+    // This is complex because we need to recreate the exact structure from V3
+
+    QStringList alterQueries = {
+        "ALTER TABLE users ADD COLUMN displayname TEXT",
+        "ALTER TABLE users ADD COLUMN displaynamecolor TEXT",
+        "ALTER TABLE users ADD COLUMN MinToTray TEXT",
+        "ALTER TABLE users ADD COLUMN AskPWAfterMinToTray TEXT",
+        "ALTER TABLE users ADD COLUMN Diary_TextSize TEXT",
+        "ALTER TABLE users ADD COLUMN Diary_TStampTimer TEXT",
+        "ALTER TABLE users ADD COLUMN Diary_TStampCounter TEXT",
+        "ALTER TABLE users ADD COLUMN Diary_CanEditRecent TEXT",
+        "ALTER TABLE users ADD COLUMN Diary_ShowTManLogs TEXT",
+        "ALTER TABLE users ADD COLUMN TLists_TextSize TEXT",
+        "ALTER TABLE users ADD COLUMN TLists_LogToDiary TEXT",
+        "ALTER TABLE users ADD COLUMN TLists_TaskType TEXT",
+        "ALTER TABLE users ADD COLUMN TLists_CMess TEXT",
+        "ALTER TABLE users ADD COLUMN TLists_PMess TEXT",
+        "ALTER TABLE users ADD COLUMN TLists_Notif TEXT",
+        "ALTER TABLE users ADD COLUMN PWMan_DefSortingMethod TEXT",
+        "ALTER TABLE users ADD COLUMN PWMan_ReqPassword TEXT",
+        "ALTER TABLE users ADD COLUMN PWMan_HidePasswords TEXT",
+        "ALTER TABLE users ADD COLUMN ENCRYPTEDDATA_ReqPassword TEXT"
+    };
+
+    bool success = true;
+    for (const QString& query : alterQueries) {
+        if (!m_dbManager.executeQuery(query)) {
+            qWarning() << "Failed to execute rollback query:" << query << "Error:" << m_dbManager.lastError();
+            success = false;
+        }
+    }
+
+    if (success) {
+        qInfo() << "Rollback from V4 completed - restored all settings columns to users table";
+    } else {
+        qWarning() << "Rollback from V4 had some failures";
+    }
+
+    return success;
+}
 
 //Generic Methods
 
@@ -409,7 +466,6 @@ bool DatabaseAuthManager::CreateUser(const QString& username, const QString& has
     userData[Constants::UserT_Index_EncryptionKey] = encryptionKey;
     userData[Constants::UserT_Index_Salt] = salt;
     userData[Constants::UserT_Index_Iterations] = "500000"; // Default iterations
-    userData[Constants::UserT_Index_Displayname] = displayName;
 
     return m_dbManager.insert("users", userData);
 }

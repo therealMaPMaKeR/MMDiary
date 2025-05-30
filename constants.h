@@ -45,30 +45,30 @@ extern const QString UserT_Index_Password;
 extern const QString UserT_Index_EncryptionKey;
 extern const QString UserT_Index_Salt;
 extern const QString UserT_Index_Iterations;
-// Users Database Table Indexes - Global Settings
-extern const QString UserT_Index_Displayname;
-extern const QString UserT_Index_DisplaynameColor;
-extern const QString UserT_Index_MinToTray;
-extern const QString UserT_Index_AskPWAfterMinToTray;
-// User Database Table Indexes - Diary Settings
-extern const QString UserT_Index_Diary_TextSize;
-extern const QString UserT_Index_Diary_TStampTimer;
-extern const QString UserT_Index_Diary_TStampCounter;
-extern const QString UserT_Index_Diary_CanEditRecent;
-extern const QString UserT_Index_Diary_ShowTManLogs;
-// User Database Table Indexes - Tasklist Settings
-extern const QString UserT_Index_TLists_LogToDiary;
-extern const QString UserT_Index_TLists_TaskType;
-extern const QString UserT_Index_TLists_CMess;
-extern const QString UserT_Index_TLists_PMess;
-extern const QString UserT_Index_TLists_Notif;
-extern const QString UserT_Index_TLists_TextSize;
-// User Database Table Indexes - Password Manager Settings
-extern const QString UserT_Index_PWMan_DefSortingMethod;
-extern const QString UserT_Index_PWMan_ReqPassword;
-extern const QString UserT_Index_PWMan_HidePasswords;
-// User Database Table Indexes - Encrypted Data Settings
-extern const QString UserT_Index_DataENC_ReqPassword;
+// Settings Database Table Indexes - Global Settings
+extern const QString SettingsT_Index_Displayname;
+extern const QString SettingsT_Index_DisplaynameColor;
+extern const QString SettingsT_Index_MinToTray;
+extern const QString SettingsT_Index_AskPWAfterMinToTray;
+// Settings Database Table Indexes - Diary Settings
+extern const QString SettingsT_Index_Diary_TextSize;
+extern const QString SettingsT_Index_Diary_TStampTimer;
+extern const QString SettingsT_Index_Diary_TStampCounter;
+extern const QString SettingsT_Index_Diary_CanEditRecent;
+extern const QString SettingsT_Index_Diary_ShowTManLogs;
+// Settings Database Table Indexes - Tasklist Settings
+extern const QString SettingsT_Index_TLists_LogToDiary;
+extern const QString SettingsT_Index_TLists_TaskType;
+extern const QString SettingsT_Index_TLists_CMess;
+extern const QString SettingsT_Index_TLists_PMess;
+extern const QString SettingsT_Index_TLists_Notif;
+extern const QString SettingsT_Index_TLists_TextSize;
+// Settings Database Table Indexes - Password Manager Settings
+extern const QString SettingsT_Index_PWMan_DefSortingMethod;
+extern const QString SettingsT_Index_PWMan_ReqPassword;
+extern const QString SettingsT_Index_PWMan_HidePasswords;
+// Settings Database Table Indexes - Encrypted Data Settings
+extern const QString SettingsT_Index_DataENC_ReqPassword;
 // Diary Text Codes
 extern const QString Diary_Spacer;
 extern const QString Diary_TextBlockStart;

@@ -12,6 +12,8 @@
 #include "Operations-Global/passwordvalidation.h"
 #include "Operations-Global/operations_files.h"
 #include "Operations-Global/sqlite-database-auth.h"
+#include "Operations-Global/sqlite-database-settings.h"
+#include "Operations-Global/default_usersettings.h"
 #include "constants.h"
 #include "loginscreen.h"
 #include "changepassword.h"
@@ -119,31 +121,54 @@ void MainWindow::FinishInitialization()
 {
     initFinished = false;
 
-    DatabaseAuthManager& db = DatabaseAuthManager::instance();
-    // Connect to the database
-    if (!db.connect()) {
-        qCritical() << "Failed to connect to database:" << db.lastError();
+    DatabaseAuthManager& authDb = DatabaseAuthManager::instance();
+    DatabaseSettingsManager& settingsDb = DatabaseSettingsManager::instance();
+
+    // Connect to the auth database
+    if (!authDb.connect()) {
+        qCritical() << "Failed to connect to auth database:" << authDb.lastError();
         return;
     }
 
-    if(db.GetUserData_String(user_Username,Constants::UserT_Index_Username) == "ERROR" || db.GetUserData_String(user_Username,Constants::UserT_Index_Username) == "INVALIDUSER")
+    // Check if user exists
+    if(authDb.GetUserData_String(user_Username,Constants::UserT_Index_Username) == "ERROR" ||
+        authDb.GetUserData_String(user_Username,Constants::UserT_Index_Username) == "INVALIDUSER")
     {
         qDebug() << "ERROR ACCESSING USER DATA FROM DATABASE";
         this->close();
+        return;
     }
-    else
-    {
-        user_Displayname = db.GetUserData_String(user_Username,Constants::UserT_Index_Displayname);
-        user_nameColor = db.GetUserData_String(user_Username,Constants::UserT_Index_DisplaynameColor);
-        fontSize = db.GetUserData_String(user_Username,Constants::UserT_Index_Diary_TextSize).toInt();
 
-        //Variables Init
-        Operations_Diary_ptr = new Operations_Diary(this);
-        Operations_PasswordManager_ptr = new Operations_PasswordManager(this);
-        Operations_TaskLists_ptr = new Operations_TaskLists(this, Operations_Diary_ptr);
-        Operations_Settings_ptr = new Operations_Settings(this);
-        Operations_EncryptedData_ptr = new Operations_EncryptedData(this);
-        CombinedDelegate *delegate = new CombinedDelegate(this);
+    // Connect to or create the settings database
+    if (!settingsDb.connect(user_Username, user_Key)) {
+        qCritical() << "Failed to connect to settings database";
+        this->close();
+        return;
+    }
+
+    // Check if settings database is empty (new user) and populate with defaults
+    QString testSetting = settingsDb.GetSettingsData_String(Constants::SettingsT_Index_Displayname);
+    if (testSetting == Constants::ErrorMessage_Default || testSetting.isEmpty()) {
+        qDebug() << "Settings database appears to be new, setting defaults";
+        if (!Default_UserSettings::SetAllDefaults(user_Username, user_Key)) {
+            qDebug() << "Failed to set default settings";
+            this->close();
+            return;
+        }
+    }
+
+    // Load settings from the settings database
+    user_Displayname = settingsDb.GetSettingsData_String(Constants::SettingsT_Index_Displayname);
+    user_nameColor = settingsDb.GetSettingsData_String(Constants::SettingsT_Index_DisplaynameColor);
+    fontSize = settingsDb.GetSettingsData_String(Constants::SettingsT_Index_Diary_TextSize).toInt();
+
+    //Variables Init
+    Operations_Diary_ptr = new Operations_Diary(this);
+    Operations_PasswordManager_ptr = new Operations_PasswordManager(this);
+    Operations_TaskLists_ptr = new Operations_TaskLists(this, Operations_Diary_ptr);
+    Operations_Settings_ptr = new Operations_Settings(this);
+    Operations_EncryptedData_ptr = new Operations_EncryptedData(this);
+    CombinedDelegate *delegate = new CombinedDelegate(this);
         //------------------ INITIALIZE SIGNALS ----------------//
         //Diary Signals
         connect(ui->DiaryTextInput, &custom_QTextEditWidget::customSignal,Operations_Diary_ptr, &Operations_Diary::on_DiaryTextInput_returnPressed);
@@ -191,7 +216,7 @@ void MainWindow::FinishInitialization()
                 Operations_EncryptedData_ptr, &Operations_EncryptedData::onSortTypeChanged);
         //trayIcon->showMessage("Title", "This is a notification message.", QSystemTrayIcon::Information, 3000);
         initFinished = true;
-    }
+
 }
 
 void MainWindow::ApplySettings()

@@ -5,7 +5,7 @@
 namespace Constants
 {
 // Global
-const QString AppVer = "4.1.6";
+const QString AppVer = "4.1.7";
 // Error Messages
 const QString ErrorMessage_Default = "ERROR";
 const QString ErrorMessage_INVUSER = "ERROR - INVALID USER";
@@ -69,6 +69,30 @@ const QString UserT_Index_PWMan_ReqPassword = "PWMan_ReqPassword";
 const QString UserT_Index_PWMan_HidePasswords = "PWMan_HidePasswords";
 // User Database Table Indexes - Encrypted Data Settings
 const QString UserT_Index_DataENC_ReqPassword = "ENCRYPTEDDATA_ReqPassword";
+// Settings Database Table Indexes - Global Settings
+const QString SettingsT_Index_Displayname = "displayname";
+const QString SettingsT_Index_DisplaynameColor = "displaynamecolor";
+const QString SettingsT_Index_MinToTray = "MinToTray";
+const QString SettingsT_Index_AskPWAfterMinToTray = "AskPWAfterMinToTray";
+// Settings Database Table Indexes - Diary Settings
+const QString SettingsT_Index_Diary_TextSize = "Diary_TextSize";
+const QString SettingsT_Index_Diary_TStampTimer = "Diary_TStampTimer";
+const QString SettingsT_Index_Diary_TStampCounter = "Diary_TStampCounter";
+const QString SettingsT_Index_Diary_CanEditRecent = "Diary_CanEditRecent";
+const QString SettingsT_Index_Diary_ShowTManLogs = "Diary_ShowTManLogs";
+// Settings Database Table Indexes - Tasklist Settings
+const QString SettingsT_Index_TLists_LogToDiary = "TLists_LogToDiary";
+const QString SettingsT_Index_TLists_TaskType = "TLists_TaskType";
+const QString SettingsT_Index_TLists_CMess = "TLists_CMess";
+const QString SettingsT_Index_TLists_PMess = "TLists_PMess";
+const QString SettingsT_Index_TLists_Notif = "TLists_Notif";
+const QString SettingsT_Index_TLists_TextSize = "TLists_TextSize";
+// Settings Database Table Indexes - Password Manager Settings
+const QString SettingsT_Index_PWMan_DefSortingMethod = "PWMan_DefSortingMethod";
+const QString SettingsT_Index_PWMan_ReqPassword = "PWMan_ReqPassword";
+const QString SettingsT_Index_PWMan_HidePasswords = "PWMan_HidePasswords";
+// Settings Database Table Indexes - Encrypted Data Settings
+const QString SettingsT_Index_DataENC_ReqPassword = "ENCRYPTEDDATA_ReqPassword";
 // Diary Text Codes
 const QString Diary_Spacer = "<!spacer!>";
 const QString Diary_TextBlockStart = "<!TextBlockStart!>";

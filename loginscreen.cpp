@@ -167,7 +167,7 @@ void loginscreen::on_pushButton_NewAccount_clicked()
             if (db.CreateUser(ui->lineEdit_Username->text(), hashedPassword, encryptedKey, salt, ui->lineEdit_Username->text())) {
                 qDebug() << "User created with ID:" << db.lastInsertId();
 
-                if(!Default_UserSettings::SetAllDefaults(ui->lineEdit_Username->text())) // set user defaults
+                if(!Default_UserSettings::SetAllDefaults(ui->lineEdit_Username->text(), encryptionKey)) // set user defaults
                 {
                     this->close(); // if unable to do so, exit app
                 }
