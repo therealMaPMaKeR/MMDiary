@@ -93,7 +93,26 @@ const QString SettingsT_Index_PWMan_ReqPassword = "PWMan_ReqPassword";
 const QString SettingsT_Index_PWMan_HidePasswords = "PWMan_HidePasswords";
 // Settings Database Table Indexes - Encrypted Data Settings
 const QString SettingsT_Index_DataENC_ReqPassword = "ENCRYPTEDDATA_ReqPassword";
-// Diary Text Codes
+//------------- Persistent Settings Database -----------//
+//Main window
+const QString PSettingsT_Index_MainWindow_SizeX = "PSettings_MW_SizeX";
+const QString PSettingsT_Index_MainWindow_SizeY = "PSettings_MW_SizeY";
+const QString PSettingsT_Index_MainWindow_PosX = "PSettings_MW_PosX";
+const QString PSettingsT_Index_MainWindow_PosY = "PSettings_MW_PosY";
+//MainTabWidget Tab Indexes
+const QString PSettingsT_Index_MainTabWidgetIndex_CurrentTabIndex = "PSettings_MTWI_CurrentTab";
+const QString PSettingsT_Index_MainTabWidgetIndex_Settings = "PSettings_MTWI_Settings";
+const QString PSettingsT_Index_MainTabWidgetIndex_Diary = "PSettings_MTWI_Diary";
+const QString PSettingsT_Index_MainTabWidgetIndex_Tasklists = "PSettings_MTWI_Tasklists";
+const QString PSettingsT_Index_MainTabWidgetIndex_PWManager = "PSettings_MTWI_PWManager";
+const QString PSettingsT_Index_MainTabWidgetIndex_EncryptedData = "PSettings_MTWI_EncryptedData";
+//Tasklists
+const QString PSettingsT_Index_TLists_CurrentList = "PSettings_TLists_CurrentList";
+const QString PSettingsT_Index_TLists_CurrentTask = "PSettings_TLists_CurrentTask";
+//Password Manager
+//Settings
+//Encrypted Data
+//-------------- Diary Text Codes ---------------//
 const QString Diary_Spacer = "<!spacer!>";
 const QString Diary_TextBlockStart = "<!TextBlockStart!>";
 const QString Diary_TextBlockEnd = "<!TextBlockEnd!>";

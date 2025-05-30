@@ -69,7 +69,26 @@ extern const QString SettingsT_Index_PWMan_ReqPassword;
 extern const QString SettingsT_Index_PWMan_HidePasswords;
 // Settings Database Table Indexes - Encrypted Data Settings
 extern const QString SettingsT_Index_DataENC_ReqPassword;
-// Diary Text Codes
+//------------- Persistent Settings Database -----------//
+//Main window
+extern const QString PSettingsT_Index_MainWindow_SizeX;
+extern const QString PSettingsT_Index_MainWindow_SizeY;
+extern const QString PSettingsT_Index_MainWindow_PosX;
+extern const QString PSettingsT_Index_MainWindow_PosY;
+//MainTabWidget Tab Indexes
+extern const QString PSettingsT_Index_MainTabWidgetIndex_CurrentTabIndex;
+extern const QString PSettingsT_Index_MainTabWidgetIndex_Settings;
+extern const QString PSettingsT_Index_MainTabWidgetIndex_Diary;
+extern const QString PSettingsT_Index_MainTabWidgetIndex_Tasklists;
+extern const QString PSettingsT_Index_MainTabWidgetIndex_PWManager;
+extern const QString PSettingsT_Index_MainTabWidgetIndex_EncryptedData;
+//Tasklists
+extern const QString PSettingsT_Index_TLists_CurrentList;
+extern const QString PSettingsT_Index_TLists_CurrentTask;
+//Password Manager
+//Settings
+//Encrypted Data
+//-------------- Diary Text Codes ---------------//
 extern const QString Diary_Spacer;
 extern const QString Diary_TextBlockStart;
 extern const QString Diary_TextBlockEnd;
