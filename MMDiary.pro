@@ -68,6 +68,7 @@ SOURCES += \
     Operations-Global/operations.cpp \
     Operations-Global/operations_files.cpp \
     Operations-Global/passwordvalidation.cpp \
+    Operations-Global/sqlite-database-auth.cpp \
     Operations-Global/sqlite-database-impl.cpp \
     QT_AESGCM256/aesgcm256.cpp \
     changepassword.cpp \
@@ -98,6 +99,7 @@ HEADERS += \
     Operations-Global/operations.h \
     Operations-Global/operations_files.h \
     Operations-Global/passwordvalidation.h \
+    Operations-Global/sqlite-database-auth.h \
     Operations-Global/sqlite-database-handler.h \
     QT_AESGCM256/aesgcm256.h \
     changepassword.h \
