@@ -18,8 +18,8 @@
 class DatabaseManager
 {
 public:
-    // Singleton access method
-    static DatabaseManager& instance();
+    DatabaseManager();
+    ~DatabaseManager();
 
     // Delete copy constructor and assignment operator
     DatabaseManager(const DatabaseManager&) = delete;
@@ -96,9 +96,6 @@ public:
     bool restoreFromBackup(const QString& backupPath = "");
 
 private:
-    // Private constructor for singleton
-    DatabaseManager();
-    ~DatabaseManager();
 
     // Database instance
     QSqlDatabase m_db;

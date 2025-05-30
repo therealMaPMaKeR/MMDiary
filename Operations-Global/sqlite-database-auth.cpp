@@ -2,9 +2,8 @@
 #include "constants.h"
 #include <QDebug>
 
-DatabaseAuthManager::DatabaseAuthManager() : m_dbManager(DatabaseManager::instance())
+DatabaseAuthManager::DatabaseAuthManager()
 {
-    // Constructor - database manager reference is initialized to singleton instance
 }
 
 DatabaseAuthManager::~DatabaseAuthManager()
@@ -315,40 +314,61 @@ bool DatabaseAuthManager::migrateToV3()
 
 bool DatabaseAuthManager::migrateToV4()
 {
-    // Remove all settings columns from users table
-    QStringList settingsColumns = {
-        "displayname",
-        "displaynamecolor",
-        "MinToTray",
-        "AskPWAfterMinToTray",
-        "Diary_TextSize",
-        "Diary_TStampTimer",
-        "Diary_TStampCounter",
-        "Diary_CanEditRecent",
-        "Diary_ShowTManLogs",
-        "TLists_TextSize",
-        "TLists_LogToDiary",
-        "TLists_TaskType",
-        "TLists_CMess",
-        "TLists_PMess",
-        "TLists_Notif",
-        "PWMan_DefSortingMethod",
-        "PWMan_ReqPassword",
-        "PWMan_HidePasswords",
-        "ENCRYPTEDDATA_ReqPassword"
-    };
+    // Instead of removing columns one by one (which recreates the table 19 times),
+    // we'll recreate the table once with only the core user columns
 
-    // Remove each settings column
-    for (const QString& column : settingsColumns) {
-        if (!m_dbManager.removeColumn("users", column)) {
-            qWarning() << "Failed to remove column:" << column << "Error:" << m_dbManager.lastError();
-            // Continue with other columns even if one fails
-        } else {
-            qDebug() << "Successfully removed settings column:" << column;
-        }
+    // Define the new table structure with only core user columns (no settings)
+    QMap<QString, QString> newUserTableColumns;
+    newUserTableColumns["id"] = "INTEGER PRIMARY KEY AUTOINCREMENT";
+    newUserTableColumns[Constants::UserT_Index_Username] = "TEXT NOT NULL UNIQUE";
+    newUserTableColumns[Constants::UserT_Index_Password] = "TEXT NOT NULL";
+    newUserTableColumns[Constants::UserT_Index_EncryptionKey] = "BLOB NOT NULL";
+    newUserTableColumns[Constants::UserT_Index_Salt] = "BLOB NOT NULL";
+    newUserTableColumns[Constants::UserT_Index_Iterations] = "TEXT NOT NULL";
+
+    // Create temporary table with new structure
+    QString tempTableName = "users_temp";
+    if (!m_dbManager.createTable(tempTableName, newUserTableColumns)) {
+        qWarning() << "Failed to create temporary users table:" << m_dbManager.lastError();
+        return false;
     }
 
-    qInfo() << "Migration to V4 completed - removed all settings columns from users table";
+    // Copy only the core user data (no settings columns)
+    QStringList coreColumns = {
+        "id",
+        Constants::UserT_Index_Username,
+        Constants::UserT_Index_Password,
+        Constants::UserT_Index_EncryptionKey,
+        Constants::UserT_Index_Salt,
+        Constants::UserT_Index_Iterations
+    };
+
+    QString copyQuery = QString("INSERT INTO %1 (%2) SELECT %2 FROM users")
+                            .arg(tempTableName, coreColumns.join(", "));
+
+    if (!m_dbManager.executeQuery(copyQuery)) {
+        qWarning() << "Failed to copy user data to temporary table:" << m_dbManager.lastError();
+        // Clean up temporary table
+        m_dbManager.dropTable(tempTableName);
+        return false;
+    }
+
+    // Drop original users table
+    if (!m_dbManager.dropTable("users")) {
+        qWarning() << "Failed to drop original users table:" << m_dbManager.lastError();
+        // Clean up temporary table
+        m_dbManager.dropTable(tempTableName);
+        return false;
+    }
+
+    // Rename temporary table to users
+    QString renameQuery = QString("ALTER TABLE %1 RENAME TO users").arg(tempTableName);
+    if (!m_dbManager.executeQuery(renameQuery)) {
+        qWarning() << "Failed to rename temporary table to users:" << m_dbManager.lastError();
+        return false;
+    }
+
+    qInfo() << "Migration to V4 completed - recreated users table with only core columns";
     return true;
 }
 

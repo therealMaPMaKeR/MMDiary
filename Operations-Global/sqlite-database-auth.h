@@ -52,12 +52,10 @@ public:
     int lastInsertId() const;
 
 private:
-    // Private constructor for singleton
     DatabaseAuthManager();
     ~DatabaseAuthManager();
 
-    // Reference to the singleton database manager instance
-    DatabaseManager& m_dbManager;
+    DatabaseManager m_dbManager;
 
     // Auth-specific migration methods
     bool migrateToV2();

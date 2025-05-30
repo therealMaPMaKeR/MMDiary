@@ -49,12 +49,11 @@ public:
     int lastInsertId() const;
 
 private:
-    // Private constructor for singleton
     DatabaseSettingsManager();
     ~DatabaseSettingsManager();
 
-    // Reference to the singleton database manager instance
-    DatabaseManager& m_dbManager;
+
+    DatabaseManager m_dbManager;
 
     // Current user info
     QString m_currentUsername;

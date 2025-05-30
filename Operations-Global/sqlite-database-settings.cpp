@@ -5,9 +5,8 @@
 #include <QFileInfo>
 #include <QMessageBox>
 
-DatabaseSettingsManager::DatabaseSettingsManager() : m_dbManager(DatabaseManager::instance())
+DatabaseSettingsManager::DatabaseSettingsManager()
 {
-    // Constructor - database manager reference is initialized to singleton instance
 }
 
 DatabaseSettingsManager::~DatabaseSettingsManager()
@@ -49,18 +48,30 @@ bool DatabaseSettingsManager::connect(const QString& username, const QByteArray&
         return false;
     }
 
-    // Validate encryption key if database exists and has data
-    if (!validateEncryptionKey()) {
-        qWarning() << "Encryption key validation failed for settings database";
-        // Close current connection
-        close();
+    // Check if this is a new database (no settings table)
+    bool isNewDatabase = !m_dbManager.tableExists("settings");
 
-        // Show error message and recreate
-        QMessageBox::warning(nullptr, "Settings Database Error",
-                             "Encryption key doesn't match for the settings database. The settings database appears corrupted. It has been recreated with default settings.");
+    if (isNewDatabase) {
+        // Initialize versioning for new database
+        if (!initializeVersioning()) {
+            qWarning() << "Failed to initialize versioning for settings database";
+            return false;
+        }
 
-        // Recreate the database
-        return createOrRecreateSettingsDatabase(username, encryptionKey);
+        // Run migrations to create tables
+        if (!migrateSettingsDatabase()) {
+            qWarning() << "Failed to migrate settings database";
+            return false;
+        }
+    } else {
+        // Validate encryption key for existing database
+        if (!validateEncryptionKey()) {
+            qWarning() << "Encryption key validation failed for settings database";
+            close();
+            QMessageBox::warning(nullptr, "Settings Database Error",
+                                 "Encryption key doesn't match for the settings database. The settings database appears corrupted. It has been recreated with default settings.");
+            return createOrRecreateSettingsDatabase(username, encryptionKey);
+        }
     }
 
     return true;

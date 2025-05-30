@@ -18,11 +18,6 @@ DatabaseManager::~DatabaseManager()
     close();
 }
 
-DatabaseManager& DatabaseManager::instance()
-{
-    static DatabaseManager instance;
-    return instance;
-}
 
 bool DatabaseManager::connect(const QString& dbPath)
 {
@@ -31,8 +26,16 @@ bool DatabaseManager::connect(const QString& dbPath)
         m_db.close();
     }
 
-    // Create database connection with a unique connection name
-    m_db = QSqlDatabase::addDatabase("QSQLITE", "MAIN_CONNECTION");
+    // Create a unique connection name based on the database path
+    QString connectionName = QString("CONNECTION_%1").arg(QString(dbPath).replace("/", "_").replace("\\", "_").replace(".", "_"));
+
+    // Remove any existing connection with this name
+    if (QSqlDatabase::contains(connectionName)) {
+        QSqlDatabase::removeDatabase(connectionName);
+    }
+
+    // Create database connection with the unique connection name
+    m_db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
     m_db.setDatabaseName(dbPath);
 
     bool success = m_db.open();
@@ -55,10 +58,14 @@ bool DatabaseManager::isConnected() const
 
 void DatabaseManager::close()
 {
+    QString connectionName;
     if (m_db.isOpen()) {
+        connectionName = m_db.connectionName();
         m_db.close();
     }
-    QSqlDatabase::removeDatabase("MAIN_CONNECTION");
+    if (!connectionName.isEmpty() && QSqlDatabase::contains(connectionName)) {
+        QSqlDatabase::removeDatabase(connectionName);
+    }
 }
 
 bool DatabaseManager::beginTransaction()
@@ -725,10 +732,8 @@ bool DatabaseManager::removeColumn(const QString& tableName, const QString& colu
         return false;
     }
 
-    // Start a transaction
-    if (!beginTransaction()) {
-        return false;
-    }
+    // Try to start a transaction - if it fails, we're already in one
+    bool weStartedTransaction = beginTransaction();
 
     // Get all columns except the one we want to remove
     QVector<QMap<QString, QVariant>> columns = select("pragma_table_info('" + tableName + "')");
@@ -765,37 +770,51 @@ bool DatabaseManager::removeColumn(const QString& tableName, const QString& colu
 
     if (columnNames.isEmpty()) {
         m_lastError = "Failed to get column information or table would be empty after removing the column";
-        rollbackTransaction();
+        if (weStartedTransaction) {
+            rollbackTransaction();
+        }
         return false;
     }
 
     // Create temporary table
     QString tempTableName = tableName + "_temp";
     if (!createTable(tempTableName, columnDefinitions)) {
-        rollbackTransaction();
+        if (weStartedTransaction) {
+            rollbackTransaction();
+        }
         return false;
     }
 
     // Copy data to the temporary table
     QString copyQuery = "INSERT INTO " + tempTableName + " SELECT " + columnNames.join(", ") + " FROM " + tableName;
     if (!executeQuery(copyQuery)) {
-        rollbackTransaction();
+        if (weStartedTransaction) {
+            rollbackTransaction();
+        }
         return false;
     }
 
     // Drop original table
     if (!dropTable(tableName)) {
-        rollbackTransaction();
+        if (weStartedTransaction) {
+            rollbackTransaction();
+        }
         return false;
     }
 
     // Rename temporary table
     QString renameQuery = "ALTER TABLE " + tempTableName + " RENAME TO " + tableName;
     if (!executeQuery(renameQuery)) {
-        rollbackTransaction();
+        if (weStartedTransaction) {
+            rollbackTransaction();
+        }
         return false;
     }
 
-    // Commit the transaction
-    return commitTransaction();
+    // Commit the transaction only if we started it
+    if (weStartedTransaction) {
+        return commitTransaction();
+    }
+
+    return true;
 }
