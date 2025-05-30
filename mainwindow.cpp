@@ -410,6 +410,44 @@ void MainWindow::LoadPersistentSettings()
         }
     }
 
+    // Load encrypted data settings
+    QString savedSortType = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_DataENC_SortType);
+    QString savedCategory = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_DataENC_CurrentCategory);
+    QString savedTags = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_DataENC_CurrentTags);
+
+    // Apply encrypted data settings if they exist and are valid
+    if (!savedSortType.isEmpty()) {
+        // Set the sort type combobox
+        int sortTypeIndex = ui->comboBox_DataENC_SortType->findText(savedSortType);
+        if (sortTypeIndex >= 0) {
+            ui->comboBox_DataENC_SortType->setCurrentIndex(sortTypeIndex);
+        }
+    }
+
+    // Apply category selection if saved category exists
+    if (!savedCategory.isEmpty()) {
+        int categoryIndex = Operations::GetIndexFromText(savedCategory, ui->listWidget_DataENC_Categories);
+        if (categoryIndex >= 0) {
+            ui->listWidget_DataENC_Categories->setCurrentRow(categoryIndex);
+        }
+    }
+
+    // Apply tags selection if saved tags exist (semicolon-separated)
+    if (!savedTags.isEmpty()) {
+        QStringList savedTagsList = savedTags.split(";", Qt::SkipEmptyParts);
+
+        // Iterate through all items in the tags list widget
+        for (int i = 0; i < ui->listWidget_DataENC_Tags->count(); ++i) {
+            QListWidgetItem* item = ui->listWidget_DataENC_Tags->item(i);
+            if (item) {
+                // Check if this tag text is in our saved tags list
+                QString tagText = item->text();
+                bool shouldBeChecked = savedTagsList.contains(tagText);
+                item->setCheckState(shouldBeChecked ? Qt::Checked : Qt::Unchecked);
+            }
+        }
+    }
+
     qDebug() << "Persistent settings loaded successfully";
 }
 
@@ -464,6 +502,41 @@ void MainWindow::SavePersistentSettings()
     // Save tasklist settings (encrypted since they might be sensitive)
     m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_TLists_CurrentList, currentList);
     m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_TLists_CurrentTask, currentTask);
+
+    // Save encrypted data settings
+    QString currentSortType = "";
+    QString currentCategory = "";
+    QString currentTags = "";
+
+    // Get current sort type from combobox
+    if (ui->comboBox_DataENC_SortType->currentIndex() >= 0) {
+        currentSortType = ui->comboBox_DataENC_SortType->currentText();
+    }
+
+    // Get current category selection
+    if (ui->listWidget_DataENC_Categories->currentItem()) {
+        currentCategory = ui->listWidget_DataENC_Categories->currentItem()->text();
+    }
+
+    // Get current tags selection (checked items)
+    QStringList checkedTags;
+    for (int i = 0; i < ui->listWidget_DataENC_Tags->count(); ++i) {
+        QListWidgetItem* item = ui->listWidget_DataENC_Tags->item(i);
+        if (item && item->checkState() == Qt::Checked) {
+            QString tagText = item->text();
+            checkedTags.append(tagText);
+        }
+    }
+
+    // Join checked tags with semicolon separator
+    if (!checkedTags.isEmpty()) {
+        currentTags = checkedTags.join(";");
+    }
+
+    // Save encrypted data settings (encrypted since they might be sensitive)
+    m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_DataENC_SortType, currentSortType);
+    m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_DataENC_CurrentCategory, currentCategory);
+    m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_DataENC_CurrentTags, currentTags);
 
     qDebug() << "Persistent settings saved successfully";
 }

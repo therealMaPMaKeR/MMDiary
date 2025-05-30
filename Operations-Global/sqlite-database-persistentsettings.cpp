@@ -206,6 +206,11 @@ bool DatabasePersistentSettingsManager::IndexIsValid(QString index, QString type
         // Tasklist settings (TEXT - potentially sensitive)
         columnTypes[Constants::PSettingsT_Index_TLists_CurrentList] = Constants::DataType_QString;
         columnTypes[Constants::PSettingsT_Index_TLists_CurrentTask] = Constants::DataType_QString;
+
+        // Encrypted Data settings (TEXT - potentially sensitive)
+        columnTypes[Constants::PSettingsT_Index_DataENC_CurrentCategory] = Constants::DataType_QString;
+        columnTypes[Constants::PSettingsT_Index_DataENC_CurrentTags] = Constants::DataType_QString;
+        columnTypes[Constants::PSettingsT_Index_DataENC_SortType] = Constants::DataType_QString;
     }
 
     // Check if the column exists in our map
@@ -498,6 +503,11 @@ bool DatabasePersistentSettingsManager::migrateToV2()
     // Tasklist settings (TEXT - encrypted due to potential sensitivity)
     persistentSettingsTableColumns[Constants::PSettingsT_Index_TLists_CurrentList] = "TEXT";
     persistentSettingsTableColumns[Constants::PSettingsT_Index_TLists_CurrentTask] = "TEXT";
+
+    // Encrypted Data settings (TEXT - encrypted due to potential sensitivity)
+    persistentSettingsTableColumns[Constants::PSettingsT_Index_DataENC_CurrentCategory] = "TEXT";
+    persistentSettingsTableColumns[Constants::PSettingsT_Index_DataENC_CurrentTags] = "TEXT";
+    persistentSettingsTableColumns[Constants::PSettingsT_Index_DataENC_SortType] = "TEXT";
 
     if (!m_dbManager.createTable("persistentSettingsTable", persistentSettingsTableColumns)) {
         qWarning() << "Failed to create persistent settings table:" << m_dbManager.lastError();

@@ -88,6 +88,9 @@ extern const QString PSettingsT_Index_TLists_CurrentTask;
 //Password Manager
 //Settings
 //Encrypted Data
+extern const QString PSettingsT_Index_DataENC_CurrentCategory;
+extern const QString PSettingsT_Index_DataENC_CurrentTags;
+extern const QString PSettingsT_Index_DataENC_SortType;
 //-------------- Diary Text Codes ---------------//
 extern const QString Diary_Spacer;
 extern const QString Diary_TextBlockStart;

@@ -112,6 +112,10 @@ const QString PSettingsT_Index_TLists_CurrentTask = "PSettings_TLists_CurrentTas
 //Password Manager
 //Settings
 //Encrypted Data
+//Encrypted Data
+const QString PSettingsT_Index_DataENC_CurrentCategory = "PSettings_DataENC_CurrentCategory";
+const QString PSettingsT_Index_DataENC_CurrentTags = "PSettings_DataENC_CurrentTags";
+const QString PSettingsT_Index_DataENC_SortType = "PSettings_DataENC_SortType";
 //-------------- Diary Text Codes ---------------//
 const QString Diary_Spacer = "<!spacer!>";
 const QString Diary_TextBlockStart = "<!TextBlockStart!>";
