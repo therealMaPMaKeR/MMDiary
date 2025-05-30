@@ -76,3 +76,7 @@ bool custom_QTabWidget_Main::eventFilter(QObject *watched, QEvent *event)
     // Pass event to parent class
     return QTabWidget::eventFilter(watched, event);
 }
+
+void custom_QTabWidget_Main::moveTab(int fromIndex, int toIndex) {
+    tabBar()->moveTab(fromIndex, toIndex);
+}

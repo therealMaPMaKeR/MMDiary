@@ -18,6 +18,8 @@ public:
     // Add a method to set the settings tab object name
     void setSettingsTabObjectName(const QString& tabObjectName);
 
+    void moveTab(int fromIndex, int toIndex);
+
 signals:
     // Signal to request password validation
     void passwordValidationRequested(int targetTabIndex, int currentIndex);

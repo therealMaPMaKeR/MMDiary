@@ -27,6 +27,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Initialization
     ui->setupUi(this);
     this->setWindowTitle("MMDiary");
+    m_persistentSettingsManager = nullptr;
     //set window sizes
     //this->setBaseSize(1280,573);
     //this->setMinimumWidth(800);
@@ -162,6 +163,7 @@ void MainWindow::FinishInitialization()
     user_nameColor = settingsDb.GetSettingsData_String(Constants::SettingsT_Index_DisplaynameColor);
     fontSize = settingsDb.GetSettingsData_String(Constants::SettingsT_Index_Diary_TextSize).toInt();
 
+
     //Variables Init
     Operations_Diary_ptr = new Operations_Diary(this);
     Operations_PasswordManager_ptr = new Operations_PasswordManager(this);
@@ -169,6 +171,17 @@ void MainWindow::FinishInitialization()
     Operations_Settings_ptr = new Operations_Settings(this);
     Operations_EncryptedData_ptr = new Operations_EncryptedData(this);
     CombinedDelegate *delegate = new CombinedDelegate(this);
+
+    // Initialize persistent settings manager
+    m_persistentSettingsManager = &DatabasePersistentSettingsManager::instance();
+
+    // Connect to persistent settings database and load settings
+    if (m_persistentSettingsManager->connect(user_Username, user_Key)) {
+        LoadPersistentSettings();
+    } else {
+        qDebug() << "Failed to connect to persistent settings database, using defaults";
+    }
+
         //------------------ INITIALIZE SIGNALS ----------------//
         //Diary Signals
         connect(ui->DiaryTextInput, &custom_QTextEditWidget::customSignal,Operations_Diary_ptr, &Operations_Diary::on_DiaryTextInput_returnPressed);
@@ -192,8 +205,6 @@ void MainWindow::FinishInitialization()
                 Operations_PasswordManager_ptr->on_SortByChanged(setting_PWMan_DefSortingMethod);
             }
         });
-        //start index for tab widget
-        ui->tabWidget_Main->setCurrentIndex(0); // set tab to Diary
         ui->comboBox_PWSortBy->setCurrentIndex(Operations::GetIndexFromText(setting_PWMan_DefSortingMethod, ui->comboBox_PWSortBy)); // set current value for pwmanager combo box to that of saved settings for default
         Operations_TaskLists_ptr->UpdateTasklistsTextSize(setting_TLists_TextSize); // set tasklist text size
         // Diary signals (fix lag on resize and zoom)
@@ -251,6 +262,210 @@ void MainWindow::showAndActivate() {
     show();
     raise();        // Raise the window above others
     activateWindow(); // Activate it to ensure focus
+}
+
+//-------- Persistent Settings ---------//
+
+void MainWindow::LoadPersistentSettings()
+{
+    if (!m_persistentSettingsManager || !m_persistentSettingsManager->isConnected()) {
+        return;
+    }
+
+    // Load main window size and position
+    int sizeX = m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainWindow_SizeX);
+    int sizeY = m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainWindow_SizeY);
+    int posX = m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainWindow_PosX);
+    int posY = m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainWindow_PosY);
+
+    // Apply window size if valid (> 0)
+    if (sizeX > 0 && sizeY > 0) {
+        resize(sizeX, sizeY);
+    }
+
+    // Apply window position if valid (>= 0)
+    if (posX >= 0 && posY >= 0) {
+        move(posX, posY);
+    }
+
+    // Load and apply tab order
+    struct TabOrderInfo {
+        QString objectName;
+        int savedPosition;
+        int currentPosition;
+        bool isValid;
+    };
+
+    QList<TabOrderInfo> tabOrder;
+
+    // Get saved positions for each tab
+    tabOrder.append({"tab_Settings",
+                     m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainTabWidgetIndex_Settings),
+                     Operations::GetTabIndexByObjectName("tab_Settings", ui->tabWidget_Main), false});
+    tabOrder.append({"tab_Diaries",
+                     m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainTabWidgetIndex_Diary),
+                     Operations::GetTabIndexByObjectName("tab_Diaries", ui->tabWidget_Main), false});
+    tabOrder.append({"tab_Tasklists",
+                     m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainTabWidgetIndex_Tasklists),
+                     Operations::GetTabIndexByObjectName("tab_Tasklists", ui->tabWidget_Main), false});
+    tabOrder.append({"tab_Passwords",
+                     m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainTabWidgetIndex_PWManager),
+                     Operations::GetTabIndexByObjectName("tab_Passwords", ui->tabWidget_Main), false});
+    tabOrder.append({"tab_DataEncryption",
+                     m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainTabWidgetIndex_EncryptedData),
+                     Operations::GetTabIndexByObjectName("tab_DataEncryption", ui->tabWidget_Main), false});
+
+    // Validate saved positions and mark valid entries
+    int totalTabs = ui->tabWidget_Main->count();
+    QList<int> usedPositions;
+
+    for (auto& tab : tabOrder) {
+        if (tab.currentPosition != -1 && tab.savedPosition >= 0 && tab.savedPosition < totalTabs) {
+            // Check for duplicate saved positions
+            if (!usedPositions.contains(tab.savedPosition)) {
+                tab.isValid = true;
+                usedPositions.append(tab.savedPosition);
+            }
+        }
+    }
+
+    // Check if we have valid saved tab order data
+    QList<TabOrderInfo> validTabs;
+    for (const auto& tab : tabOrder) {
+        if (tab.isValid) {
+            validTabs.append(tab);
+        }
+    }
+
+    // Debug: Print loaded positions
+    qDebug() << "Loading tab order - Valid tabs:" << validTabs.size() << "of" << tabOrder.size();
+
+    // Only reorder if we have valid data for all tabs AND positions are different from current
+    if (validTabs.size() == tabOrder.size()) {
+        // Check if reordering is actually needed
+        bool needsReordering = false;
+        for (const auto& tab : validTabs) {
+            if (tab.currentPosition != tab.savedPosition) {
+                needsReordering = true;
+                break;
+            }
+        }
+
+        if (needsReordering) {
+            qDebug() << "Reordering tabs to match saved configuration";
+
+            // Sort by saved position to get the desired order
+            std::sort(validTabs.begin(), validTabs.end(), [](const TabOrderInfo& a, const TabOrderInfo& b) {
+                return a.savedPosition < b.savedPosition;
+            });
+
+            // Apply the tab order by moving tabs to their correct positions
+            for (int targetPos = 0; targetPos < validTabs.size(); ++targetPos) {
+                const TabOrderInfo& tab = validTabs[targetPos];
+
+                // Find current position of this tab (it may have changed due to previous moves)
+                int currentPos = Operations::GetTabIndexByObjectName(tab.objectName, ui->tabWidget_Main);
+
+                if (currentPos != -1 && currentPos != targetPos) {
+                    qDebug() << "Moving tab" << tab.objectName << "from position" << currentPos << "to" << targetPos;
+                    // Move tab from current position to target position
+                    ui->tabWidget_Main->moveTab(currentPos, targetPos);
+                }
+            }
+
+            qDebug() << "Tab order restored from persistent settings";
+        } else {
+            qDebug() << "Tab order already matches saved configuration";
+        }
+    } else {
+        qDebug() << "Incomplete tab order data, keeping current order";
+    }
+
+    // Load main tab widget current tab (after reordering)
+    int currentTabIndex = m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainTabWidgetIndex_CurrentTabIndex);
+    if (currentTabIndex >= 0 && currentTabIndex < ui->tabWidget_Main->count()) {
+        ui->tabWidget_Main->setCurrentIndex(currentTabIndex);
+    }
+
+    // Load tasklist-specific settings
+    QString currentList = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_TLists_CurrentList);
+    QString currentTask = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_TLists_CurrentTask);
+
+    // Apply tasklist settings if they exist and are valid
+    if (!currentList.isEmpty() && Operations_TaskLists_ptr) {
+        // Find and select the tasklist if it exists
+        QListWidget* taskListWidget = ui->listWidget_TaskList_List;
+        for (int i = 0; i < taskListWidget->count(); ++i) {
+            if (taskListWidget->item(i)->text() == currentList) {
+                taskListWidget->setCurrentRow(i);
+
+                // Load the individual tasklist and try to select the task
+                if (!currentTask.isEmpty()) {
+                    Operations_TaskLists_ptr->LoadIndividualTasklist(currentList, currentTask);
+                } else {
+                    Operations_TaskLists_ptr->LoadIndividualTasklist(currentList, "NULL");
+                }
+                break;
+            }
+        }
+    }
+
+    qDebug() << "Persistent settings loaded successfully";
+}
+
+void MainWindow::SavePersistentSettings()
+{
+    if (!m_persistentSettingsManager || !m_persistentSettingsManager->isConnected()) {
+        return;
+    }
+
+    // Save main window size and position
+    QSize windowSize = size();
+    QPoint windowPos = pos();
+
+    m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainWindow_SizeX, windowSize.width());
+    m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainWindow_SizeY, windowSize.height());
+    m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainWindow_PosX, windowPos.x());
+    m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainWindow_PosY, windowPos.y());
+
+    // Save main tab widget current tab
+    int currentTabIndex = ui->tabWidget_Main->currentIndex();
+    m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainTabWidgetIndex_CurrentTabIndex, currentTabIndex);
+
+    // Save individual tab indices (for future use if tabs can be reordered)
+    // For now, we'll save the current static indices
+    m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainTabWidgetIndex_Settings,
+                                                                  Operations::GetTabIndexByObjectName("tab_Settings", ui->tabWidget_Main));
+    m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainTabWidgetIndex_Diary,
+                                                                  Operations::GetTabIndexByObjectName("tab_Diaries", ui->tabWidget_Main));
+    m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainTabWidgetIndex_Tasklists,
+                                                                  Operations::GetTabIndexByObjectName("tab_Tasklists", ui->tabWidget_Main));
+    m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainTabWidgetIndex_PWManager,
+                                                                  Operations::GetTabIndexByObjectName("tab_Passwords", ui->tabWidget_Main));
+    m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainTabWidgetIndex_EncryptedData,
+                                                                  Operations::GetTabIndexByObjectName("tab_DataEncryption", ui->tabWidget_Main));
+
+    // Save tasklist-specific settings
+    QString currentList = "";
+    QString currentTask = "";
+
+    // Get current selected tasklist
+    QListWidget* taskListWidget = ui->listWidget_TaskList_List;
+    if (taskListWidget->currentItem()) {
+        currentList = taskListWidget->currentItem()->text();
+    }
+
+    // Get current selected task
+    QListWidget* taskDisplayWidget = ui->listWidget_TaskListDisplay;
+    if (taskDisplayWidget->currentItem() && taskDisplayWidget->currentItem()->text() != "No tasks in this list") {
+        currentTask = taskDisplayWidget->currentItem()->text();
+    }
+
+    // Save tasklist settings (encrypted since they might be sensitive)
+    m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_TLists_CurrentList, currentList);
+    m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_TLists_CurrentTask, currentTask);
+
+    qDebug() << "Persistent settings saved successfully";
 }
 
 //----------------EventFilter--------------//
@@ -347,7 +562,13 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     else if(quitToLogin == false && setting_MinToTray == false) // close app entirely
     {
+        hide(); // first hide mainwindow so the user doesn't notice any delay
         OperationsFiles::cleanupAllUserTempFolders();
+        // Save persistent settings before closing
+        if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
+            SavePersistentSettings();
+            m_persistentSettingsManager->close();
+        }
         trayIcon->hide();
         trayIcon->disconnect();
         trayIcon->deleteLater();
@@ -355,7 +576,13 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     else if(quitToLogin == true) // log out
     {
+        hide(); // first hide mainwindow so the user doesn't notice any delay
         OperationsFiles::cleanupAllUserTempFolders();
+        // Save persistent settings before closing
+        if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
+            SavePersistentSettings();
+            m_persistentSettingsManager->close();
+        }
         trayIcon->hide();
         trayIcon->disconnect();
         trayIcon->deleteLater();

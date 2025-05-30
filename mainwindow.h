@@ -24,6 +24,7 @@
 #include "Operations-Global/sqlite-database-handler.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
 #include "Operations-Global/sqlite-database-auth.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
 #include "Operations-Global/sqlite-database-settings.h" // same
+#include "Operations-Global/sqlite-database-persistentsettings.h" //same
 
 //Forward Declarations
 class PasswordValidation;
@@ -149,6 +150,8 @@ private:
     Operations_Settings* Operations_Settings_ptr;
     Operations_EncryptedData* Operations_EncryptedData_ptr;
 
+    DatabasePersistentSettingsManager* m_persistentSettingsManager;
+
 signals:
     void passUsername_Signal(QString username);
 private slots:
@@ -253,5 +256,7 @@ private:
     void UpdateTasklistTextSize();
     QSystemTrayIcon *trayIcon;
     QMenu *trayMenu;
+    void LoadPersistentSettings();
+    void SavePersistentSettings();
 };
 #endif // MAINWINDOW_H

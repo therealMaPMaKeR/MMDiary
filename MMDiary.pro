@@ -70,6 +70,7 @@ SOURCES += \
     Operations-Global/passwordvalidation.cpp \
     Operations-Global/sqlite-database-auth.cpp \
     Operations-Global/sqlite-database-impl.cpp \
+    Operations-Global/sqlite-database-persistentsettings.cpp \
     Operations-Global/sqlite-database-settings.cpp \
     QT_AESGCM256/aesgcm256.cpp \
     changepassword.cpp \
@@ -102,6 +103,7 @@ HEADERS += \
     Operations-Global/passwordvalidation.h \
     Operations-Global/sqlite-database-auth.h \
     Operations-Global/sqlite-database-handler.h \
+    Operations-Global/sqlite-database-persistentsettings.h \
     Operations-Global/sqlite-database-settings.h \
     QT_AESGCM256/aesgcm256.h \
     changepassword.h \
