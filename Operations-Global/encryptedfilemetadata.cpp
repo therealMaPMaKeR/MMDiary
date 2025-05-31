@@ -515,12 +515,19 @@ QByteArray EncryptedFileMetadata::createMetadataChunk(const FileMetadata& metada
         chunk.append(tagBytes);
     }
 
-    // 4. NEW: Write thumbnail data
+    // 4. Write thumbnail data
     quint32 thumbnailLength = static_cast<quint32>(metadata.thumbnailData.size());
     chunk.append(reinterpret_cast<const char*>(&thumbnailLength), sizeof(thumbnailLength));
     if (thumbnailLength > 0) {
         chunk.append(metadata.thumbnailData);
         qDebug() << "Added thumbnail data to metadata chunk:" << thumbnailLength << "bytes";
+    }
+
+    // 5. NEW: Write encryption datetime (if valid)
+    if (metadata.encryptionDateTime.isValid()) {
+        qint64 encryptionTimestamp = metadata.encryptionDateTime.toMSecsSinceEpoch();
+        chunk.append(reinterpret_cast<const char*>(&encryptionTimestamp), sizeof(encryptionTimestamp));
+        qDebug() << "Added encryption datetime to metadata chunk:" << metadata.encryptionDateTime.toString();
     }
 
     // Check size limit for raw metadata
@@ -530,7 +537,7 @@ QByteArray EncryptedFileMetadata::createMetadataChunk(const FileMetadata& metada
         return QByteArray();
     }
 
-    qDebug() << "Created metadata chunk with thumbnail:" << chunk.size() << "bytes";
+    qDebug() << "Created metadata chunk with encryption date:" << chunk.size() << "bytes";
     return chunk;
 }
 
@@ -633,7 +640,7 @@ bool EncryptedFileMetadata::parseMetadataChunk(const QByteArray& chunk, FileMeta
             metadata.tags.append(tag);
         }
 
-        // 4. NEW: Read thumbnail data
+        // 4. Read thumbnail data
         quint32 thumbnailLength = 0;
         if (!safeRead(data, pos, totalSize, &thumbnailLength, sizeof(thumbnailLength))) {
             return false;
@@ -652,10 +659,30 @@ bool EncryptedFileMetadata::parseMetadataChunk(const QByteArray& chunk, FileMeta
             qDebug() << "Read thumbnail data from metadata:" << thumbnailLength << "bytes";
         }
 
-        // Verify we consumed all data
-        if (pos != totalSize) {
-            qWarning() << "Metadata chunk has extra data. Expected" << pos << "bytes, got" << totalSize;
+        // 5. NEW: Read encryption datetime (if available - backwards compatibility)
+        if (pos + static_cast<int>(sizeof(qint64)) <= totalSize) {
+            qint64 encryptionTimestamp = 0;
+            if (safeRead(data, pos, totalSize, &encryptionTimestamp, sizeof(encryptionTimestamp))) {
+                metadata.encryptionDateTime = QDateTime::fromMSecsSinceEpoch(encryptionTimestamp);
+                qDebug() << "Read encryption datetime from metadata:" << metadata.encryptionDateTime.toString();
+            } else {
+                qDebug() << "Failed to read encryption datetime, but continuing (backwards compatibility)";
+                // Don't return false here - this is backwards compatibility
+            }
+        } else {
+            qDebug() << "No encryption datetime in metadata (backwards compatibility with older files)";
+        }
+
+        // Verify we consumed all or almost all data (allow for missing datetime in old files)
+        if (pos > totalSize) {
+            qWarning() << "Metadata chunk read overflow. Position" << pos << "exceeds total size" << totalSize;
             return false;
+        } else if (pos < totalSize) {
+            int remainingBytes = totalSize - pos;
+            if (remainingBytes != sizeof(qint64)) {
+                qDebug() << "Metadata chunk has" << remainingBytes << "unexpected remaining bytes (expected 0 or 8 for datetime)";
+                // This could be normal for old files or files with different formatting, so don't fail
+            }
         }
 
         return true;

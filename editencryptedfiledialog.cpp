@@ -72,40 +72,47 @@ void EditEncryptedFileDialog::splitFilenameAndExtension(const QString& fullFilen
 
 void EditEncryptedFileDialog::loadCurrentMetadata()
 {
+    qDebug() << "Loading current metadata for editing, preserving encryption datetime";
+
+    // Clear any existing metadata
+    m_originalMetadata = EncryptedFileMetadata::FileMetadata();
+
     if (!m_metadataManager) {
         qWarning() << "Metadata manager not initialized";
         return;
     }
 
-    // Check if file has new metadata format
-    if (m_metadataManager->hasNewFormat(m_encryptedFilePath)) {
-        // Load metadata from file
-        if (!m_metadataManager->readMetadataFromFile(m_encryptedFilePath, m_originalMetadata)) {
-            qWarning() << "Failed to read metadata from file:" << m_encryptedFilePath;
+    // Try to read the current metadata (this will include encryption datetime if available)
+    if (!m_metadataManager->readMetadataFromFile(m_encryptedFilePath, m_originalMetadata)) {
+        qWarning() << "Failed to read metadata from file:" << m_encryptedFilePath;
+        qWarning() << "File may have corrupted metadata - creating minimal metadata for editing";
 
-            // Fallback: try to get just the filename
-            QString filename = m_metadataManager->getFilenameFromFile(m_encryptedFilePath);
-            if (!filename.isEmpty()) {
-                m_originalMetadata = EncryptedFileMetadata::FileMetadata(filename);
-            } else {
-                // Last resort: use the encrypted filename
-                QFileInfo fileInfo(m_encryptedFilePath);
-                m_originalMetadata = EncryptedFileMetadata::FileMetadata(fileInfo.fileName());
-            }
-        }
-    } else {
-        // Old format file - try to extract filename only
-        QString filename = m_metadataManager->getFilenameFromFile(m_encryptedFilePath);
-        if (!filename.isEmpty()) {
-            m_originalMetadata = EncryptedFileMetadata::FileMetadata(filename);
+        // Create minimal metadata with just the filename extracted from encrypted filename
+        QFileInfo fileInfo(m_encryptedFilePath);
+        QString fullFileName = fileInfo.fileName(); // e.g., "randomstring.jpg.mmenc"
+
+        if (fullFileName.endsWith(".mmenc", Qt::CaseInsensitive)) {
+            m_originalMetadata.filename = fullFileName.left(fullFileName.length() - 6);
         } else {
-            // Fallback to encrypted filename
-            QFileInfo fileInfo(m_encryptedFilePath);
-            m_originalMetadata = EncryptedFileMetadata::FileMetadata(fileInfo.fileName());
+            m_originalMetadata.filename = fileInfo.baseName();
+        }
+
+        // Note: encryptionDateTime will remain invalid for corrupted files
+        qDebug() << "Created minimal metadata with filename:" << m_originalMetadata.filename;
+    } else {
+        qDebug() << "Successfully loaded metadata:";
+        qDebug() << "  Filename:" << m_originalMetadata.filename;
+        qDebug() << "  Category:" << m_originalMetadata.category;
+        qDebug() << "  Tags:" << m_originalMetadata.tags.join(", ");
+        qDebug() << "  Has thumbnail:" << (!m_originalMetadata.thumbnailData.isEmpty());
+        qDebug() << "  Has encryption date:" << m_originalMetadata.hasEncryptionDateTime();
+
+        if (m_originalMetadata.hasEncryptionDateTime()) {
+            qDebug() << "  Encryption date:" << m_originalMetadata.encryptionDateTime.toString();
         }
     }
 
-    // NEW: Split the filename into base name and extension
+    // Split the filename into base name and extension
     QString baseName;
     splitFilenameAndExtension(m_originalMetadata.filename, baseName, m_originalExtension);
 
@@ -118,7 +125,7 @@ void EditEncryptedFileDialog::loadCurrentMetadata()
 
 void EditEncryptedFileDialog::populateFields()
 {
-    // NEW: Split filename and only show the base name (without extension)
+    // Split filename and only show the base name (without extension)
     QString baseName;
     QString extension; // We already have m_originalExtension, but this is for clarity
     splitFilenameAndExtension(m_originalMetadata.filename, baseName, extension);
@@ -137,11 +144,20 @@ void EditEncryptedFileDialog::populateFields()
     ui->lineEdit_Filename->setFocus();
     ui->lineEdit_Filename->selectAll();
 
-    // Optional: Update window title or add a label to show the extension
-    if (!m_originalExtension.isEmpty()) {
-        QString windowTitle = QString("Edit File: %1%2").arg(baseName, m_originalExtension);
-        setWindowTitle(windowTitle);
+    // Update window title to show the extension and optionally encryption date
+    QString windowTitle = QString("Edit File: %1%2").arg(baseName, m_originalExtension);
+
+    // NEW: Optionally show encryption date in window title or status
+    if (m_originalMetadata.hasEncryptionDateTime()) {
+        QString encryptionDateStr = m_originalMetadata.encryptionDateTime.toString("MMM dd, yyyy hh:mm");
+        windowTitle += QString(" (Encrypted: %1)").arg(encryptionDateStr);
+        qDebug() << "Displaying encryption date in edit dialog:" << encryptionDateStr;
+    } else {
+        windowTitle += " (Legacy file)";
+        qDebug() << "No encryption date available for display";
     }
+
+    setWindowTitle(windowTitle);
 }
 
 bool EditEncryptedFileDialog::validateAllInputs()
@@ -179,7 +195,7 @@ bool EditEncryptedFileDialog::validateFilename(const QString& filename)
         return false;
     }
 
-    // NEW: Create the full filename for validation (base name + extension)
+    // Create the full filename for validation (base name + extension)
     QString fullFilename = filename + m_originalExtension;
 
     // Use existing filename validation on the full filename
@@ -313,6 +329,8 @@ bool EditEncryptedFileDialog::validateTags(const QString& tagsString, QStringLis
 
 bool EditEncryptedFileDialog::saveMetadata()
 {
+    qDebug() << "Saving metadata with encryption datetime preservation";
+
     if (!m_metadataManager) {
         qWarning() << "Metadata manager not initialized";
         return false;
@@ -323,7 +341,7 @@ bool EditEncryptedFileDialog::saveMetadata()
     QString category = ui->lineEdit_Category->text().trimmed();
     QString tagsString = ui->lineEdit_Tags->text().trimmed();
 
-    // NEW: Reconstruct the full filename with the original extension
+    // Reconstruct the full filename with the original extension
     QString fullFilename = baseName + m_originalExtension;
 
     qDebug() << "Reconstructing filename - Base:" << baseName
@@ -336,10 +354,25 @@ bool EditEncryptedFileDialog::saveMetadata()
         return false; // Validation should have shown error message
     }
 
-    // FIXED: Create new metadata with the original thumbnail data preserved
-    EncryptedFileMetadata::FileMetadata newMetadata(fullFilename, category, tags, m_originalMetadata.thumbnailData);
+    // UPDATED: Create new metadata structure with all preserved data
+    EncryptedFileMetadata::FileMetadata newMetadata;
+    newMetadata.filename = fullFilename;
+    newMetadata.category = category;
+    newMetadata.tags = tags;
 
-    // Check if metadata actually changed (excluding thumbnail data since we're preserving it)
+    // CRITICAL: Preserve existing thumbnail data
+    newMetadata.thumbnailData = m_originalMetadata.thumbnailData;
+
+    // CRITICAL: Preserve existing encryption datetime if it exists
+    if (m_originalMetadata.hasEncryptionDateTime()) {
+        newMetadata.encryptionDateTime = m_originalMetadata.encryptionDateTime;
+        qDebug() << "Preserved encryption datetime during edit:" << newMetadata.encryptionDateTime.toString();
+    } else {
+        qDebug() << "No encryption datetime to preserve (older file format or corrupted metadata)";
+        // Leave encryptionDateTime invalid for files that don't have it
+    }
+
+    // Check if metadata actually changed (excluding thumbnail and datetime since we're preserving them)
     bool hasChanges = (newMetadata.filename != m_originalMetadata.filename ||
                        newMetadata.category != m_originalMetadata.category ||
                        newMetadata.tags != m_originalMetadata.tags);
@@ -349,11 +382,12 @@ bool EditEncryptedFileDialog::saveMetadata()
         return true; // No changes, but that's OK
     }
 
-    qDebug() << "Saving metadata changes (preserving thumbnail):"
+    qDebug() << "Saving metadata changes (preserving thumbnail and encryption datetime):"
              << "Old filename:" << m_originalMetadata.filename << "-> New:" << newMetadata.filename
              << "Old category:" << m_originalMetadata.category << "-> New:" << newMetadata.category
              << "Old tags:" << m_originalMetadata.tags << "-> New:" << newMetadata.tags
-             << "Thumbnail preserved:" << (!newMetadata.thumbnailData.isEmpty()) << "bytes:" << newMetadata.thumbnailData.size();
+             << "Thumbnail preserved:" << (!newMetadata.thumbnailData.isEmpty()) << "bytes:" << newMetadata.thumbnailData.size()
+             << "Encryption date preserved:" << newMetadata.hasEncryptionDateTime();
 
     // Save metadata to file
     if (!m_metadataManager->updateMetadataInFile(m_encryptedFilePath, newMetadata)) {
@@ -362,7 +396,7 @@ bool EditEncryptedFileDialog::saveMetadata()
         return false;
     }
 
-    qDebug() << "Successfully saved metadata changes with preserved thumbnail";
+    qDebug() << "Successfully saved metadata changes with preserved thumbnail and encryption datetime";
     return true;
 }
 

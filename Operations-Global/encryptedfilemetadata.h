@@ -6,6 +6,7 @@
 #include <QStringList>
 #include <QByteArray>
 #include <QPixmap>
+#include <QDateTime>
 #include "constants.h"
 
 class EncryptedFileMetadata
@@ -16,7 +17,8 @@ public:
         QString filename;
         QString category;
         QStringList tags;
-        QByteArray thumbnailData; // NEW: Embedded thumbnail data (compressed JPEG)
+        QByteArray thumbnailData; // Embedded thumbnail data (compressed JPEG)
+        QDateTime encryptionDateTime; // NEW: When the file was first encrypted
 
         // Default constructor
         FileMetadata() = default;
@@ -24,13 +26,23 @@ public:
         // Constructor with filename only (for initial encryption)
         explicit FileMetadata(const QString& fname) : filename(fname) {}
 
-        // Full constructor without thumbnail
+        // Full constructor without thumbnail and encryption date
         FileMetadata(const QString& fname, const QString& cat, const QStringList& tagList)
             : filename(fname), category(cat), tags(tagList) {}
 
-        // NEW: Full constructor with thumbnail
+        // Full constructor with thumbnail but no encryption date
         FileMetadata(const QString& fname, const QString& cat, const QStringList& tagList, const QByteArray& thumb)
             : filename(fname), category(cat), tags(tagList), thumbnailData(thumb) {}
+
+        // NEW: Full constructor with thumbnail and encryption date
+        FileMetadata(const QString& fname, const QString& cat, const QStringList& tagList,
+                     const QByteArray& thumb, const QDateTime& encDateTime)
+            : filename(fname), category(cat), tags(tagList), thumbnailData(thumb), encryptionDateTime(encDateTime) {}
+
+        // NEW: Helper method to check if encryption date is available
+        bool hasEncryptionDateTime() const {
+            return encryptionDateTime.isValid();
+        }
     };
 
     // Constructor - takes encryption key and username for operations
@@ -51,11 +63,11 @@ public:
     // Create metadata chunk for use during encryption (without writing to file)
     QByteArray createEncryptedMetadataChunk(const FileMetadata& metadata);
 
-    // NEW: Thumbnail handling methods
+    // Thumbnail handling methods
     QPixmap getThumbnailFromFile(const QString& filePath, int size = 64);
     bool hasThumbnail(const QString& filePath);
 
-    // NEW: Static thumbnail utility methods
+    // Static thumbnail utility methods
     static QByteArray compressThumbnail(const QPixmap& thumbnail, int quality = 85);
     static QPixmap decompressThumbnail(const QByteArray& thumbnailData);
     static QPixmap createThumbnailFromImage(const QString& imagePath, int size = 64);
@@ -82,7 +94,7 @@ private:
     QByteArray createMetadataChunk(const FileMetadata& metadata);
     bool parseMetadataChunk(const QByteArray& chunk, FileMetadata& metadata);
 
-    // UPDATED: Fixed-size metadata operations
+    // Fixed-size metadata operations
     QByteArray createFixedSizeEncryptedMetadata(const FileMetadata& metadata);
     bool readFixedSizeEncryptedMetadata(QIODevice* file, FileMetadata& metadata);
     bool writeFixedSizeEncryptedMetadata(QIODevice* file, const FileMetadata& metadata);

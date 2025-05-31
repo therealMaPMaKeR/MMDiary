@@ -134,6 +134,10 @@ void EncryptionWorker::doEncryption()
         QStringList imageExtensions = {"jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "webp"};
         QStringList videoExtensions = {"mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp", "mpg", "mpeg"};
 
+        // Get current datetime for new encryptions
+                QDateTime encryptionDateTime = QDateTime::currentDateTime();
+                qDebug() << "Setting encryption datetime for new files:" << encryptionDateTime.toString();
+
         // Process each file
         for (int fileIndex = 0; fileIndex < m_sourceFiles.size(); ++fileIndex) {
             // Check for cancellation
@@ -231,8 +235,8 @@ void EncryptionWorker::doEncryption()
                 }
             }
 
-            // Create metadata with filename and thumbnail
-            EncryptedFileMetadata::FileMetadata metadata(originalFilename, "", QStringList(), thumbnailData);
+            // Create metadata with filename and thumbnail and encryption datetime
+            EncryptedFileMetadata::FileMetadata metadata(originalFilename, "", QStringList(), thumbnailData, encryptionDateTime);
 
             // Create fixed-size encrypted metadata block (40KB) - this includes the size header internally
             QByteArray fixedSizeMetadata = m_metadataManager->createEncryptedMetadataChunk(metadata);
@@ -2999,6 +3003,32 @@ void Operations_EncryptedData::updateFileListDisplay()
     qDebug() << "Final filtered files count (after search):" << finalFilteredFiles.size()
              << "Search text: '" << m_currentSearchText << "'";
 
+    // Sort files by encryption date (newest first), with files without date at bottom
+    std::sort(finalFilteredFiles.begin(), finalFilteredFiles.end(), [this](const QString& a, const QString& b) {
+        const EncryptedFileMetadata::FileMetadata& metadataA = m_fileMetadataCache[a];
+        const EncryptedFileMetadata::FileMetadata& metadataB = m_fileMetadataCache[b];
+
+        bool hasDateA = metadataA.hasEncryptionDateTime();
+        bool hasDateB = metadataB.hasEncryptionDateTime();
+
+        // Files without encryption date go to bottom
+        if (!hasDateA && !hasDateB) {
+            // Both files have no date - maintain current order (or sort alphabetically)
+            return metadataA.filename < metadataB.filename;
+        }
+        if (!hasDateA && hasDateB) {
+            return false; // A goes after B (A has no date)
+        }
+        if (hasDateA && !hasDateB) {
+            return true; // A goes before B (B has no date)
+        }
+
+        // Both files have dates - sort by date (newest first)
+        return metadataA.encryptionDateTime > metadataB.encryptionDateTime;
+    });
+
+    qDebug() << "Sorted files by encryption date (newest first, files without date at bottom)";
+
     // Create list items for filtered files with thumbnail caching and hiding logic
     for (const QString& encryptedFilePath : finalFilteredFiles) {
         const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[encryptedFilePath];
@@ -3009,7 +3039,7 @@ void Operations_EncryptedData::updateFileListDisplay()
         EncryptedFileItemWidget* customWidget = new EncryptedFileItemWidget();
         customWidget->setFileInfo(metadata.filename, encryptedFilePath, fileTypeDir);
 
-        // UPDATED: Thumbnail logic with hiding settings
+        // Thumbnail logic with hiding settings
         QPixmap icon;
         bool hasEmbeddedThumbnail = !metadata.thumbnailData.isEmpty();
 
@@ -3049,11 +3079,16 @@ void Operations_EncryptedData::updateFileListDisplay()
 
         customWidget->setIcon(icon);
 
-        // Create list widget item (same as before)
+        // Create list widget item
         QListWidgetItem* item = new QListWidgetItem();
         item->setData(Qt::UserRole, encryptedFilePath);
         item->setData(Qt::UserRole + 1, fileTypeDir);
         item->setData(Qt::UserRole + 2, metadata.filename);
+
+        // Store Encryption datetime for potential future use
+        if (metadata.hasEncryptionDateTime()) {
+            item->setData(Qt::UserRole + 3, metadata.encryptionDateTime);
+        }
 
         int itemHeight = EncryptedFileItemWidget::getIconSize() + 8;
         item->setSizeHint(QSize(0, itemHeight));
