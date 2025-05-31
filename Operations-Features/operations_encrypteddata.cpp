@@ -2978,13 +2978,6 @@ void Operations_EncryptedData::updateButtonStates()
     QString disabledStyle = "color: #888888; background-color: #444444;";
     QString enabledStyle = ""; // Default style
 
-    // Update Decrypt button
-    m_mainWindow->ui->pushButton_DataENC_Decrypt->setEnabled(hasSelection);
-    m_mainWindow->ui->pushButton_DataENC_Decrypt->setStyleSheet(hasSelection ? enabledStyle : disabledStyle);
-
-    // Update Delete File button
-    m_mainWindow->ui->pushButton_DataENC_DeleteFile->setEnabled(hasSelection);
-    m_mainWindow->ui->pushButton_DataENC_DeleteFile->setStyleSheet(hasSelection ? enabledStyle : disabledStyle);
 }
 
 // ============================================================================

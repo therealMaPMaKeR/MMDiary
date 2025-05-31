@@ -236,10 +236,6 @@ private slots:
 
     void on_pushButton_ChangeLog_clicked();
 
-    void on_pushButton_DataENC_Decrypt_clicked();
-
-    void on_pushButton_DataENC_DeleteFile_clicked();
-
     void on_pushButton_DataENC_SecureDel_clicked();
 
     void on_pushButton_DataENC_Save_clicked();
@@ -250,7 +246,6 @@ private slots:
 
     void on_checkBox_DataENC_ReqPW_stateChanged(int arg1);
 
-    void on_pushButton_DataENC_DecryptALL_clicked();
 
 private:
     void UpdateTasklistTextSize();

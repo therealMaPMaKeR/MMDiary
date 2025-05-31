@@ -113,6 +113,7 @@ HEADERS += \
     mainwindow.h
 
 FORMS += \
+    HiddenItemsList.ui \
     Operations-Features/passwordmanager_addpassword.ui \
     Operations-Features/tasklists_addtask.ui \
     Operations-Global/passwordvalidation.ui \
