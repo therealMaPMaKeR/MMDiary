@@ -505,6 +505,12 @@ private:
     QMap<QString, QPixmap> m_thumbnailCache; // Cache for decompressed thumbnails
     void clearThumbnailCache();
 
+    // Case-insensitive display name caching
+    QMap<QString, QString> m_categoryDisplayNames;  // Maps lowercase category -> most common casing
+    QMap<QString, QString> m_tagDisplayNames;       // Maps lowercase tag -> most common casing
+
+    void analyzeCaseInsensitiveDisplayNames();
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();

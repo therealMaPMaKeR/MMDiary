@@ -2584,7 +2584,7 @@ QString Operations_EncryptedData::mapDirectoryToSortType(const QString& director
 
 void Operations_EncryptedData::populateEncryptedFilesList()
 {
-    qDebug() << "Starting populateEncryptedFilesList with embedded thumbnails";
+    qDebug() << "Starting populateEncryptedFilesList with embedded thumbnails and case-insensitive categories/tags";
 
     // Clear thumbnail cache when repopulating files
     clearThumbnailCache();
@@ -2598,7 +2598,9 @@ void Operations_EncryptedData::populateEncryptedFilesList()
     // Clear current state
     m_fileMetadataCache.clear();
     m_currentFilteredFiles.clear();
-    // NOTE: m_pendingThumbnailItems removed - no longer needed
+    // Clear case-insensitive display name caches
+    m_categoryDisplayNames.clear();
+    m_tagDisplayNames.clear();
 
     // Get current sort type from combo box
     QString currentSortType = m_mainWindow->ui->comboBox_DataENC_SortType->currentText();
@@ -2669,9 +2671,10 @@ void Operations_EncryptedData::populateEncryptedFilesList()
 
     qDebug() << "Loaded metadata for" << m_fileMetadataCache.size() << "files";
 
-    // NOTE: Thumbnail cleanup removed - no longer needed
+    // NEW: Analyze case-insensitive display names after loading all metadata
+    analyzeCaseInsensitiveDisplayNames();
 
-    // Populate categories list based on loaded metadata
+    // Populate categories list based on loaded metadata (now case-insensitive)
     populateCategoriesList();
 
     // Reset category selection to "All"
@@ -2682,42 +2685,38 @@ void Operations_EncryptedData::populateEncryptedFilesList()
     m_updatingFilters = false;
 
     // This will trigger onCategorySelectionChanged which will handle the rest
-    qDebug() << "Finished populateEncryptedFilesList, category selection will trigger rest of filtering";
+    qDebug() << "Finished populateEncryptedFilesList with case-insensitive analysis, category selection will trigger rest of filtering";
 }
 
 // New method: Populate categories list
 void Operations_EncryptedData::populateCategoriesList()
 {
-    qDebug() << "Populating categories list (applying category hiding settings)";
+    qDebug() << "Populating categories list (case-insensitive with hiding settings)";
 
     // Clear current categories list
     m_mainWindow->ui->listWidget_DataENC_Categories->clear();
 
-    // Get list of hidden categories for filtering
+    // Get list of hidden categories for filtering (case-insensitive)
     QStringList hiddenCategories;
     if (m_mainWindow->setting_DataENC_Hide_Categories) {
         hiddenCategories = parseHiddenItems(m_mainWindow->setting_DataENC_Hidden_Categories);
+        // Convert to lowercase for comparison
+        for (QString& hiddenCategory : hiddenCategories) {
+            hiddenCategory = hiddenCategory.toLower();
+        }
     }
 
-    // Collect all unique categories that have files (excluding hidden ones)
-    QSet<QString> categoriesWithFiles;
+    // Collect unique categories (using case-insensitive display names)
+    QSet<QString> visibleCategories;
 
-    for (auto it = m_fileMetadataCache.begin(); it != m_fileMetadataCache.end(); ++it) {
-        const EncryptedFileMetadata::FileMetadata& metadata = it.value();
+    // Use the analyzed display names instead of raw categories
+    for (auto it = m_categoryDisplayNames.begin(); it != m_categoryDisplayNames.end(); ++it) {
+        const QString& lowercaseCategory = it.key();
+        const QString& displayName = it.value();
 
-        QString fileCategory = metadata.category.isEmpty() ? "Uncategorized" : metadata.category;
-
-        // Skip hidden categories
-        bool isHidden = false;
-        for (const QString& hiddenCategory : hiddenCategories) {
-            if (fileCategory.compare(hiddenCategory, Qt::CaseInsensitive) == 0) {
-                isHidden = true;
-                break;
-            }
-        }
-
-        if (!isHidden) {
-            categoriesWithFiles.insert(fileCategory);
+        // Check if this category should be hidden (case-insensitive)
+        if (!hiddenCategories.contains(lowercaseCategory)) {
+            visibleCategories.insert(displayName);
         }
     }
 
@@ -2726,28 +2725,29 @@ void Operations_EncryptedData::populateCategoriesList()
     allItem->setData(Qt::UserRole, "All");
     m_mainWindow->ui->listWidget_DataENC_Categories->addItem(allItem);
 
-    // Add visible categories in alphabetical order
-    QStringList sortedCategories(categoriesWithFiles.begin(), categoriesWithFiles.end());
+    // Add visible categories in alphabetical order (by display name)
+    QStringList sortedCategories(visibleCategories.begin(), visibleCategories.end());
     sortedCategories.sort();
 
     // Remove "Uncategorized" if it exists (we'll add it at the end)
     sortedCategories.removeAll("Uncategorized");
 
-    for (const QString& category : sortedCategories) {
-        QListWidgetItem* item = new QListWidgetItem(category);
-        item->setData(Qt::UserRole, category);
+    for (const QString& displayCategory : sortedCategories) {
+        QListWidgetItem* item = new QListWidgetItem(displayCategory);
+        // Store the display name (not lowercase) for filtering logic
+        item->setData(Qt::UserRole, displayCategory);
         m_mainWindow->ui->listWidget_DataENC_Categories->addItem(item);
     }
 
     // Add "Uncategorized" at the bottom if it has files and is not hidden
-    if (categoriesWithFiles.contains("Uncategorized")) {
+    if (visibleCategories.contains("Uncategorized")) {
         QListWidgetItem* uncategorizedItem = new QListWidgetItem("Uncategorized");
         uncategorizedItem->setData(Qt::UserRole, "Uncategorized");
         m_mainWindow->ui->listWidget_DataENC_Categories->addItem(uncategorizedItem);
     }
 
     qDebug() << "Added" << m_mainWindow->ui->listWidget_DataENC_Categories->count()
-             << "categories (including All, after applying hiding settings)";
+             << "categories (including All, case-insensitive with hiding settings applied)";
 }
 
 // New method: Handle category selection changes
@@ -2769,14 +2769,14 @@ void Operations_EncryptedData::onCategorySelectionChanged()
     QString selectedCategory = currentItem->data(Qt::UserRole).toString();
     qDebug() << "Category selection changed to:" << selectedCategory;
 
-    // Filter files by selected category
+    // Filter files by selected category (case-insensitive)
     m_currentFilteredFiles.clear();
 
     for (auto it = m_fileMetadataCache.begin(); it != m_fileMetadataCache.end(); ++it) {
         const QString& filePath = it.key();
         const EncryptedFileMetadata::FileMetadata& metadata = it.value();
 
-        // First, check if file should be hidden by category settings
+        // First, check if file should be hidden by category settings (case-insensitive)
         if (shouldHideFileByCategory(metadata)) {
             continue; // Skip this file, it's in a hidden category
         }
@@ -2788,7 +2788,9 @@ void Operations_EncryptedData::onCategorySelectionChanged()
         } else if (selectedCategory == "Uncategorized") {
             includeFile = metadata.category.isEmpty();
         } else {
-            includeFile = (metadata.category == selectedCategory);
+            // Case-insensitive category comparison
+            QString fileCategory = metadata.category.isEmpty() ? "Uncategorized" : metadata.category;
+            includeFile = (fileCategory.compare(selectedCategory, Qt::CaseInsensitive) == 0);
         }
 
         if (includeFile) {
@@ -2797,9 +2799,9 @@ void Operations_EncryptedData::onCategorySelectionChanged()
     }
 
     qDebug() << "Filtered to" << m_currentFilteredFiles.size() << "files for category:" << selectedCategory
-             << "(after applying category hiding settings)";
+             << "(case-insensitive, after applying category hiding settings)";
 
-    // Populate tags list based on filtered files
+    // Populate tags list based on filtered files (case-insensitive)
     populateTagsList();
 
     // Update file list display
@@ -2809,50 +2811,57 @@ void Operations_EncryptedData::onCategorySelectionChanged()
 // New method: Populate tags list with checkboxes
 void Operations_EncryptedData::populateTagsList()
 {
-    qDebug() << "Populating tags list (applying tag hiding settings)";
+    qDebug() << "Populating tags list (case-insensitive with hiding settings)";
 
     // Clear current tags list
     m_mainWindow->ui->listWidget_DataENC_Tags->clear();
 
-    // Get list of hidden tags for filtering
+    // Get list of hidden tags for filtering (case-insensitive)
     QStringList hiddenTags;
     if (m_mainWindow->setting_DataENC_Hide_Tags) {
         hiddenTags = parseHiddenItems(m_mainWindow->setting_DataENC_Hidden_Tags);
+        // Convert to lowercase for comparison
+        for (QString& hiddenTag : hiddenTags) {
+            hiddenTag = hiddenTag.toLower();
+        }
     }
 
-    // Collect all unique tags from currently filtered files (excluding hidden ones)
-    QSet<QString> allTags;
+    // Collect unique tags from currently filtered files (case-insensitive)
+    QSet<QString> allTagsLowercase; // Track which lowercase tags we've seen
+    QSet<QString> visibleTagsDisplay; // The actual display names to show
 
     for (const QString& filePath : m_currentFilteredFiles) {
         if (m_fileMetadataCache.contains(filePath)) {
             const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
             for (const QString& tag : metadata.tags) {
                 if (!tag.isEmpty()) {
-                    // Check if this tag should be hidden
-                    bool isHidden = false;
-                    for (const QString& hiddenTag : hiddenTags) {
-                        if (tag.compare(hiddenTag, Qt::CaseInsensitive) == 0) {
-                            isHidden = true;
-                            break;
-                        }
-                    }
+                    QString tagLower = tag.toLower();
 
-                    if (!isHidden) {
-                        allTags.insert(tag);
+                    // Check if this tag should be hidden (case-insensitive)
+                    if (!hiddenTags.contains(tagLower)) {
+                        // Only add if we haven't seen this lowercase version yet
+                        if (!allTagsLowercase.contains(tagLower)) {
+                            allTagsLowercase.insert(tagLower);
+
+                            // Get the display name from our cached analysis
+                            QString displayName = m_tagDisplayNames.value(tagLower, tag);
+                            visibleTagsDisplay.insert(displayName);
+                        }
                     }
                 }
             }
         }
     }
 
-    // Add tags as checkbox items in alphabetical order
-    QStringList sortedTags(allTags.begin(), allTags.end());
+    // Add tags as checkbox items in alphabetical order (by display name)
+    QStringList sortedTags(visibleTagsDisplay.begin(), visibleTagsDisplay.end());
     sortedTags.sort();
 
-    for (const QString& tag : sortedTags) {
+    for (const QString& displayTag : sortedTags) {
         QListWidgetItem* item = new QListWidgetItem();
-        item->setText(tag);
-        item->setData(Qt::UserRole, tag);
+        item->setText(displayTag);
+        // Store the display name (not lowercase) for filtering logic
+        item->setData(Qt::UserRole, displayTag);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setCheckState(Qt::Unchecked);
 
@@ -2863,7 +2872,7 @@ void Operations_EncryptedData::populateTagsList()
     connect(m_mainWindow->ui->listWidget_DataENC_Tags, &QListWidget::itemChanged,
             this, &Operations_EncryptedData::onTagCheckboxChanged);
 
-    qDebug() << "Added" << sortedTags.size() << "tags with checkboxes (after applying hiding settings)";
+    qDebug() << "Added" << sortedTags.size() << "tags with checkboxes (case-insensitive with hiding settings applied)";
 }
 
 // New method: Handle tag checkbox changes
@@ -2884,23 +2893,23 @@ void Operations_EncryptedData::onTagCheckboxChanged()
 // New method: Update the actual file list display
 void Operations_EncryptedData::updateFileListDisplay()
 {
-    qDebug() << "Updating file list display with embedded thumbnails and hiding settings";
+    qDebug() << "Updating file list display with embedded thumbnails, hiding settings, and case-insensitive filtering";
 
     // Clear current file list
     m_mainWindow->ui->listWidget_DataENC_FileList->clear();
 
-    // Get checked tags (same as before)
-    QStringList checkedTags;
+    // Get checked tags (display names)
+    QStringList checkedTagsDisplay;
     for (int i = 0; i < m_mainWindow->ui->listWidget_DataENC_Tags->count(); ++i) {
         QListWidgetItem* item = m_mainWindow->ui->listWidget_DataENC_Tags->item(i);
         if (item && item->checkState() == Qt::Checked) {
-            checkedTags.append(item->data(Qt::UserRole).toString());
+            checkedTagsDisplay.append(item->data(Qt::UserRole).toString());
         }
     }
 
-    qDebug() << "Checked tags:" << checkedTags;
+    qDebug() << "Checked tags (display names):" << checkedTagsDisplay;
 
-    // Filter files by checked tags (AND logic) and tag hiding settings
+    // Filter files by checked tags (AND logic, case-insensitive) and tag hiding settings
     QStringList finalFilteredFiles;
     for (const QString& filePath : m_currentFilteredFiles) {
         if (!m_fileMetadataCache.contains(filePath)) {
@@ -2909,18 +2918,29 @@ void Operations_EncryptedData::updateFileListDisplay()
 
         const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
 
-        // Check if file should be hidden by tag settings
+        // Check if file should be hidden by tag settings (case-insensitive)
         if (shouldHideFileByTags(metadata)) {
             continue; // Skip this file, it has hidden tags
         }
 
         bool includeFile = true;
 
-        if (!checkedTags.isEmpty()) {
-            for (const QString& requiredTag : checkedTags) {
-                if (!metadata.tags.contains(requiredTag)) {
+        if (!checkedTagsDisplay.isEmpty()) {
+            // For each required tag (display name), check if the file has it (case-insensitive)
+            for (const QString& requiredTagDisplay : checkedTagsDisplay) {
+                bool fileHasThisTag = false;
+
+                // Check if any of the file's tags match this required tag (case-insensitive)
+                for (const QString& fileTag : metadata.tags) {
+                    if (fileTag.compare(requiredTagDisplay, Qt::CaseInsensitive) == 0) {
+                        fileHasThisTag = true;
+                        break;
+                    }
+                }
+
+                if (!fileHasThisTag) {
                     includeFile = false;
-                    break;
+                    break; // File doesn't have this required tag
                 }
             }
         }
@@ -2931,7 +2951,7 @@ void Operations_EncryptedData::updateFileListDisplay()
     }
 
     qDebug() << "Final filtered files count:" << finalFilteredFiles.size()
-             << "(after applying tag hiding settings)";
+             << "(case-insensitive, after applying tag hiding settings)";
 
     // Create list items for filtered files with thumbnail caching and hiding logic
     for (const QString& encryptedFilePath : finalFilteredFiles) {
@@ -2998,7 +3018,7 @@ void Operations_EncryptedData::updateFileListDisplay()
 
     updateButtonStates();
     qDebug() << "File list display updated with" << finalFilteredFiles.size()
-             << "items (with thumbnail caching and hiding settings applied)";
+             << "items (case-insensitive with thumbnail caching and hiding settings applied)";
 }
 
 void Operations_EncryptedData::onSortTypeChanged(const QString& sortType)
@@ -5580,13 +5600,25 @@ void Operations_EncryptedData::clearThumbnailCache()
 
 void Operations_EncryptedData::refreshDisplayForSettingsChange()
 {
-    qDebug() << "Refreshing encrypted data display for settings change";
+    qDebug() << "Refreshing encrypted data display for settings change (case-insensitive)";
 
     // Clear thumbnail cache since thumbnail hiding settings may have changed
     clearThumbnailCache();
 
+    // Re-analyze case-insensitive display names since hiding settings may have changed
+    // which categories/tags are visible
+    analyzeCaseInsensitiveDisplayNames();
+
+    // Repopulate categories list with new hiding settings
+    populateCategoriesList();
+
+    // Reset category selection to "All" to ensure proper refresh
+    if (m_mainWindow->ui->listWidget_DataENC_Categories->count() > 0) {
+        m_mainWindow->ui->listWidget_DataENC_Categories->setCurrentRow(0); // "All" is always first
+    }
+
     // Refresh the category selection which will trigger a complete refresh
-    // This ensures that both category and tag filtering are applied
+    // This ensures that both category and tag filtering are applied with new settings
     onCategorySelectionChanged();
 }
 
@@ -5620,7 +5652,14 @@ bool Operations_EncryptedData::shouldHideFileByCategory(const EncryptedFileMetad
 
     QString fileCategory = metadata.category.isEmpty() ? "Uncategorized" : metadata.category;
 
-    return hiddenCategories.contains(fileCategory, Qt::CaseInsensitive);
+    // Case-insensitive comparison
+    for (const QString& hiddenCategory : hiddenCategories) {
+        if (fileCategory.compare(hiddenCategory, Qt::CaseInsensitive) == 0) {
+            return true; // File is in a hidden category
+        }
+    }
+
+    return false;
 }
 
 bool Operations_EncryptedData::shouldHideFileByTags(const EncryptedFileMetadata::FileMetadata& metadata)
@@ -5659,3 +5698,87 @@ bool Operations_EncryptedData::shouldHideThumbnail(const QString& fileTypeDir)
 
     return false;
 }
+
+// Case Insensitive Display for Categories/Tags
+
+void Operations_EncryptedData::analyzeCaseInsensitiveDisplayNames()
+{
+    qDebug() << "Analyzing case-insensitive display names for categories and tags";
+
+    // Clear existing cached display names
+    m_categoryDisplayNames.clear();
+    m_tagDisplayNames.clear();
+
+    // Maps to count occurrences of each casing variant
+    // Key: lowercase version, Value: Map of (actual casing -> count)
+    QMap<QString, QMap<QString, int>> categoryVariants;
+    QMap<QString, QMap<QString, int>> tagVariants;
+
+    // Analyze all files in metadata cache
+    for (auto it = m_fileMetadataCache.begin(); it != m_fileMetadataCache.end(); ++it) {
+        const EncryptedFileMetadata::FileMetadata& metadata = it.value();
+
+        // Analyze category
+        QString category = metadata.category.isEmpty() ? "Uncategorized" : metadata.category;
+        QString categoryLower = category.toLower();
+        categoryVariants[categoryLower][category]++;
+
+        // Analyze tags
+        for (const QString& tag : metadata.tags) {
+            if (!tag.isEmpty()) {
+                QString tagLower = tag.toLower();
+                tagVariants[tagLower][tag]++;
+            }
+        }
+    }
+
+    // Find most common casing for each category
+    for (auto it = categoryVariants.begin(); it != categoryVariants.end(); ++it) {
+        const QString& lowercaseCategory = it.key();
+        const QMap<QString, int>& variants = it.value();
+
+        QString mostCommonCasing;
+        int highestCount = 0;
+
+        for (auto variantIt = variants.begin(); variantIt != variants.end(); ++variantIt) {
+            const QString& casing = variantIt.key();
+            int count = variantIt.value();
+
+            if (count > highestCount) {
+                highestCount = count;
+                mostCommonCasing = casing;
+            }
+        }
+
+        m_categoryDisplayNames[lowercaseCategory] = mostCommonCasing;
+        qDebug() << "Category:" << lowercaseCategory << "-> display as:" << mostCommonCasing
+                 << "(" << highestCount << "files)";
+    }
+
+    // Find most common casing for each tag
+    for (auto it = tagVariants.begin(); it != tagVariants.end(); ++it) {
+        const QString& lowercaseTag = it.key();
+        const QMap<QString, int>& variants = it.value();
+
+        QString mostCommonCasing;
+        int highestCount = 0;
+
+        for (auto variantIt = variants.begin(); variantIt != variants.end(); ++variantIt) {
+            const QString& casing = variantIt.key();
+            int count = variantIt.value();
+
+            if (count > highestCount) {
+                highestCount = count;
+                mostCommonCasing = casing;
+            }
+        }
+
+        m_tagDisplayNames[lowercaseTag] = mostCommonCasing;
+        qDebug() << "Tag:" << lowercaseTag << "-> display as:" << mostCommonCasing
+                 << "(" << highestCount << "files)";
+    }
+
+    qDebug() << "Analysis complete. Found" << m_categoryDisplayNames.size() << "unique categories and"
+             << m_tagDisplayNames.size() << "unique tags";
+}
+
