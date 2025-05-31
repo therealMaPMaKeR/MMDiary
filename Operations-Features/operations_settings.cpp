@@ -9,6 +9,10 @@
 #include <QGuiApplication>
 #include "../Operations-Global/default_usersettings.h"
 #include "../Operations-Global/sqlite-database-settings.h"
+#include <QDialog>
+#include <QInputDialog>
+#include <QMessageBox>
+#include "ui_HiddenItemsList.h"
 
 Operations_Settings::Operations_Settings(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
@@ -37,6 +41,24 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
 
     connect(m_mainWindow->ui->tabWidget_Main, &QTabWidget::currentChanged,
             this, &Operations_Settings::onMainTabChanged);
+
+    // Connect the Hide Thumbnail Buttons Signals
+    connect(m_mainWindow->ui->pushButton_DataENC_Hidden_Categories, &QPushButton::clicked,
+            this, &Operations_Settings::onHiddenCategoriesClicked);
+
+    //Connect the Password Validation Delay spinbox signals
+    connect(m_mainWindow->ui->spinBox_ReqPWDelay, QOverload<int>::of(&QSpinBox::valueChanged),
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_Global); });
+
+    connect(m_mainWindow->ui->pushButton_DataENC_Hidden_Tags, &QPushButton::clicked,
+            this, &Operations_Settings::onHiddenTagsClicked);
+
+    // Connect the new checkbox signals for value change tracking (add to constructor)
+    connect(m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Image, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData); });
+
+    connect(m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData); });
 
     InitializeCustomCheckboxes();
 }
@@ -141,6 +163,23 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
             }
         } else {
             qDebug() << "Failed to load ask password setting";
+            validationFailed = true;
+        }
+
+        // Password Request Delay
+        QString reqPWDelay = db.GetSettingsData_String(Constants::SettingsT_Index_ReqPWDelay);
+        if (reqPWDelay != Constants::ErrorMessage_Default) {
+            bool ok;
+            int delay = reqPWDelay.toInt(&ok);
+            if (ok && delay >= 0 && delay <= 300) {
+                m_mainWindow->ui->spinBox_ReqPWDelay->setValue(delay);
+                m_mainWindow->setting_ReqPWDelay = delay; // Update member variable
+            } else {
+                qDebug() << "Invalid password request delay from database:" << reqPWDelay;
+                validationFailed = true;
+            }
+        } else {
+            qDebug() << "Failed to load password request delay setting";
             validationFailed = true;
         }
 
@@ -469,6 +508,86 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
             validationFailed = true;
         }
 
+        // Hide Image Thumbnails
+        QString hideImageThumbnails = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_HideThumbnails_Image);
+        if (hideImageThumbnails != Constants::ErrorMessage_Default) {
+            if (hideImageThumbnails == "0" || hideImageThumbnails == "1") {
+                bool value = (hideImageThumbnails == "1");
+                m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Image->setChecked(value);
+                m_mainWindow->setting_DataENC_HideThumbnails_Image = value;
+            } else {
+                qDebug() << "Invalid hide image thumbnails value:" << hideImageThumbnails;
+                validationFailed = true;
+            }
+        } else {
+            qDebug() << "Failed to load hide image thumbnails setting";
+            validationFailed = true;
+        }
+
+        // Hide Video Thumbnails
+        QString hideVideoThumbnails = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_HideThumbnails_Video);
+        if (hideVideoThumbnails != Constants::ErrorMessage_Default) {
+            if (hideVideoThumbnails == "0" || hideVideoThumbnails == "1") {
+                bool value = (hideVideoThumbnails == "1");
+                m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video->setChecked(value);
+                m_mainWindow->setting_DataENC_HideThumbnails_Video = value;
+            } else {
+                qDebug() << "Invalid hide video thumbnails value:" << hideVideoThumbnails;
+                validationFailed = true;
+            }
+        } else {
+            qDebug() << "Failed to load hide video thumbnails setting";
+            validationFailed = true;
+        }
+
+        // Hidden Categories
+        QString hiddenCategories = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hidden_Categories);
+        if (hiddenCategories != Constants::ErrorMessage_Default) {
+            m_mainWindow->setting_DataENC_Hidden_Categories = hiddenCategories;
+        } else {
+            qDebug() << "Failed to load hidden categories setting";
+            validationFailed = true;
+        }
+
+        // Hidden Tags
+        QString hiddenTags = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hidden_Tags);
+        if (hiddenTags != Constants::ErrorMessage_Default) {
+            m_mainWindow->setting_DataENC_Hidden_Tags = hiddenTags;
+        } else {
+            qDebug() << "Failed to load hidden tags setting";
+            validationFailed = true;
+        }
+
+        // Hide Categories
+        QString hideCategories = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hide_Categories);
+        if (hideCategories != Constants::ErrorMessage_Default) {
+            if (hideCategories == "0" || hideCategories == "1") {
+                bool value = (hideCategories == "1");
+                m_mainWindow->setting_DataENC_Hide_Categories = value;
+            } else {
+                qDebug() << "Invalid hide categories value:" << hideCategories;
+                validationFailed = true;
+            }
+        } else {
+            qDebug() << "Failed to load hide categories setting";
+            validationFailed = true;
+        }
+
+        // Hide Tags
+        QString hideTags = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hide_Tags);
+        if (hideTags != Constants::ErrorMessage_Default) {
+            if (hideTags == "0" || hideTags == "1") {
+                bool value = (hideTags == "1");
+                m_mainWindow->setting_DataENC_Hide_Tags = value;
+            } else {
+                qDebug() << "Invalid hide tags value:" << hideTags;
+                validationFailed = true;
+            }
+        } else {
+            qDebug() << "Failed to load hide tags setting";
+            validationFailed = true;
+        }
+
         // If any validation failed, reset to defaults
         if (validationFailed) {
             qDebug() << "Some encrypted data settings failed validation, resetting to defaults";
@@ -477,6 +596,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
             return;
         }
     }
+
+
 
     // Update button states after loading
     UpdateButtonStates(settingsType);
@@ -535,6 +656,12 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         QString askPWStr = askPW ? "1" : "0";
         db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_AskPWAfterMinToTray, askPWStr);
         m_mainWindow->setting_AskPWAfterMin = askPW; // Update member variable
+
+        // Password Request Delay
+        int reqPWDelay = m_mainWindow->ui->spinBox_ReqPWDelay->value();
+        QString reqPWDelayStr = QString::number(reqPWDelay);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_ReqPWDelay, reqPWDelayStr);
+        m_mainWindow->setting_ReqPWDelay = reqPWDelay; // Update member variable
     }
 
     // ------- Save Diary Settings -------
@@ -638,6 +765,34 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         QString reqPasswordStr = reqPassword ? "1" : "0";
         db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_ReqPassword, reqPasswordStr);
         m_mainWindow->setting_DataENC_ReqPassword = reqPassword; // update member variable
+
+        // Hide Image Thumbnails
+        bool hideImageThumbnails = m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Image->isChecked();
+        QString hideImageThumbnailsStr = hideImageThumbnails ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_HideThumbnails_Image, hideImageThumbnailsStr);
+        m_mainWindow->setting_DataENC_HideThumbnails_Image = hideImageThumbnails;
+
+        // Hide Video Thumbnails
+        bool hideVideoThumbnails = m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video->isChecked();
+        QString hideVideoThumbnailsStr = hideVideoThumbnails ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_HideThumbnails_Video, hideVideoThumbnailsStr);
+        m_mainWindow->setting_DataENC_HideThumbnails_Video = hideVideoThumbnails;
+
+        // Hidden Categories (stored in member variable, not directly from UI)
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hidden_Categories, m_mainWindow->setting_DataENC_Hidden_Categories);
+
+        // Hidden Tags (stored in member variable, not directly from UI)
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hidden_Tags, m_mainWindow->setting_DataENC_Hidden_Tags);
+
+        // Hide Categories
+        bool hideCategories = m_mainWindow->setting_DataENC_Hide_Categories;
+        QString hideCategoriesStr = hideCategories ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hide_Categories, hideCategoriesStr);
+
+        // Hide Tags
+        bool hideTags = m_mainWindow->setting_DataENC_Hide_Tags;
+        QString hideTagsStr = hideTags ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hide_Tags, hideTagsStr);
     }
 
     // Update button states after saving
@@ -677,6 +832,13 @@ bool Operations_Settings::ValidateSettingsInput(const QString& settingsType)
         if (!colorResult.isValid) {
             isValid = false;
             errorMessage += "- Display Name Color: " + colorResult.errorMessage + "\n";
+        }
+
+        // Password Request Delay validation
+        int reqPWDelay = m_mainWindow->ui->spinBox_ReqPWDelay->value();
+        if (reqPWDelay < 0 || reqPWDelay > 300) {
+            isValid = false;
+            errorMessage += "- Password Request Delay: Must be between 0 and 300 seconds\n";
         }
     }
 
@@ -819,6 +981,16 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
             matchesDatabase = false;
         }
         if (uiAskPW != Default_UserSettings::DEFAULT_ASK_PW_AFTER_MIN) {
+            matchesDefault = false;
+        }
+
+        // Password Request Delay
+        QString dbReqPWDelay = db.GetSettingsData_String(Constants::SettingsT_Index_ReqPWDelay);
+        QString uiReqPWDelay = QString::number(m_mainWindow->ui->spinBox_ReqPWDelay->value());
+        if (dbReqPWDelay != uiReqPWDelay) {
+            matchesDatabase = false;
+        }
+        if (uiReqPWDelay != Default_UserSettings::DEFAULT_REQ_PW_DELAY) {
             matchesDefault = false;
         }
 
@@ -1034,6 +1206,62 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
             matchesDefault = false;
         }
 
+        // Hide Image Thumbnails
+        QString dbHideImageThumbnails = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_HideThumbnails_Image);
+        QString uiHideImageThumbnails = m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Image->isChecked() ? "1" : "0";
+        if (dbHideImageThumbnails != uiHideImageThumbnails) {
+            matchesDatabase = false;
+        }
+        if (uiHideImageThumbnails != Default_UserSettings::DEFAULT_DATAENC_HIDE_THUMBNAILS_IMAGE) {
+            matchesDefault = false;
+        }
+
+        // Hide Video Thumbnails
+        QString dbHideVideoThumbnails = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_HideThumbnails_Video);
+        QString uiHideVideoThumbnails = m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video->isChecked() ? "1" : "0";
+        if (dbHideVideoThumbnails != uiHideVideoThumbnails) {
+            matchesDatabase = false;
+        }
+        if (uiHideVideoThumbnails != Default_UserSettings::DEFAULT_DATAENC_HIDE_THUMBNAILS_VIDEO) {
+            matchesDefault = false;
+        }
+
+        // Hidden Categories
+        QString dbHiddenCategories = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hidden_Categories);
+        if (dbHiddenCategories != m_mainWindow->setting_DataENC_Hidden_Categories) {
+            matchesDatabase = false;
+        }
+        if (m_mainWindow->setting_DataENC_Hidden_Categories != Default_UserSettings::DEFAULT_DATAENC_HIDDEN_CATEGORIES) {
+            matchesDefault = false;
+        }
+
+        // Hidden Tags
+        QString dbHiddenTags = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hidden_Tags);
+        if (dbHiddenTags != m_mainWindow->setting_DataENC_Hidden_Tags) {
+            matchesDatabase = false;
+        }
+        if (m_mainWindow->setting_DataENC_Hidden_Tags != Default_UserSettings::DEFAULT_DATAENC_HIDDEN_TAGS) {
+            matchesDefault = false;
+        }
+
+        // Hide Categories
+        QString dbHideCategories = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hide_Categories);
+        if (dbHideCategories != (m_mainWindow->setting_DataENC_Hide_Categories ? "1" : "0")) {
+            matchesDatabase = false;
+        }
+        if ((m_mainWindow->setting_DataENC_Hide_Categories ? "1" : "0") != Default_UserSettings::DEFAULT_DATAENC_HIDE_CATEGORIES) {
+            matchesDefault = false;
+        }
+
+        // Hide Tags
+        QString dbHideTags = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hide_Tags);
+        if (dbHideTags != (m_mainWindow->setting_DataENC_Hide_Tags ? "1" : "0")) {
+            matchesDatabase = false;
+        }
+        if ((m_mainWindow->setting_DataENC_Hide_Tags ? "1" : "0") != Default_UserSettings::DEFAULT_DATAENC_HIDE_TAGS) {
+            matchesDefault = false;
+        }
+
         // Update button states
         m_mainWindow->ui->pushButton_DataENC_Save->setEnabled(!matchesDatabase);
         m_mainWindow->ui->pushButton_DataENC_Cancel->setEnabled(!matchesDatabase);
@@ -1051,7 +1279,7 @@ void Operations_Settings::InitializeCustomCheckboxes()
     QString username = m_mainWindow->user_Username;
     QByteArray encryptionKey = m_mainWindow->user_Key;
 
-    // Get the custom checkboxes
+    // Get the existing custom checkboxes
     custom_QCheckboxWidget* hidePasswordsCheckbox =
         qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_PWMan_HidePWS);
 
@@ -1064,13 +1292,19 @@ void Operations_Settings::InitializeCustomCheckboxes()
     custom_QCheckboxWidget* dataEncReqPWCheckbox =
         qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_DataENC_ReqPW);
 
-    // Set validation info for each checkbox
+    // Get the new thumbnail hiding checkboxes
+    custom_QCheckboxWidget* hideThumbnailsImageCheckbox =
+        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Image);
+
+    custom_QCheckboxWidget* hideThumbnailsVideoCheckbox =
+        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video);
+
+    // Set validation info for Hide Passwords checkbox
     if (hidePasswordsCheckbox) {
         hidePasswordsCheckbox->setValidationInfo(
             "Disable 'Hide Passwords' in Password Manager", username);
         hidePasswordsCheckbox->setRequireValidation(true);
         hidePasswordsCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
-        // Add a database value getter for the Hide Passwords setting
         hidePasswordsCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
             DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
             if (!db.connect(username, encryptionKey)) {
@@ -1079,8 +1313,12 @@ void Operations_Settings::InitializeCustomCheckboxes()
             QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_PWMan_HidePasswords);
             return (dbValue == "1");
         });
+        hidePasswordsCheckbox->setGracePeriodGetter([this]() {
+            return m_mainWindow->setting_ReqPWDelay;
+        });
     }
 
+    // Set validation info for Require Password checkbox
     if (reqPasswordCheckbox) {
         reqPasswordCheckbox->setValidationInfo(
             "Disable 'Require Password' in Password Manager", username);
@@ -1094,8 +1332,12 @@ void Operations_Settings::InitializeCustomCheckboxes()
             QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_PWMan_ReqPassword);
             return (dbValue == "1");
         });
+        reqPasswordCheckbox->setGracePeriodGetter([this]() {
+            return m_mainWindow->setting_ReqPWDelay;
+        });
     }
 
+    // Set validation info for Ask Password on Close checkbox
     if (askPWOnCloseCheckbox) {
         askPWOnCloseCheckbox->setValidationInfo(
             "Disable 'Ask Password on Close' in Account Settings", username);
@@ -1109,8 +1351,12 @@ void Operations_Settings::InitializeCustomCheckboxes()
             QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_AskPWAfterMinToTray);
             return (dbValue == "1");
         });
+        askPWOnCloseCheckbox->setGracePeriodGetter([this]() {
+            return m_mainWindow->setting_ReqPWDelay;
+        });
     }
 
+    // Set validation info for Encrypted Data Require Password checkbox
     if (dataEncReqPWCheckbox) {
         dataEncReqPWCheckbox->setValidationInfo(
             "Disable 'Require Password' in Encrypted Data Settings", username);
@@ -1123,6 +1369,47 @@ void Operations_Settings::InitializeCustomCheckboxes()
             }
             QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_ReqPassword);
             return (dbValue == "1");
+        });
+        dataEncReqPWCheckbox->setGracePeriodGetter([this]() {
+            return m_mainWindow->setting_ReqPWDelay;
+        });
+    }
+
+    // Configure Hide Image Thumbnails checkbox
+    if (hideThumbnailsImageCheckbox) {
+        hideThumbnailsImageCheckbox->setValidationInfo(
+            "Disable 'Hide Image Thumbnails' in Encrypted Data Settings", username);
+        hideThumbnailsImageCheckbox->setRequireValidation(true);
+        hideThumbnailsImageCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        hideThumbnailsImageCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
+            DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
+            if (!db.connect(username, encryptionKey)) {
+                return false;
+            }
+            QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_HideThumbnails_Image);
+            return (dbValue == "1");
+        });
+        hideThumbnailsImageCheckbox->setGracePeriodGetter([this]() {
+            return m_mainWindow->setting_ReqPWDelay;
+        });
+    }
+
+    // Configure Hide Video Thumbnails checkbox
+    if (hideThumbnailsVideoCheckbox) {
+        hideThumbnailsVideoCheckbox->setValidationInfo(
+            "Disable 'Hide Video Thumbnails' in Encrypted Data Settings", username);
+        hideThumbnailsVideoCheckbox->setRequireValidation(true);
+        hideThumbnailsVideoCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        hideThumbnailsVideoCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
+            DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
+            if (!db.connect(username, encryptionKey)) {
+                return false;
+            }
+            QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_HideThumbnails_Video);
+            return (dbValue == "1");
+        });
+        hideThumbnailsVideoCheckbox->setGracePeriodGetter([this]() {
+            return m_mainWindow->setting_ReqPWDelay;
         });
     }
 }
@@ -1166,8 +1453,43 @@ bool Operations_Settings::ValidatePassword(const QString& settingsType) {
         bool currentReqPW = m_mainWindow->ui->checkBox_DataENC_ReqPW->isChecked();
         bool defaultReqPWValue = (defaultReqPW == "1");
 
-        if (currentReqPW != defaultReqPWValue) {
-            // This setting would change, so validate password
+        // Check if Hide Image Thumbnails would change
+        QString defaultHideImageThumbs = Default_UserSettings::DEFAULT_DATAENC_HIDE_THUMBNAILS_IMAGE;
+        bool currentHideImageThumbs = m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Image->isChecked();
+        bool defaultHideImageThumbsValue = (defaultHideImageThumbs == "1");
+
+        // Check if Hide Video Thumbnails would change
+        QString defaultHideVideoThumbs = Default_UserSettings::DEFAULT_DATAENC_HIDE_THUMBNAILS_VIDEO;
+        bool currentHideVideoThumbs = m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video->isChecked();
+        bool defaultHideVideoThumbsValue = (defaultHideVideoThumbs == "1");
+
+        // Check if Hidden Categories would change
+        bool categoriesWouldChange = (m_mainWindow->setting_DataENC_Hidden_Categories != Default_UserSettings::DEFAULT_DATAENC_HIDDEN_CATEGORIES);
+
+        // Check if Hidden Tags would change
+        bool tagsWouldChange = (m_mainWindow->setting_DataENC_Hidden_Tags != Default_UserSettings::DEFAULT_DATAENC_HIDDEN_TAGS);
+
+        if (currentReqPW != defaultReqPWValue ||
+            currentHideImageThumbs != defaultHideImageThumbsValue ||
+            currentHideVideoThumbs != defaultHideVideoThumbsValue ||
+            categoriesWouldChange || tagsWouldChange) {
+            // These settings would change, so validate password
+            return PasswordValidation::validatePasswordForOperation(
+                m_mainWindow, "Reset Encrypted Data Settings to Default", username);
+        }
+
+        // Check if Hide Categories would change
+        bool categoriesHideWouldChange = (m_mainWindow->setting_DataENC_Hide_Categories != (Default_UserSettings::DEFAULT_DATAENC_HIDE_CATEGORIES == "1"));
+
+        // Check if Hide Tags would change
+        bool tagsHideWouldChange = (m_mainWindow->setting_DataENC_Hide_Tags != (Default_UserSettings::DEFAULT_DATAENC_HIDE_TAGS == "1"));
+
+        if (currentReqPW != defaultReqPWValue ||
+            currentHideImageThumbs != defaultHideImageThumbsValue ||
+            currentHideVideoThumbs != defaultHideVideoThumbsValue ||
+            categoriesWouldChange || tagsWouldChange ||
+            categoriesHideWouldChange || tagsHideWouldChange) {
+            // These settings would change, so validate password
             return PasswordValidation::validatePasswordForOperation(
                 m_mainWindow, "Reset Encrypted Data Settings to Default", username);
         }
@@ -1356,6 +1678,9 @@ void Operations_Settings::SetupSettingDescriptions()
     m_settingNames[m_mainWindow->ui->checkBox_AskPW] = "Ask Password After Minimize";
     m_settingDescriptions[m_mainWindow->ui->checkBox_AskPW] = "This option will make it so your password will be required when re-opening the app after you've minimized it.\n\nIt's great if you want security but still want to receive task reminders.";
 
+    m_settingNames[m_mainWindow->ui->spinBox_ReqPWDelay] = "Password Request Delay";
+    m_settingDescriptions[m_mainWindow->ui->spinBox_ReqPWDelay] = "Duration in seconds before you can be asked to validate your password again after a successful validation.\n\n0 = Always ask for password\n30 = Wait 30 seconds (recommended)\n300 = Wait 5 minutes (maximum)\n\nThis prevents repetitive password prompts while maintaining security.";
+
     // Diary Settings
     m_settingNames[m_mainWindow->ui->spinBox_Diary_TextSize] = "Diary Text Size";
     m_settingDescriptions[m_mainWindow->ui->spinBox_Diary_TextSize] = "The default size of the text in the Diary.\n\nYou can zoom in and out with ctrl+mousewheel.";
@@ -1404,6 +1729,18 @@ void Operations_Settings::SetupSettingDescriptions()
     // Encrypted Data Settings
     m_settingNames[m_mainWindow->ui->checkBox_DataENC_ReqPW] = "Require Password for Tab";
     m_settingDescriptions[m_mainWindow->ui->checkBox_DataENC_ReqPW] = "If you want your password to be required whenever you want to access the Encrypted Data tab.\n\nIt's useful if you use this app in a public setting and want to protect your encrypted files from being viewed or accessed.";
+
+    m_settingNames[m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Image] = "Hide Image Thumbnails";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Image] = "Hide thumbnails for image files in the encrypted data view.\n\nThis can improve privacy and performance when dealing with many image files.";
+
+    m_settingNames[m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video] = "Hide Video Thumbnails";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video] = "Hide thumbnails for video files in the encrypted data view.\n\nThis can improve privacy and performance when dealing with many video files.";
+
+    m_settingNames[m_mainWindow->ui->pushButton_DataENC_Hidden_Categories] = "Hidden Categories";
+    m_settingDescriptions[m_mainWindow->ui->pushButton_DataENC_Hidden_Categories] = "Manage a list of categories to hide from the encrypted data view.\n\nFiles in these categories will not be displayed in the file list.";
+
+    m_settingNames[m_mainWindow->ui->pushButton_DataENC_Hidden_Tags] = "Hidden Tags";
+    m_settingDescriptions[m_mainWindow->ui->pushButton_DataENC_Hidden_Tags] = "Manage a list of tags to hide from the encrypted data view.\n\nFiles with these tags will not be displayed in the file list.";
 
     // Install event filters on all UI controls
     QMap<QObject*, QString>::iterator it;
@@ -1586,4 +1923,184 @@ void Operations_Settings::Slot_ValueChanged(const QString settingsType)
     // Update button states based on the current values
     qDebug() << "DEBUGSETTINGSTYPE: " << settingsType;
     UpdateButtonStates(settingsType);
+}
+
+
+//--------------- Encrypted Data Hidden Items Dialog ---------------//
+
+// Slot implementations
+void Operations_Settings::onHiddenCategoriesClicked()
+{
+    QString username = m_mainWindow->user_Username;
+    int gracePeriod = m_mainWindow->setting_ReqPWDelay; // Get grace period from settings
+
+    // Validate password before opening the dialog (category names could be sensitive)
+    if (!PasswordValidation::validatePasswordForOperation(
+            m_mainWindow, "Access Hidden Categories Settings", username, gracePeriod)) {
+        return; // Password validation failed
+    }
+
+    showHiddenItemsDialog("Category", m_mainWindow->setting_DataENC_Hidden_Categories,
+                          m_mainWindow->setting_DataENC_Hide_Categories);
+}
+
+void Operations_Settings::onHiddenTagsClicked()
+{
+    QString username = m_mainWindow->user_Username;
+    int gracePeriod = m_mainWindow->setting_ReqPWDelay; // Get grace period from settings
+
+    // Validate password before opening the dialog (tag names could be sensitive)
+    if (!PasswordValidation::validatePasswordForOperation(
+            m_mainWindow, "Access Hidden Tags Settings", username, gracePeriod)) {
+        return; // Password validation failed
+    }
+
+    showHiddenItemsDialog("Tag", m_mainWindow->setting_DataENC_Hidden_Tags,
+                          m_mainWindow->setting_DataENC_Hide_Tags);
+}
+
+// Main dialog implementation
+void Operations_Settings::showHiddenItemsDialog(const QString& itemType, QString& settingValue, bool& hideItemsSetting)
+{
+    // Create dialog
+    QDialog dialog(m_mainWindow);
+    Ui::HiddenItemsList ui;
+    ui.setupUi(&dialog);
+
+    // Set window title and labels based on item type
+    QString plural = itemType + "s";
+    dialog.setWindowTitle(QString("Hidden %1").arg(plural));
+    ui.label_HideItems->setText(QString("Hide %1:").arg(plural));
+    ui.pushButton_AddItem->setText(QString("Add %1").arg(itemType));
+    ui.pushButton_RemoveItem->setText(QString("Remove %1").arg(itemType));
+
+    // Load existing items
+    QStringList currentItems = parseItemList(settingValue);
+    for (const QString& item : currentItems) {
+        ui.listWidget_ItemsList->addItem(item);
+    }
+
+    // Set initial checkbox state from the hideItemsSetting
+    ui.checkBox_HideItems->setChecked(hideItemsSetting);
+
+    // Connect dialog signals
+    connect(ui.pushButton_AddItem, &QPushButton::clicked, [&]() {
+        QString newItem = QInputDialog::getText(&dialog,
+                                                QString("Add %1").arg(itemType),
+                                                QString("Enter %1 name:").arg(itemType.toLower()));
+
+        if (!newItem.isEmpty()) {
+            // Validate input
+            InputValidation::ValidationResult result = InputValidation::validateInput(
+                newItem, InputValidation::InputType::CategoryTag, 50);
+
+            if (result.isValid) {
+                // Check for duplicates
+                bool duplicate = false;
+                for (int i = 0; i < ui.listWidget_ItemsList->count(); ++i) {
+                    if (ui.listWidget_ItemsList->item(i)->text() == newItem) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+
+                if (!duplicate) {
+                    ui.listWidget_ItemsList->addItem(newItem);
+                } else {
+                    QMessageBox::warning(&dialog, "Duplicate Entry",
+                                         QString("This %1 already exists in the list.").arg(itemType.toLower()));
+                }
+            } else {
+                QMessageBox::warning(&dialog, "Invalid Input", result.errorMessage);
+            }
+        }
+    });
+
+    connect(ui.pushButton_RemoveItem, &QPushButton::clicked, [&]() {
+        QListWidgetItem* currentItem = ui.listWidget_ItemsList->currentItem();
+        if (currentItem) {
+            delete currentItem;
+        } else {
+            QMessageBox::information(&dialog, "No Selection",
+                                     QString("Please select a %1 to remove.").arg(itemType.toLower()));
+        }
+    });
+
+    connect(ui.pushButton_ClearList, &QPushButton::clicked, [&]() {
+        if (ui.listWidget_ItemsList->count() > 0) {
+            int ret = QMessageBox::question(&dialog, "Clear List",
+                                            QString("Are you sure you want to clear all %1?").arg(plural.toLower()),
+                                            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+
+            if (ret == QMessageBox::Yes) {
+                ui.listWidget_ItemsList->clear();
+            }
+        }
+    });
+
+    connect(ui.pushButton_Cancel, &QPushButton::clicked, [&]() {
+        dialog.reject();
+    });
+
+    connect(ui.pushButton_SaveChanges, &QPushButton::clicked, [&]() {
+        dialog.accept();
+    });
+
+    // Execute dialog
+    if (dialog.exec() == QDialog::Accepted) {
+        // Collect items from list
+        QStringList newItems;
+        for (int i = 0; i < ui.listWidget_ItemsList->count(); ++i) {
+            newItems.append(ui.listWidget_ItemsList->item(i)->text());
+        }
+
+        // Update the setting values
+        settingValue = formatItemList(newItems);
+        hideItemsSetting = ui.checkBox_HideItems->isChecked();
+
+        // Update button states to reflect changes
+        UpdateButtonStates(Constants::DBSettings_Type_EncryptedData);
+
+        qDebug() << QString("Updated hidden %1: %2, Hide active: %3")
+                        .arg(plural.toLower(), settingValue)
+                        .arg(hideItemsSetting ? "true" : "false");
+    }
+}
+
+// Helper method implementations
+QStringList Operations_Settings::parseItemList(const QString& itemString)
+{
+    if (itemString.isEmpty()) {
+        return QStringList();
+    }
+
+    QStringList items = itemString.split(';', Qt::SkipEmptyParts);
+
+    // Trim whitespace from each item
+    for (QString& item : items) {
+        item = item.trimmed();
+    }
+
+    // Remove empty items
+    items.removeAll("");
+
+    return items;
+}
+
+QString Operations_Settings::formatItemList(const QStringList& items)
+{
+    if (items.isEmpty()) {
+        return QString();
+    }
+
+    // Filter out empty items and trim whitespace
+    QStringList filteredItems;
+    for (const QString& item : items) {
+        QString trimmed = item.trimmed();
+        if (!trimmed.isEmpty()) {
+            filteredItems.append(trimmed);
+        }
+    }
+
+    return filteredItems.join(';');
 }

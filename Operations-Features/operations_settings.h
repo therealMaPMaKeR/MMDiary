@@ -53,6 +53,13 @@ private:
     bool handleUnsavedChanges(const QString& settingsType, int newTabIndex);
     int m_previousSettingsTabIndex;
     int m_previousMainTabIndex;
+    // New private methods for dialog management
+    void showHiddenItemsDialog(const QString& itemType, QString& settingValue, bool& hideItemsSetting);
+    QStringList parseItemList(const QString& itemString);
+    QString formatItemList(const QStringList& items);
+private slots:
+    void onHiddenCategoriesClicked();
+    void onHiddenTagsClicked();
 };
 
 #endif // OPERATIONS_SETTINGS_H

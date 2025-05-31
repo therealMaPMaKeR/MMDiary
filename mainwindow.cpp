@@ -170,6 +170,12 @@ void MainWindow::FinishInitialization()
     // Initialize persistent settings manager
     m_persistentSettingsManager = &DatabasePersistentSettingsManager::instance();
 
+    // NEW: Start grace period since user just successfully authenticated during login
+    if (!user_Username.isEmpty()) {
+        PasswordValidation::recordSuccessfulValidation(user_Username);
+        qDebug() << "Started password grace period for user after login:" << user_Username;
+    }
+
     // Connect to persistent settings database and load settings
     if (m_persistentSettingsManager->connect(user_Username, user_Key)) {
         LoadPersistentSettings();
@@ -178,6 +184,9 @@ void MainWindow::FinishInitialization()
     }
 
         //------------------ INITIALIZE SIGNALS ----------------//
+        //Global Signals
+        connect(ui->spinBox_ReqPWDelay, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &MainWindow::on_spinBox_ReqPWDelay_valueChanged);
         //Diary Signals
         connect(ui->DiaryTextInput, &custom_QTextEditWidget::customSignal,Operations_Diary_ptr, &Operations_Diary::on_DiaryTextInput_returnPressed);
         connect(delegate, &CombinedDelegate::TextModificationsMade, ui->DiaryTextDisplay, &custom_QListWidget::TextWasEdited);
@@ -186,6 +195,12 @@ void MainWindow::FinishInitialization()
         connect(ui->DiaryTextDisplay, &MainWindow::customContextMenuRequested, Operations_Diary_ptr, &Operations_Diary::showContextMenu_TextDisplay);
         connect(ui->DiaryListDays, &MainWindow::customContextMenuRequested, Operations_Diary_ptr, &Operations_Diary::showContextMenu_ListDays);
         //PasswordManager Signals
+        //Encrypted Data Signals
+        connect(ui->checkBox_DataENC_HideThumbnails_Image, &QCheckBox::stateChanged,
+                this, &MainWindow::on_checkBox_DataENC_HideThumbnails_Image_stateChanged);
+
+        connect(ui->checkBox_DataENC_HideThumbnails_Video, &QCheckBox::stateChanged,
+                this, &MainWindow::on_checkBox_DataENC_HideThumbnails_Video_stateChanged);
         //Diary Settings
         if(setting_Diary_CanEditRecent == true){ui->DiaryTextDisplay->setEditTriggers(QAbstractItemView::DoubleClicked);} // set double click to edit if enabled
         Operations_Diary_ptr->DiaryLoader(); // begin loading diaries
@@ -675,11 +690,13 @@ void MainWindow::closeEvent(QCloseEvent *event)
     if(quitToLogin == false && setting_MinToTray == true) // minimize to tray
     {
     hide();
+    PasswordValidation::clearGracePeriod(user_Username);
     event->ignore(); // Ignore the close event to keep the app running
     }
     else if(quitToLogin == false && setting_MinToTray == false) // close app entirely
     {
         hide(); // first hide mainwindow so the user doesn't notice any delay
+        PasswordValidation::clearGracePeriod(user_Username);
         OperationsFiles::cleanupAllUserTempFolders();
         // Save persistent settings before closing
         if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
@@ -694,6 +711,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
     else if(quitToLogin == true) // log out
     {
         hide(); // first hide mainwindow so the user doesn't notice any delay
+        PasswordValidation::clearGracePeriod(user_Username);
         OperationsFiles::cleanupAllUserTempFolders();
         // Save persistent settings before closing
         if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
@@ -892,11 +910,17 @@ void MainWindow::on_checkBox_MinToTray_stateChanged(int arg1)
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Global);
 }
 
-
 void MainWindow::on_checkBox_AskPW_stateChanged(int arg1)
 {
     if(initFinished == false){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Global);
+}
+
+void MainWindow::on_spinBox_ReqPWDelay_valueChanged(int arg1)
+{
+    if (initFinished) {
+        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Global);
+    }
 }
 
 //Diary
@@ -1013,6 +1037,20 @@ void MainWindow::on_checkBox_DataENC_ReqPW_stateChanged(int arg1)
     Q_UNUSED(arg1)
     if (initFinished == false) {return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData);
+}
+
+void MainWindow::on_checkBox_DataENC_HideThumbnails_Image_stateChanged(int arg1)
+{
+    if (initFinished) {
+        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData);
+    }
+}
+
+void MainWindow::on_checkBox_DataENC_HideThumbnails_Video_stateChanged(int arg1)
+{
+    if (initFinished) {
+        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData);
+    }
 }
 
 //---------- Encrypted Data Feature ----------//

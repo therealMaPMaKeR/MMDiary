@@ -121,6 +121,7 @@ private:
     // Global Settings
     bool setting_MinToTray = false;
     bool setting_AskPWAfterMin = false;
+    int setting_ReqPWDelay = 30;
 
     // Diary Settings
     int setting_Diary_TextSize = 10;
@@ -143,6 +144,12 @@ private:
     bool setting_PWMan_HidePasswords = true;
     // Encrypted Data Settings
     bool setting_DataENC_ReqPassword = false;
+    bool setting_DataENC_HideThumbnails_Image = false;
+    bool setting_DataENC_HideThumbnails_Video = false;
+    QString setting_DataENC_Hidden_Categories = "";
+    QString setting_DataENC_Hidden_Tags = "";
+    bool setting_DataENC_Hide_Categories = false;
+    bool setting_DataENC_Hide_Tags = false;
     //Member Classes
     Operations_Diary* Operations_Diary_ptr;
     Operations_PasswordManager* Operations_PasswordManager_ptr;
@@ -245,6 +252,12 @@ private slots:
     void on_pushButton_DataENC_RDefault_clicked();
 
     void on_checkBox_DataENC_ReqPW_stateChanged(int arg1);
+
+    void on_checkBox_DataENC_HideThumbnails_Image_stateChanged(int arg1);
+
+    void on_checkBox_DataENC_HideThumbnails_Video_stateChanged(int arg1);
+
+    void on_spinBox_ReqPWDelay_valueChanged(int arg1);
 
 
 private:

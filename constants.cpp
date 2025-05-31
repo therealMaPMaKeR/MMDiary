@@ -74,6 +74,7 @@ const QString SettingsT_Index_Displayname = "displayname";
 const QString SettingsT_Index_DisplaynameColor = "displaynamecolor";
 const QString SettingsT_Index_MinToTray = "MinToTray";
 const QString SettingsT_Index_AskPWAfterMinToTray = "AskPWAfterMinToTray";
+const QString SettingsT_Index_ReqPWDelay = "ReqPWDelay";
 // Settings Database Table Indexes - Diary Settings
 const QString SettingsT_Index_Diary_TextSize = "Diary_TextSize";
 const QString SettingsT_Index_Diary_TStampTimer = "Diary_TStampTimer";
@@ -93,6 +94,12 @@ const QString SettingsT_Index_PWMan_ReqPassword = "PWMan_ReqPassword";
 const QString SettingsT_Index_PWMan_HidePasswords = "PWMan_HidePasswords";
 // Settings Database Table Indexes - Encrypted Data Settings
 const QString SettingsT_Index_DataENC_ReqPassword = "ENCRYPTEDDATA_ReqPassword";
+const QString SettingsT_Index_DataENC_HideThumbnails_Image = "ENCRYPTEDDATA_HideThumbnails_Image";
+const QString SettingsT_Index_DataENC_HideThumbnails_Video = "ENCRYPTEDDATA_HideThumbnails_Video";
+const QString SettingsT_Index_DataENC_Hidden_Categories = "ENCRYPTEDDATA_Hidden_Categories";
+const QString SettingsT_Index_DataENC_Hidden_Tags = "ENCRYPTEDDATA_Hidden_Tags";
+const QString SettingsT_Index_DataENC_Hide_Categories = "ENCRYPTEDDATA_Hide_Categories";
+const QString SettingsT_Index_DataENC_Hide_Tags = "ENCRYPTEDDATA_Hide_Tags";
 //------------- Persistent Settings Database -----------//
 //Main window
 const QString PSettingsT_Index_MainWindow_SizeX = "PSettings_MW_SizeX";

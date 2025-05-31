@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1188</width>
-    <height>830</height>
+    <width>960</width>
+    <height>540</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -57,7 +57,7 @@
        </size>
       </property>
       <property name="currentIndex">
-       <number>4</number>
+       <number>0</number>
       </property>
       <property name="movable">
        <bool>true</bool>
@@ -638,6 +638,13 @@
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_7">
            <item>
+            <widget class="QLineEdit" name="lineEdit_DataENC_SearchBar">
+             <property name="placeholderText">
+              <string>Search</string>
+             </property>
+            </widget>
+           </item>
+           <item>
             <layout class="QHBoxLayout" name="horizontalLayout_5">
              <item>
               <widget class="QLabel" name="label_2">
@@ -692,13 +699,6 @@
               </widget>
              </item>
             </layout>
-           </item>
-           <item>
-            <widget class="QLineEdit" name="lineEdit_DataENC_SearchBar">
-             <property name="placeholderText">
-              <string>Search</string>
-             </property>
-            </widget>
            </item>
            <item>
             <widget class="Line" name="line_3">
@@ -1025,6 +1025,20 @@
                 </property>
                </widget>
               </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="label_27">
+                <property name="text">
+                 <string>Require Password Delay:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QSpinBox" name="spinBox_ReqPWDelay">
+                <property name="maximum">
+                 <number>300</number>
+                </property>
+               </widget>
+              </item>
              </layout>
             </widget>
            </item>
@@ -1117,7 +1131,7 @@
            </size>
           </property>
           <property name="currentIndex">
-           <number>3</number>
+           <number>0</number>
           </property>
           <widget class="QWidget" name="tab_Settings_Diaries">
            <attribute name="title">
@@ -1628,7 +1642,7 @@
                   </widget>
                  </item>
                  <item row="0" column="1">
-                  <widget class="QCheckBox" name="checkBox_DataENC_HideThumbnails_Image">
+                  <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_HideThumbnails_Image">
                    <property name="text">
                     <string/>
                    </property>
@@ -1642,7 +1656,7 @@
                   </widget>
                  </item>
                  <item row="1" column="1">
-                  <widget class="QCheckBox" name="checkBox_DataENC_HideThumbnails_Video">
+                  <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_HideThumbnails_Video">
                    <property name="text">
                     <string/>
                    </property>
@@ -1857,7 +1871,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1188</width>
+     <width>960</width>
      <height>21</height>
     </rect>
    </property>

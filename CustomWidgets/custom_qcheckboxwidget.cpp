@@ -9,7 +9,14 @@ custom_QCheckboxWidget::custom_QCheckboxWidget(QWidget *parent)
     , m_requireValidation(false)
     , m_validationMode(ValidateOnUncheck) // Default to validate when unchecking
     , m_hasDatabaseGetter(false)
+    , m_hasGracePeriodGetter(false)
 {
+}
+
+void custom_QCheckboxWidget::setGracePeriodGetter(const std::function<int()>& getter)
+{
+    m_gracePeriodGetter = getter;
+    m_hasGracePeriodGetter = true;
 }
 
 void custom_QCheckboxWidget::setValidationInfo(const QString& operationName, const QString& username)
@@ -63,9 +70,18 @@ void custom_QCheckboxWidget::nextCheckState()
     }
 
     if (needsValidation) {
-        // Call the password validation before changing state
-        bool validationPassed = PasswordValidation::validatePasswordForOperation(
-            this->parentWidget(), m_operationName, m_username);
+        // Get grace period if available
+        int gracePeriod = m_hasGracePeriodGetter ? m_gracePeriodGetter() : 0;
+
+        // Call the appropriate password validation method
+        bool validationPassed;
+        if (gracePeriod > 0) {
+            validationPassed = PasswordValidation::validatePasswordForOperation(
+                this->parentWidget(), m_operationName, m_username, gracePeriod);
+        } else {
+            validationPassed = PasswordValidation::validatePasswordForOperation(
+                this->parentWidget(), m_operationName, m_username);
+        }
 
         if (!validationPassed) {
             // If validation failed, don't change the state

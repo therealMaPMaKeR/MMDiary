@@ -3,6 +3,8 @@
 
 #include <QDialog>
 #include <QString>
+#include <QDateTime>
+#include <QMap>
 
 namespace Ui {
 class PasswordValidation;
@@ -27,12 +29,27 @@ public:
     // Static method to validate password for an operation
     static bool validatePasswordForOperation(QWidget* parent, const QString& operationName, const QString& username);
 
+    static void clearGracePeriod(const QString& username = QString());
+
+    // Overloaded methods that accept grace period directly
+    static bool validatePasswordForOperation(QWidget* parent, const QString& operationName,
+                                             const QString& username, int gracePeriodSeconds);
+    static bool validatePasswordWithCustomCancel(QWidget* parent, const QString& operationName,
+                                                 const QString& username, const QString& cancelButtonText,
+                                                 int gracePeriodSeconds);
+    //Grace Period Funct ..  in public because it needs to be accessed in main window
+    static void recordSuccessfulValidation(const QString& username);
+
 private slots:
     void onProceedClicked();
     void onCancelClicked();
 
 private:
     Ui::PasswordValidation *ui;
+
+    // Grace period functionality - static to persist across instances
+    static QMap<QString, QDateTime> s_lastValidationTimes; // username -> last validation time
+    static bool isWithinGracePeriod(const QString& username, int gracePeriodSeconds);
 };
 
 #endif // PASSWORDVALIDATION_H

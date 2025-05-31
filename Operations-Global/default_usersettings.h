@@ -10,6 +10,7 @@ namespace Default_UserSettings
 const QString DEFAULT_DISPLAY_NAME_COLOR = "Orange";
 const QString DEFAULT_MIN_TO_TRAY = "1";
 const QString DEFAULT_ASK_PW_AFTER_MIN = "1";
+const QString DEFAULT_REQ_PW_DELAY = "30";
 
 // Diary Settings
 const QString DEFAULT_DIARY_TEXT_SIZE = "10";
@@ -33,6 +34,12 @@ const QString DEFAULT_PWMAN_HIDE_PASSWORDS = "0";
 
 // Encrypted Data Settings
 const QString DEFAULT_DATAENC_REQ_PASSWORD = "0";
+const QString DEFAULT_DATAENC_HIDE_THUMBNAILS_IMAGE = "0";
+const QString DEFAULT_DATAENC_HIDE_THUMBNAILS_VIDEO = "0";
+const QString DEFAULT_DATAENC_HIDDEN_CATEGORIES = "";
+const QString DEFAULT_DATAENC_HIDDEN_TAGS = "";
+const QString DEFAULT_DATAENC_HIDE_CATEGORIES = "0";
+const QString DEFAULT_DATAENC_HIDE_TAGS = "0";
 
 bool SetDefault_GlobalSettings(QString username, const QByteArray& encryptionKey);
 bool SetDefault_DiarySettings(QString username, const QByteArray& encryptionKey);

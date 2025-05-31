@@ -36,7 +36,11 @@ bool SetDefault_GlobalSettings(QString username, const QByteArray& encryptionKey
         qDebug() << "Failed to set ask pw after min";
         return false;
     }
-
+    if (!db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_ReqPWDelay, DEFAULT_REQ_PW_DELAY))
+    {
+        qDebug() << "Failed to set ReqPWDelay";
+        return false;
+    }
     return true;
 }
 
@@ -163,25 +167,39 @@ bool SetDefault_EncryptedDataSettings(QString username, const QByteArray& encryp
 {
     DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
 
-    // Connect to the settings database
-    if (!db.connect(username, encryptionKey)) {
-        qCritical() << "Failed to connect to settings database:" << db.lastError();
-        qDebug() << "Unable to set default settings for EncryptedData";
+    // Ensure database connection
+    if (!db.isConnected()) {
+        if (!db.connect(username, encryptionKey)) {
+            qDebug() << "Failed to connect to settings database for EncryptedData defaults";
+            return false;
+        }
+    }
+
+    // Start transaction
+    if (!db.beginTransaction()) {
+        qDebug() << "Failed to begin transaction for EncryptedData defaults";
         return false;
     }
 
-    if(username.isEmpty()){
-        qDebug() << "Unable to set default settings for EncryptedData - username is empty";
-        return false;
+    // Set all encrypted data defaults
+    bool success = true;
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_ReqPassword, DEFAULT_DATAENC_REQ_PASSWORD);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_HideThumbnails_Image, DEFAULT_DATAENC_HIDE_THUMBNAILS_IMAGE);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_HideThumbnails_Video, DEFAULT_DATAENC_HIDE_THUMBNAILS_VIDEO);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hidden_Categories, DEFAULT_DATAENC_HIDDEN_CATEGORIES);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hidden_Tags, DEFAULT_DATAENC_HIDDEN_TAGS);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hide_Categories, DEFAULT_DATAENC_HIDE_CATEGORIES);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hide_Tags, DEFAULT_DATAENC_HIDE_TAGS);
+
+    if (success) {
+        db.commitTransaction();
+        qDebug() << "EncryptedData settings reset to defaults successfully";
+    } else {
+        db.rollbackTransaction();
+        qDebug() << "Failed to reset EncryptedData settings to defaults";
     }
 
-    // Update encrypted data settings using constants
-    if (!db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_ReqPassword, DEFAULT_DATAENC_REQ_PASSWORD)) {
-        qDebug() << "Failed to set dataenc req password";
-        return false;
-    }
-
-    return true;
+    return success;
 }
 
 bool SetAllDefaults(QString username, const QByteArray& encryptionKey)

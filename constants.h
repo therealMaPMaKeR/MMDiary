@@ -50,6 +50,7 @@ extern const QString SettingsT_Index_Displayname;
 extern const QString SettingsT_Index_DisplaynameColor;
 extern const QString SettingsT_Index_MinToTray;
 extern const QString SettingsT_Index_AskPWAfterMinToTray;
+extern const QString SettingsT_Index_ReqPWDelay;
 // Settings Database Table Indexes - Diary Settings
 extern const QString SettingsT_Index_Diary_TextSize;
 extern const QString SettingsT_Index_Diary_TStampTimer;
@@ -69,6 +70,12 @@ extern const QString SettingsT_Index_PWMan_ReqPassword;
 extern const QString SettingsT_Index_PWMan_HidePasswords;
 // Settings Database Table Indexes - Encrypted Data Settings
 extern const QString SettingsT_Index_DataENC_ReqPassword;
+extern const QString SettingsT_Index_DataENC_HideThumbnails_Image;
+extern const QString SettingsT_Index_DataENC_HideThumbnails_Video;
+extern const QString SettingsT_Index_DataENC_Hidden_Categories;
+extern const QString SettingsT_Index_DataENC_Hidden_Tags;
+extern const QString SettingsT_Index_DataENC_Hide_Categories;
+extern const QString SettingsT_Index_DataENC_Hide_Tags;
 //------------- Persistent Settings Database -----------//
 //Main window
 extern const QString PSettingsT_Index_MainWindow_SizeX;

@@ -30,6 +30,9 @@ public:
     // Set a function that returns the current database value for this setting
     void setDatabaseValueGetter(const std::function<bool()>& getter);
 
+    // Method to set a function that returns the current grace period
+    void setGracePeriodGetter(const std::function<int()>& getter);
+
 protected:
     // Override nextCheckState to validate password before changing state
     void nextCheckState() override;
@@ -41,6 +44,9 @@ private:
     ValidationMode m_validationMode;
     std::function<bool()> m_databaseValueGetter;
     bool m_hasDatabaseGetter;
+
+    std::function<int()> m_gracePeriodGetter;
+    bool m_hasGracePeriodGetter;
 };
 
 #endif // CUSTOM_QCHECKBOXWIDGET_H

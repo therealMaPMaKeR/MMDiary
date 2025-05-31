@@ -185,6 +185,7 @@ bool DatabaseSettingsManager::IndexIsValid(QString index, QString type)
         columnTypes[Constants::SettingsT_Index_DisplaynameColor] = Constants::DataType_QString;
         columnTypes[Constants::SettingsT_Index_MinToTray] = Constants::DataType_QString;
         columnTypes[Constants::SettingsT_Index_AskPWAfterMinToTray] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_ReqPWDelay] = Constants::DataType_QString;
 
         // Diary Settings columns
         columnTypes[Constants::SettingsT_Index_Diary_TextSize] = Constants::DataType_QString;
@@ -208,6 +209,12 @@ bool DatabaseSettingsManager::IndexIsValid(QString index, QString type)
 
         // Encrypted Data Settings columns
         columnTypes[Constants::SettingsT_Index_DataENC_ReqPassword] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_DataENC_HideThumbnails_Image] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_DataENC_HideThumbnails_Video] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_DataENC_Hidden_Categories] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_DataENC_Hidden_Tags] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_DataENC_Hide_Categories] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_DataENC_Hide_Tags] = Constants::DataType_QString;
     }
 
     // Check if the column exists in our map
@@ -447,6 +454,7 @@ bool DatabaseSettingsManager::migrateToV2()
     settingsTableColumns[Constants::SettingsT_Index_DisplaynameColor] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_MinToTray] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_AskPWAfterMinToTray] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_ReqPWDelay] = "TEXT";
 
     // Diary Settings
     settingsTableColumns[Constants::SettingsT_Index_Diary_TextSize] = "TEXT";
@@ -470,6 +478,12 @@ bool DatabaseSettingsManager::migrateToV2()
 
     // Encrypted Data Settings
     settingsTableColumns[Constants::SettingsT_Index_DataENC_ReqPassword] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_HideThumbnails_Image] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_HideThumbnails_Video] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hidden_Categories] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hidden_Tags] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hide_Categories] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hide_Tags] = "TEXT";
 
     if (!m_dbManager.createTable("settings", settingsTableColumns)) {
         qWarning() << "Failed to create settings table:" << m_dbManager.lastError();
