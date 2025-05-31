@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFile>
+// IMPORTANT: ONLY INT FIELDS SHOULD BE LEFT UNENCRYPTED. WE NEED TO ENCRYPT EVERYTHING ELSE
 
 DatabasePersistentSettingsManager::DatabasePersistentSettingsManager()
 {

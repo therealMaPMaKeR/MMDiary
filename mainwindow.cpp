@@ -1026,24 +1026,9 @@ void MainWindow::on_pushButton_DataENC_Encrypt_clicked()
     Operations_EncryptedData_ptr->encryptSelectedFile();
 }
 
-void MainWindow::on_pushButton_DataENC_Decrypt_clicked()
-{
-    Operations_EncryptedData_ptr->decryptSelectedFile();
-}
-
-void MainWindow::on_pushButton_DataENC_DeleteFile_clicked()
-{
-    Operations_EncryptedData_ptr->deleteSelectedFile();
-}
-
 void MainWindow::on_pushButton_DataENC_SecureDel_clicked()
 {
     Operations_EncryptedData_ptr->secureDeleteExternalItems();
-}
-
-void MainWindow::on_pushButton_DataENC_DecryptALL_clicked()
-{
-    Operations_EncryptedData_ptr->decryptAndExportVisibleFiles();
 }
 
 //------Custom Setting Signals-----//
