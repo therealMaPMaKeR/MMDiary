@@ -59,6 +59,9 @@ public:
     void closeEvent(QCloseEvent *event) override;
     void showEvent(QShowEvent *event) override;
 
+    // Bridge function to refresh encrypted data display when settings change
+    void refreshEncryptedDataDisplay();
+
 public slots:
     void ReceiveDataLogin_Slot(QString username, QByteArray key);
     void showAndActivate();

@@ -745,6 +745,13 @@ void MainWindow::ReceiveDataLogin_Slot(QString username, QByteArray key) // rece
     Operations_Diary_ptr->UpdateDelegate();
 }
 
+void MainWindow::refreshEncryptedDataDisplay()
+{
+    if (Operations_EncryptedData_ptr) {
+        Operations_EncryptedData_ptr->refreshDisplayForSettingsChange();
+    }
+}
+
 //------------DIARY SIGNALS----------//
 void MainWindow::on_DiaryListYears_currentTextChanged(const QString &arg1)
 {

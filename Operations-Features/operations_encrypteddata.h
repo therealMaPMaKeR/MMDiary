@@ -479,6 +479,12 @@ private:
     bool repairMetadataFiles(const QStringList& corruptedFiles);
     bool repairSingleFileMetadata(const QString& encryptedFilePath);
 
+    // Helper functions for hiding functionality
+    QStringList parseHiddenItems(const QString& hiddenString);
+    bool shouldHideFileByCategory(const EncryptedFileMetadata::FileMetadata& metadata);
+    bool shouldHideFileByTags(const EncryptedFileMetadata::FileMetadata& metadata);
+    bool shouldHideThumbnail(const QString& fileTypeDir);
+
 #ifdef QT_DEBUG
     // Debug function to purposefully corrupt metadata for testing
     bool debugCorruptFileMetadata(const QString& encryptedFilePath);
@@ -518,6 +524,9 @@ public:
 
     // Main batch decrypt function
     void decryptAndExportVisibleFiles();
+
+    // Bridge method called when settings change
+    void refreshDisplayForSettingsChange();
 
     // REMOVED: Video thumbnail storage method (no longer needed with embedded thumbnails)
     // void storeVideoThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail);

@@ -793,6 +793,10 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         bool hideTags = m_mainWindow->setting_DataENC_Hide_Tags;
         QString hideTagsStr = hideTags ? "1" : "0";
         db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hide_Tags, hideTagsStr);
+
+        m_mainWindow->refreshEncryptedDataDisplay();
+
+        qDebug() << "Refreshed encrypted data display after settings change";
     }
 
     // Update button states after saving

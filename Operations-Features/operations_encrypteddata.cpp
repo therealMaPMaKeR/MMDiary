@@ -2688,21 +2688,36 @@ void Operations_EncryptedData::populateEncryptedFilesList()
 // New method: Populate categories list
 void Operations_EncryptedData::populateCategoriesList()
 {
-    qDebug() << "Populating categories list";
+    qDebug() << "Populating categories list (applying category hiding settings)";
 
     // Clear current categories list
     m_mainWindow->ui->listWidget_DataENC_Categories->clear();
 
-    // Collect all unique categories that have files
+    // Get list of hidden categories for filtering
+    QStringList hiddenCategories;
+    if (m_mainWindow->setting_DataENC_Hide_Categories) {
+        hiddenCategories = parseHiddenItems(m_mainWindow->setting_DataENC_Hidden_Categories);
+    }
+
+    // Collect all unique categories that have files (excluding hidden ones)
     QSet<QString> categoriesWithFiles;
 
     for (auto it = m_fileMetadataCache.begin(); it != m_fileMetadataCache.end(); ++it) {
         const EncryptedFileMetadata::FileMetadata& metadata = it.value();
 
-        if (metadata.category.isEmpty()) {
-            categoriesWithFiles.insert("Uncategorized");
-        } else {
-            categoriesWithFiles.insert(metadata.category);
+        QString fileCategory = metadata.category.isEmpty() ? "Uncategorized" : metadata.category;
+
+        // Skip hidden categories
+        bool isHidden = false;
+        for (const QString& hiddenCategory : hiddenCategories) {
+            if (fileCategory.compare(hiddenCategory, Qt::CaseInsensitive) == 0) {
+                isHidden = true;
+                break;
+            }
+        }
+
+        if (!isHidden) {
+            categoriesWithFiles.insert(fileCategory);
         }
     }
 
@@ -2711,7 +2726,7 @@ void Operations_EncryptedData::populateCategoriesList()
     allItem->setData(Qt::UserRole, "All");
     m_mainWindow->ui->listWidget_DataENC_Categories->addItem(allItem);
 
-    // Add categories in alphabetical order
+    // Add visible categories in alphabetical order
     QStringList sortedCategories(categoriesWithFiles.begin(), categoriesWithFiles.end());
     sortedCategories.sort();
 
@@ -2724,7 +2739,7 @@ void Operations_EncryptedData::populateCategoriesList()
         m_mainWindow->ui->listWidget_DataENC_Categories->addItem(item);
     }
 
-    // Add "Uncategorized" at the bottom if it has files
+    // Add "Uncategorized" at the bottom if it has files and is not hidden
     if (categoriesWithFiles.contains("Uncategorized")) {
         QListWidgetItem* uncategorizedItem = new QListWidgetItem("Uncategorized");
         uncategorizedItem->setData(Qt::UserRole, "Uncategorized");
@@ -2732,7 +2747,7 @@ void Operations_EncryptedData::populateCategoriesList()
     }
 
     qDebug() << "Added" << m_mainWindow->ui->listWidget_DataENC_Categories->count()
-             << "categories (including All)";
+             << "categories (including All, after applying hiding settings)";
 }
 
 // New method: Handle category selection changes
@@ -2761,6 +2776,11 @@ void Operations_EncryptedData::onCategorySelectionChanged()
         const QString& filePath = it.key();
         const EncryptedFileMetadata::FileMetadata& metadata = it.value();
 
+        // First, check if file should be hidden by category settings
+        if (shouldHideFileByCategory(metadata)) {
+            continue; // Skip this file, it's in a hidden category
+        }
+
         bool includeFile = false;
 
         if (selectedCategory == "All") {
@@ -2776,7 +2796,8 @@ void Operations_EncryptedData::onCategorySelectionChanged()
         }
     }
 
-    qDebug() << "Filtered to" << m_currentFilteredFiles.size() << "files for category:" << selectedCategory;
+    qDebug() << "Filtered to" << m_currentFilteredFiles.size() << "files for category:" << selectedCategory
+             << "(after applying category hiding settings)";
 
     // Populate tags list based on filtered files
     populateTagsList();
@@ -2788,12 +2809,18 @@ void Operations_EncryptedData::onCategorySelectionChanged()
 // New method: Populate tags list with checkboxes
 void Operations_EncryptedData::populateTagsList()
 {
-    qDebug() << "Populating tags list";
+    qDebug() << "Populating tags list (applying tag hiding settings)";
 
     // Clear current tags list
     m_mainWindow->ui->listWidget_DataENC_Tags->clear();
 
-    // Collect all unique tags from currently filtered files
+    // Get list of hidden tags for filtering
+    QStringList hiddenTags;
+    if (m_mainWindow->setting_DataENC_Hide_Tags) {
+        hiddenTags = parseHiddenItems(m_mainWindow->setting_DataENC_Hidden_Tags);
+    }
+
+    // Collect all unique tags from currently filtered files (excluding hidden ones)
     QSet<QString> allTags;
 
     for (const QString& filePath : m_currentFilteredFiles) {
@@ -2801,7 +2828,18 @@ void Operations_EncryptedData::populateTagsList()
             const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
             for (const QString& tag : metadata.tags) {
                 if (!tag.isEmpty()) {
-                    allTags.insert(tag);
+                    // Check if this tag should be hidden
+                    bool isHidden = false;
+                    for (const QString& hiddenTag : hiddenTags) {
+                        if (tag.compare(hiddenTag, Qt::CaseInsensitive) == 0) {
+                            isHidden = true;
+                            break;
+                        }
+                    }
+
+                    if (!isHidden) {
+                        allTags.insert(tag);
+                    }
                 }
             }
         }
@@ -2825,7 +2863,7 @@ void Operations_EncryptedData::populateTagsList()
     connect(m_mainWindow->ui->listWidget_DataENC_Tags, &QListWidget::itemChanged,
             this, &Operations_EncryptedData::onTagCheckboxChanged);
 
-    qDebug() << "Added" << sortedTags.size() << "tags with checkboxes";
+    qDebug() << "Added" << sortedTags.size() << "tags with checkboxes (after applying hiding settings)";
 }
 
 // New method: Handle tag checkbox changes
@@ -2846,7 +2884,7 @@ void Operations_EncryptedData::onTagCheckboxChanged()
 // New method: Update the actual file list display
 void Operations_EncryptedData::updateFileListDisplay()
 {
-    qDebug() << "Updating file list display with embedded thumbnails";
+    qDebug() << "Updating file list display with embedded thumbnails and hiding settings";
 
     // Clear current file list
     m_mainWindow->ui->listWidget_DataENC_FileList->clear();
@@ -2862,7 +2900,7 @@ void Operations_EncryptedData::updateFileListDisplay()
 
     qDebug() << "Checked tags:" << checkedTags;
 
-    // Filter files by checked tags (AND logic) - same as before
+    // Filter files by checked tags (AND logic) and tag hiding settings
     QStringList finalFilteredFiles;
     for (const QString& filePath : m_currentFilteredFiles) {
         if (!m_fileMetadataCache.contains(filePath)) {
@@ -2870,6 +2908,12 @@ void Operations_EncryptedData::updateFileListDisplay()
         }
 
         const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
+
+        // Check if file should be hidden by tag settings
+        if (shouldHideFileByTags(metadata)) {
+            continue; // Skip this file, it has hidden tags
+        }
+
         bool includeFile = true;
 
         if (!checkedTags.isEmpty()) {
@@ -2886,9 +2930,10 @@ void Operations_EncryptedData::updateFileListDisplay()
         }
     }
 
-    qDebug() << "Final filtered files count:" << finalFilteredFiles.size();
+    qDebug() << "Final filtered files count:" << finalFilteredFiles.size()
+             << "(after applying tag hiding settings)";
 
-    // Create list items for filtered files with thumbnail caching
+    // Create list items for filtered files with thumbnail caching and hiding logic
     for (const QString& encryptedFilePath : finalFilteredFiles) {
         const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[encryptedFilePath];
 
@@ -2898,9 +2943,15 @@ void Operations_EncryptedData::updateFileListDisplay()
         EncryptedFileItemWidget* customWidget = new EncryptedFileItemWidget();
         customWidget->setFileInfo(metadata.filename, encryptedFilePath, fileTypeDir);
 
-        // OPTIMIZED: Use thumbnail cache to avoid repeated decompression
+        // UPDATED: Thumbnail logic with hiding settings
         QPixmap icon;
         bool hasEmbeddedThumbnail = !metadata.thumbnailData.isEmpty();
+
+        // Check if we should hide thumbnails for this file type
+        if (hasEmbeddedThumbnail && shouldHideThumbnail(fileTypeDir)) {
+            qDebug() << "Hiding thumbnail for" << fileTypeDir << "file:" << metadata.filename;
+            hasEmbeddedThumbnail = false; // Force use of default icon
+        }
 
         if (hasEmbeddedThumbnail) {
             // Check cache first
@@ -2925,7 +2976,7 @@ void Operations_EncryptedData::updateFileListDisplay()
             }
         }
 
-        // If no embedded thumbnail or decompression failed, use default icon
+        // If no embedded thumbnail, thumbnail hiding is active, or decompression failed, use default icon
         if (!hasEmbeddedThumbnail) {
             icon = getIconForFileType(metadata.filename, fileTypeDir);
         }
@@ -2946,7 +2997,8 @@ void Operations_EncryptedData::updateFileListDisplay()
     }
 
     updateButtonStates();
-    qDebug() << "File list display updated with" << finalFilteredFiles.size() << "items (with thumbnail caching)";
+    qDebug() << "File list display updated with" << finalFilteredFiles.size()
+             << "items (with thumbnail caching and hiding settings applied)";
 }
 
 void Operations_EncryptedData::onSortTypeChanged(const QString& sortType)
@@ -5519,4 +5571,91 @@ void Operations_EncryptedData::clearThumbnailCache()
 {
     m_thumbnailCache.clear();
     qDebug() << "Thumbnail cache cleared";
+}
+
+
+// ============================================================================
+// Settings-Related Methods
+// ============================================================================
+
+void Operations_EncryptedData::refreshDisplayForSettingsChange()
+{
+    qDebug() << "Refreshing encrypted data display for settings change";
+
+    // Clear thumbnail cache since thumbnail hiding settings may have changed
+    clearThumbnailCache();
+
+    // Refresh the category selection which will trigger a complete refresh
+    // This ensures that both category and tag filtering are applied
+    onCategorySelectionChanged();
+}
+
+QStringList Operations_EncryptedData::parseHiddenItems(const QString& hiddenString)
+{
+    if (hiddenString.isEmpty()) {
+        return QStringList();
+    }
+
+    QStringList items = hiddenString.split(';', Qt::SkipEmptyParts);
+
+    // Trim whitespace from each item
+    for (QString& item : items) {
+        item = item.trimmed();
+    }
+
+    return items;
+}
+
+bool Operations_EncryptedData::shouldHideFileByCategory(const EncryptedFileMetadata::FileMetadata& metadata)
+{
+    if (!m_mainWindow->setting_DataENC_Hide_Categories) {
+        return false; // Setting is disabled, don't hide anything
+    }
+
+    QStringList hiddenCategories = parseHiddenItems(m_mainWindow->setting_DataENC_Hidden_Categories);
+
+    if (hiddenCategories.isEmpty()) {
+        return false; // No hidden categories specified
+    }
+
+    QString fileCategory = metadata.category.isEmpty() ? "Uncategorized" : metadata.category;
+
+    return hiddenCategories.contains(fileCategory, Qt::CaseInsensitive);
+}
+
+bool Operations_EncryptedData::shouldHideFileByTags(const EncryptedFileMetadata::FileMetadata& metadata)
+{
+    if (!m_mainWindow->setting_DataENC_Hide_Tags) {
+        return false; // Setting is disabled, don't hide anything
+    }
+
+    QStringList hiddenTags = parseHiddenItems(m_mainWindow->setting_DataENC_Hidden_Tags);
+
+    if (hiddenTags.isEmpty()) {
+        return false; // No hidden tags specified
+    }
+
+    // Check if file has any of the hidden tags (case-insensitive)
+    for (const QString& fileTag : metadata.tags) {
+        for (const QString& hiddenTag : hiddenTags) {
+            if (fileTag.compare(hiddenTag, Qt::CaseInsensitive) == 0) {
+                return true; // File has a hidden tag, should be hidden
+            }
+        }
+    }
+
+    return false; // File doesn't have any hidden tags
+}
+
+bool Operations_EncryptedData::shouldHideThumbnail(const QString& fileTypeDir)
+{
+    if (fileTypeDir == "Image" && m_mainWindow->setting_DataENC_HideThumbnails_Image) {
+        return true;
+    }
+
+    if (fileTypeDir == "Video" && m_mainWindow->setting_DataENC_HideThumbnails_Video) {
+        return true;
+    }
+
+    return false;
 }
