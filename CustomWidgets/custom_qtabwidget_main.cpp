@@ -29,25 +29,36 @@ void custom_QTabWidget_Main::initializeTabMappings()
 
 void custom_QTabWidget_Main::createTabVisibilityMenu()
 {
-    m_tabVisibilityMenu = new QMenu("Tab Visibility", this);
+    // Only create the menu if it doesn't exist
+    if (!m_tabVisibilityMenu) {
+        m_tabVisibilityMenu = new QMenu("Tab Visibility", this);
+    }
 
-    // Create actions for each tab
-    for (auto it = m_tabObjectNameToDisplayName.constBegin();
-         it != m_tabObjectNameToDisplayName.constEnd(); ++it) {
+    // Clear existing actions and menu items
+    m_tabVisibilityMenu->clear();
+    m_tabVisibilityActions.clear();
 
-        const QString& objectName = it.key();
-        const QString& displayName = it.value();
-
-        QAction* action = new QAction(displayName, m_tabVisibilityMenu);
-        action->setCheckable(true);
-        action->setChecked(true); // Default to visible
-        action->setData(objectName); // Store object name in action data
-
-        // Settings tab should not be hideable
-        if (objectName == m_settingsTabObjectName) {
-            action->setEnabled(false);
-            action->setToolTip("Settings tab cannot be hidden");
+    // Create actions for each tab in their actual display order
+    for (int i = 0; i < count(); ++i) {
+        QWidget* tabWidget = widget(i);
+        if (!tabWidget) {
+            continue;
         }
+
+        const QString& objectName = tabWidget->objectName();
+
+        // Skip the settings tab entirely
+        if (objectName == m_settingsTabObjectName) {
+            continue;
+        }
+
+        // Get display name from our mapping, or use object name as fallback
+        QString displayName = m_tabObjectNameToDisplayName.value(objectName, objectName);
+
+        QAction* action = new QAction(displayName, this); // Use 'this' as parent, not the menu
+        action->setCheckable(true);
+        action->setChecked(isTabVisible(i)); // Set based on current visibility
+        action->setData(objectName); // Store object name in action data
 
         connect(action, &QAction::triggered, this, &custom_QTabWidget_Main::onTabVisibilityToggled);
 
@@ -62,6 +73,9 @@ void custom_QTabWidget_Main::showTabVisibilityContextMenu(const QPoint& position
         return;
     }
 
+    // Recreate menu to ensure correct order after any tab moves
+    createTabVisibilityMenu();
+
     // Update menu states before showing
     updateTabVisibilityMenuStates();
 
@@ -73,14 +87,26 @@ void custom_QTabWidget_Main::showTabVisibilityContextMenu(const QPoint& position
 void custom_QTabWidget_Main::updateTabVisibilityMenuStates()
 {
     // Update checkbox states based on current tab visibility
-    for (auto it = m_tabVisibilityActions.constBegin();
-         it != m_tabVisibilityActions.constEnd(); ++it) {
+    // Iterate through tabs in actual order to get correct visibility state
+    for (int i = 0; i < count(); ++i) {
+        QWidget* tabWidget = widget(i);
+        if (!tabWidget) {
+            continue;
+        }
 
-        const QString& objectName = it.key();
-        QAction* action = it.value();
+        const QString& objectName = tabWidget->objectName();
 
-        bool isVisible = isTabVisibleByObjectName(objectName);
-        action->setChecked(isVisible);
+        // Skip settings tab
+        if (objectName == m_settingsTabObjectName) {
+            continue;
+        }
+
+        // Update action if it exists
+        if (m_tabVisibilityActions.contains(objectName)) {
+            QAction* action = m_tabVisibilityActions[objectName];
+            bool isVisible = isTabVisible(i);
+            action->setChecked(isVisible);
+        }
     }
 }
 
@@ -93,12 +119,6 @@ void custom_QTabWidget_Main::onTabVisibilityToggled()
 
     QString objectName = action->data().toString();
     bool shouldBeVisible = action->isChecked();
-
-    // Don't allow hiding the settings tab
-    if (objectName == m_settingsTabObjectName && !shouldBeVisible) {
-        action->setChecked(true);
-        return;
-    }
 
     // Make the tab visible/hidden
     setTabVisibleByObjectName(objectName, shouldBeVisible);
