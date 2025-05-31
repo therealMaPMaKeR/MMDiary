@@ -511,6 +511,13 @@ private:
 
     void analyzeCaseInsensitiveDisplayNames();
 
+    // Search functionality
+    QString m_currentSearchText;
+    QTimer* m_searchDebounceTimer;
+    static const int SEARCH_DEBOUNCE_DELAY = 200; // milliseconds
+    void onSearchTextChanged();
+    bool matchesSearchCriteria(const QString& filename, const QString& searchText);
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();
@@ -533,6 +540,8 @@ public:
 
     // Bridge method called when settings change
     void refreshDisplayForSettingsChange();
+
+    void clearSearch();
 
     // REMOVED: Video thumbnail storage method (no longer needed with embedded thumbnails)
     // void storeVideoThumbnail(const QString& encryptedFilePath, const QPixmap& thumbnail);

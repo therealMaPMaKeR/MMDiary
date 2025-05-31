@@ -57,7 +57,7 @@
        </size>
       </property>
       <property name="currentIndex">
-       <number>0</number>
+       <number>3</number>
       </property>
       <property name="movable">
        <bool>true</bool>
@@ -641,6 +641,9 @@
             <widget class="QLineEdit" name="lineEdit_DataENC_SearchBar">
              <property name="placeholderText">
               <string>Search</string>
+             </property>
+             <property name="clearButtonEnabled">
+              <bool>true</bool>
              </property>
             </widget>
            </item>

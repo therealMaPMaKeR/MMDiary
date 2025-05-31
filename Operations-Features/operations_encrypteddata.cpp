@@ -779,6 +779,26 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     connect(m_tagFilterDebounceTimer, &QTimer::timeout,
             this, &Operations_EncryptedData::updateFileListDisplay);
 
+    // Initialize search functionality
+    m_currentSearchText = "";
+    m_searchDebounceTimer = new QTimer(this);
+    m_searchDebounceTimer->setSingleShot(true);
+    m_searchDebounceTimer->setInterval(SEARCH_DEBOUNCE_DELAY);
+    connect(m_searchDebounceTimer, &QTimer::timeout,
+            this, &Operations_EncryptedData::updateFileListDisplay);
+
+    // Connect search bar text changes
+    connect(m_mainWindow->ui->lineEdit_DataENC_SearchBar, &QLineEdit::textChanged,
+            this, &Operations_EncryptedData::onSearchTextChanged);
+    // Connect enter with search bar to stop deboucne and update immediately
+    connect(m_mainWindow->ui->lineEdit_DataENC_SearchBar, &QLineEdit::returnPressed, [this]() {
+        // Stop debounce timer and update immediately
+        m_searchDebounceTimer->stop();
+        updateFileListDisplay();
+    });
+    // Install event filter on search bar for escape/delete.
+    m_mainWindow->ui->lineEdit_DataENC_SearchBar->installEventFilter(this);
+
     // Connect selection changed signal to update button states
     connect(m_mainWindow->ui->listWidget_DataENC_FileList, &QListWidget::itemSelectionChanged,
             this, &Operations_EncryptedData::updateButtonStates);
@@ -939,6 +959,13 @@ Operations_EncryptedData::~Operations_EncryptedData()
     if (m_secureDeletionProgressDialog) {
         m_secureDeletionProgressDialog->deleteLater();
         m_secureDeletionProgressDialog = nullptr;
+    }
+
+    // Stop and clean up search timer
+    if (m_searchDebounceTimer) {
+        m_searchDebounceTimer->stop();
+        m_searchDebounceTimer->deleteLater();
+        m_searchDebounceTimer = nullptr;
     }
 
     // NOTE: ThumbnailCache cleanup removed - no longer used
@@ -2893,7 +2920,7 @@ void Operations_EncryptedData::onTagCheckboxChanged()
 // New method: Update the actual file list display
 void Operations_EncryptedData::updateFileListDisplay()
 {
-    qDebug() << "Updating file list display with embedded thumbnails, hiding settings, and case-insensitive filtering";
+    qDebug() << "Updating file list display with embedded thumbnails, hiding settings, case-insensitive filtering, and search";
 
     // Clear current file list
     m_mainWindow->ui->listWidget_DataENC_FileList->clear();
@@ -2908,9 +2935,10 @@ void Operations_EncryptedData::updateFileListDisplay()
     }
 
     qDebug() << "Checked tags (display names):" << checkedTagsDisplay;
+    qDebug() << "Current search text:" << m_currentSearchText;
 
     // Filter files by checked tags (AND logic, case-insensitive) and tag hiding settings
-    QStringList finalFilteredFiles;
+    QStringList tagFilteredFiles;
     for (const QString& filePath : m_currentFilteredFiles) {
         if (!m_fileMetadataCache.contains(filePath)) {
             continue;
@@ -2946,12 +2974,30 @@ void Operations_EncryptedData::updateFileListDisplay()
         }
 
         if (includeFile) {
+            tagFilteredFiles.append(filePath);
+        }
+    }
+
+    qDebug() << "Tag filtered files count:" << tagFilteredFiles.size()
+             << "(case-insensitive, after applying tag hiding settings)";
+
+    // NEW: Apply search filter to tag-filtered files
+    QStringList finalFilteredFiles;
+    for (const QString& filePath : tagFilteredFiles) {
+        if (!m_fileMetadataCache.contains(filePath)) {
+            continue;
+        }
+
+        const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
+
+        // Check if filename matches search criteria
+        if (matchesSearchCriteria(metadata.filename, m_currentSearchText)) {
             finalFilteredFiles.append(filePath);
         }
     }
 
-    qDebug() << "Final filtered files count:" << finalFilteredFiles.size()
-             << "(case-insensitive, after applying tag hiding settings)";
+    qDebug() << "Final filtered files count (after search):" << finalFilteredFiles.size()
+             << "Search text: '" << m_currentSearchText << "'";
 
     // Create list items for filtered files with thumbnail caching and hiding logic
     for (const QString& encryptedFilePath : finalFilteredFiles) {
@@ -3018,7 +3064,7 @@ void Operations_EncryptedData::updateFileListDisplay()
 
     updateButtonStates();
     qDebug() << "File list display updated with" << finalFilteredFiles.size()
-             << "items (case-insensitive with thumbnail caching and hiding settings applied)";
+             << "items (case-insensitive with thumbnail caching, hiding settings, and search applied)";
 }
 
 void Operations_EncryptedData::onSortTypeChanged(const QString& sortType)
@@ -3964,6 +4010,15 @@ bool Operations_EncryptedData::eventFilter(QObject* watched, QEvent* event)
             }
         }
     }
+
+    // NEW: Handle Escape key for search bar
+       if (watched == m_mainWindow->ui->lineEdit_DataENC_SearchBar && event->type() == QEvent::KeyPress) {
+           QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
+           if (keyEvent->key() == Qt::Key_Escape) {
+               clearSearch();
+               return true;
+           }
+       }
 
     // Pass event to parent class
     return QObject::eventFilter(watched, event);
@@ -5782,3 +5837,49 @@ void Operations_EncryptedData::analyzeCaseInsensitiveDisplayNames()
              << m_tagDisplayNames.size() << "unique tags";
 }
 
+
+// ============================================================================
+// Search Functionality Methods
+// ============================================================================
+
+void Operations_EncryptedData::onSearchTextChanged()
+{
+    // Get the current search text
+    QString newSearchText = m_mainWindow->ui->lineEdit_DataENC_SearchBar->text();
+
+    // Only update if text actually changed
+    if (newSearchText != m_currentSearchText) {
+        m_currentSearchText = newSearchText;
+        qDebug() << "Search text changed to:" << m_currentSearchText;
+
+        // Stop any existing timer and restart it
+        // This batches rapid text changes together (debouncing)
+        m_searchDebounceTimer->stop();
+        m_searchDebounceTimer->start();
+    }
+}
+
+bool Operations_EncryptedData::matchesSearchCriteria(const QString& filename, const QString& searchText)
+{
+    // If search text is empty, match everything
+    if (searchText.isEmpty()) {
+        return true;
+    }
+
+    // Case-insensitive search in filename
+    return filename.contains(searchText, Qt::CaseInsensitive);
+}
+
+void Operations_EncryptedData::clearSearch()
+{
+    qDebug() << "Clearing search text";
+
+    // Clear the search text in the UI
+    m_mainWindow->ui->lineEdit_DataENC_SearchBar->clear();
+
+    // Clear internal search text (this will trigger onSearchTextChanged)
+    m_currentSearchText = "";
+
+    // Update display immediately
+    updateFileListDisplay();
+}
