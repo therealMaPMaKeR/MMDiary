@@ -106,6 +106,12 @@ const QString PSettingsT_Index_MainTabWidgetIndex_Diary = "PSettings_MTWI_Diary"
 const QString PSettingsT_Index_MainTabWidgetIndex_Tasklists = "PSettings_MTWI_Tasklists";
 const QString PSettingsT_Index_MainTabWidgetIndex_PWManager = "PSettings_MTWI_PWManager";
 const QString PSettingsT_Index_MainTabWidgetIndex_EncryptedData = "PSettings_MTWI_EncryptedData";
+//Tab Visibility
+const QString PSettingsT_Index_TabVisible_Diaries = "PSettings_TabVisible_Diaries";
+const QString PSettingsT_Index_TabVisible_Tasklists = "PSettings_TabVisible_Tasklists";
+const QString PSettingsT_Index_TabVisible_Passwords = "PSettings_TabVisible_Passwords";
+const QString PSettingsT_Index_TabVisible_DataEncryption = "PSettings_TabVisible_DataEncryption";
+const QString PSettingsT_Index_TabVisible_Settings = "PSettings_TabVisible_Settings";
 //Tasklists
 const QString PSettingsT_Index_TLists_CurrentList = "PSettings_TLists_CurrentList";
 const QString PSettingsT_Index_TLists_CurrentTask = "PSettings_TLists_CurrentTask";

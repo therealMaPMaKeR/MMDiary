@@ -203,6 +203,13 @@ bool DatabasePersistentSettingsManager::IndexIsValid(QString index, QString type
         columnTypes[Constants::PSettingsT_Index_MainTabWidgetIndex_PWManager] = Constants::DataType_INT;
         columnTypes[Constants::PSettingsT_Index_MainTabWidgetIndex_EncryptedData] = Constants::DataType_INT;
 
+        // Tab visibility (INT - 0 = hidden, 1 = visible)
+        columnTypes[Constants::PSettingsT_Index_TabVisible_Diaries] = Constants::DataType_INT;
+        columnTypes[Constants::PSettingsT_Index_TabVisible_Tasklists] = Constants::DataType_INT;
+        columnTypes[Constants::PSettingsT_Index_TabVisible_Passwords] = Constants::DataType_INT;
+        columnTypes[Constants::PSettingsT_Index_TabVisible_DataEncryption] = Constants::DataType_INT;
+        columnTypes[Constants::PSettingsT_Index_TabVisible_Settings] = Constants::DataType_INT;
+
         // Tasklist settings (TEXT - potentially sensitive)
         columnTypes[Constants::PSettingsT_Index_TLists_CurrentList] = Constants::DataType_QString;
         columnTypes[Constants::PSettingsT_Index_TLists_CurrentTask] = Constants::DataType_QString;
@@ -499,6 +506,13 @@ bool DatabasePersistentSettingsManager::migrateToV2()
     persistentSettingsTableColumns[Constants::PSettingsT_Index_MainTabWidgetIndex_Tasklists] = "INTEGER";
     persistentSettingsTableColumns[Constants::PSettingsT_Index_MainTabWidgetIndex_PWManager] = "INTEGER";
     persistentSettingsTableColumns[Constants::PSettingsT_Index_MainTabWidgetIndex_EncryptedData] = "INTEGER";
+
+    // Tab visibility (0 = hidden, 1 = visible, default to 1 for all tabs)
+    persistentSettingsTableColumns[Constants::PSettingsT_Index_TabVisible_Diaries] = "INTEGER DEFAULT 1";
+    persistentSettingsTableColumns[Constants::PSettingsT_Index_TabVisible_Tasklists] = "INTEGER DEFAULT 1";
+    persistentSettingsTableColumns[Constants::PSettingsT_Index_TabVisible_Passwords] = "INTEGER DEFAULT 1";
+    persistentSettingsTableColumns[Constants::PSettingsT_Index_TabVisible_DataEncryption] = "INTEGER DEFAULT 1";
+    persistentSettingsTableColumns[Constants::PSettingsT_Index_TabVisible_Settings] = "INTEGER DEFAULT 1";
 
     // Tasklist settings (TEXT - encrypted due to potential sensitivity)
     persistentSettingsTableColumns[Constants::PSettingsT_Index_TLists_CurrentList] = "TEXT";

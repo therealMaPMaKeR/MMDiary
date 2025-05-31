@@ -288,6 +288,36 @@ void MainWindow::LoadPersistentSettings()
         move(posX, posY);
     }
 
+    // Load and apply tab visibility settings
+    struct TabVisibilityInfo {
+        QString objectName;
+        QString constantName;
+    };
+
+    QList<TabVisibilityInfo> tabVisibilityList = {
+        {"tab_Diaries", Constants::PSettingsT_Index_TabVisible_Diaries},
+        {"tab_Tasklists", Constants::PSettingsT_Index_TabVisible_Tasklists},
+        {"tab_Passwords", Constants::PSettingsT_Index_TabVisible_Passwords},
+        {"tab_DataEncryption", Constants::PSettingsT_Index_TabVisible_DataEncryption},
+        {"tab_Settings", Constants::PSettingsT_Index_TabVisible_Settings}
+    };
+
+    for (const auto& tabInfo : tabVisibilityList) {
+        int isVisible = m_persistentSettingsManager->GetPersistentSettingsData_Int(tabInfo.constantName);
+
+        // If value is -1 (not set), default to visible (1)
+        if (isVisible == -1) {
+            isVisible = 1;
+        }
+
+        // Settings tab should always be visible regardless of saved setting
+        if (tabInfo.objectName == "tab_Settings") {
+            isVisible = 1;
+        }
+
+        ui->tabWidget_Main->setTabVisibleByObjectName(tabInfo.objectName, isVisible == 1);
+    }
+
     // Load and apply tab order
     struct TabOrderInfo {
         QString objectName;
@@ -465,6 +495,25 @@ void MainWindow::SavePersistentSettings()
     m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainWindow_SizeY, windowSize.height());
     m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainWindow_PosX, windowPos.x());
     m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainWindow_PosY, windowPos.y());
+
+    // Save tab visibility settings
+    struct TabVisibilityInfo {
+        QString objectName;
+        QString constantName;
+    };
+
+    QList<TabVisibilityInfo> tabVisibilityList = {
+        {"tab_Diaries", Constants::PSettingsT_Index_TabVisible_Diaries},
+        {"tab_Tasklists", Constants::PSettingsT_Index_TabVisible_Tasklists},
+        {"tab_Passwords", Constants::PSettingsT_Index_TabVisible_Passwords},
+        {"tab_DataEncryption", Constants::PSettingsT_Index_TabVisible_DataEncryption},
+        {"tab_Settings", Constants::PSettingsT_Index_TabVisible_Settings}
+    };
+
+    for (const auto& tabInfo : tabVisibilityList) {
+        bool isVisible = ui->tabWidget_Main->isTabVisibleByObjectName(tabInfo.objectName);
+        m_persistentSettingsManager->UpdatePersistentSettingsData_INT(tabInfo.constantName, isVisible ? 1 : 0);
+    }
 
     // Save main tab widget current tab
     int currentTabIndex = ui->tabWidget_Main->currentIndex();

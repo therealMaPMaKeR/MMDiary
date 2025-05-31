@@ -5,6 +5,9 @@
 #include <QTabWidget>
 #include <QTabBar>
 #include <QSet>
+#include <QMenu>
+#include <QAction>
+#include <QMap>
 
 class custom_QTabWidget_Main : public QTabWidget
 {
@@ -20,6 +23,10 @@ public:
 
     void moveTab(int fromIndex, int toIndex);
 
+    // Tab visibility methods
+    void setTabVisibleByObjectName(const QString& tabObjectName, bool visible);
+    bool isTabVisibleByObjectName(const QString& tabObjectName) const;
+
 signals:
     // Signal to request password validation
     void passwordValidationRequested(int targetTabIndex, int currentIndex);
@@ -31,9 +38,29 @@ protected:
     // Override event filter to catch tab bar clicks
     bool eventFilter(QObject *watched, QEvent *event) override;
 
+private slots:
+    // Context menu action handlers
+    void onTabVisibilityToggled();
+
 private:
     QSet<QString> m_passwordProtectedTabs; // Set of tab object names that require password
     QString m_settingsTabObjectName;       // Settings tab object name (default to "tab_Settings")
+
+    // Context menu functionality
+    void showTabVisibilityContextMenu(const QPoint& position);
+    void createTabVisibilityMenu();
+    void updateTabVisibilityMenuStates();
+
+    // Tab visibility tracking
+    QMap<QString, QString> m_tabObjectNameToDisplayName; // Maps object names to user-friendly names
+    QMenu* m_tabVisibilityMenu;
+    QMap<QString, QAction*> m_tabVisibilityActions; // Maps object names to menu actions
+
+    // Helper methods
+    int getTabIndexByObjectName(const QString& objectName) const;
+    QString getTabObjectNameByIndex(int index) const;
+    void initializeTabMappings();
+    void attemptTabSwitch(int targetTabIndex);
 };
 
 #endif // CUSTOM_QTABWIDGET_MAIN_H
