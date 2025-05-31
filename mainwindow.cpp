@@ -320,10 +320,7 @@ void MainWindow::LoadPersistentSettings()
             isVisible = 1;
         }
 
-        // Settings tab should always be visible regardless of saved setting
-        if (tabInfo.objectName == "tab_Settings") {
-            isVisible = 1;
-        }
+        // REMOVED: Special handling for settings tab - it can now be hidden like other tabs
 
         ui->tabWidget_Main->setTabVisibleByObjectName(tabInfo.objectName, isVisible == 1);
     }

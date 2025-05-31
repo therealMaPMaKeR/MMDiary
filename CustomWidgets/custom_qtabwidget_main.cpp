@@ -27,6 +27,17 @@ void custom_QTabWidget_Main::initializeTabMappings()
     m_tabObjectNameToDisplayName["tab_Settings"] = "Settings";
 }
 
+int custom_QTabWidget_Main::countVisibleTabs() const
+{
+    int visibleCount = 0;
+    for (int i = 0; i < count(); ++i) {
+        if (isTabVisible(i)) {
+            visibleCount++;
+        }
+    }
+    return visibleCount;
+}
+
 void custom_QTabWidget_Main::createTabVisibilityMenu()
 {
     // Only create the menu if it doesn't exist
@@ -38,6 +49,9 @@ void custom_QTabWidget_Main::createTabVisibilityMenu()
     m_tabVisibilityMenu->clear();
     m_tabVisibilityActions.clear();
 
+    // Count visible tabs first
+    int visibleTabCount = countVisibleTabs();
+
     // Create actions for each tab in their actual display order
     for (int i = 0; i < count(); ++i) {
         QWidget* tabWidget = widget(i);
@@ -47,23 +61,26 @@ void custom_QTabWidget_Main::createTabVisibilityMenu()
 
         const QString& objectName = tabWidget->objectName();
 
-        // Skip the settings tab entirely
-        if (objectName == m_settingsTabObjectName) {
-            continue;
-        }
-
         // Get display name from our mapping, or use object name as fallback
         QString displayName = m_tabObjectNameToDisplayName.value(objectName, objectName);
 
-        QAction* action = new QAction(displayName, this); // Use 'this' as parent, not the menu
-        action->setCheckable(true);
-        action->setChecked(isTabVisible(i)); // Set based on current visibility
-        action->setData(objectName); // Store object name in action data
+        // Only show tabs in the context menu if:
+        // 1. There's more than one visible tab, OR
+        // 2. This specific tab is currently hidden (so user can show it)
+        bool isCurrentTabVisible = isTabVisible(i);
+        bool shouldShowInMenu = (visibleTabCount > 1) || !isCurrentTabVisible;
 
-        connect(action, &QAction::triggered, this, &custom_QTabWidget_Main::onTabVisibilityToggled);
+        if (shouldShowInMenu) {
+            QAction* action = new QAction(displayName, this); // Use 'this' as parent, not the menu
+            action->setCheckable(true);
+            action->setChecked(isCurrentTabVisible); // Set based on current visibility
+            action->setData(objectName); // Store object name in action data
 
-        m_tabVisibilityMenu->addAction(action);
-        m_tabVisibilityActions[objectName] = action;
+            connect(action, &QAction::triggered, this, &custom_QTabWidget_Main::onTabVisibilityToggled);
+
+            m_tabVisibilityMenu->addAction(action);
+            m_tabVisibilityActions[objectName] = action;
+        }
     }
 }
 
@@ -73,15 +90,18 @@ void custom_QTabWidget_Main::showTabVisibilityContextMenu(const QPoint& position
         return;
     }
 
-    // Recreate menu to ensure correct order after any tab moves
+    // Recreate menu to ensure correct order after any tab moves and visibility changes
     createTabVisibilityMenu();
 
     // Update menu states before showing
     updateTabVisibilityMenuStates();
 
-    // Show context menu at the global position
-    QPoint globalPos = tabBar()->mapToGlobal(position);
-    m_tabVisibilityMenu->exec(globalPos);
+    // Only show the menu if there are actions to show
+    if (!m_tabVisibilityMenu->isEmpty()) {
+        // Show context menu at the global position
+        QPoint globalPos = tabBar()->mapToGlobal(position);
+        m_tabVisibilityMenu->exec(globalPos);
+    }
 }
 
 void custom_QTabWidget_Main::updateTabVisibilityMenuStates()
@@ -95,11 +115,6 @@ void custom_QTabWidget_Main::updateTabVisibilityMenuStates()
         }
 
         const QString& objectName = tabWidget->objectName();
-
-        // Skip settings tab
-        if (objectName == m_settingsTabObjectName) {
-            continue;
-        }
 
         // Update action if it exists
         if (m_tabVisibilityActions.contains(objectName)) {
@@ -119,6 +134,16 @@ void custom_QTabWidget_Main::onTabVisibilityToggled()
 
     QString objectName = action->data().toString();
     bool shouldBeVisible = action->isChecked();
+
+    // SAFEGUARD: Prevent hiding the last visible tab
+    if (!shouldBeVisible) {
+        int visibleCount = countVisibleTabs();
+        if (visibleCount <= 1) {
+            // Silently prevent hiding the last tab by unchecking the action
+            action->setChecked(true);
+            return;
+        }
+    }
 
     // Make the tab visible/hidden
     setTabVisibleByObjectName(objectName, shouldBeVisible);

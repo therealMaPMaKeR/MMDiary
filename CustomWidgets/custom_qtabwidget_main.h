@@ -61,6 +61,9 @@ private:
     QString getTabObjectNameByIndex(int index) const;
     void initializeTabMappings();
     void attemptTabSwitch(int targetTabIndex);
+
+    // NEW: Helper method to count visible tabs
+    int countVisibleTabs() const;
 };
 
 #endif // CUSTOM_QTABWIDGET_MAIN_H
