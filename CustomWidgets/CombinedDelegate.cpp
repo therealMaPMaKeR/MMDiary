@@ -276,45 +276,49 @@ void CombinedDelegate::paintImageItem(QPainter *painter, const QStyleOptionViewI
         painter->fillRect(option.rect, option.palette.highlight());
     }
 
-    // For now, just handle ALL images as single images to isolate the issue
-    QString imagePath = index.data(Qt::UserRole+4).toString();
+    // Check if this is a multi-image item
+    bool isMultiImage = index.data(Qt::UserRole+5).toBool();
 
-    // If it's a multi-image (contains |), just take the first one for display
-    if (imagePath.contains("|")) {
-        QStringList paths = imagePath.split("|", Qt::SkipEmptyParts);
-        if (!paths.isEmpty()) {
-            imagePath = paths.first();
+    qDebug() << "=== paintImageItem called - isMultiImage:" << isMultiImage;
+
+    if (isMultiImage) {
+        // Handle multi-image painting
+        QStringList imagePaths = index.data(Qt::UserRole+4).toStringList();
+        qDebug() << "Multi-image paths from QStringList:" << imagePaths;
+
+        if (!imagePaths.isEmpty()) {
+            qDebug() << "Calling paintMultipleImages with" << imagePaths.size() << "images";
+            paintMultipleImages(painter, option, imagePaths);
+        } else {
+            // Fallback: try to parse from string data
+            QString imagePathString = index.data(Qt::UserRole+4).toString();
+            qDebug() << "Fallback: trying to parse string data:" << imagePathString;
+
+            if (imagePathString.contains("|")) {
+                QStringList paths = imagePathString.split("|", Qt::SkipEmptyParts);
+                if (!paths.isEmpty()) {
+                    qDebug() << "Fallback: calling paintMultipleImages with" << paths.size() << "images";
+                    paintMultipleImages(painter, option, paths);
+                } else {
+                    qDebug() << "Fallback: no valid paths found";
+                }
+            } else {
+                qDebug() << "Fallback: painting as single image";
+                paintSingleImage(painter, option, index, imagePathString);
+            }
+        }
+    } else {
+        // Handle single image painting
+        QString imagePath = index.data(Qt::UserRole+4).toString();
+        qDebug() << "Single image path:" << imagePath;
+
+        if (!imagePath.isEmpty()) {
+            qDebug() << "Calling paintSingleImage";
+            paintSingleImage(painter, option, index, imagePath);
+        } else {
+            qDebug() << "No image path found for single image";
         }
     }
-
-    if (imagePath.isEmpty()) {
-        return;
-    }
-
-    // Load and decrypt the image
-    QPixmap imagePixmap = loadImageForDisplay(imagePath);
-    if (imagePixmap.isNull()) {
-        painter->save();
-        painter->setPen(Qt::red);
-        painter->setFont(option.font);
-        painter->drawText(option.rect, Qt::AlignLeft | Qt::AlignVCenter, "Image not found");
-        painter->restore();
-        return;
-    }
-
-    // Use full rect since no caption space needed
-    QRect imageRect = option.rect;
-
-    // Scale image to fit while preserving aspect ratio
-    QPixmap scaledPixmap = imagePixmap.scaled(imageRect.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-
-    // Left-align the image with a small margin
-    int leftMargin = 10;
-    int x = imageRect.x() + leftMargin;
-    int y = imageRect.y() + (imageRect.height() - scaledPixmap.height()) / 2;
-
-    // Draw the image
-    painter->drawPixmap(x, y, scaledPixmap);
 }
 
 void CombinedDelegate::paintSingleImage(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index, const QString& imagePath) const {

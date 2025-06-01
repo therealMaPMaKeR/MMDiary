@@ -62,6 +62,12 @@ private:
     void copySpecificImagePath(QListWidgetItem* item, int imageIndex);
     void copyAllImagePaths(QListWidgetItem* item);
 
+    // Helper functions for thumbnail/original image handling
+    bool isThumbnailPath(const QString& imagePath) const;
+    QString getOriginalImagePath(const QString& thumbnailPath) const;
+    QString getOriginalImagePath(const QString& thumbnailPath, const QString& diaryDir) const;
+    QStringList getOriginalImagePaths(const QStringList& imagePaths, const QString& diaryDir) const;
+
 public:
     ~Operations_Diary();
     explicit Operations_Diary(MainWindow* mainWindow);
