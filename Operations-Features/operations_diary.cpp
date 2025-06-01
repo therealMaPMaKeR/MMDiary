@@ -346,7 +346,7 @@ void Operations_Diary::InputNewEntry(QString DiaryFileName)
 
     // Make sure directory exists
     QFileInfo fileInfo(DiaryFileName);
-    QString dirPath = fileInfo.dir().absolutePath();
+    QString dirPath = fileInfo.dir().path();
     QStringList pathComponents;
 
     // Extract directory components
@@ -393,7 +393,7 @@ void Operations_Diary::SaveDiary(QString DiaryFileName, bool previousDiary)
 
     // First ensure the directory exists
     QFileInfo fileInfo(DiaryFileName);
-    QString dirPath = fileInfo.dir().absolutePath();
+    QString dirPath = fileInfo.dir().path();
     QStringList pathComponents;
 
     // Extract directory components
@@ -424,20 +424,43 @@ void Operations_Diary::SaveDiary(QString DiaryFileName, bool previousDiary)
 
     // Construct the text content
     QStringList diaryContent;
-    foreach(QListWidgetItem *item, items) // For each widget in our diary text display
+    foreach(QListWidgetItem *item, items)
     {
-        // Validate each diary entry before saving
-        InputValidation::ValidationResult contentResult =
-            InputValidation::validateInput(item->text(), InputValidation::InputType::DiaryContent, 100000);
+        bool isImageItem = item->data(Qt::UserRole+3).toBool();
 
-        if (!contentResult.isValid) {
-            qWarning() << "Invalid content in diary entry: " << contentResult.errorMessage;
-            // You could choose to skip this entry, replace with sanitized text,
-            // or continue anyway depending on your requirements
-            // For now, we'll continue but log the issue
+        if (isImageItem) {
+            // Reconstruct image markers for image items
+            diaryContent.append(Constants::Diary_ImageStart);
+
+            bool isMultiImage = item->data(Qt::UserRole+5).toBool();
+            if (isMultiImage) {
+                QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
+                QStringList imageFilenames;
+                foreach(const QString& path, imagePaths) {
+                    imageFilenames.append(QFileInfo(path).fileName());
+                }
+                diaryContent.append(imageFilenames.join("|"));
+            } else {
+                QString imagePath = item->data(Qt::UserRole+4).toString();
+                diaryContent.append(QFileInfo(imagePath).fileName());
+            }
+
+            diaryContent.append(Constants::Diary_ImageEnd);
+        } else {
+            // Regular text item - validate before saving
+            QString itemText = item->text();
+            InputValidation::ValidationResult contentResult =
+                InputValidation::validateInput(itemText, InputValidation::InputType::DiaryContent, 100000);
+
+            if (!contentResult.isValid) {
+                qWarning() << "Invalid content in diary entry: " << contentResult.errorMessage;
+                // You could choose to skip this entry, replace with sanitized text,
+                // or continue anyway depending on your requirements
+                // For now, we'll continue but log the issue
+            }
+
+            diaryContent.append(itemText);
         }
-
-        diaryContent.append(item->text());
     }
 
     // Use the centralized file operation to write and encrypt the file
@@ -977,6 +1000,7 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
 
                     // Calculate size based on number of images
                     int imageCount = validImagePaths.size();
+                    qDebug() << "DIARY-DEBUG7: About to calculate size for" << imageCount << "images";
                     if (imageCount == 1) {
                         // Single image - use original size calculation
                         QPixmap imagePixmap = loadEncryptedImage(validImagePaths.first());
@@ -1050,8 +1074,9 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
     QList<QListWidgetItem*> templist = m_mainWindow->ui->DiaryTextDisplay->findItems(Constants::Diary_TimeStampStart, Qt::MatchStartsWith); // get a list of all timestamp locations
     if(!templist.isEmpty()) //if templist is not empty, otherwise the software would crash by returning an invalid index
     {
-        int timestampIndex = templist.length(); // get last index of the list
-        QString temptext = m_mainWindow->ui->DiaryTextDisplay->item(timestampIndex)->text();
+        QListWidgetItem* lastTimestampMarker = templist.last();
+        int markerRow = m_mainWindow->ui->DiaryTextDisplay->row(lastTimestampMarker);
+        QString temptext = m_mainWindow->ui->DiaryTextDisplay->item(markerRow + 1)->text();
         QString temptime = temptext.section(" at ",1,1); // remove the username from the text and keep only the time
 
         // Validate time format
@@ -1118,6 +1143,19 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
     if(datePart != formattedTime) // if we are not loading todays diary
     {
         cur_entriesNoSpacer = 100000; // set absurd value to make sure that we will add a timestamp on our first entry, say, when a new journal is created.
+    }
+    qDebug() << "DIARY-DEBUG6: === LoadDiary completed, checking all items ===";
+    for (int i = 0; i < m_mainWindow->ui->DiaryTextDisplay->count(); i++) {
+        QListWidgetItem* item = m_mainWindow->ui->DiaryTextDisplay->item(i);
+        bool isImage = item->data(Qt::UserRole+3).toBool();
+        if (isImage) {
+            qDebug() << "DIARY-DEBUG6: Image item at row" << i;
+            qDebug() << "DIARY-DEBUG6:  - Size hint:" << item->sizeHint();
+            qDebug() << "DIARY-DEBUG6:  - Hidden:" << item->isHidden();
+            qDebug() << "DIARY-DEBUG6:  - UserRole+4 (path):" << item->data(Qt::UserRole+4);
+            qDebug() << "DIARY-DEBUG6:  - Item flags:" << item->flags();
+            qDebug() << "DIARY-DEBUG6:  - Visual rect:" << m_mainWindow->ui->DiaryTextDisplay->visualItemRect(item);
+        }
     }
     UpdateDisplayName();
     UpdateFontSize(m_mainWindow->setting_Diary_TextSize, true);
@@ -2637,6 +2675,11 @@ void Operations_Diary::addImagesToCurrentDiary(const QStringList& imageFilenames
         return;
     }
 
+    qDebug() << "DIARY-DEBUG9: Read diary content from file:";
+    for (int i = 0; i < diaryContent.size(); i++) {
+        qDebug() << "DIARY-DEBUG9: Line" << i << ":" << diaryContent[i];
+    }
+
     qDebug() << "Read diary content, lines:" << diaryContent.size();
 
     if (shouldGroup && !diaryContent.isEmpty()) {
@@ -2730,6 +2773,11 @@ void Operations_Diary::addImagesToCurrentDiary(const QStringList& imageFilenames
     diaryContent.append(Constants::Diary_ImageEnd);
 
     cur_entriesNoSpacer++;
+
+    qDebug() << "DIARY-DEBUG8: About to write diary content:";
+    for (int i = 0; i < diaryContent.size(); i++) {
+        qDebug() << "DIARY-DEBUG8: Line" << i << ":" << diaryContent[i];
+    }
 
     // Write the updated content back to the diary
     bool writeSuccess = OperationsFiles::writeEncryptedFileLines(
