@@ -219,6 +219,19 @@ void custom_QListWidget::updateItemSizes()
 
     for (int i = 0; i < count(); ++i) {
         QListWidgetItem *item = this->item(i);
+
+        // Check if this is an image item - if so, don't override its size hint
+        bool isImageItem = item->data(Qt::UserRole+3).toBool();
+        if (isImageItem) {
+            // For image items, preserve the existing size hint
+            // Just update the font if needed
+            QFont imageFont = item->font();
+            imageFont.setPointSize(8); // Keep image captions small
+            imageFont.setItalic(true);
+            item->setFont(imageFont);
+            continue; // Skip size calculation for image items
+        }
+
         // Get the item text
         QString text = item->text();
         // For items with colored text, we need special handling

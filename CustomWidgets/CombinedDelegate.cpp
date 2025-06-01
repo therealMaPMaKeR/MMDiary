@@ -105,7 +105,33 @@ QSize CombinedDelegate::sizeHint(const QStyleOptionViewItem &option, const QMode
         return qvariant_cast<QSize>(sizeHintVar);
     }
 
-    // If no size hint is set, calculate based on whether it's a colored item
+    // Check if this is an image item - handle it specially
+    bool isImageItem = index.data(Qt::UserRole+3).toBool();
+    if (isImageItem) {
+        qDebug() << "=== sizeHint called for image item";
+
+        // For image items, we need a larger size hint
+        // Try to get the image path and load it to determine size
+        QString imagePath = index.data(Qt::UserRole+4).toString();
+        if (!imagePath.isEmpty()) {
+            // Load the image to get its actual dimensions
+            QPixmap imagePixmap = loadImageForDisplay(imagePath);
+            if (!imagePixmap.isNull()) {
+                QSize imageSize = imagePixmap.size();
+                int itemHeight = imageSize.height() + 30; // Image + 30px for text and padding
+                int itemWidth = qMax(imageSize.width() + 20, 300); // Minimum 300px width
+
+                qDebug() << "Calculated size hint for image:" << QSize(itemWidth, itemHeight);
+                return QSize(itemWidth, itemHeight);
+            }
+        }
+
+        // Fallback size for image items if we can't load the image
+        qDebug() << "Using fallback size for image item";
+        return QSize(400, 250);
+    }
+
+    // Check if this is a colored text item
     bool shouldColorText = index.data(Qt::UserRole+1).toBool();
 
     if (!shouldColorText) {
@@ -219,19 +245,27 @@ void CombinedDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
 }
 
 void CombinedDelegate::paintImageItem(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
+    qDebug() << "=== paintImageItem called";
+    qDebug() << "Option rect:" << option.rect;
+
     // Draw the selection background if item is selected
     if (option.state & QStyle::State_Selected) {
         painter->fillRect(option.rect, option.palette.highlight());
+        qDebug() << "Drew selection background";
     }
 
     // Draw the background color for image items
     if (!(option.state & QStyle::State_Selected)) {
         painter->fillRect(option.rect, QBrush(QColor(248, 248, 255))); // Light blue background
+        qDebug() << "Drew light blue background";
     }
 
     // Get the image path and load the image
     QString imagePath = index.data(Qt::UserRole+4).toString();
+    qDebug() << "Image path from UserRole+4:" << imagePath;
+
     if (imagePath.isEmpty()) {
+        qDebug() << "Image path is empty, falling back to default paint";
         // If no image path, just draw the text
         QStyledItemDelegate::paint(painter, option, index);
         return;
@@ -239,8 +273,10 @@ void CombinedDelegate::paintImageItem(QPainter *painter, const QStyleOptionViewI
 
     // Load and decrypt the image
     QPixmap imagePixmap = loadImageForDisplay(imagePath);
+    qDebug() << "Loaded image pixmap - isNull:" << imagePixmap.isNull() << "size:" << imagePixmap.size();
 
     if (imagePixmap.isNull()) {
+        qDebug() << "Image pixmap is null, drawing error text";
         // If image failed to load, draw error text
         painter->save();
         painter->setPen(Qt::red);
@@ -253,22 +289,29 @@ void CombinedDelegate::paintImageItem(QPainter *painter, const QStyleOptionViewI
     // Calculate image display area (leave space at bottom for text)
     QRect imageRect = option.rect;
     imageRect.setHeight(imageRect.height() - 20); // Reserve 20px for text at bottom
+    qDebug() << "Image display rect:" << imageRect;
 
     // Scale image to fit while preserving aspect ratio
     QPixmap scaledPixmap = imagePixmap.scaled(imageRect.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    qDebug() << "Scaled pixmap size:" << scaledPixmap.size();
 
     // Center the image horizontally and vertically in the available space
     int x = imageRect.x() + (imageRect.width() - scaledPixmap.width()) / 2;
     int y = imageRect.y() + (imageRect.height() - scaledPixmap.height()) / 2;
+    qDebug() << "Drawing image at position:" << x << y;
 
     // Draw the image
     painter->drawPixmap(x, y, scaledPixmap);
+    qDebug() << "Drew pixmap";
 
     // Draw the caption text at the bottom
     QString text = index.data(Qt::DisplayRole).toString();
+    qDebug() << "Caption text:" << text;
+
     if (!text.isEmpty()) {
         QRect textRect = option.rect;
         textRect.setTop(option.rect.bottom() - 20); // Bottom 20px for text
+        qDebug() << "Text rect:" << textRect;
 
         painter->save();
         QFont captionFont = option.font;
@@ -278,32 +321,41 @@ void CombinedDelegate::paintImageItem(QPainter *painter, const QStyleOptionViewI
         painter->setPen(option.palette.text().color());
         painter->drawText(textRect, Qt::AlignCenter, text);
         painter->restore();
+        qDebug() << "Drew caption text";
     }
+
+    qDebug() << "=== paintImageItem finished";
 }
 
-QPixmap CombinedDelegate::loadImageForDisplay(const QString& imagePath) const {
+QPixmap CombinedDelegate::loadImageForDisplay(const QString& imagePath) const
+{
+    qDebug() << "=== CombinedDelegate::loadImageForDisplay called for:" << imagePath;
+
     // Check if the encrypted image file exists
     if (!QFileInfo::exists(imagePath)) {
+        qDebug() << "Image file does not exist in delegate";
         return QPixmap();
     }
 
+    qDebug() << "Image file exists in delegate";
+
     try {
-        // Create a temporary file for decryption
-        auto tempFile = OperationsFiles::createTempFile("delegate_image_XXXXXX");
-        if (!tempFile) {
+        // Read the encrypted binary data
+        QFile encryptedFile(imagePath);
+        if (!encryptedFile.open(QIODevice::ReadOnly)) {
+            qDebug() << "Failed to open encrypted file in delegate";
             return QPixmap();
         }
 
-        QString tempFilePath = tempFile->fileName();
-        tempFile->close();
+        QByteArray encryptedData = encryptedFile.readAll();
+        encryptedFile.close();
 
-        // Use RAII for cleanup
-        OperationsFiles::TempFileCleaner cleaner(tempFilePath);
+        qDebug() << "Read encrypted data in delegate, size:" << encryptedData.size();
 
-        // We need access to the encryption key - we'll need to pass this or store it
-        // For now, let's get it from the parent widget (this is a temporary solution)
+        // We need access to the encryption key - get it from the parent widget
         QWidget* parentWidget = qobject_cast<QWidget*>(parent());
         if (!parentWidget) {
+            qDebug() << "No parent widget found in delegate";
             return QPixmap();
         }
 
@@ -316,23 +368,36 @@ QPixmap CombinedDelegate::loadImageForDisplay(const QString& imagePath) const {
         }
 
         if (!mainWindow) {
+            qDebug() << "No main window found in delegate";
             return QPixmap();
         }
 
-        // Decrypt the image file
-        bool decryptSuccess = CryptoUtils::Encryption_DecryptFile(
-            mainWindow->user_Key, imagePath, tempFilePath);
+        qDebug() << "Found main window in delegate, attempting decryption";
 
-        if (!decryptSuccess) {
+        // Decrypt using binary decryption
+        QByteArray decryptedData = CryptoUtils::Encryption_DecryptBArray(
+            mainWindow->user_Key, encryptedData);
+
+        if (decryptedData.isEmpty()) {
+            qDebug() << "Decryption failed in delegate";
             return QPixmap();
         }
 
-        // Load the decrypted image
-        QPixmap pixmap(tempFilePath);
+        qDebug() << "Decryption successful in delegate, size:" << decryptedData.size();
 
-        return pixmap;
+        // Load image directly from binary data
+        QPixmap pixmap;
+        bool loadSuccess = pixmap.loadFromData(decryptedData);
 
+        qDebug() << "Load from data in delegate - success:" << loadSuccess << "size:" << pixmap.size();
+
+        return loadSuccess ? pixmap : QPixmap();
+
+    } catch (const std::exception& e) {
+        qDebug() << "Exception in delegate loadImageForDisplay:" << e.what();
+        return QPixmap();
     } catch (...) {
+        qDebug() << "Unknown exception in delegate loadImageForDisplay";
         return QPixmap();
     }
 }

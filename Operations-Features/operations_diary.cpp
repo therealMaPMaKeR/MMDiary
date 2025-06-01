@@ -459,9 +459,9 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
         return;
     }
 
-    // Get the diary directory path for image loading
+    // Get the diary directory path for image loading (keep as relative path)
     QFileInfo diaryFileInfo(DiaryFileName);
-    QString diaryDir = diaryFileInfo.dir().absolutePath();
+    QString diaryDir = diaryFileInfo.dir().path();
 
     // Check if file exists before attempting to decrypt
     QFileInfo fileInfo(DiaryFileName);
@@ -1014,7 +1014,6 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
         markDiaryForCleanup = false;
     }
 }
-
 
 void Operations_Diary::DeleteDiary(QString DiaryFileName)
 {
@@ -1927,8 +1926,36 @@ bool Operations_Diary::saveEncryptedImage(const QString& sourcePath, const QStri
         return false;
     }
 
-    // Use the existing encryption function
-    return CryptoUtils::Encryption_EncryptFile(m_mainWindow->user_Key, sourcePath, targetPath, m_mainWindow->user_Username);
+    // Read the binary image data
+    QFile sourceFile(sourcePath);
+    if (!sourceFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "Failed to open source image file:" << sourcePath;
+        return false;
+    }
+
+    QByteArray imageData = sourceFile.readAll();
+    sourceFile.close();
+
+    // Encrypt using binary encryption
+    QByteArray encryptedData = CryptoUtils::Encryption_EncryptBArray(
+        m_mainWindow->user_Key, imageData, m_mainWindow->user_Username);
+
+    if (encryptedData.isEmpty()) {
+        qWarning() << "Binary encryption failed for image:" << sourcePath;
+        return false;
+    }
+
+    // Write encrypted data to target file
+    QFile targetFile(targetPath);
+    if (!targetFile.open(QIODevice::WriteOnly)) {
+        qWarning() << "Failed to open target file for writing:" << targetPath;
+        return false;
+    }
+
+    qint64 bytesWritten = targetFile.write(encryptedData);
+    targetFile.close();
+
+    return (bytesWritten == encryptedData.size());
 }
 
 QPixmap Operations_Diary::generateThumbnail(const QString& imagePath, int maxSize)
@@ -2124,21 +2151,21 @@ bool Operations_Diary::loadAndDisplayImage(const QString& imagePath, const QStri
         if (!items.isEmpty()) {
             QListWidgetItem* item = items.last();
 
-            // Set the image as the icon for the list item
-            item->setIcon(QIcon(imagePixmap));
-
             // Create display text (shorter since we're showing the image)
             QString displayText = getImageDisplayText(imageFilename, imagePixmap.size());
-            item->setText(displayText);
 
-            // Set the size hint to accommodate the image
+            // Set up as image item FIRST
+            setupImageItem(item, imagePath, displayText);
+
+            // Calculate the size needed for the image + text
             QSize imageSize = imagePixmap.size();
-            int itemHeight = qMax(imageSize.height() + 10, 40); // Add padding, minimum 40px
-            int itemWidth = qMax(imageSize.width() + 20, 200);   // Add padding, minimum 200px
+            int itemHeight = imageSize.height() + 30; // Image + 30px for text and padding
+            int itemWidth = qMax(imageSize.width() + 20, 300); // Minimum 300px width
+
+            // Set the size hint AFTER setting up the image item
             item->setSizeHint(QSize(itemWidth, itemHeight));
 
-            // Set up as image item
-            setupImageItem(item, imagePath, displayText);
+            qDebug() << "Set size hint for image item:" << QSize(itemWidth, itemHeight);
         }
 
         return true;
@@ -2154,32 +2181,43 @@ bool Operations_Diary::loadAndDisplayImage(const QString& imagePath, const QStri
 
 QPixmap Operations_Diary::loadEncryptedImage(const QString& encryptedImagePath)
 {
-    // Create a temporary file for decryption
-    auto tempFile = OperationsFiles::createTempFile("diary_image_XXXXXX");
-    if (!tempFile) {
-        qWarning() << "Failed to create temporary file for image decryption";
+    qDebug() << "=== loadEncryptedImage called for:" << encryptedImagePath;
+
+    // Check if file exists first
+    if (!QFileInfo::exists(encryptedImagePath)) {
+        qWarning() << "Encrypted image file does not exist:" << encryptedImagePath;
         return QPixmap();
     }
 
-    QString tempFilePath = tempFile->fileName();
-    tempFile->close();
-
-    // Use RAII for cleanup
-    OperationsFiles::TempFileCleaner cleaner(tempFilePath);
-
-    // Decrypt the image file
-    bool decryptSuccess = CryptoUtils::Encryption_DecryptFile(
-        m_mainWindow->user_Key, encryptedImagePath, tempFilePath);
-
-    if (!decryptSuccess) {
-        qWarning() << "Failed to decrypt image file:" << encryptedImagePath;
+    // Read the encrypted binary data
+    QFile encryptedFile(encryptedImagePath);
+    if (!encryptedFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "Failed to open encrypted image file:" << encryptedImagePath;
         return QPixmap();
     }
 
-    // Load the decrypted image
-    QPixmap pixmap(tempFilePath);
+    QByteArray encryptedData = encryptedFile.readAll();
+    encryptedFile.close();
 
-    // Cleaner will automatically handle secure deletion of temp file
+    qDebug() << "Read encrypted data, size:" << encryptedData.size();
+
+    // Decrypt using binary decryption
+    QByteArray decryptedData = CryptoUtils::Encryption_DecryptBArray(
+        m_mainWindow->user_Key, encryptedData);
+
+    if (decryptedData.isEmpty()) {
+        qWarning() << "Binary decryption failed for image:" << encryptedImagePath;
+        return QPixmap();
+    }
+
+    qDebug() << "Decrypted data size:" << decryptedData.size();
+
+    // Load image directly from binary data
+    QPixmap pixmap;
+    bool loadSuccess = pixmap.loadFromData(decryptedData);
+
+    qDebug() << "Load from data success:" << loadSuccess << "Pixmap size:" << pixmap.size();
+
     return pixmap;
 }
 
