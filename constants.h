@@ -110,6 +110,7 @@ extern const QString Diary_TextBlockStart;
 extern const QString Diary_TextBlockEnd;
 extern const QString Diary_TimeStampStart;
 extern const QString Diary_TaskManagerStart;
+extern const QString Diary_ImageStart;
 //Diary
 extern const QString TASK_MANAGER_TEXT;
 // Encrypted File Metadata
