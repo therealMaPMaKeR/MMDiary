@@ -7,6 +7,9 @@
 #include <QTextDocument>
 #include "custom_QTextEditWidget.h"
 #include "../Operations-Global/inputvalidation.h"
+#include "../Operations-Global/operations_files.h"
+#include "../Operations-Global/CryptoUtils.h"
+#include "../mainwindow.h"
 
 CombinedDelegate::CombinedDelegate(QObject *parent)
     : QStyledItemDelegate(parent)
@@ -143,6 +146,15 @@ void CombinedDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
         return;
     }
 
+    // Check if this is an image item
+    bool isImageItem = index.data(Qt::UserRole+3).toBool();
+
+    if (isImageItem) {
+        // Custom painting for image items
+        paintImageItem(painter, option, index);
+        return;
+    }
+
     QStyleOptionViewItem opt = option;
     initStyleOption(&opt, index);
 
@@ -155,7 +167,7 @@ void CombinedDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
         return;
     }
 
-    // Custom painting only for items with colored text
+    // Rest of existing colored text painting code...
     // Draw the selection background if item is selected
     if (opt.state & QStyle::State_Selected) {
         painter->fillRect(opt.rect, opt.palette.highlight());
@@ -204,6 +216,125 @@ void CombinedDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
 
     // Restore painter state
     painter->restore();
+}
+
+void CombinedDelegate::paintImageItem(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
+    // Draw the selection background if item is selected
+    if (option.state & QStyle::State_Selected) {
+        painter->fillRect(option.rect, option.palette.highlight());
+    }
+
+    // Draw the background color for image items
+    if (!(option.state & QStyle::State_Selected)) {
+        painter->fillRect(option.rect, QBrush(QColor(248, 248, 255))); // Light blue background
+    }
+
+    // Get the image path and load the image
+    QString imagePath = index.data(Qt::UserRole+4).toString();
+    if (imagePath.isEmpty()) {
+        // If no image path, just draw the text
+        QStyledItemDelegate::paint(painter, option, index);
+        return;
+    }
+
+    // Load and decrypt the image
+    QPixmap imagePixmap = loadImageForDisplay(imagePath);
+
+    if (imagePixmap.isNull()) {
+        // If image failed to load, draw error text
+        painter->save();
+        painter->setPen(Qt::red);
+        painter->setFont(option.font);
+        painter->drawText(option.rect, Qt::AlignCenter, "Image not found");
+        painter->restore();
+        return;
+    }
+
+    // Calculate image display area (leave space at bottom for text)
+    QRect imageRect = option.rect;
+    imageRect.setHeight(imageRect.height() - 20); // Reserve 20px for text at bottom
+
+    // Scale image to fit while preserving aspect ratio
+    QPixmap scaledPixmap = imagePixmap.scaled(imageRect.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+    // Center the image horizontally and vertically in the available space
+    int x = imageRect.x() + (imageRect.width() - scaledPixmap.width()) / 2;
+    int y = imageRect.y() + (imageRect.height() - scaledPixmap.height()) / 2;
+
+    // Draw the image
+    painter->drawPixmap(x, y, scaledPixmap);
+
+    // Draw the caption text at the bottom
+    QString text = index.data(Qt::DisplayRole).toString();
+    if (!text.isEmpty()) {
+        QRect textRect = option.rect;
+        textRect.setTop(option.rect.bottom() - 20); // Bottom 20px for text
+
+        painter->save();
+        QFont captionFont = option.font;
+        captionFont.setPointSize(8);
+        captionFont.setItalic(true);
+        painter->setFont(captionFont);
+        painter->setPen(option.palette.text().color());
+        painter->drawText(textRect, Qt::AlignCenter, text);
+        painter->restore();
+    }
+}
+
+QPixmap CombinedDelegate::loadImageForDisplay(const QString& imagePath) const {
+    // Check if the encrypted image file exists
+    if (!QFileInfo::exists(imagePath)) {
+        return QPixmap();
+    }
+
+    try {
+        // Create a temporary file for decryption
+        auto tempFile = OperationsFiles::createTempFile("delegate_image_XXXXXX");
+        if (!tempFile) {
+            return QPixmap();
+        }
+
+        QString tempFilePath = tempFile->fileName();
+        tempFile->close();
+
+        // Use RAII for cleanup
+        OperationsFiles::TempFileCleaner cleaner(tempFilePath);
+
+        // We need access to the encryption key - we'll need to pass this or store it
+        // For now, let's get it from the parent widget (this is a temporary solution)
+        QWidget* parentWidget = qobject_cast<QWidget*>(parent());
+        if (!parentWidget) {
+            return QPixmap();
+        }
+
+        // Find the main window to get the encryption key
+        MainWindow* mainWindow = nullptr;
+        QWidget* current = parentWidget;
+        while (current && !mainWindow) {
+            mainWindow = qobject_cast<MainWindow*>(current);
+            current = current->parentWidget();
+        }
+
+        if (!mainWindow) {
+            return QPixmap();
+        }
+
+        // Decrypt the image file
+        bool decryptSuccess = CryptoUtils::Encryption_DecryptFile(
+            mainWindow->user_Key, imagePath, tempFilePath);
+
+        if (!decryptSuccess) {
+            return QPixmap();
+        }
+
+        // Load the decrypted image
+        QPixmap pixmap(tempFilePath);
+
+        return pixmap;
+
+    } catch (...) {
+        return QPixmap();
+    }
 }
 
 bool CombinedDelegate::eventFilter(QObject *object, QEvent *event) {

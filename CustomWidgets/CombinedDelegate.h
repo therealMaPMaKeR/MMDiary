@@ -49,6 +49,9 @@ private:
     void adjustEditorSize(QTextEdit *editor) const;
     void adjustListWidgetScroll(QTextEdit *editor) const;
 
+    void paintImageItem(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const;
+    QPixmap loadImageForDisplay(const QString& imagePath) const;
+
 signals:
     void TextModificationsMade(QString text, int itemIndex);
     // Signal to include both text and item index

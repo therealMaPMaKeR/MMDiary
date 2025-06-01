@@ -29,11 +29,21 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
     void changeEvent(QEvent *event) override;
 
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
+
 private:
     QString lastValidText; // Add this member variable to store the last valid text
     void insertFromMimeData(const QMimeData *source) override;
 
+    bool isImageFile(const QString& filePath);
+    QStringList getSupportedImageFormats();
+
 signals:
     void customSignal();
+
+    void imagesDropped(const QStringList& imagePaths);
+    void imagesPasted(const QStringList& imagePaths);
 };
 #endif // CUSTOM_QTEXTEDITWIDGET_H

@@ -52,6 +52,12 @@ public:
     friend class Operations_TaskLists;
     friend class Operations_EncryptedData;
     friend class Operations_Settings;
+
+    // Saved Settings
+    QString user_Username;
+    QByteArray user_Key;
+    QString user_Displayname, user_nameColor;
+
     // public functions
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
@@ -116,9 +122,6 @@ private:
     Ui::MainWindow *ui;
     bool initFinished;
     // Saved Settings
-    QString user_Username;
-    QByteArray user_Key;
-    QString user_Displayname, user_nameColor;
     int fontSize = 10;
     bool quitToLogin = false;
     // Global Settings

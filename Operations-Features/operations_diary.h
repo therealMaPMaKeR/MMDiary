@@ -22,6 +22,33 @@ private:
 
     QMutex m_saveDiaryMutex;
 
+    // Image handling functions
+    QString generateImageFilename(const QString& originalExtension, const QString& diaryDir);
+    bool saveEncryptedImage(const QString& sourcePath, const QString& targetPath);
+    QPixmap generateThumbnail(const QString& imagePath, int maxSize = 64);
+    QSize getImageDimensions(const QString& imagePath);
+    bool isImageOversized(const QSize& imageSize, int maxWidth = 400, int maxHeight = 300);
+    void processAndAddImages(const QStringList& imagePaths, bool forceThumbnails = false);
+    void addImageToDisplay(const QString& imagePath, bool isThumbnail);
+    bool openImageWithViewer(const QString& imagePath);
+    void cleanupBrokenImageReferences();
+
+    // Constants for image handling
+    static const int MAX_IMAGE_WIDTH = 400;
+    static const int MAX_IMAGE_HEIGHT = 300;
+    static const int THUMBNAIL_SIZE = 64;
+
+    bool loadAndDisplayImage(const QString& imagePath, const QString& imageFilename);
+    QPixmap loadEncryptedImage(const QString& encryptedImagePath);
+    QString getImageDisplayText(const QString& imageFilename, const QSize& imageSize);
+    void setupImageItem(QListWidgetItem* item, const QString& imagePath, const QString& displayText);
+    bool markDiaryForCleanup = false; // Flag to indicate diary needs cleanup
+
+    void handleImageClick(QListWidgetItem* item);
+
+private:
+    void addImagesToCurrentDiary(const QStringList& imageFilenames, const QString& diaryFilePath);
+
 public:
     ~Operations_Diary();
     explicit Operations_Diary(MainWindow* mainWindow);

@@ -6,6 +6,12 @@
 #include <QDebug>
 #include "../Operations-Global/inputvalidation.h"
 #include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QUrl>
+#include <QFileInfo>
+#include <QImageReader>
 
 custom_QTextEditWidget::custom_QTextEditWidget(QWidget *parent): QTextEdit(parent) {
     // Force plain text mode - no rich text allowed
@@ -128,7 +134,32 @@ void custom_QTextEditWidget::changeEvent(QEvent *event) {
 }
 
 
-void custom_QTextEditWidget::insertFromMimeData(const QMimeData *source) {
+//-- Copy/Paste --//
+void custom_QTextEditWidget::insertFromMimeData(const QMimeData *source)
+{
+    // Check if the mime data contains images
+    if (source->hasImage()) {
+        // Handle pasted images
+        QVariant imageData = source->imageData();
+        if (imageData.isValid()) {
+            QPixmap pixmap = qvariant_cast<QPixmap>(imageData);
+            if (!pixmap.isNull()) {
+                // Create a temporary file for the pasted image
+                QString tempDir = QDir::tempPath();
+                QString tempFileName = QString("clipboard_image_%1.png")
+                                           .arg(QDateTime::currentDateTime().toString("yyyy.MM.dd_hh.mm.ss"));
+                QString tempFilePath = QDir::cleanPath(tempDir + "/" + tempFileName);
+
+                if (pixmap.save(tempFilePath, "PNG")) {
+                    QStringList imagePaths;
+                    imagePaths.append(tempFilePath);
+                    emit imagesPasted(imagePaths);
+                    return;
+                }
+            }
+        }
+    }
+
     // If the source has HTML or rich text, use the plain text version instead
     if (source->hasText()) {
         // Get only plain text and insert it
@@ -147,4 +178,76 @@ void custom_QTextEditWidget::insertFromMimeData(const QMimeData *source) {
         // Fall back to default behavior for non-text content
         QTextEdit::insertFromMimeData(source);
     }
+}
+
+
+//--  Import Image to Diary --//
+void custom_QTextEditWidget::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (event->mimeData()->hasUrls()) {
+        QStringList imagePaths;
+
+        foreach(const QUrl &url, event->mimeData()->urls()) {
+            QString filePath = url.toLocalFile();
+            if (isImageFile(filePath)) {
+                imagePaths.append(filePath);
+            }
+        }
+
+        if (!imagePaths.isEmpty()) {
+            event->acceptProposedAction();
+            return;
+        }
+    }
+
+    QTextEdit::dragEnterEvent(event);
+}
+
+void custom_QTextEditWidget::dragMoveEvent(QDragMoveEvent *event)
+{
+    if (event->mimeData()->hasUrls()) {
+        event->acceptProposedAction();
+    } else {
+        QTextEdit::dragMoveEvent(event);
+    }
+}
+
+void custom_QTextEditWidget::dropEvent(QDropEvent *event)
+{
+    if (event->mimeData()->hasUrls()) {
+        QStringList imagePaths;
+
+        foreach(const QUrl &url, event->mimeData()->urls()) {
+            QString filePath = url.toLocalFile();
+            if (isImageFile(filePath)) {
+                imagePaths.append(filePath);
+            }
+        }
+
+        if (!imagePaths.isEmpty()) {
+            emit imagesDropped(imagePaths);
+            event->acceptProposedAction();
+            return;
+        }
+    }
+
+    QTextEdit::dropEvent(event);
+}
+
+bool custom_QTextEditWidget::isImageFile(const QString& filePath)
+{
+    if (!QFileInfo::exists(filePath)) {
+        return false;
+    }
+
+    QStringList supportedFormats = getSupportedImageFormats();
+    QString fileExtension = QFileInfo(filePath).suffix().toLower();
+
+    return supportedFormats.contains(fileExtension);
+}
+
+QStringList custom_QTextEditWidget::getSupportedImageFormats()
+{
+    return QStringList() << "png" << "jpg" << "jpeg" << "gif" << "bmp"
+                         << "tiff" << "tif" << "webp" << "ico" << "svg";
 }
