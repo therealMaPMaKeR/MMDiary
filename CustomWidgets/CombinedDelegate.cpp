@@ -110,25 +110,51 @@ QSize CombinedDelegate::sizeHint(const QStyleOptionViewItem &option, const QMode
     if (isImageItem) {
         qDebug() << "=== sizeHint called for image item";
 
-        // For image items, we need a larger size hint
-        // Try to get the image path and load it to determine size
-        QString imagePath = index.data(Qt::UserRole+4).toString();
-        if (!imagePath.isEmpty()) {
-            // Load the image to get its actual dimensions
-            QPixmap imagePixmap = loadImageForDisplay(imagePath);
-            if (!imagePixmap.isNull()) {
-                QSize imageSize = imagePixmap.size();
-                int itemHeight = imageSize.height() + 30; // Image + 30px for text and padding
-                int itemWidth = qMax(imageSize.width() + 20, 300); // Minimum 300px width
+        bool isMultiImage = index.data(Qt::UserRole+5).toBool();
 
-                qDebug() << "Calculated size hint for image:" << QSize(itemWidth, itemHeight);
-                return QSize(itemWidth, itemHeight);
+        if (isMultiImage) {
+            // Multi-image item - calculate grid size
+            QStringList imagePaths = index.data(Qt::UserRole+4).toStringList();
+            int imageCount = qMin(imagePaths.size(), 10); // Cap at 10
+
+            const int THUMBNAIL_SIZE = 64;
+            const int MARGIN = 10;
+            const int SPACING = 5;
+
+            int availableWidth = option.rect.width();
+            if (availableWidth <= 0) {
+                availableWidth = 400; // Default width
             }
-        }
+            availableWidth -= (2 * MARGIN);
 
-        // Fallback size for image items if we can't load the image
-        qDebug() << "Using fallback size for image item";
-        return QSize(400, 250);
+            int imagesPerRow = availableWidth / (THUMBNAIL_SIZE + SPACING);
+            if (imagesPerRow < 1) imagesPerRow = 1;
+
+            int rows = (imageCount + imagesPerRow - 1) / imagesPerRow; // Ceiling division
+            int totalHeight = (rows * THUMBNAIL_SIZE) + ((rows - 1) * SPACING) + (2 * MARGIN);
+            int totalWidth = qMin(imageCount, imagesPerRow) * (THUMBNAIL_SIZE + SPACING) - SPACING + (2 * MARGIN);
+
+            qDebug() << "Calculated multi-image size:" << QSize(totalWidth, totalHeight);
+            return QSize(totalWidth, totalHeight);
+        } else {
+            // Single image - try to get image path and load it
+            QString imagePath = index.data(Qt::UserRole+4).toString();
+            if (!imagePath.isEmpty()) {
+                QPixmap imagePixmap = loadImageForDisplay(imagePath);
+                if (!imagePixmap.isNull()) {
+                    QSize imageSize = imagePixmap.size();
+                    int itemHeight = imageSize.height() + 10; // Image + padding (no caption space)
+                    int itemWidth = qMax(imageSize.width() + 20, 300);
+
+                    qDebug() << "Calculated single image size:" << QSize(itemWidth, itemHeight);
+                    return QSize(itemWidth, itemHeight);
+                }
+            }
+
+            // Fallback size for single image items
+            qDebug() << "Using fallback size for single image item";
+            return QSize(400, 250);
+        }
     }
 
     // Check if this is a colored text item
@@ -245,86 +271,130 @@ void CombinedDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
 }
 
 void CombinedDelegate::paintImageItem(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
-    qDebug() << "=== paintImageItem called";
-    qDebug() << "Option rect:" << option.rect;
-
     // Draw the selection background if item is selected
     if (option.state & QStyle::State_Selected) {
         painter->fillRect(option.rect, option.palette.highlight());
-        qDebug() << "Drew selection background";
     }
 
-    // Draw the background color for image items
-    if (!(option.state & QStyle::State_Selected)) {
-        painter->fillRect(option.rect, QBrush(QColor(248, 248, 255))); // Light blue background
-        qDebug() << "Drew light blue background";
-    }
-
-    // Get the image path and load the image
+    // For now, just handle ALL images as single images to isolate the issue
     QString imagePath = index.data(Qt::UserRole+4).toString();
-    qDebug() << "Image path from UserRole+4:" << imagePath;
+
+    // If it's a multi-image (contains |), just take the first one for display
+    if (imagePath.contains("|")) {
+        QStringList paths = imagePath.split("|", Qt::SkipEmptyParts);
+        if (!paths.isEmpty()) {
+            imagePath = paths.first();
+        }
+    }
 
     if (imagePath.isEmpty()) {
+        return;
+    }
+
+    // Load and decrypt the image
+    QPixmap imagePixmap = loadImageForDisplay(imagePath);
+    if (imagePixmap.isNull()) {
+        painter->save();
+        painter->setPen(Qt::red);
+        painter->setFont(option.font);
+        painter->drawText(option.rect, Qt::AlignLeft | Qt::AlignVCenter, "Image not found");
+        painter->restore();
+        return;
+    }
+
+    // Use full rect since no caption space needed
+    QRect imageRect = option.rect;
+
+    // Scale image to fit while preserving aspect ratio
+    QPixmap scaledPixmap = imagePixmap.scaled(imageRect.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+    // Left-align the image with a small margin
+    int leftMargin = 10;
+    int x = imageRect.x() + leftMargin;
+    int y = imageRect.y() + (imageRect.height() - scaledPixmap.height()) / 2;
+
+    // Draw the image
+    painter->drawPixmap(x, y, scaledPixmap);
+}
+
+void CombinedDelegate::paintSingleImage(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index, const QString& imagePath) const {
+    if (imagePath.isEmpty()) {
         qDebug() << "Image path is empty, falling back to default paint";
-        // If no image path, just draw the text
         QStyledItemDelegate::paint(painter, option, index);
         return;
     }
 
     // Load and decrypt the image
     QPixmap imagePixmap = loadImageForDisplay(imagePath);
-    qDebug() << "Loaded image pixmap - isNull:" << imagePixmap.isNull() << "size:" << imagePixmap.size();
-
     if (imagePixmap.isNull()) {
         qDebug() << "Image pixmap is null, drawing error text";
-        // If image failed to load, draw error text
         painter->save();
         painter->setPen(Qt::red);
         painter->setFont(option.font);
-        painter->drawText(option.rect, Qt::AlignCenter, "Image not found");
+        painter->drawText(option.rect, Qt::AlignLeft | Qt::AlignVCenter, "Image not found");
         painter->restore();
         return;
     }
 
-    // Calculate image display area (leave space at bottom for text)
+    // Use full rect since no caption space needed
     QRect imageRect = option.rect;
-    imageRect.setHeight(imageRect.height() - 20); // Reserve 20px for text at bottom
-    qDebug() << "Image display rect:" << imageRect;
 
     // Scale image to fit while preserving aspect ratio
     QPixmap scaledPixmap = imagePixmap.scaled(imageRect.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-    qDebug() << "Scaled pixmap size:" << scaledPixmap.size();
 
-    // Center the image horizontally and vertically in the available space
-    int x = imageRect.x() + (imageRect.width() - scaledPixmap.width()) / 2;
+    // Left-align the image with a small margin
+    int leftMargin = 10;
+    int x = imageRect.x() + leftMargin;
     int y = imageRect.y() + (imageRect.height() - scaledPixmap.height()) / 2;
-    qDebug() << "Drawing image at position:" << x << y;
 
     // Draw the image
     painter->drawPixmap(x, y, scaledPixmap);
-    qDebug() << "Drew pixmap";
+}
 
-    // Draw the caption text at the bottom
-    QString text = index.data(Qt::DisplayRole).toString();
-    qDebug() << "Caption text:" << text;
+void CombinedDelegate::paintMultipleImages(QPainter *painter, const QStyleOptionViewItem &option, const QStringList& imagePaths) const {
+    const int THUMBNAIL_SIZE = 64;
+    const int MARGIN = 10;
+    const int SPACING = 5;
 
-    if (!text.isEmpty()) {
-        QRect textRect = option.rect;
-        textRect.setTop(option.rect.bottom() - 20); // Bottom 20px for text
-        qDebug() << "Text rect:" << textRect;
+    int availableWidth = option.rect.width() - (2 * MARGIN);
+    int imagesPerRow = availableWidth / (THUMBNAIL_SIZE + SPACING);
+    if (imagesPerRow < 1) imagesPerRow = 1; // At least one image per row
 
-        painter->save();
-        QFont captionFont = option.font;
-        captionFont.setPointSize(8);
-        captionFont.setItalic(true);
-        painter->setFont(captionFont);
-        painter->setPen(option.palette.text().color());
-        painter->drawText(textRect, Qt::AlignCenter, text);
-        painter->restore();
-        qDebug() << "Drew caption text";
+    int currentX = option.rect.x() + MARGIN;
+    int currentY = option.rect.y() + MARGIN;
+    int imagesInCurrentRow = 0;
+
+    for (int i = 0; i < imagePaths.size() && i < 10; ++i) { // Cap at 10 images
+        QString imagePath = imagePaths[i];
+
+        // Load and decrypt the image
+        QPixmap imagePixmap = loadImageForDisplay(imagePath);
+        if (imagePixmap.isNull()) {
+            continue; // Skip failed images
+        }
+
+        // Scale to 64x64 thumbnail
+        QPixmap thumbnail = imagePixmap.scaled(THUMBNAIL_SIZE, THUMBNAIL_SIZE,
+                                               Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+        // Center the thumbnail in the 64x64 space
+        int drawX = currentX + (THUMBNAIL_SIZE - thumbnail.width()) / 2;
+        int drawY = currentY + (THUMBNAIL_SIZE - thumbnail.height()) / 2;
+
+        // Draw the thumbnail
+        painter->drawPixmap(drawX, drawY, thumbnail);
+
+        // Move to next position
+        currentX += THUMBNAIL_SIZE + SPACING;
+        imagesInCurrentRow++;
+
+        // Check if we need to wrap to next row
+        if (imagesInCurrentRow >= imagesPerRow && i < imagePaths.size() - 1) {
+            currentX = option.rect.x() + MARGIN;
+            currentY += THUMBNAIL_SIZE + SPACING;
+            imagesInCurrentRow = 0;
+        }
     }
-
-    qDebug() << "=== paintImageItem finished";
 }
 
 QPixmap CombinedDelegate::loadImageForDisplay(const QString& imagePath) const

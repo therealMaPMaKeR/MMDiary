@@ -136,6 +136,7 @@ const QString Diary_TextBlockEnd = "<!TextBlockEnd!>";
 const QString Diary_TimeStampStart = "<!TimeStampStart!>";
 const QString Diary_TaskManagerStart = "<!TaskManagerStart!>";
 const QString Diary_ImageStart = "<!ImageStart!>";
+const QString Diary_ImageEnd = "<!ImageEnd!>";
 //Diary
 const QString TASK_MANAGER_TEXT = "Task Manager";
 // Encrypted File Metadata

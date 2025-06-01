@@ -45,9 +45,22 @@ private:
     bool markDiaryForCleanup = false; // Flag to indicate diary needs cleanup
 
     void handleImageClick(QListWidgetItem* item);
+    void addImagesToCurrentDiary(const QStringList& imageFilenames, const QString& diaryFilePath, bool shouldGroup = false);
+    bool checkShouldGroupImages(const QString& diaryFilePath);
 
-private:
-    void addImagesToCurrentDiary(const QStringList& imageFilenames, const QString& diaryFilePath);
+    // Image click detection
+    int m_clickedImageIndex = -1;  // Index of clicked image in multi-image items
+    QPoint m_lastContextMenuPos;   // Position where context menu was requested
+
+    // Helper functions for image deletion and click detection
+    void deleteImageFiles(const QString& imageData, const QString& diaryDir);
+    int calculateClickedImageIndex(QListWidgetItem* item, const QPoint& clickPos);
+    void deleteSpecificImage(QListWidgetItem* item, int imageIndex);
+    QString removeImageFromData(const QString& imageData, int indexToRemove);
+    void updateImageEntryInDiary(QListWidgetItem* item);
+    void handleSpecificImageClick(QListWidgetItem* item, int imageIndex);
+    void copySpecificImagePath(QListWidgetItem* item, int imageIndex);
+    void copyAllImagePaths(QListWidgetItem* item);
 
 public:
     ~Operations_Diary();

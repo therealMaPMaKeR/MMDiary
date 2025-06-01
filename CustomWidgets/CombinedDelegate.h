@@ -52,6 +52,9 @@ private:
     void paintImageItem(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const;
     QPixmap loadImageForDisplay(const QString& imagePath) const;
 
+    // Image painting helper methods
+    void paintSingleImage(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index, const QString& imagePath) const;
+    void paintMultipleImages(QPainter *painter, const QStyleOptionViewItem &option, const QStringList& imagePaths) const;
 signals:
     void TextModificationsMade(QString text, int itemIndex);
     // Signal to include both text and item index

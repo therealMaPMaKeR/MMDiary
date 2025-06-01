@@ -224,11 +224,7 @@ void custom_QListWidget::updateItemSizes()
         bool isImageItem = item->data(Qt::UserRole+3).toBool();
         if (isImageItem) {
             // For image items, preserve the existing size hint
-            // Just update the font if needed
-            QFont imageFont = item->font();
-            imageFont.setPointSize(8); // Keep image captions small
-            imageFont.setItalic(true);
-            item->setFont(imageFont);
+            // No font changes needed since there are no captions
             continue; // Skip size calculation for image items
         }
 
