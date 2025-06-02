@@ -518,6 +518,9 @@ private:
     void onSearchTextChanged();
     bool matchesSearchCriteria(const QString& filename, const QString& searchText);
 
+    bool isImageFile(const QString& filename) const;
+    void openWithImageViewer(const QString& encryptedFilePath, const QString& originalFilename);
+
 public:
     explicit Operations_EncryptedData(MainWindow* mainWindow);
     ~Operations_EncryptedData();
@@ -592,6 +595,8 @@ private slots:
     void onContextMenuExportListed();
 
     void onContextMenuOpenWith();
+
+    void onContextMenuOpenWithImageViewer();
 
 protected:
     // Event filter for Delete key functionality

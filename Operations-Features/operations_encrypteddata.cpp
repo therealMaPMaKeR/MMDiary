@@ -4,6 +4,7 @@
 #include "../constants.h"
 #include "../CustomWidgets/encryptedfileitemwidget.h"
 #include "../Operations-Global/fileiconprovider.h"
+#include "../Operations-Global/imageviewer.h"
 #include "qpainter.h"
 #include "ui_mainwindow.h"
 #include <QDir>
@@ -1038,16 +1039,24 @@ void Operations_EncryptedData::onFileListDoubleClicked(QListWidgetItem* item)
     qDebug() << "Default app found:" << (defaultApp.isEmpty() ? "None" : defaultApp);
 
     if (defaultApp.isEmpty()) {
-        // No default app - show simplified dialog (Cancel or Select App)
-        AppChoice choice = showNoDefaultAppDialog();
-        qDebug() << "No default app dialog choice (int):" << static_cast<int>(choice);
+        // No default app - check if this is an image file
+        if (isImageFile(originalFilename)) {
+            qDebug() << "No default app for image, using ImageViewer";
+            // For images with no default app, use ImageViewer directly
+            openWithImageViewer(encryptedFilePath, originalFilename);
+            return; // Exit early, ImageViewer will handle everything
+        } else {
+            // Not an image - show simplified dialog (Cancel or Select App)
+            AppChoice choice = showNoDefaultAppDialog();
+            qDebug() << "No default app dialog choice (int):" << static_cast<int>(choice);
 
-        if (choice == AppChoice::Cancel) {
-            qDebug() << "User cancelled - no default app dialog";
-            return;
-        } else if (choice == AppChoice::SelectApp) {
-            qDebug() << "User chose to select app - will use Windows Open With dialog";
-            appToUse = "openwith"; // Use Windows native Open With dialog
+            if (choice == AppChoice::Cancel) {
+                qDebug() << "User cancelled - no default app dialog";
+                return;
+            } else if (choice == AppChoice::SelectApp) {
+                qDebug() << "User chose to select app - will use Windows Open With dialog";
+                appToUse = "openwith"; // Use Windows native Open With dialog
+            }
         }
     } else {
         // Default app exists - use it automatically
@@ -1688,9 +1697,29 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
                 QMessageBox::critical(m_mainWindow, "File Error",
                                       QString("The decrypted temporary file is missing or empty.\n\nExpected location: %1").arg(tempFilePath));
             } else {
-                qDebug() << "About to call openFileWithApp with localAppToOpen:" << localAppToOpen;
-                // Use the local variable instead of the member variable
-                openFileWithApp(tempFilePath, localAppToOpen);
+                // NEW: Handle ImageViewer case
+                if (localAppToOpen == "imageviewer") {
+                    qDebug() << "Opening with ImageViewer:" << tempFilePath;
+
+                    // Create ImageViewer instance and open the image
+                    ImageViewer* viewer = new ImageViewer(m_mainWindow);
+
+                    // Extract original filename for the window title
+                    QString displayTitle = "Encrypted Image";
+
+                    if (viewer->loadImage(tempFilePath, displayTitle)) {
+                        viewer->show();
+                        qDebug() << "ImageViewer opened successfully";
+                    } else {
+                        QMessageBox::critical(m_mainWindow, "Image Viewer Error",
+                                              "Failed to load the image in the Image Viewer.");
+                        viewer->deleteLater();
+                    }
+                } else {
+                    qDebug() << "About to call openFileWithApp with localAppToOpen:" << localAppToOpen;
+                    // Use the local variable instead of the member variable
+                    openFileWithApp(tempFilePath, localAppToOpen);
+                }
             }
         } else {
             QMessageBox::critical(m_mainWindow, "Decryption Failed",
@@ -3832,23 +3861,40 @@ void Operations_EncryptedData::showContextMenu_FileList(const QPoint& pos)
     // Select the item that was right-clicked
     m_mainWindow->ui->listWidget_DataENC_FileList->setCurrentItem(item);
 
+    // Get the original filename to check if it's an image
+    QString originalFilename = item->data(Qt::UserRole + 2).toString();
+    bool isImage = isImageFile(originalFilename);
+
     // Create context menu
     QMenu contextMenu(m_mainWindow);
 
-    // Add Open action
+    // Add Edit action
+    QAction* editAction = contextMenu.addAction("Edit");
+    editAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+    connect(editAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuEdit);
+
+    // Add separator
+    contextMenu.addSeparator();
+
+    // Add Open action // disabled
+    /*
     QAction* openAction = contextMenu.addAction("Open");
     openAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView));
     connect(openAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuOpen);
+    */
 
     // Add Open With action
     QAction* openWithAction = contextMenu.addAction("Open With...");
     openWithAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_ComputerIcon));
     connect(openWithAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuOpenWith);
 
-    // Add Edit action
-    QAction* editAction = contextMenu.addAction("Edit");
-    editAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView));
-    connect(editAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuEdit);
+    // Add "Open With Image Viewer" action only for images
+    if (isImage) {
+        QAction* imageViewerAction = contextMenu.addAction("Open With Image Viewer");
+        imageViewerAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+        connect(imageViewerAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuOpenWithImageViewer);
+    }
+
 
     // Add separator
     contextMenu.addSeparator();
@@ -4059,6 +4105,35 @@ void Operations_EncryptedData::onContextMenuExportListed()
 
     // Call the existing function to export all visible files
     decryptAndExportVisibleFiles();
+}
+
+void Operations_EncryptedData::onContextMenuOpenWithImageViewer()
+{
+    // Get the currently selected item
+    QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_DataENC_FileList->currentItem();
+    if (!currentItem) {
+        return;
+    }
+
+    // Get the encrypted file path and original filename from the item's user data
+    QString encryptedFilePath = currentItem->data(Qt::UserRole).toString();
+    QString originalFilename = currentItem->data(Qt::UserRole + 2).toString();
+
+    if (encryptedFilePath.isEmpty() || originalFilename.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to retrieve file information.");
+        return;
+    }
+
+    // Verify this is actually an image file
+    if (!isImageFile(originalFilename)) {
+        QMessageBox::warning(m_mainWindow, "Not an Image",
+                             "The selected file is not an image file.");
+        return;
+    }
+
+    // Use the ImageViewer opening functionality
+    openWithImageViewer(encryptedFilePath, originalFilename);
 }
 
 // event filter
@@ -5950,4 +6025,82 @@ void Operations_EncryptedData::clearSearch()
 
     // Update display immediately
     updateFileListDisplay();
+}
+
+
+//------ Open with Image Viewer ---------//
+
+bool Operations_EncryptedData::isImageFile(const QString& filename) const
+{
+    QFileInfo fileInfo(filename);
+    QString extension = fileInfo.suffix().toLower();
+
+    // Image file extensions (same list as used in determineFileType)
+    QStringList imageExtensions = {
+        "jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "svg", "ico",
+        "webp", "heic", "heif", "raw", "cr2", "nef", "arw", "dng", "psd",
+        "xcf", "eps", "ai", "indd"
+    };
+
+    return imageExtensions.contains(extension);
+}
+
+void Operations_EncryptedData::openWithImageViewer(const QString& encryptedFilePath, const QString& originalFilename)
+{
+    qDebug() << "Opening image with ImageViewer:" << originalFilename;
+
+    // Verify the encrypted file still exists
+    if (!QFile::exists(encryptedFilePath)) {
+        QMessageBox::critical(m_mainWindow, "File Not Found",
+                              "The encrypted file no longer exists.");
+        populateEncryptedFilesList(); // Refresh the list
+        return;
+    }
+
+    // Validate encryption key before proceeding
+    qDebug() << "Validating encryption key for ImageViewer:" << encryptedFilePath;
+    QByteArray encryptionKey = m_mainWindow->user_Key;
+    if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey, true)) {
+        QMessageBox::critical(m_mainWindow, "Invalid Encryption Key",
+                              "The encryption key is invalid or the file is corrupted. "
+                              "Please ensure you are using the correct user account.");
+        return;
+    }
+    qDebug() << "Encryption key validation successful for ImageViewer";
+
+    // Create temp file path with obfuscated name
+    QString tempFilePath = createTempFilePath(originalFilename);
+    if (tempFilePath.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to create temporary file path.");
+        return;
+    }
+
+    // Store "imageviewer" as the app to open (special marker for ImageViewer)
+    m_pendingAppToOpen = "imageviewer";
+    qDebug() << "Stored 'imageviewer' in m_pendingAppToOpen for ImageViewer";
+
+    qDebug() << "Starting temporary decryption for ImageViewer";
+
+    // Set up progress dialog
+    m_progressDialog = new QProgressDialog("Decrypting image for viewing...", "Cancel", 0, 100, m_mainWindow);
+    m_progressDialog->setWindowTitle("Opening Image");
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setMinimumDuration(0);
+    m_progressDialog->setValue(0);
+
+    // Set up worker thread for temp decryption
+    m_tempDecryptWorkerThread = new QThread(this);
+    m_tempDecryptWorker = new TempDecryptionWorker(encryptedFilePath, tempFilePath, encryptionKey);
+    m_tempDecryptWorker->moveToThread(m_tempDecryptWorkerThread);
+
+    // Connect signals
+    connect(m_tempDecryptWorkerThread, &QThread::started, m_tempDecryptWorker, &TempDecryptionWorker::doDecryption);
+    connect(m_tempDecryptWorker, &TempDecryptionWorker::progressUpdated, this, &Operations_EncryptedData::onTempDecryptionProgress);
+    connect(m_tempDecryptWorker, &TempDecryptionWorker::decryptionFinished, this, &Operations_EncryptedData::onTempDecryptionFinished);
+    connect(m_progressDialog, &QProgressDialog::canceled, this, &Operations_EncryptedData::onTempDecryptionCancelled);
+
+    // Start decryption
+    m_tempDecryptWorkerThread->start();
+    m_progressDialog->exec();
 }
