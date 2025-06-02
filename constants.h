@@ -51,6 +51,7 @@ extern const QString SettingsT_Index_DisplaynameColor;
 extern const QString SettingsT_Index_MinToTray;
 extern const QString SettingsT_Index_AskPWAfterMinToTray;
 extern const QString SettingsT_Index_ReqPWDelay;
+extern const QString SettingsT_Index_OpenOnSettings;
 // Settings Database Table Indexes - Diary Settings
 extern const QString SettingsT_Index_Diary_TextSize;
 extern const QString SettingsT_Index_Diary_TStampTimer;

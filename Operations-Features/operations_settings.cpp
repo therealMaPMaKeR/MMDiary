@@ -53,9 +53,12 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
     connect(m_mainWindow->ui->pushButton_DataENC_Hidden_Tags, &QPushButton::clicked,
             this, &Operations_Settings::onHiddenTagsClicked);
 
-    // Connect the new checkbox signals for value change tracking (add to constructor)
+    // Connect the new checkbox signals for value change tracking
     connect(m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Image, &QCheckBox::stateChanged,
             [this]() { Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData); });
+
+    connect(m_mainWindow->ui->checkBox_OpenOnSettings, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_Global); });
 
     connect(m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video, &QCheckBox::stateChanged,
             [this]() { Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData); });
@@ -66,6 +69,7 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
 
     connect(m_mainWindow->ui->checkBox_DataENC_HideTags, &QCheckBox::stateChanged,
             [this]() { Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData); });
+
 
     InitializeCustomCheckboxes();
 }
@@ -187,6 +191,22 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
             }
         } else {
             qDebug() << "Failed to load password request delay setting";
+            validationFailed = true;
+        }
+
+        // Open on Settings
+        QString openOnSettings = db.GetSettingsData_String(Constants::SettingsT_Index_OpenOnSettings);
+        if (openOnSettings != Constants::ErrorMessage_Default) {
+            if (openOnSettings == "0" || openOnSettings == "1") {
+                bool value = (openOnSettings == "1");
+                m_mainWindow->ui->checkBox_OpenOnSettings->setChecked(value);
+                m_mainWindow->setting_OpenOnSettings = value; // Update member variable
+            } else {
+                qDebug() << "Invalid open on settings value:" << openOnSettings;
+                validationFailed = true;
+            }
+        } else {
+            qDebug() << "Failed to load open on settings setting";
             validationFailed = true;
         }
 
@@ -671,6 +691,13 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         QString reqPWDelayStr = QString::number(reqPWDelay);
         db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_ReqPWDelay, reqPWDelayStr);
         m_mainWindow->setting_ReqPWDelay = reqPWDelay; // Update member variable
+
+        // Open on Settings
+        bool openOnSettings = m_mainWindow->ui->checkBox_OpenOnSettings->isChecked();
+        QString openOnSettingsStr = openOnSettings ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_OpenOnSettings, openOnSettingsStr);
+        m_mainWindow->setting_OpenOnSettings = openOnSettings; // Update member variable
+
     }
 
     // ------- Save Diary Settings -------
@@ -1007,6 +1034,16 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
             matchesDatabase = false;
         }
         if (uiReqPWDelay != Default_UserSettings::DEFAULT_REQ_PW_DELAY) {
+            matchesDefault = false;
+        }
+
+        // Open on Settings
+        QString dbOpenOnSettings = db.GetSettingsData_String(Constants::SettingsT_Index_OpenOnSettings);
+        QString uiOpenOnSettings = m_mainWindow->ui->checkBox_OpenOnSettings->isChecked() ? "1" : "0";
+        if (dbOpenOnSettings != uiOpenOnSettings) {
+            matchesDatabase = false;
+        }
+        if (uiOpenOnSettings != Default_UserSettings::DEFAULT_OPEN_ON_SETTINGS) {
             matchesDefault = false;
         }
 
@@ -1806,6 +1843,9 @@ void Operations_Settings::SetupSettingDescriptions()
 
     m_settingNames[m_mainWindow->ui->checkBox_DataENC_HideTags] = "Hide Tags";
     m_settingDescriptions[m_mainWindow->ui->checkBox_DataENC_HideTags] = "Hide files with tags that are in the hidden tags list.\n\nFiles with hidden tags will not be displayed in the file list.\n\nYou can manage the list of hidden tags using the 'Hidden Tags' button.";
+
+    m_settingNames[m_mainWindow->ui->checkBox_OpenOnSettings] = "Open on Settings Tab";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_OpenOnSettings] = "When enabled, the application will always open on the Settings tab.\n\nThis applies both when launching the app and when showing it from the system tray.\n\nUseful if you frequently access settings or want quick access to configuration options.";
 
     // Install event filters on all UI controls
     QMap<QObject*, QString>::iterator it;

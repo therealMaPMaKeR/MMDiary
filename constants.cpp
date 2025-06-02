@@ -5,7 +5,7 @@
 namespace Constants
 {
 // Global
-const QString AppVer = "4.1.9";
+const QString AppVer = "4.1.10";
 // Error Messages
 const QString ErrorMessage_Default = "ERROR";
 const QString ErrorMessage_INVUSER = "ERROR - INVALID USER";
@@ -75,6 +75,7 @@ const QString SettingsT_Index_DisplaynameColor = "displaynamecolor";
 const QString SettingsT_Index_MinToTray = "MinToTray";
 const QString SettingsT_Index_AskPWAfterMinToTray = "AskPWAfterMinToTray";
 const QString SettingsT_Index_ReqPWDelay = "ReqPWDelay";
+const QString SettingsT_Index_OpenOnSettings = "OpenOnSettings";
 // Settings Database Table Indexes - Diary Settings
 const QString SettingsT_Index_Diary_TextSize = "Diary_TextSize";
 const QString SettingsT_Index_Diary_TStampTimer = "Diary_TStampTimer";

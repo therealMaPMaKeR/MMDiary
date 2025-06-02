@@ -186,6 +186,7 @@ bool DatabaseSettingsManager::IndexIsValid(QString index, QString type)
         columnTypes[Constants::SettingsT_Index_MinToTray] = Constants::DataType_QString;
         columnTypes[Constants::SettingsT_Index_AskPWAfterMinToTray] = Constants::DataType_QString;
         columnTypes[Constants::SettingsT_Index_ReqPWDelay] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_OpenOnSettings] = Constants::DataType_QString;
 
         // Diary Settings columns
         columnTypes[Constants::SettingsT_Index_Diary_TextSize] = Constants::DataType_QString;
@@ -455,6 +456,7 @@ bool DatabaseSettingsManager::migrateToV2()
     settingsTableColumns[Constants::SettingsT_Index_MinToTray] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_AskPWAfterMinToTray] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_ReqPWDelay] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_OpenOnSettings] = "TEXT";
 
     // Diary Settings
     settingsTableColumns[Constants::SettingsT_Index_Diary_TextSize] = "TEXT";

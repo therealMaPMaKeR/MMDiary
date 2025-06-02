@@ -102,6 +102,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(ui->tabWidget_Main, &QTabWidget::currentChanged,
             this, &MainWindow::onTabChanged);
+
+    //Setting-Always open on settings tab signal connection
+    connect(ui->checkBox_OpenOnSettings, &QCheckBox::stateChanged,
+            this, &MainWindow::on_checkBox_OpenOnSettings_stateChanged);
 }
 MainWindow::~MainWindow()
 {
@@ -299,6 +303,18 @@ void MainWindow::showAndActivate() {
         }
     }
 
+    // Check if we should open on settings tab
+    if (setting_OpenOnSettings) {
+        // Ensure settings tab is visible
+        ui->tabWidget_Main->ensureSettingsTabVisible();
+
+        // Find the settings tab index dynamically
+        int settingsTabIndex = Operations::GetTabIndexByObjectName("tab_Settings", ui->tabWidget_Main);
+        if (settingsTabIndex >= 0) {
+            ui->tabWidget_Main->setCurrentIndex(settingsTabIndex);
+        }
+    }
+
     // If we got here, either no password was required, validation succeeded, or grace period is active
     show();
     raise();        // Raise the window above others
@@ -480,7 +496,19 @@ void MainWindow::LoadPersistentSettings()
 
     // Load main tab widget current tab (after reordering)
     int currentTabIndex = m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainTabWidgetIndex_CurrentTabIndex);
-    if (currentTabIndex >= 0 && currentTabIndex < ui->tabWidget_Main->count()) {
+
+    // Check if we should override with settings tab
+    if (setting_OpenOnSettings) {
+        // Ensure settings tab is visible
+        ui->tabWidget_Main->ensureSettingsTabVisible();
+
+        // Find the settings tab index dynamically and set it
+        int settingsTabIndex = Operations::GetTabIndexByObjectName("tab_Settings", ui->tabWidget_Main);
+        if (settingsTabIndex >= 0) {
+            ui->tabWidget_Main->setCurrentIndex(settingsTabIndex);
+        }
+    } else if (currentTabIndex >= 0 && currentTabIndex < ui->tabWidget_Main->count()) {
+        // Use the saved tab index if not opening on settings
         ui->tabWidget_Main->setCurrentIndex(currentTabIndex);
     }
 
@@ -1014,6 +1042,12 @@ void MainWindow::on_spinBox_ReqPWDelay_valueChanged(int arg1)
     if (initFinished) {
         Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Global);
     }
+}
+
+void MainWindow::on_checkBox_OpenOnSettings_stateChanged(int arg1)
+{
+    if(initFinished == false){return;}
+    Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Global);
 }
 
 //Diary

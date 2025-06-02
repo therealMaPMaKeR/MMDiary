@@ -121,13 +121,16 @@ private:
     //Variables
     Ui::MainWindow *ui;
     bool initFinished;
+
     // Saved Settings
     int fontSize = 10;
     bool quitToLogin = false;
+
     // Global Settings
     bool setting_MinToTray = false;
     bool setting_AskPWAfterMin = false;
     int setting_ReqPWDelay = 30;
+    bool setting_OpenOnSettings = false;
 
     // Diary Settings
     int setting_Diary_TextSize = 10;
@@ -148,6 +151,7 @@ private:
     QString setting_PWMan_DefSortingMethod = "Password";
     bool setting_PWMan_ReqPassword = true;
     bool setting_PWMan_HidePasswords = true;
+
     // Encrypted Data Settings
     bool setting_DataENC_ReqPassword = false;
     bool setting_DataENC_HideThumbnails_Image = false;
@@ -156,6 +160,7 @@ private:
     QString setting_DataENC_Hidden_Tags = "";
     bool setting_DataENC_Hide_Categories = false;
     bool setting_DataENC_Hide_Tags = false;
+
     //Member Classes
     Operations_Diary* Operations_Diary_ptr;
     Operations_PasswordManager* Operations_PasswordManager_ptr;
@@ -268,6 +273,7 @@ private slots:
 
     void on_spinBox_ReqPWDelay_valueChanged(int arg1);
 
+    void on_checkBox_OpenOnSettings_stateChanged(int arg1);
 
 private:
     void UpdateTasklistTextSize();

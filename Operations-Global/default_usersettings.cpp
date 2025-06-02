@@ -41,6 +41,10 @@ bool SetDefault_GlobalSettings(QString username, const QByteArray& encryptionKey
         qDebug() << "Failed to set ReqPWDelay";
         return false;
     }
+    if (!db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_OpenOnSettings, DEFAULT_OPEN_ON_SETTINGS)) {
+        qDebug() << "Failed to set open on settings";
+        return false;
+    }
     return true;
 }
 

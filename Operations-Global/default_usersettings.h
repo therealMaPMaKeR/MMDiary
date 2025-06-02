@@ -11,11 +11,12 @@ const QString DEFAULT_DISPLAY_NAME_COLOR = "Orange";
 const QString DEFAULT_MIN_TO_TRAY = "1";
 const QString DEFAULT_ASK_PW_AFTER_MIN = "1";
 const QString DEFAULT_REQ_PW_DELAY = "30";
+const QString DEFAULT_OPEN_ON_SETTINGS = "0";
 
 // Diary Settings
 const QString DEFAULT_DIARY_TEXT_SIZE = "10";
 const QString DEFAULT_DIARY_TSTAMP_TIMER = "5";
-const QString DEFAULT_DIARY_TSTAMP_COUNTER = "5";
+const QString DEFAULT_DIARY_TSTAMP_COUNTER = "4";
 const QString DEFAULT_DIARY_CAN_EDIT_RECENT = "1";
 const QString DEFAULT_DIARY_SHOW_TMAN_LOGS = "0";
 
