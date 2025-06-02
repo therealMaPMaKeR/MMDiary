@@ -64,6 +64,7 @@ SOURCES += \
     Operations-Global/default_usersettings.cpp \
     Operations-Global/encryptedfilemetadata.cpp \
     Operations-Global/fileiconprovider.cpp \
+    Operations-Global/imageviewer.cpp \
     Operations-Global/inputvalidation.cpp \
     Operations-Global/operations.cpp \
     Operations-Global/operations_files.cpp \
@@ -97,6 +98,7 @@ HEADERS += \
     Operations-Global/default_usersettings.h \
     Operations-Global/encryptedfilemetadata.h \
     Operations-Global/fileiconprovider.h \
+    Operations-Global/imageviewer.h \
     Operations-Global/inputvalidation.h \
     Operations-Global/operations.h \
     Operations-Global/operations_files.h \
@@ -116,6 +118,7 @@ FORMS += \
     HiddenItemsList.ui \
     Operations-Features/passwordmanager_addpassword.ui \
     Operations-Features/tasklists_addtask.ui \
+    Operations-Global/imageviewer.ui \
     Operations-Global/passwordvalidation.ui \
     about_MMDiary.ui \
     changelog.ui \

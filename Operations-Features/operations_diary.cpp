@@ -2,6 +2,7 @@
 #include "../CustomWidgets/CombinedDelegate.h"
 #include "../Operations-Global/CryptoUtils.h"
 #include "Operations-Global/operations_files.h"
+#include "Operations-Global/imageviewer.h"
 #include "qimagereader.h"
 #include "ui_mainwindow.h"
 #include "../constants.h"
@@ -1186,7 +1187,7 @@ void Operations_Diary::DeleteDiary(QString DiaryFileName)
 
     // Extract the diary date from the file path
     QFileInfo fileInfo(DiaryFileName);
-    QString diaryDir = fileInfo.dir().absolutePath();
+    QString dayDirectoryPath = fileInfo.dir().absolutePath();
 
     // Extract date components from the path
     // The path format would be DiariesFilePath/YYYY/MM/DD/YYYY.MM.DD.txt
@@ -1212,15 +1213,69 @@ void Operations_Diary::DeleteDiary(QString DiaryFileName)
     QStringList hierarchyLevels;
     hierarchyLevels << year << month << day;
 
-    // Use centralized file operations to delete the file and clean up empty directories
-    bool deleteSuccess = OperationsFiles::deleteFileAndCleanEmptyDirs(
-        DiaryFileName, hierarchyLevels, DiariesFilePath);
+    // Delete all files in the day directory
+    QDir dayDir(dayDirectoryPath);
+    if (!dayDir.exists()) {
+        qWarning() << "Day directory does not exist:" << dayDirectoryPath;
+        QMessageBox::warning(m_mainWindow, "Directory Error",
+                             "The diary directory does not exist.");
+        return;
+    }
+
+    // Get all files in the day directory
+    QStringList filesInDay = dayDir.entryList(QDir::Files);
+    bool allFilesDeleted = true;
+
+    // Delete each file in the directory (no need for secure delete since content is encrypted)
+    foreach(const QString& fileName, filesInDay) {
+        QString filePath = QDir::cleanPath(dayDirectoryPath + "/" + fileName);
+        QFile file(filePath);
+        if (file.exists()) {
+            bool fileDeleteSuccess = file.remove();
+            if (!fileDeleteSuccess) {
+                qWarning() << "Failed to delete file:" << filePath;
+                allFilesDeleted = false;
+            } else {
+                qDebug() << "Successfully deleted file:" << filePath;
+            }
+        }
+    }
+
+    // Remove the now-empty day directory
+    bool dirRemoveSuccess = dayDir.rmdir(dayDirectoryPath);
+    if (!dirRemoveSuccess) {
+        qWarning() << "Failed to remove day directory:" << dayDirectoryPath;
+    } else {
+        qDebug() << "Successfully removed day directory:" << dayDirectoryPath;
+    }
+
+    bool deleteSuccess = allFilesDeleted && dirRemoveSuccess;
 
     if (!deleteSuccess) {
-        qWarning() << "Failed to delete diary file: " << DiaryFileName;
+        qWarning() << "Failed to completely delete diary and its contents: " << DiaryFileName;
         QMessageBox::warning(m_mainWindow, "Delete Error",
-                             "Failed to delete the diary file.");
+                             "Failed to completely delete the diary and its contents.");
         return;
+    }
+
+    // Clean up empty parent directories (month and year folders if they become empty)
+    QString monthPath = QDir::cleanPath(DiariesFilePath + year + "/" + month);
+    QDir monthDir(monthPath);
+    if (monthDir.exists() && monthDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty()) {
+        bool monthRemoveSuccess = monthDir.rmdir(monthPath);
+        if (monthRemoveSuccess) {
+            qDebug() << "Removed empty month directory:" << monthPath;
+
+            // Check if year directory is now empty
+            QString yearPath = QDir::cleanPath(DiariesFilePath + year);
+            QDir yearDir(yearPath);
+            if (yearDir.exists() && yearDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty()) {
+                bool yearRemoveSuccess = yearDir.rmdir(yearPath);
+                if (yearRemoveSuccess) {
+                    qDebug() << "Removed empty year directory:" << yearPath;
+                }
+            }
+        }
     }
 
     if(DiaryFileName == current_DiaryFileName) // if we delete the currently loaded diary
@@ -2422,10 +2477,58 @@ bool Operations_Diary::checkShouldGroupImages(const QString& diaryFilePath)
 
 bool Operations_Diary::openImageWithViewer(const QString& imagePath)
 {
-    // For now, show an error message as requested
-    QMessageBox::information(m_mainWindow, "Image Viewer",
-                             QString("Image viewer not yet implemented.\nImage path: %1").arg(imagePath));
-    return false;
+    // Validate the image path
+    InputValidation::ValidationResult result =
+        InputValidation::validateInput(imagePath, InputValidation::InputType::FilePath);
+    if (!result.isValid) {
+        qWarning() << "Invalid image path for viewer:" << result.errorMessage;
+        return false;
+    }
+
+    // Check if the encrypted image file exists
+    if (!QFileInfo::exists(imagePath)) {
+        QMessageBox::warning(m_mainWindow, "Error", "Image file not found: " + imagePath);
+        return false;
+    }
+
+    try {
+        // Load and decrypt the image
+        QPixmap imagePixmap = loadEncryptedImage(imagePath);
+
+        if (imagePixmap.isNull()) {
+            QMessageBox::warning(m_mainWindow, "Error", "Failed to load image: " + imagePath);
+            return false;
+        }
+
+        // Create new image viewer instance (non-modal, multiple instances allowed)
+        ImageViewer* viewer = new ImageViewer(m_mainWindow);
+
+        // Load the decrypted image into the viewer
+        QString imageTitle = QFileInfo(imagePath).fileName();
+        bool loadSuccess = viewer->loadImage(imagePixmap, imageTitle);
+
+        if (!loadSuccess) {
+            delete viewer;
+            QMessageBox::warning(m_mainWindow, "Error", "Failed to display image in viewer.");
+            return false;
+        }
+
+        // Show the viewer (non-modal)
+        viewer->show();
+        viewer->raise();
+        viewer->activateWindow();
+
+        return true;
+
+    } catch (const std::exception& e) {
+        qWarning() << "Exception in openImageWithViewer:" << e.what();
+        QMessageBox::warning(m_mainWindow, "Error", "An error occurred while opening the image viewer.");
+        return false;
+    } catch (...) {
+        qWarning() << "Unknown exception in openImageWithViewer";
+        QMessageBox::warning(m_mainWindow, "Error", "An unknown error occurred while opening the image viewer.");
+        return false;
+    }
 }
 
 void Operations_Diary::cleanupBrokenImageReferences()
