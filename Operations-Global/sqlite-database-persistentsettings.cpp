@@ -219,6 +219,7 @@ bool DatabasePersistentSettingsManager::IndexIsValid(QString index, QString type
         columnTypes[Constants::PSettingsT_Index_DataENC_CurrentCategory] = Constants::DataType_QString;
         columnTypes[Constants::PSettingsT_Index_DataENC_CurrentTags] = Constants::DataType_QString;
         columnTypes[Constants::PSettingsT_Index_DataENC_SortType] = Constants::DataType_QString;
+        columnTypes[Constants::PSettingsT_Index_DataENC_TagSelectionMode] = Constants::DataType_QString;
     }
 
     // Check if the column exists in our map
@@ -523,6 +524,7 @@ bool DatabasePersistentSettingsManager::migrateToV2()
     persistentSettingsTableColumns[Constants::PSettingsT_Index_DataENC_CurrentCategory] = "TEXT";
     persistentSettingsTableColumns[Constants::PSettingsT_Index_DataENC_CurrentTags] = "TEXT";
     persistentSettingsTableColumns[Constants::PSettingsT_Index_DataENC_SortType] = "TEXT";
+    persistentSettingsTableColumns[Constants::PSettingsT_Index_DataENC_TagSelectionMode] = "TEXT";
 
     if (!m_dbManager.createTable("persistentSettingsTable", persistentSettingsTableColumns)) {
         qWarning() << "Failed to create persistent settings table:" << m_dbManager.lastError();

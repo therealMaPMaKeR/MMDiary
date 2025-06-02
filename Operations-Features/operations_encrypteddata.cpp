@@ -2942,48 +2942,72 @@ void Operations_EncryptedData::updateFileListDisplay()
     qDebug() << "Current search text:" << m_currentSearchText;
 
     // Filter files by checked tags (AND logic, case-insensitive) and tag hiding settings
-    QStringList tagFilteredFiles;
-    for (const QString& filePath : m_currentFilteredFiles) {
-        if (!m_fileMetadataCache.contains(filePath)) {
-            continue;
-        }
+        QStringList tagFilteredFiles;
+        for (const QString& filePath : m_currentFilteredFiles) {
+            if (!m_fileMetadataCache.contains(filePath)) {
+                continue;
+            }
 
-        const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
+            const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
 
-        // Check if file should be hidden by tag settings (case-insensitive)
-        if (shouldHideFileByTags(metadata)) {
-            continue; // Skip this file, it has hidden tags
-        }
+            // Check if file should be hidden by tag settings (case-insensitive)
+            if (shouldHideFileByTags(metadata)) {
+                continue; // Skip this file, it has hidden tags
+            }
 
-        bool includeFile = true;
+            bool includeFile = true;
 
-        if (!checkedTagsDisplay.isEmpty()) {
-            // For each required tag (display name), check if the file has it (case-insensitive)
-            for (const QString& requiredTagDisplay : checkedTagsDisplay) {
-                bool fileHasThisTag = false;
+            if (!checkedTagsDisplay.isEmpty()) {
+                // Get tag selection mode from combo box
+                QString tagSelectionMode = m_mainWindow->ui->comboBox_DataENC_TagSelectionMode->currentText();
+                bool useAndLogic = (tagSelectionMode == "And");
 
-                // Check if any of the file's tags match this required tag (case-insensitive)
-                for (const QString& fileTag : metadata.tags) {
-                    if (fileTag.compare(requiredTagDisplay, Qt::CaseInsensitive) == 0) {
-                        fileHasThisTag = true;
-                        break;
+                if (useAndLogic) {
+                    // AND logic: File must have ALL selected tags
+                    for (const QString& requiredTagDisplay : checkedTagsDisplay) {
+                        bool fileHasThisTag = false;
+
+                        // Check if any of the file's tags match this required tag (case-insensitive)
+                        for (const QString& fileTag : metadata.tags) {
+                            if (fileTag.compare(requiredTagDisplay, Qt::CaseInsensitive) == 0) {
+                                fileHasThisTag = true;
+                                break;
+                            }
+                        }
+
+                        if (!fileHasThisTag) {
+                            includeFile = false;
+                            break; // File doesn't have this required tag
+                        }
+                    }
+                } else {
+                    // OR logic: File needs ANY of the selected tags
+                    includeFile = false; // Start with false, set to true if any tag matches
+
+                    for (const QString& requiredTagDisplay : checkedTagsDisplay) {
+                        // Check if any of the file's tags match this required tag (case-insensitive)
+                        for (const QString& fileTag : metadata.tags) {
+                            if (fileTag.compare(requiredTagDisplay, Qt::CaseInsensitive) == 0) {
+                                includeFile = true;
+                                break; // Found a matching tag, include the file
+                            }
+                        }
+
+                        if (includeFile) {
+                            break; // Already found a match, no need to check more tags
+                        }
                     }
                 }
+            }
 
-                if (!fileHasThisTag) {
-                    includeFile = false;
-                    break; // File doesn't have this required tag
-                }
+            if (includeFile) {
+                tagFilteredFiles.append(filePath);
             }
         }
 
-        if (includeFile) {
-            tagFilteredFiles.append(filePath);
-        }
-    }
-
-    qDebug() << "Tag filtered files count:" << tagFilteredFiles.size()
-             << "(case-insensitive, after applying tag hiding settings)";
+        qDebug() << "Tag filtered files count:" << tagFilteredFiles.size()
+                 << "(case-insensitive, after applying tag hiding settings, using"
+                 << m_mainWindow->ui->comboBox_DataENC_TagSelectionMode->currentText() << "logic)";
 
     // NEW: Apply search filter to tag-filtered files
     QStringList finalFilteredFiles;
@@ -3131,6 +3155,15 @@ void Operations_EncryptedData::updateButtonStates()
     QString disabledStyle = "color: #888888; background-color: #444444;";
     QString enabledStyle = ""; // Default style
 
+}
+
+void Operations_EncryptedData::onTagSelectionModeChanged(const QString& mode)
+{
+    Q_UNUSED(mode)
+    qDebug() << "Tag selection mode changed to:" << mode;
+
+    // Update the file list display with the new tag logic
+    updateFileListDisplay();
 }
 
 // ============================================================================

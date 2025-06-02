@@ -57,7 +57,7 @@
        </size>
       </property>
       <property name="currentIndex">
-       <number>3</number>
+       <number>0</number>
       </property>
       <property name="movable">
        <bool>true</bool>
@@ -772,12 +772,12 @@
              <item>
               <widget class="QLabel" name="label_30">
                <property name="text">
-                <string>Selection Mode:</string>
+                <string>Tag Filtering Mode:</string>
                </property>
               </widget>
              </item>
              <item>
-              <widget class="QComboBox" name="comboBox_DataENC_SelectionMode">
+              <widget class="QComboBox" name="comboBox_DataENC_TagSelectionMode">
                <item>
                 <property name="text">
                  <string>And</string>
@@ -1165,7 +1165,7 @@
            </size>
           </property>
           <property name="currentIndex">
-           <number>3</number>
+           <number>0</number>
           </property>
           <widget class="QWidget" name="tab_Settings_Diaries">
            <attribute name="title">

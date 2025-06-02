@@ -104,6 +104,7 @@ extern const QString PSettingsT_Index_TLists_CurrentTask;
 extern const QString PSettingsT_Index_DataENC_CurrentCategory;
 extern const QString PSettingsT_Index_DataENC_CurrentTags;
 extern const QString PSettingsT_Index_DataENC_SortType;
+extern const QString PSettingsT_Index_DataENC_TagSelectionMode;
 //-------------- Diary Text Codes ---------------//
 extern const QString Diary_Spacer;
 extern const QString Diary_TextBlockStart;

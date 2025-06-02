@@ -201,6 +201,11 @@ void MainWindow::FinishInitialization()
 
         connect(ui->checkBox_DataENC_HideThumbnails_Video, &QCheckBox::stateChanged,
                 this, &MainWindow::on_checkBox_DataENC_HideThumbnails_Video_stateChanged);
+
+        // Connect tag selection mode combo box
+        connect(ui->comboBox_DataENC_TagSelectionMode, &QComboBox::currentTextChanged,
+                Operations_EncryptedData_ptr, &Operations_EncryptedData::onTagSelectionModeChanged);
+
         //Diary Settings
         if(setting_Diary_CanEditRecent == true){ui->DiaryTextDisplay->setEditTriggers(QAbstractItemView::DoubleClicked);} // set double click to edit if enabled
         Operations_Diary_ptr->DiaryLoader(); // begin loading diaries
@@ -451,6 +456,7 @@ void MainWindow::LoadPersistentSettings()
     QString savedSortType = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_DataENC_SortType);
     QString savedCategory = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_DataENC_CurrentCategory);
     QString savedTags = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_DataENC_CurrentTags);
+    QString savedTagMode = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_DataENC_TagSelectionMode);
 
     // Apply encrypted data settings if they exist and are valid
     if (!savedSortType.isEmpty()) {
@@ -458,6 +464,20 @@ void MainWindow::LoadPersistentSettings()
         int sortTypeIndex = ui->comboBox_DataENC_SortType->findText(savedSortType);
         if (sortTypeIndex >= 0) {
             ui->comboBox_DataENC_SortType->setCurrentIndex(sortTypeIndex);
+        }
+    }
+
+    // Apply tag selection mode if saved (default to "And" if not found)
+    if (!savedTagMode.isEmpty()) {
+        int tagModeIndex = ui->comboBox_DataENC_TagSelectionMode->findText(savedTagMode);
+        if (tagModeIndex >= 0) {
+            ui->comboBox_DataENC_TagSelectionMode->setCurrentIndex(tagModeIndex);
+        }
+    } else {
+        // Default to "And" mode if no saved setting
+        int defaultIndex = ui->comboBox_DataENC_TagSelectionMode->findText("And");
+        if (defaultIndex >= 0) {
+            ui->comboBox_DataENC_TagSelectionMode->setCurrentIndex(defaultIndex);
         }
     }
 
@@ -563,6 +583,7 @@ void MainWindow::SavePersistentSettings()
     QString currentSortType = "";
     QString currentCategory = "";
     QString currentTags = "";
+    QString currentTagMode = "";
 
     // Get current sort type from combobox
     if (ui->comboBox_DataENC_SortType->currentIndex() >= 0) {
@@ -584,6 +605,11 @@ void MainWindow::SavePersistentSettings()
         }
     }
 
+    // Get current tag selection mode from combobox
+    if (ui->comboBox_DataENC_TagSelectionMode->currentIndex() >= 0) {
+        currentTagMode = ui->comboBox_DataENC_TagSelectionMode->currentText();
+    }
+
     // Join checked tags with semicolon separator
     if (!checkedTags.isEmpty()) {
         currentTags = checkedTags.join(";");
@@ -593,6 +619,7 @@ void MainWindow::SavePersistentSettings()
     m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_DataENC_SortType, currentSortType);
     m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_DataENC_CurrentCategory, currentCategory);
     m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_DataENC_CurrentTags, currentTags);
+    m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_DataENC_TagSelectionMode, currentTagMode);
 
     qDebug() << "Persistent settings saved successfully";
 }

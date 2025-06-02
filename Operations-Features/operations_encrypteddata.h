@@ -549,6 +549,7 @@ public:
 public slots:
     void onSortTypeChanged(const QString& sortType);
     void onFileListDoubleClicked(QListWidgetItem* item);
+    void onTagSelectionModeChanged(const QString& mode);
 
 private slots:
     void onCurrentFileProgressUpdate(int percentage);
