@@ -2830,11 +2830,34 @@ void Operations_Diary::addImagesToCurrentDiary(const QStringList& imageFilenames
     QString formattedTime = currentDateTime.toString("hh:mm");
     int currentTimeMinutes = formattedTime.section(":",0,0).toInt() * 60 + formattedTime.section(":",1,1).toInt();
 
-    // Check if we need a timestamp (reuse existing logic)
+    // Check if we need a timestamp, with smart logic for images
     bool needsTimestamp = true;
-    if (lastTimeStamp_Hours * 60 + lastTimeStamp_Minutes > currentTimeMinutes - m_mainWindow->setting_Diary_TStampTimer &&
+    int lastTimestampMinutes = lastTimeStamp_Hours * 60 + lastTimeStamp_Minutes;
+    int timeSinceLastTimestamp = currentTimeMinutes - lastTimestampMinutes;
+
+    if (timeSinceLastTimestamp < m_mainWindow->setting_Diary_TStampTimer &&
         cur_entriesNoSpacer < m_mainWindow->setting_Diary_TStampCounter) {
         needsTimestamp = false;
+
+        // For new image entries (not grouping), check if we're close to needing a timestamp
+        if (!shouldGroup) {
+            // Counter-based check: use half of the counter setting as threshold
+            int halfCounterThreshold = m_mainWindow->setting_Diary_TStampCounter / 2;
+            if (m_mainWindow->setting_Diary_TStampCounter >= halfCounterThreshold &&
+                cur_entriesNoSpacer > m_mainWindow->setting_Diary_TStampCounter - halfCounterThreshold) {
+                needsTimestamp = true;
+                qDebug() << "Forcing timestamp due to entry count proximity. Current:" << cur_entriesNoSpacer
+                         << "Threshold:" << (m_mainWindow->setting_Diary_TStampCounter - halfCounterThreshold);
+            }
+
+            // Time-based check: use half of the time setting as threshold
+            int halfTimeThreshold = m_mainWindow->setting_Diary_TStampTimer / 2;
+            if (timeSinceLastTimestamp >= halfTimeThreshold) {
+                needsTimestamp = true;
+                qDebug() << "Forcing timestamp due to time proximity. Time since last:" << timeSinceLastTimestamp
+                         << "Threshold:" << halfTimeThreshold;
+            }
+        }
     }
 
     if (needsTimestamp) {
@@ -2865,8 +2888,6 @@ void Operations_Diary::addImagesToCurrentDiary(const QStringList& imageFilenames
     }
     diaryContent.append(Constants::Diary_ImageEnd);
 
-    cur_entriesNoSpacer++;
-
     qDebug() << "DIARY-DEBUG8: About to write diary content:";
     for (int i = 0; i < diaryContent.size(); i++) {
         qDebug() << "DIARY-DEBUG8: Line" << i << ":" << diaryContent[i];
@@ -2888,7 +2909,7 @@ void Operations_Diary::addImagesToCurrentDiary(const QStringList& imageFilenames
         qDebug() << "Reloading diary to show new images";
         LoadDiary(diaryFilePath);
     }
-
+    cur_entriesNoSpacer = m_mainWindow->setting_Diary_TStampCounter - 1;
     qDebug() << "=== addImagesToCurrentDiary completed ===";
 }
 
