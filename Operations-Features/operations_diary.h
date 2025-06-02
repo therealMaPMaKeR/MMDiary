@@ -57,7 +57,7 @@ private:
     int calculateClickedImageIndex(QListWidgetItem* item, const QPoint& clickPos);
     void deleteSpecificImage(QListWidgetItem* item, int imageIndex);
     QString removeImageFromData(const QString& imageData, int indexToRemove);
-    void updateImageEntryInDiary(QListWidgetItem* item);
+    void updateImageEntryInDiary(QListWidgetItem* item, const QString& originalImageData);
     void handleSpecificImageClick(QListWidgetItem* item, int imageIndex);
     void copySpecificImagePath(QListWidgetItem* item, int imageIndex);
     void copyAllImagePaths(QListWidgetItem* item);

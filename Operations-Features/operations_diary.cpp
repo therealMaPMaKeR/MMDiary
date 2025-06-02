@@ -1889,13 +1889,10 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
                     QString imageFileName = QFileInfo(imagePaths[m_clickedImageIndex]).fileName();
 
                     // Show specific image options
-                    QAction *action1 = contextMenu.addAction(QString("Open: %1").arg(imageFileName));
-                    QAction *action2 = contextMenu.addAction(QString("Copy Path: %1").arg(imageFileName));
-                    QAction *action3 = contextMenu.addAction(QString("Delete: %1").arg(imageFileName));
-                    contextMenu.addSeparator();
-                    QAction *action4 = contextMenu.addAction("Open Any Image...");
-                    QAction *action5 = contextMenu.addAction("Copy All Paths");
-                    QAction *action6 = contextMenu.addAction("Delete All Images");
+                    QAction *action1 = contextMenu.addAction(QString("Open Image").arg(imageFileName));
+                    QAction *action2 = contextMenu.addAction(QString("Copy Path").arg(imageFileName));
+                    QAction *action3 = contextMenu.addAction(QString("Delete Image").arg(imageFileName));
+
 
                     connect(action1, &QAction::triggered, this, [this, selectedItem]() {
                         handleSpecificImageClick(selectedItem, m_clickedImageIndex);
@@ -1906,13 +1903,6 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
                     connect(action3, &QAction::triggered, this, [this, selectedItem]() {
                         deleteSpecificImage(selectedItem, m_clickedImageIndex);
                     });
-                    connect(action4, &QAction::triggered, this, [this, selectedItem]() {
-                        handleImageClick(selectedItem); // This will show the selection dialog
-                    });
-                    connect(action5, &QAction::triggered, this, [this, selectedItem]() {
-                        copyAllImagePaths(selectedItem);
-                    });
-                    connect(action6, &QAction::triggered, this, &Operations_Diary::DeleteEntry);
                 } else {
                     // No specific image clicked, show general multi-image options
                     QAction *action1 = contextMenu.addAction("Select Image to Open...");
@@ -1932,9 +1922,9 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
                 QString imagePath = selectedItem->data(Qt::UserRole+4).toString();
                 QString imageFileName = QFileInfo(imagePath).fileName();
 
-                QAction *action1 = contextMenu.addAction(QString("Open: %1").arg(imageFileName));
-                QAction *action2 = contextMenu.addAction(QString("Copy Path: %1").arg(imageFileName));
-                QAction *action3 = contextMenu.addAction(QString("Delete: %1").arg(imageFileName));
+                QAction *action1 = contextMenu.addAction(QString("Open Image").arg(imageFileName));
+                QAction *action2 = contextMenu.addAction(QString("Copy Path").arg(imageFileName));
+                QAction *action3 = contextMenu.addAction(QString("Delete Image").arg(imageFileName));
 
                 connect(action1, &QAction::triggered, this, [this, selectedItem]() {
                     handleImageClick(selectedItem);
@@ -3065,6 +3055,14 @@ void Operations_Diary::deleteSpecificImage(QListWidgetItem* item, int imageIndex
         return; // Invalid index
     }
 
+    // CAPTURE THE ORIGINAL IMAGE DATA BEFORE MODIFICATION
+    QStringList originalImageFilenames;
+    foreach(const QString& path, imagePaths) {
+        originalImageFilenames.append(QFileInfo(path).fileName());
+    }
+    QString originalImageData = originalImageFilenames.join("|");
+    qDebug() << "Captured original image data:" << originalImageData;
+
     // Get the diary directory for file deletion
     QString diaryPath = current_DiaryFileName;
     QFileInfo diaryFileInfo(diaryPath);
@@ -3127,9 +3125,9 @@ void Operations_Diary::deleteSpecificImage(QListWidgetItem* item, int imageIndex
         qDebug() << "Set multi-image size hint:" << QSize(availableWidth + (2 * MARGIN), totalHeight);
     }
 
-    qDebug() << "About to call updateImageEntryInDiary";
-    // Update the diary file
-    updateImageEntryInDiary(item);
+    qDebug() << "About to call updateImageEntryInDiary with original data:" << originalImageData;
+    // Update the diary file WITH THE ORIGINAL IMAGE DATA
+    updateImageEntryInDiary(item, originalImageData);
 
     qDebug() << "About to force repaint";
     // Force repaint
@@ -3161,9 +3159,10 @@ QString Operations_Diary::removeImageFromData(const QString& imageData, int inde
     }
 }
 
-void Operations_Diary::updateImageEntryInDiary(QListWidgetItem* item)
+void Operations_Diary::updateImageEntryInDiary(QListWidgetItem* item, const QString& originalImageData)
 {
     qDebug() << "=== updateImageEntryInDiary called ===";
+    qDebug() << "originalImageData:" << originalImageData;
 
     if (!item || !item->data(Qt::UserRole+3).toBool()) {
         qDebug() << "Not an image item, returning";
@@ -3204,7 +3203,7 @@ void Operations_Diary::updateImageEntryInDiary(QListWidgetItem* item)
         qDebug() << "Single-image data to save:" << newImageData;
     }
 
-    // Find and update the image entry in diary content
+    // Find and update the SPECIFIC image entry that matches the original data
     bool foundAndUpdated = false;
     for (int i = 0; i < diaryContent.size() - 2; i++) { // -2 to ensure we can access i+2
         if (diaryContent[i] == Constants::Diary_ImageStart) {
@@ -3215,20 +3214,23 @@ void Operations_Diary::updateImageEntryInDiary(QListWidgetItem* item)
                 qDebug() << "Found matching IMAGE_END at line" << (i + 2);
                 qDebug() << "Current image data at line" << (i + 1) << ":" << diaryContent[i + 1];
 
-                // Update the image data line
-                diaryContent[i + 1] = newImageData;
-                foundAndUpdated = true;
-                qDebug() << "Updated image data to:" << newImageData;
+                // Check if this entry matches the original data
+                if (diaryContent[i + 1] == originalImageData) {
+                    qDebug() << "Found matching entry! Updating image data from:" << originalImageData << "to:" << newImageData;
 
-                // For now, let's update the FIRST image entry we find
-                // TODO: We should improve this to find the correct entry
-                break;
+                    // Update the image data line
+                    diaryContent[i + 1] = newImageData;
+                    foundAndUpdated = true;
+                    break; // Found the correct entry, stop searching
+                } else {
+                    qDebug() << "Entry doesn't match, continuing search...";
+                }
             }
         }
     }
 
     if (!foundAndUpdated) {
-        qWarning() << "Could not find image entry to update in diary file";
+        qWarning() << "Could not find image entry with original data:" << originalImageData;
 
         // Let's debug what's in the diary content
         qDebug() << "=== Diary content debug ===";
