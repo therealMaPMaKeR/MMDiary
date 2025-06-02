@@ -17,6 +17,7 @@
 #include <QMutexLocker>
 #include <QPainter>
 #include <QInputDialog>
+#include <QFileDialog>
 
 Operations_Diary::Operations_Diary(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
@@ -838,9 +839,16 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
             if (prevDate.addDays(1) == todayDate) {
                 // Previous diary is yesterday's, do nothing (keep editable)
             } else {
-                // Previous diary is not yesterday's
+                // Previous diary is not yesterday's - disable text items but keep images selectable
                 foreach(QListWidgetItem *item, items) {
-                    item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+                    bool isImageItem = item->data(Qt::UserRole+3).toBool();
+                    if (isImageItem) {
+                        // Keep images selectable but not editable
+                        item->setFlags((item->flags() | Qt::ItemIsSelectable) & ~Qt::ItemIsEditable);
+                    } else {
+                        // Disable text items completely
+                        item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+                    }
                 }
             }
         }
@@ -1115,7 +1123,14 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
         {
             foreach(QListWidgetItem *item, getTextDisplayItems())
             {
-                item->setFlags(item->flags() & ~Qt::ItemIsEnabled); //disable current line, preventing users from interacting with it
+                bool isImageItem = item->data(Qt::UserRole+3).toBool();
+                if (isImageItem) {
+                    // Keep images selectable but not editable
+                    item->setFlags((item->flags() | Qt::ItemIsSelectable) & ~Qt::ItemIsEditable);
+                } else {
+                    // Disable text items completely
+                    item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+                }
             }
         }
     }
@@ -1875,6 +1890,7 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
             m_clickedImageIndex = calculateClickedImageIndex(selectedItem, pos);
 
             bool isMultiImage = selectedItem->data(Qt::UserRole+5).toBool();
+            bool isOldEntry = isOldDiaryEntry();
 
             // Show image context menu with click detection
             QMenu contextMenu(tr("Image menu"), m_mainWindow->ui->DiaryTextDisplay);
@@ -1887,52 +1903,61 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
                     QString imageFileName = QFileInfo(imagePaths[m_clickedImageIndex]).fileName();
 
                     // Show specific image options
-                    QAction *action1 = contextMenu.addAction(QString("Open Image").arg(imageFileName));
-                    QAction *action2 = contextMenu.addAction(QString("Copy Path").arg(imageFileName));
-                    QAction *action3 = contextMenu.addAction(QString("Delete Image").arg(imageFileName));
+                    QAction *actionOpen = contextMenu.addAction("Open Image");
+                    QAction *actionExport = contextMenu.addAction("Decrypt and Export");
 
-
-                    connect(action1, &QAction::triggered, this, [this, selectedItem]() {
+                    connect(actionOpen, &QAction::triggered, this, [this, selectedItem]() {
                         handleSpecificImageClick(selectedItem, m_clickedImageIndex);
                     });
-                    connect(action2, &QAction::triggered, this, [this, selectedItem]() {
-                        copySpecificImagePath(selectedItem, m_clickedImageIndex);
+                    connect(actionExport, &QAction::triggered, this, [this, selectedItem]() {
+                        exportSpecificImage(selectedItem, m_clickedImageIndex);
                     });
-                    connect(action3, &QAction::triggered, this, [this, selectedItem]() {
-                        deleteSpecificImage(selectedItem, m_clickedImageIndex);
-                    });
+
+                    // Only show delete option if not viewing old diary entry
+                    if (!isOldEntry) {
+                        QAction *actionDelete = contextMenu.addAction("Delete Image");
+                        connect(actionDelete, &QAction::triggered, this, [this, selectedItem]() {
+                            deleteSpecificImage(selectedItem, m_clickedImageIndex);
+                        });
+                    }
                 } else {
                     // No specific image clicked, show general multi-image options
-                    QAction *action1 = contextMenu.addAction("Select Image to Open...");
-                    QAction *action2 = contextMenu.addAction("Copy All Paths");
-                    QAction *action3 = contextMenu.addAction("Delete All Images");
+                    QAction *actionOpen = contextMenu.addAction("Select Image to Open...");
+                    QAction *actionExport = contextMenu.addAction("Select Image to Export...");
 
-                    connect(action1, &QAction::triggered, this, [this, selectedItem]() {
+                    connect(actionOpen, &QAction::triggered, this, [this, selectedItem]() {
                         handleImageClick(selectedItem); // This will show the selection dialog
                     });
-                    connect(action2, &QAction::triggered, this, [this, selectedItem]() {
-                        copyAllImagePaths(selectedItem);
+                    connect(actionExport, &QAction::triggered, this, [this, selectedItem]() {
+                        exportSelectedImage(selectedItem);
                     });
-                    connect(action3, &QAction::triggered, this, &Operations_Diary::DeleteEntry);
+
+                    // Only show delete option if not viewing old diary entry
+                    if (!isOldEntry) {
+                        QAction *actionDelete = contextMenu.addAction("Delete All Images");
+                        connect(actionDelete, &QAction::triggered, this, &Operations_Diary::DeleteEntry);
+                    }
                 }
             } else {
                 // Single image - always show single image options
                 QString imagePath = selectedItem->data(Qt::UserRole+4).toString();
                 QString imageFileName = QFileInfo(imagePath).fileName();
 
-                QAction *action1 = contextMenu.addAction(QString("Open Image").arg(imageFileName));
-                QAction *action2 = contextMenu.addAction(QString("Copy Path").arg(imageFileName));
-                QAction *action3 = contextMenu.addAction(QString("Delete Image").arg(imageFileName));
+                QAction *actionOpen = contextMenu.addAction("Open Image");
+                QAction *actionExport = contextMenu.addAction("Decrypt and Export");
 
-                connect(action1, &QAction::triggered, this, [this, selectedItem]() {
+                connect(actionOpen, &QAction::triggered, this, [this, selectedItem]() {
                     handleImageClick(selectedItem);
                 });
-                connect(action2, &QAction::triggered, this, [this, selectedItem]() {
-                    QString imagePath = selectedItem->data(Qt::UserRole+4).toString();
-                    QClipboard *clipboard = QGuiApplication::clipboard();
-                    clipboard->setText(imagePath);
+                connect(actionExport, &QAction::triggered, this, [this, selectedItem]() {
+                    exportSingleImage(selectedItem);
                 });
-                connect(action3, &QAction::triggered, this, &Operations_Diary::DeleteEntry);
+
+                // Only show delete option if not viewing old diary entry
+                if (!isOldEntry) {
+                    QAction *actionDelete = contextMenu.addAction("Delete Image");
+                    connect(actionDelete, &QAction::triggered, this, &Operations_Diary::DeleteEntry);
+                }
             }
 
             // Use the widget's mapToGlobal with the original pos
@@ -1945,6 +1970,10 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
         QMenu contextMenu(tr("Context menu"), m_mainWindow->ui->DiaryTextDisplay);
         contextMenu.installEventFilter(m_mainWindow);
         contextMenu.setAttribute(Qt::WA_DeleteOnClose);
+
+        // Check if this is an old diary entry for text items
+        bool isOldEntry = isOldDiaryEntry();
+
         //create context menu actions
         QAction action1("Delete", m_mainWindow->ui->DiaryTextDisplay);
         QAction action2("Modify", m_mainWindow->ui->DiaryTextDisplay);
@@ -1953,13 +1982,19 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
         connect(&action1, SIGNAL(triggered()), this, SLOT(DeleteEntry()));
         connect(&action2, SIGNAL(triggered()), this, SLOT(OpenEditor()));
         connect(&action3, SIGNAL(triggered()), this, SLOT(CopyToClipboard()));
+
         //build context menu
         contextMenu.addAction(&action3);
-        if(m_mainWindow->setting_Diary_CanEditRecent == true)
+        if(m_mainWindow->setting_Diary_CanEditRecent == true && !isOldEntry)
         {
             contextMenu.addAction(&action2);
         }
-        contextMenu.addAction(&action1);
+
+        // Only show delete option if not viewing old diary entry
+        if (!isOldEntry) {
+            contextMenu.addAction(&action1);
+        }
+
         //Adjust context menu position
         QPoint newpos = pos;
         newpos.setX(pos.x() +175);
@@ -1995,6 +2030,25 @@ void Operations_Diary::showContextMenu_ListDays(const QPoint &pos)
         QPoint globalPos = m_mainWindow->ui->DiaryListDays->mapToGlobal(pos);
         contextMenu.exec(globalPos);
     }
+}
+
+bool Operations_Diary::isOldDiaryEntry()
+{
+    // Check if we're viewing a previous diary entry (loaded together with current diary)
+    if (m_mainWindow->ui->DiaryTextDisplay->currentRow() < previousDiaryLineCounter && previous_DiaryFileName != "") {
+        return true;
+    }
+
+    // Check if we're viewing a diary that's not today's diary
+    QDateTime date = QDateTime::currentDateTime();
+    QString formattedTime = date.toString("yyyy.MM.dd");
+    QString todayDiaryPath = getDiaryFilePath(formattedTime);
+
+    if (!todayDiaryPath.isEmpty() && current_DiaryFileName != todayDiaryPath) {
+        return true;
+    }
+
+    return false;
 }
 
 //Misc
@@ -2163,7 +2217,7 @@ void Operations_Diary::DeleteEmptyCurrentDayDiary()
     }
 }
 
-// Image handling
+// ------  Image handling ---------- //
 
 QString Operations_Diary::generateImageFilename(const QString& originalExtension, const QString& diaryDir)
 {
@@ -3351,66 +3405,6 @@ void Operations_Diary::handleSpecificImageClick(QListWidgetItem* item, int image
     }
 }
 
-void Operations_Diary::copySpecificImagePath(QListWidgetItem* item, int imageIndex)
-{
-    if (!item || !item->data(Qt::UserRole+3).toBool()) {
-        return; // Not an image item
-    }
-
-    bool isMultiImage = item->data(Qt::UserRole+5).toBool();
-
-    if (isMultiImage) {
-        QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
-        if (imageIndex >= 0 && imageIndex < imagePaths.size()) {
-            // Get the original image path instead of thumbnail
-            QString diaryPath = current_DiaryFileName;
-            QFileInfo diaryFileInfo(diaryPath);
-            QString diaryDir = diaryFileInfo.dir().absolutePath();
-
-            QString originalPath = getOriginalImagePath(imagePaths[imageIndex], diaryDir);
-            QClipboard *clipboard = QGuiApplication::clipboard();
-            clipboard->setText(originalPath);
-        }
-    } else {
-        QString imagePath = item->data(Qt::UserRole+4).toString();
-
-        // Get the original image path instead of thumbnail
-        QString diaryPath = current_DiaryFileName;
-        QFileInfo diaryFileInfo(diaryPath);
-        QString diaryDir = diaryFileInfo.dir().absolutePath();
-
-        QString originalPath = getOriginalImagePath(imagePath, diaryDir);
-        QClipboard *clipboard = QGuiApplication::clipboard();
-        clipboard->setText(originalPath);
-    }
-}
-
-void Operations_Diary::copyAllImagePaths(QListWidgetItem* item)
-{
-    if (!item || !item->data(Qt::UserRole+3).toBool()) {
-        return; // Not an image item
-    }
-
-    bool isMultiImage = item->data(Qt::UserRole+5).toBool();
-
-    QString diaryPath = current_DiaryFileName;
-    QFileInfo diaryFileInfo(diaryPath);
-    QString diaryDir = diaryFileInfo.dir().absolutePath();
-
-    if (isMultiImage) {
-        QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
-        QStringList originalPaths = getOriginalImagePaths(imagePaths, diaryDir);
-        QString allPaths = originalPaths.join("\n");
-        QClipboard *clipboard = QGuiApplication::clipboard();
-        clipboard->setText(allPaths);
-    } else {
-        QString imagePath = item->data(Qt::UserRole+4).toString();
-        QString originalPath = getOriginalImagePath(imagePath, diaryDir);
-        QClipboard *clipboard = QGuiApplication::clipboard();
-        clipboard->setText(originalPath);
-    }
-}
-
 bool Operations_Diary::isThumbnailPath(const QString& imagePath) const
 {
     return imagePath.endsWith(".thumb");
@@ -3469,7 +3463,195 @@ QStringList Operations_Diary::getOriginalImagePaths(const QStringList& imagePath
     return originalPaths;
 }
 
-// SLOTS implementation
+bool Operations_Diary::decryptAndExportImage(const QString& encryptedImagePath, const QString& originalFilename)
+{
+    // Validate the image path
+    InputValidation::ValidationResult result =
+        InputValidation::validateInput(encryptedImagePath, InputValidation::InputType::FilePath);
+    if (!result.isValid) {
+        qWarning() << "Invalid image path for export:" << result.errorMessage;
+        return false;
+    }
+
+    // Check if the encrypted image file exists
+    if (!QFileInfo::exists(encryptedImagePath)) {
+        QMessageBox::warning(m_mainWindow, "Error", "Image file not found: " + encryptedImagePath);
+        return false;
+    }
+
+    try {
+        // Read the encrypted binary data
+        QFile encryptedFile(encryptedImagePath);
+        if (!encryptedFile.open(QIODevice::ReadOnly)) {
+            QMessageBox::warning(m_mainWindow, "Error", "Failed to open encrypted image file: " + encryptedImagePath);
+            return false;
+        }
+
+        QByteArray encryptedData = encryptedFile.readAll();
+        encryptedFile.close();
+
+        // Decrypt the image data
+        QByteArray decryptedData = CryptoUtils::Encryption_DecryptBArray(
+            m_mainWindow->user_Key, encryptedData);
+
+        if (decryptedData.isEmpty()) {
+            QMessageBox::warning(m_mainWindow, "Error", "Failed to decrypt image: " + encryptedImagePath);
+            return false;
+        }
+
+        // Show file save dialog
+        QString suggestedFilename = originalFilename;
+        if (suggestedFilename.isEmpty()) {
+            suggestedFilename = "exported_image.png";
+        }
+
+        QString exportPath = QFileDialog::getSaveFileName(
+            m_mainWindow,
+            "Export Image",
+            suggestedFilename,
+            "All Files (*.*)"
+            );
+
+        if (exportPath.isEmpty()) {
+            return false; // User cancelled
+        }
+
+        // Validate the export path
+        InputValidation::ValidationResult exportResult =
+            InputValidation::validateInput(exportPath, InputValidation::InputType::ExternalFilePath);
+        if (!exportResult.isValid) {
+            QMessageBox::warning(m_mainWindow, "Error", "Invalid export path: " + exportResult.errorMessage);
+            return false;
+        }
+
+        // Write decrypted data to the chosen file
+        QFile exportFile(exportPath);
+        if (!exportFile.open(QIODevice::WriteOnly)) {
+            QMessageBox::warning(m_mainWindow, "Error", "Failed to create export file: " + exportPath);
+            return false;
+        }
+
+        qint64 bytesWritten = exportFile.write(decryptedData);
+        exportFile.close();
+
+        if (bytesWritten != decryptedData.size()) {
+            QMessageBox::warning(m_mainWindow, "Error", "Failed to write complete image data to export file.");
+            return false;
+        }
+
+        QMessageBox::information(m_mainWindow, "Export Successful",
+                                 "Image exported successfully to:\n" + exportPath);
+        return true;
+
+    } catch (const std::exception& e) {
+        qWarning() << "Exception in decryptAndExportImage:" << e.what();
+        QMessageBox::warning(m_mainWindow, "Error", "An error occurred while exporting the image.");
+        return false;
+    } catch (...) {
+        qWarning() << "Unknown exception in decryptAndExportImage";
+        QMessageBox::warning(m_mainWindow, "Error", "An unknown error occurred while exporting the image.");
+        return false;
+    }
+}
+
+void Operations_Diary::exportSingleImage(QListWidgetItem* item)
+{
+    if (!item || !item->data(Qt::UserRole+3).toBool()) {
+        return; // Not an image item
+    }
+
+    QString imagePath = item->data(Qt::UserRole+4).toString();
+    if (imagePath.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "Error", "Image path not found.");
+        return;
+    }
+
+    // Get the original image path instead of thumbnail
+    QString diaryPath = current_DiaryFileName;
+    if (m_mainWindow->ui->DiaryTextDisplay->currentRow() < previousDiaryLineCounter && previous_DiaryFileName != "") {
+        diaryPath = previous_DiaryFileName;
+    }
+
+    QFileInfo diaryFileInfo(diaryPath);
+    QString diaryDir = diaryFileInfo.dir().absolutePath();
+
+    QString originalPath = getOriginalImagePath(imagePath, diaryDir);
+    QString originalFilename = QFileInfo(originalPath).fileName();
+
+    decryptAndExportImage(originalPath, originalFilename);
+}
+
+void Operations_Diary::exportSpecificImage(QListWidgetItem* item, int imageIndex)
+{
+    if (!item || !item->data(Qt::UserRole+3).toBool()) {
+        return; // Not an image item
+    }
+
+    bool isMultiImage = item->data(Qt::UserRole+5).toBool();
+    if (isMultiImage) {
+        QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
+        if (imageIndex >= 0 && imageIndex < imagePaths.size()) {
+            QString diaryPath = current_DiaryFileName;
+            if (m_mainWindow->ui->DiaryTextDisplay->currentRow() < previousDiaryLineCounter && previous_DiaryFileName != "") {
+                diaryPath = previous_DiaryFileName;
+            }
+
+            QFileInfo diaryFileInfo(diaryPath);
+            QString diaryDir = diaryFileInfo.dir().absolutePath();
+
+            QString originalPath = getOriginalImagePath(imagePaths[imageIndex], diaryDir);
+            QString originalFilename = QFileInfo(originalPath).fileName();
+
+            decryptAndExportImage(originalPath, originalFilename);
+        }
+    } else {
+        exportSingleImage(item);
+    }
+}
+
+void Operations_Diary::exportSelectedImage(QListWidgetItem* item)
+{
+    if (!item || !item->data(Qt::UserRole+3).toBool()) {
+        return; // Not an image item
+    }
+
+    QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
+
+    QString diaryPath = current_DiaryFileName;
+    if (m_mainWindow->ui->DiaryTextDisplay->currentRow() < previousDiaryLineCounter && previous_DiaryFileName != "") {
+        diaryPath = previous_DiaryFileName;
+    }
+
+    QFileInfo diaryFileInfo(diaryPath);
+    QString diaryDir = diaryFileInfo.dir().absolutePath();
+
+    QStringList originalPaths = getOriginalImagePaths(imagePaths, diaryDir);
+    QStringList imageFilenames;
+    foreach(const QString& path, originalPaths) {
+        imageFilenames.append(QFileInfo(path).fileName());
+    }
+
+    bool ok;
+    QString selectedFilename = QInputDialog::getItem(
+        m_mainWindow,
+        "Select Image to Export",
+        "Multiple images found. Select which image to export:",
+        imageFilenames,
+        0,
+        false,
+        &ok
+        );
+
+    if (ok && !selectedFilename.isEmpty()) {
+        int index = imageFilenames.indexOf(selectedFilename);
+        if (index >= 0 && index < originalPaths.size()) {
+            decryptAndExportImage(originalPaths[index], selectedFilename);
+        }
+    }
+}
+
+
+// ----  SLOTS implementation ----- //
 
 void Operations_Diary::on_DiaryTextInput_returnPressed()
 {

@@ -59,14 +59,19 @@ private:
     QString removeImageFromData(const QString& imageData, int indexToRemove);
     void updateImageEntryInDiary(QListWidgetItem* item, const QString& originalImageData);
     void handleSpecificImageClick(QListWidgetItem* item, int imageIndex);
-    void copySpecificImagePath(QListWidgetItem* item, int imageIndex);
-    void copyAllImagePaths(QListWidgetItem* item);
 
     // Helper functions for thumbnail/original image handling
     bool isThumbnailPath(const QString& imagePath) const;
     QString getOriginalImagePath(const QString& thumbnailPath) const;
     QString getOriginalImagePath(const QString& thumbnailPath, const QString& diaryDir) const;
     QStringList getOriginalImagePaths(const QStringList& imagePaths, const QString& diaryDir) const;
+
+    // Helper methods for image export functionality
+    bool decryptAndExportImage(const QString& encryptedImagePath, const QString& originalFilename);
+    bool isOldDiaryEntry();
+    void exportSingleImage(QListWidgetItem* item);
+    void exportSpecificImage(QListWidgetItem* item, int imageIndex);
+    void exportSelectedImage(QListWidgetItem* item);
 
 public:
     ~Operations_Diary();
