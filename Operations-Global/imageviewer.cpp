@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QStatusBar>
+#include <QDebug>
 #include <cmath>
 
 // Constants
@@ -20,6 +21,8 @@ const double ImageViewer::MAX_ZOOM_FACTOR = 10.0;
 ImageViewer::ImageViewer(QWidget *parent) :
     QDialog(parent),
     ui(new Ui::ImageViewer),
+    m_movie(nullptr),
+    m_isAnimated(false),
     m_zoomFactor(1.0),
     m_minZoomFactor(MIN_ZOOM_FACTOR),
     m_maxZoomFactor(MAX_ZOOM_FACTOR),
@@ -47,15 +50,6 @@ ImageViewer::ImageViewer(QWidget *parent) :
 
     // Store original cursor
     m_originalCursor = cursor();
-
-    // Set window properties for non-modal behavior
-    setWindowModality(Qt::NonModal);
-    setWindowFlags(Qt::Window | Qt::WindowCloseButtonHint | Qt::WindowMinMaxButtonsHint);
-    setAttribute(Qt::WA_DeleteOnClose); // Auto-delete when closed
-
-    // Set default window size
-    resize(800, 600);
-    setMinimumSize(400, 300);
 
     // Get references to UI components (these will be created in the .ui file)
     m_imageLabel = ui->label_Image;
@@ -105,19 +99,55 @@ ImageViewer::ImageViewer(QWidget *parent) :
 
 ImageViewer::~ImageViewer()
 {
+    cleanupMovie();
     delete ui;
 }
 
 bool ImageViewer::loadImage(const QString& imagePath)
 {
-    QPixmap pixmap(imagePath);
-    if (pixmap.isNull()) {
-        QMessageBox::warning(this, "Error", "Could not load image: " + imagePath);
-        return false;
+    qDebug() << "ImageViewer1: Loading image:" << imagePath;
+    qDebug() << "ImageViewer1: File exists:" << QFile::exists(imagePath);
+
+    // Clean up any existing movie
+    cleanupMovie();
+
+    // Check if this is an animated image file
+    bool isAnimated = isAnimatedImageFile(imagePath);
+    qDebug() << "ImageViewer1: Is animated file:" << isAnimated;
+
+    if (isAnimated) {
+        qDebug() << "ImageViewer1: Detected as animated image (GIF)";
+
+        // Load as animated image
+        setupMovie(imagePath);
+        if (!m_movie || !m_movie->isValid()) {
+            qDebug() << "ImageViewer1: Failed to create valid QMovie";
+            QMessageBox::warning(this, "Error", "Could not load animated image: " + imagePath);
+            return false;
+        }
+
+        qDebug() << "ImageViewer1: QMovie created successfully. Frame count:" << m_movie->frameCount();
+        qDebug() << "ImageViewer1: Movie state:" << m_movie->state();
+        qDebug() << "ImageViewer1: Original movie size:" << m_originalMovieSize;
+
+        m_isAnimated = true;
+        m_originalPixmap = QPixmap(); // Clear static image
+    } else {
+        qDebug() << "ImageViewer1: Loading as static image";
+
+        // Load as static image
+        QPixmap pixmap(imagePath);
+        if (pixmap.isNull()) {
+            qDebug() << "ImageViewer1: Failed to load static image";
+            QMessageBox::warning(this, "Error", "Could not load image: " + imagePath);
+            return false;
+        }
+        qDebug() << "ImageViewer1: Static image loaded successfully. Size:" << pixmap.size();
+        m_originalPixmap = pixmap;
+        m_isAnimated = false;
     }
 
     m_imagePath = imagePath;
-    m_originalPixmap = pixmap;
 
     // Set window title
     QFileInfo fileInfo(imagePath);
@@ -133,11 +163,18 @@ bool ImageViewer::loadImage(const QString& imagePath)
     updateImage();
     updateZoomInfo();
 
+    qDebug() << "ImageViewer1: Load completed. m_isAnimated:" << m_isAnimated;
     return true;
 }
 
 bool ImageViewer::loadImage(const QPixmap& pixmap, const QString& title)
 {
+    qDebug() << "ImageViewer1: Loading QPixmap with title:" << title;
+    qDebug() << "ImageViewer1: Pixmap size:" << pixmap.size() << "isNull:" << pixmap.isNull();
+
+    // Clean up any existing movie
+    cleanupMovie();
+
     if (pixmap.isNull()) {
         QMessageBox::warning(this, "Error", "Invalid image data");
         return false;
@@ -145,6 +182,9 @@ bool ImageViewer::loadImage(const QPixmap& pixmap, const QString& title)
 
     m_originalPixmap = pixmap;
     m_imagePath.clear();
+    m_isAnimated = false;
+
+    qDebug() << "ImageViewer1: Set as static image (QPixmap overload)";
 
     // Set window title
     if (title.isEmpty()) {
@@ -168,7 +208,7 @@ bool ImageViewer::loadImage(const QPixmap& pixmap, const QString& title)
 
 void ImageViewer::zoomIn()
 {
-    if (m_originalPixmap.isNull()) return;
+    if (!hasImage()) return;
 
     if (m_zoomFactor < m_maxZoomFactor) {
         m_fitToWindowMode = false;
@@ -178,7 +218,7 @@ void ImageViewer::zoomIn()
 
 void ImageViewer::zoomOut()
 {
-    if (m_originalPixmap.isNull()) return;
+    if (!hasImage()) return;
 
     if (m_zoomFactor > m_minZoomFactor) {
         m_fitToWindowMode = false;
@@ -188,7 +228,7 @@ void ImageViewer::zoomOut()
 
 void ImageViewer::fitToWindow()
 {
-    if (m_originalPixmap.isNull()) return;
+    if (!hasImage()) return;
 
     m_fitToWindowMode = true;
     m_fitToWindowTimer->start(); // Start grace period for auto-updating
@@ -198,7 +238,7 @@ void ImageViewer::fitToWindow()
 
 void ImageViewer::actualSize()
 {
-    if (m_originalPixmap.isNull()) return;
+    if (!hasImage()) return;
 
     m_fitToWindowMode = false;
     setZoomFactor(1.0);
@@ -222,17 +262,26 @@ double ImageViewer::getZoomFactor() const
 
 QSize ImageViewer::getOriginalImageSize() const
 {
-    return m_originalPixmap.size();
+    if (m_isAnimated && m_movie) {
+        return m_originalMovieSize;
+    } else {
+        return m_originalPixmap.size();
+    }
 }
 
 bool ImageViewer::hasImage() const
 {
-    return !m_originalPixmap.isNull();
+    bool hasStatic = !m_originalPixmap.isNull();
+    bool hasAnimated = (m_isAnimated && m_movie && m_movie->isValid());
+
+    qDebug() << "hasImage: hasStatic=" << hasStatic << ", hasAnimated=" << hasAnimated;
+
+    return hasStatic || hasAnimated;
 }
 
 void ImageViewer::wheelEvent(QWheelEvent *event)
 {
-    if (m_originalPixmap.isNull()) {
+    if (!hasImage()) {
         QDialog::wheelEvent(event);
         return;
     }
@@ -269,7 +318,7 @@ void ImageViewer::resizeEvent(QResizeEvent *event)
 {
     QDialog::resizeEvent(event);
 
-    if (m_fitToWindowMode && !m_originalPixmap.isNull()) {
+    if (m_fitToWindowMode && hasImage()) {
         // Only auto-update if we're in the grace period after fit-to-window was activated
         // or if this is the first show
         if (m_firstShow || m_fitToWindowTimer->isActive()) {
@@ -288,10 +337,10 @@ void ImageViewer::showEvent(QShowEvent *event)
     QDialog::showEvent(event);
 
     // Auto-fit to window on first show if image is larger than dialog
-    if (m_firstShow && !m_originalPixmap.isNull()) {
+    if (m_firstShow && hasImage()) {
         m_firstShow = false;
 
-        QSize imageSize = m_originalPixmap.size();
+        QSize imageSize = getOriginalImageSize();
         QSize availableSize = m_scrollArea->viewport()->size();
 
         // Check if image is larger than the available space
@@ -306,21 +355,59 @@ void ImageViewer::showEvent(QShowEvent *event)
 
 void ImageViewer::updateImage()
 {
-    if (m_originalPixmap.isNull() || !m_imageLabel) return;
-
-    if (qAbs(m_zoomFactor - 1.0) < 0.001) {
-        // Use original size
-        m_scaledPixmap = m_originalPixmap;
-    } else {
-        // Scale the image
-        QSize scaledSize = m_originalPixmap.size() * m_zoomFactor;
-        m_scaledPixmap = m_originalPixmap.scaled(scaledSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    if (!hasImage() || !m_imageLabel) {
+        qDebug() << "updateImage: No image or no label";
+        return;
     }
 
-    m_imageLabel->setPixmap(m_scaledPixmap);
-    m_imageLabel->resize(m_scaledPixmap.size());
+    qDebug() << "updateImage: isAnimated=" << m_isAnimated << ", zoomFactor=" << m_zoomFactor;
 
-    // Don't update cursor here - let it be handled by mouse events
+    if (m_isAnimated && m_movie) {
+        qDebug() << "Updating animated image";
+
+        // For animated images, just handle scaling
+        QSize originalSize = m_originalMovieSize;
+        if (qAbs(m_zoomFactor - 1.0) >= 0.001) {
+            // Scale the movie
+            QSize scaledSize = QSize(originalSize.width() * m_zoomFactor,
+                                     originalSize.height() * m_zoomFactor);
+            qDebug() << "Scaling movie from" << originalSize << "to" << scaledSize;
+            m_movie->setScaledSize(scaledSize);
+        } else {
+            // Use original size
+            qDebug() << "Using original movie size:" << originalSize;
+            m_movie->setScaledSize(originalSize);
+        }
+
+        // Update label size
+        QSize currentSize = m_movie->scaledSize().isEmpty() ? originalSize : m_movie->scaledSize();
+        m_imageLabel->resize(currentSize);
+        qDebug() << "Set label size to:" << currentSize;
+
+        // Ensure movie is still running
+        if (m_movie->state() != QMovie::Running) {
+            qDebug() << "Movie not running, starting it. Current state:" << m_movie->state();
+            m_movie->start();
+        }
+    } else {
+        qDebug() << "Updating static image";
+
+        // Handle static image
+        // Clear any movie from the label first
+        m_imageLabel->setMovie(nullptr);
+
+        if (qAbs(m_zoomFactor - 1.0) < 0.001) {
+            // Use original size
+            m_scaledPixmap = m_originalPixmap;
+        } else {
+            // Scale the image
+            QSize scaledSize = m_originalPixmap.size() * m_zoomFactor;
+            m_scaledPixmap = m_originalPixmap.scaled(scaledSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        }
+
+        m_imageLabel->setPixmap(m_scaledPixmap);
+        m_imageLabel->resize(m_scaledPixmap.size());
+    }
 }
 
 void ImageViewer::updateZoomInfo()
@@ -347,12 +434,12 @@ void ImageViewer::updateZoomInfo()
 
 void ImageViewer::calculateMinZoomFactor()
 {
-    if (m_originalPixmap.isNull() || !m_scrollArea) {
+    if (!hasImage() || !m_scrollArea) {
         m_minZoomFactor = MIN_ZOOM_FACTOR;
         return;
     }
 
-    QSize imageSize = m_originalPixmap.size();
+    QSize imageSize = getOriginalImageSize();
     QSize availableSize = m_scrollArea->viewport()->size();
 
     if (imageSize.isEmpty() || availableSize.isEmpty()) {
@@ -390,7 +477,7 @@ void ImageViewer::on_pushButton_ActualSize_clicked()
 bool ImageViewer::eventFilter(QObject *obj, QEvent *event)
 {
     // Handle mouse events only for the image label and scroll area
-    if ((obj == m_imageLabel || obj == m_scrollArea) && !m_originalPixmap.isNull()) {
+    if ((obj == m_imageLabel || obj == m_scrollArea) && hasImage()) {
         switch (event->type()) {
         case QEvent::MouseButtonPress: {
             QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
@@ -486,12 +573,12 @@ bool ImageViewer::eventFilter(QObject *obj, QEvent *event)
 
 bool ImageViewer::canDragImage() const
 {
-    if (!m_scrollArea || !m_imageLabel || m_scaledPixmap.isNull()) {
+    if (!m_scrollArea || !m_imageLabel) {
         return false;
     }
 
     QSize viewportSize = m_scrollArea->viewport()->size();
-    QSize imageSize = m_scaledPixmap.size();
+    QSize imageSize = getCurrentImageSize();
 
     // Can drag if image is larger than viewport in either dimension
     return (imageSize.width() > viewportSize.width() ||
@@ -508,5 +595,108 @@ void ImageViewer::updateCursor()
         } else {
             m_imageLabel->setCursor(Qt::ArrowCursor);
         }
+    }
+}
+
+bool ImageViewer::isAnimatedImageFile(const QString& filePath) const
+{
+    qDebug() << "ImageViewer1: Checking if animated:" << filePath;
+    QString lowerPath = filePath.toLower();
+    qDebug() << "ImageViewer1: Lowercase path:" << lowerPath;
+
+    // Check for GIF files
+    bool isGif = lowerPath.endsWith(".gif");
+    qDebug() << "ImageViewer1: Is GIF?" << isGif;
+
+    if (isGif) {
+        return true;
+    }
+
+    // You could add other animated formats here if needed
+    // if (lowerPath.endsWith(".webp") || lowerPath.endsWith(".apng")) {
+    //     return true;
+    // }
+
+    return false;
+}
+
+void ImageViewer::cleanupMovie()
+{
+    if (m_movie) {
+        qDebug() << "Cleaning up movie. Current state:" << m_movie->state();
+
+        // Stop the movie if it's running
+        if (m_movie->state() == QMovie::Running) {
+            m_movie->stop();
+        }
+
+        // Remove movie from label if it's set
+        if (m_imageLabel && m_imageLabel->movie() == m_movie) {
+            m_imageLabel->setMovie(nullptr);
+        }
+
+        // Delete the movie object
+        delete m_movie;
+        m_movie = nullptr;
+        qDebug() << "Movie cleaned up";
+    }
+    m_isAnimated = false;
+    m_originalMovieSize = QSize();
+}
+
+void ImageViewer::setupMovie(const QString& filePath)
+{
+    qDebug() << "Setting up QMovie for:" << filePath;
+
+    cleanupMovie();
+
+    // Create the movie
+    m_movie = new QMovie(filePath, QByteArray(), this);
+
+    if (!m_movie->isValid()) {
+        qDebug() << "QMovie is not valid for file:" << filePath;
+        delete m_movie;
+        m_movie = nullptr;
+        return;
+    }
+
+    qDebug() << "QMovie is valid. Frame count:" << m_movie->frameCount();
+    qDebug() << "Movie format:" << m_movie->format();
+
+    // Connect to finished signal to loop the animation
+    connect(m_movie, &QMovie::finished, m_movie, &QMovie::start);
+
+    // Get the original size
+    if (m_movie->frameCount() > 0) {
+        m_movie->jumpToFrame(0);
+        QPixmap firstFrame = m_movie->currentPixmap();
+        m_originalMovieSize = firstFrame.size();
+        qDebug() << "Got size from first frame:" << m_originalMovieSize;
+    }
+
+    // Fallback if we couldn't get size
+    if (m_originalMovieSize.isEmpty()) {
+        m_originalMovieSize = QSize(300, 300); // Default size
+        qDebug() << "Using default size:" << m_originalMovieSize;
+    }
+
+    // Set movie to label and start it
+    if (m_imageLabel) {
+        qDebug() << "Setting movie to label";
+        m_imageLabel->setMovie(m_movie);
+        qDebug() << "Starting movie";
+        m_movie->start();
+        qDebug() << "Movie state after start:" << m_movie->state();
+    } else {
+        qDebug() << "ERROR: m_imageLabel is null!";
+    }
+}
+
+QSize ImageViewer::getCurrentImageSize() const
+{
+    if (m_isAnimated && m_movie) {
+        return m_movie->scaledSize().isEmpty() ? m_originalMovieSize : m_movie->scaledSize();
+    } else {
+        return m_scaledPixmap.isNull() ? m_originalPixmap.size() : m_scaledPixmap.size();
     }
 }

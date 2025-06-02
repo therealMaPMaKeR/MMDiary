@@ -10,6 +10,7 @@
 #include <QResizeEvent>
 #include <QMouseEvent>
 #include <QTimer>
+#include <QMovie>
 
 namespace Ui {
 class ImageViewer;
@@ -62,6 +63,11 @@ private:
     QPixmap m_scaledPixmap;
     QString m_imagePath;
 
+    // Animated image data
+    QMovie* m_movie;
+    QSize m_originalMovieSize;
+    bool m_isAnimated;
+
     // Zoom functionality
     double m_zoomFactor;
     double m_minZoomFactor;
@@ -87,6 +93,12 @@ private:
     void adjustScrollBar(QScrollBar* scrollBar, double factor);
     bool canDragImage() const;
     void updateCursor();
+
+    // New helper methods for animated images
+    bool isAnimatedImageFile(const QString& filePath) const;
+    void cleanupMovie();
+    void setupMovie(const QString& filePath);
+    QSize getCurrentImageSize() const;
 
     // Constants
     static const double ZOOM_STEP;

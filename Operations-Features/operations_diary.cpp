@@ -2480,26 +2480,71 @@ bool Operations_Diary::openImageWithViewer(const QString& imagePath)
     }
 
     try {
-        // Load and decrypt the image
-        QPixmap imagePixmap = loadEncryptedImage(imagePath);
+        // Read the encrypted binary data
+        QFile encryptedFile(imagePath);
+        if (!encryptedFile.open(QIODevice::ReadOnly)) {
+            QMessageBox::warning(m_mainWindow, "Error", "Failed to open encrypted image file: " + imagePath);
+            return false;
+        }
 
-        if (imagePixmap.isNull()) {
-            QMessageBox::warning(m_mainWindow, "Error", "Failed to load image: " + imagePath);
+        QByteArray encryptedData = encryptedFile.readAll();
+        encryptedFile.close();
+
+        // Decrypt the image data
+        QByteArray decryptedData = CryptoUtils::Encryption_DecryptBArray(
+            m_mainWindow->user_Key, encryptedData);
+
+        if (decryptedData.isEmpty()) {
+            QMessageBox::warning(m_mainWindow, "Error", "Failed to decrypt image: " + imagePath);
+            return false;
+        }
+
+        // Create a temporary file with the original extension
+        QString originalFilename = QFileInfo(imagePath).fileName();
+        QString tempDir = QDir::tempPath();
+        QString tempFileName = QString("diary_image_%1_%2")
+                                   .arg(QDateTime::currentMSecsSinceEpoch())
+                                   .arg(originalFilename);
+        QString tempFilePath = QDir::cleanPath(tempDir + "/" + tempFileName);
+
+        // Write decrypted data to temporary file
+        QFile tempFile(tempFilePath);
+        if (!tempFile.open(QIODevice::WriteOnly)) {
+            QMessageBox::warning(m_mainWindow, "Error", "Failed to create temporary file for image viewing.");
+            return false;
+        }
+
+        qint64 bytesWritten = tempFile.write(decryptedData);
+        tempFile.close();
+
+        if (bytesWritten != decryptedData.size()) {
+            OperationsFiles::secureDelete(tempFilePath, 3, true); // Allow external files
+            QMessageBox::warning(m_mainWindow, "Error", "Failed to write temporary image file.");
             return false;
         }
 
         // Create new image viewer instance (non-modal, multiple instances allowed)
         ImageViewer* viewer = new ImageViewer(m_mainWindow);
 
-        // Load the decrypted image into the viewer
-        QString imageTitle = QFileInfo(imagePath).fileName();
-        bool loadSuccess = viewer->loadImage(imagePixmap, imageTitle);
+        // FIXED: Use file path overload for proper GIF detection
+        bool loadSuccess = viewer->loadImage(tempFilePath);
 
         if (!loadSuccess) {
+            OperationsFiles::secureDelete(tempFilePath, 3, true); // Allow external files
             delete viewer;
             QMessageBox::warning(m_mainWindow, "Error", "Failed to display image in viewer.");
             return false;
         }
+
+        // Clean up temp file when viewer is destroyed using secure deletion
+        connect(viewer, &QObject::destroyed, [tempFilePath]() {
+            bool deleteSuccess = OperationsFiles::secureDelete(tempFilePath, 3, true); // Allow external files
+            if (deleteSuccess) {
+                qDebug() << "Securely deleted temporary image file:" << tempFilePath;
+            } else {
+                qWarning() << "Failed to securely delete temporary image file:" << tempFilePath;
+            }
+        });
 
         // Show the viewer (non-modal)
         viewer->show();

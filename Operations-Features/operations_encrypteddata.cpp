@@ -1704,10 +1704,8 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
                     // Create ImageViewer instance and open the image
                     ImageViewer* viewer = new ImageViewer(m_mainWindow);
 
-                    // Extract original filename for the window title
-                    QString displayTitle = "Encrypted Image";
-
-                    if (viewer->loadImage(tempFilePath, displayTitle)) {
+                    // Call the file path overload (single parameter) for proper GIF detection
+                    if (viewer->loadImage(tempFilePath)) {  // CHANGED: Only pass file path
                         viewer->show();
                         qDebug() << "ImageViewer opened successfully";
                     } else {
@@ -6104,3 +6102,4 @@ void Operations_EncryptedData::openWithImageViewer(const QString& encryptedFileP
     m_tempDecryptWorkerThread->start();
     m_progressDialog->exec();
 }
+
