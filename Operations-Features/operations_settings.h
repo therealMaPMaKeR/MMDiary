@@ -54,7 +54,7 @@ private:
     int m_previousSettingsTabIndex;
     int m_previousMainTabIndex;
     // New private methods for dialog management
-    void showHiddenItemsDialog(const QString& itemType, QString& settingValue, bool& hideItemsSetting);
+    void showHiddenItemsDialog(const QString& itemType, QString& settingValue);
     QStringList parseItemList(const QString& itemString);
     QString formatItemList(const QStringList& items);
 private slots:

@@ -57,7 +57,7 @@
        </size>
       </property>
       <property name="currentIndex">
-       <number>0</number>
+       <number>3</number>
       </property>
       <property name="movable">
        <bool>true</bool>
@@ -618,7 +618,7 @@
        <attribute name="title">
         <string>Encrypted Data</string>
        </attribute>
-       <layout class="QHBoxLayout" name="horizontalLayout_16">
+       <layout class="QHBoxLayout" name="horizontalLayout_18">
         <item>
          <widget class="QGroupBox" name="groupBox_17">
           <property name="minimumSize">
@@ -766,6 +766,31 @@
            </item>
            <item>
             <widget class="QListWidget" name="listWidget_DataENC_Tags"/>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_16">
+             <item>
+              <widget class="QLabel" name="label_30">
+               <property name="text">
+                <string>Selection Mode:</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="comboBox_DataENC_SelectionMode">
+               <item>
+                <property name="text">
+                 <string>And</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Or</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+            </layout>
            </item>
            <item>
             <widget class="Line" name="line_8">
@@ -1140,7 +1165,7 @@
            </size>
           </property>
           <property name="currentIndex">
-           <number>0</number>
+           <number>3</number>
           </property>
           <widget class="QWidget" name="tab_Settings_Diaries">
            <attribute name="title">
@@ -1613,29 +1638,6 @@
            </attribute>
            <layout class="QVBoxLayout" name="verticalLayout_21">
             <item>
-             <widget class="QGroupBox" name="groupBox_18">
-              <property name="title">
-               <string>Miscellaneous</string>
-              </property>
-              <layout class="QFormLayout" name="formLayout_9">
-               <item row="0" column="0">
-                <widget class="QLabel" name="label_24">
-                 <property name="text">
-                  <string>Require Password to view tab: </string>
-                 </property>
-                </widget>
-               </item>
-               <item row="0" column="1">
-                <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_ReqPW">
-                 <property name="text">
-                  <string/>
-                 </property>
-                </widget>
-               </item>
-              </layout>
-             </widget>
-            </item>
-            <item>
              <widget class="QGroupBox" name="groupBox_20">
               <property name="title">
                <string>Hidden Items</string>
@@ -1644,28 +1646,28 @@
                <item>
                 <layout class="QFormLayout" name="formLayout_10">
                  <item row="0" column="0">
-                  <widget class="QLabel" name="label_25">
+                  <widget class="QLabel" name="label_28">
                    <property name="text">
-                    <string>Hide Image Thumbnails:</string>
+                    <string>Hide Categories:</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="label_29">
+                   <property name="text">
+                    <string>Hide Tags:</string>
                    </property>
                   </widget>
                  </item>
                  <item row="0" column="1">
-                  <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_HideThumbnails_Image">
+                  <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_HideCategories">
                    <property name="text">
                     <string/>
                    </property>
                   </widget>
                  </item>
-                 <item row="1" column="0">
-                  <widget class="QLabel" name="label_26">
-                   <property name="text">
-                    <string>Hide Video Thumbnails:</string>
-                   </property>
-                  </widget>
-                 </item>
                  <item row="1" column="1">
-                  <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_HideThumbnails_Video">
+                  <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_HideTags">
                    <property name="text">
                     <string/>
                    </property>
@@ -1684,6 +1686,57 @@
                 <widget class="QPushButton" name="pushButton_DataENC_Hidden_Tags">
                  <property name="text">
                   <string>Hidden Tags List</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QGroupBox" name="groupBox_18">
+              <property name="title">
+               <string>Miscellaneous</string>
+              </property>
+              <layout class="QFormLayout" name="formLayout_9">
+               <item row="2" column="0">
+                <widget class="QLabel" name="label_24">
+                 <property name="text">
+                  <string>Require Password to view tab: </string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_ReqPW">
+                 <property name="text">
+                  <string/>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="0">
+                <widget class="QLabel" name="label_25">
+                 <property name="text">
+                  <string>Hide Image Thumbnails:</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_HideThumbnails_Image">
+                 <property name="text">
+                  <string/>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="label_26">
+                 <property name="text">
+                  <string>Hide Video Thumbnails:</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_HideThumbnails_Video">
+                 <property name="text">
+                  <string/>
                  </property>
                 </widget>
                </item>

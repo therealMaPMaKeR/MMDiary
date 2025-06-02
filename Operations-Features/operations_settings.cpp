@@ -60,6 +60,13 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
     connect(m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video, &QCheckBox::stateChanged,
             [this]() { Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData); });
 
+    // Connect the new hide categories/tags checkbox signals for value change tracking
+    connect(m_mainWindow->ui->checkBox_DataENC_HideCategories, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData); });
+
+    connect(m_mainWindow->ui->checkBox_DataENC_HideTags, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData); });
+
     InitializeCustomCheckboxes();
 }
 
@@ -563,6 +570,7 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         if (hideCategories != Constants::ErrorMessage_Default) {
             if (hideCategories == "0" || hideCategories == "1") {
                 bool value = (hideCategories == "1");
+                m_mainWindow->ui->checkBox_DataENC_HideCategories->setChecked(value);
                 m_mainWindow->setting_DataENC_Hide_Categories = value;
             } else {
                 qDebug() << "Invalid hide categories value:" << hideCategories;
@@ -578,6 +586,7 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         if (hideTags != Constants::ErrorMessage_Default) {
             if (hideTags == "0" || hideTags == "1") {
                 bool value = (hideTags == "1");
+                m_mainWindow->ui->checkBox_DataENC_HideTags->setChecked(value);
                 m_mainWindow->setting_DataENC_Hide_Tags = value;
             } else {
                 qDebug() << "Invalid hide tags value:" << hideTags;
@@ -785,14 +794,17 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hidden_Tags, m_mainWindow->setting_DataENC_Hidden_Tags);
 
         // Hide Categories
-        bool hideCategories = m_mainWindow->setting_DataENC_Hide_Categories;
+        bool hideCategories = m_mainWindow->ui->checkBox_DataENC_HideCategories->isChecked();
         QString hideCategoriesStr = hideCategories ? "1" : "0";
         db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hide_Categories, hideCategoriesStr);
+        m_mainWindow->setting_DataENC_Hide_Categories = hideCategories;
 
         // Hide Tags
-        bool hideTags = m_mainWindow->setting_DataENC_Hide_Tags;
+        bool hideTags = m_mainWindow->ui->checkBox_DataENC_HideTags->isChecked();
         QString hideTagsStr = hideTags ? "1" : "0";
         db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hide_Tags, hideTagsStr);
+        m_mainWindow->setting_DataENC_Hide_Tags = hideTags;
+
 
         m_mainWindow->refreshEncryptedDataDisplay();
 
@@ -1250,19 +1262,21 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
 
         // Hide Categories
         QString dbHideCategories = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hide_Categories);
-        if (dbHideCategories != (m_mainWindow->setting_DataENC_Hide_Categories ? "1" : "0")) {
+        QString uiHideCategories = m_mainWindow->ui->checkBox_DataENC_HideCategories->isChecked() ? "1" : "0";
+        if (dbHideCategories != uiHideCategories) {
             matchesDatabase = false;
         }
-        if ((m_mainWindow->setting_DataENC_Hide_Categories ? "1" : "0") != Default_UserSettings::DEFAULT_DATAENC_HIDE_CATEGORIES) {
+        if (uiHideCategories != Default_UserSettings::DEFAULT_DATAENC_HIDE_CATEGORIES) {
             matchesDefault = false;
         }
 
         // Hide Tags
         QString dbHideTags = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hide_Tags);
-        if (dbHideTags != (m_mainWindow->setting_DataENC_Hide_Tags ? "1" : "0")) {
+        QString uiHideTags = m_mainWindow->ui->checkBox_DataENC_HideTags->isChecked() ? "1" : "0";
+        if (dbHideTags != uiHideTags) {
             matchesDatabase = false;
         }
-        if ((m_mainWindow->setting_DataENC_Hide_Tags ? "1" : "0") != Default_UserSettings::DEFAULT_DATAENC_HIDE_TAGS) {
+        if (uiHideTags != Default_UserSettings::DEFAULT_DATAENC_HIDE_TAGS) {
             matchesDefault = false;
         }
 
@@ -1302,6 +1316,13 @@ void Operations_Settings::InitializeCustomCheckboxes()
 
     custom_QCheckboxWidget* hideThumbnailsVideoCheckbox =
         qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video);
+
+    // Get the new hide categories/tags checkboxes
+    custom_QCheckboxWidget* hideCategoriesCheckbox =
+        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_DataENC_HideCategories);
+
+    custom_QCheckboxWidget* hideTagsCheckbox =
+        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_DataENC_HideTags);
 
     // Set validation info for Hide Passwords checkbox
     if (hidePasswordsCheckbox) {
@@ -1416,6 +1437,44 @@ void Operations_Settings::InitializeCustomCheckboxes()
             return m_mainWindow->setting_ReqPWDelay;
         });
     }
+
+    // Configure Hide Categories checkbox
+    if (hideCategoriesCheckbox) {
+        hideCategoriesCheckbox->setValidationInfo(
+            "Disable 'Hide Categories' in Encrypted Data Settings", username);
+        hideCategoriesCheckbox->setRequireValidation(true);
+        hideCategoriesCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        hideCategoriesCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
+            DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
+            if (!db.connect(username, encryptionKey)) {
+                return false;
+            }
+            QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hide_Categories);
+            return (dbValue == "1");
+        });
+        hideCategoriesCheckbox->setGracePeriodGetter([this]() {
+            return m_mainWindow->setting_ReqPWDelay;
+        });
+    }
+
+    // Configure Hide Tags checkbox
+    if (hideTagsCheckbox) {
+        hideTagsCheckbox->setValidationInfo(
+            "Disable 'Hide Tags' in Encrypted Data Settings", username);
+        hideTagsCheckbox->setRequireValidation(true);
+        hideTagsCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        hideTagsCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
+            DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
+            if (!db.connect(username, encryptionKey)) {
+                return false;
+            }
+            QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hide_Tags);
+            return (dbValue == "1");
+        });
+        hideTagsCheckbox->setGracePeriodGetter([this]() {
+            return m_mainWindow->setting_ReqPWDelay;
+        });
+    }
 }
 
 bool Operations_Settings::ValidatePassword(const QString& settingsType) {
@@ -1467,6 +1526,16 @@ bool Operations_Settings::ValidatePassword(const QString& settingsType) {
         bool currentHideVideoThumbs = m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video->isChecked();
         bool defaultHideVideoThumbsValue = (defaultHideVideoThumbs == "1");
 
+        // Check if Hide Categories would change
+        QString defaultHideCategories = Default_UserSettings::DEFAULT_DATAENC_HIDE_CATEGORIES;
+        bool currentHideCategories = m_mainWindow->ui->checkBox_DataENC_HideCategories->isChecked();
+        bool defaultHideCategoriesValue = (defaultHideCategories == "1");
+
+        // Check if Hide Tags would change
+        QString defaultHideTags = Default_UserSettings::DEFAULT_DATAENC_HIDE_TAGS;
+        bool currentHideTags = m_mainWindow->ui->checkBox_DataENC_HideTags->isChecked();
+        bool defaultHideTagsValue = (defaultHideTags == "1");
+
         // Check if Hidden Categories would change
         bool categoriesWouldChange = (m_mainWindow->setting_DataENC_Hidden_Categories != Default_UserSettings::DEFAULT_DATAENC_HIDDEN_CATEGORIES);
 
@@ -1476,23 +1545,9 @@ bool Operations_Settings::ValidatePassword(const QString& settingsType) {
         if (currentReqPW != defaultReqPWValue ||
             currentHideImageThumbs != defaultHideImageThumbsValue ||
             currentHideVideoThumbs != defaultHideVideoThumbsValue ||
+            currentHideCategories != defaultHideCategoriesValue ||
+            currentHideTags != defaultHideTagsValue ||
             categoriesWouldChange || tagsWouldChange) {
-            // These settings would change, so validate password
-            return PasswordValidation::validatePasswordForOperation(
-                m_mainWindow, "Reset Encrypted Data Settings to Default", username);
-        }
-
-        // Check if Hide Categories would change
-        bool categoriesHideWouldChange = (m_mainWindow->setting_DataENC_Hide_Categories != (Default_UserSettings::DEFAULT_DATAENC_HIDE_CATEGORIES == "1"));
-
-        // Check if Hide Tags would change
-        bool tagsHideWouldChange = (m_mainWindow->setting_DataENC_Hide_Tags != (Default_UserSettings::DEFAULT_DATAENC_HIDE_TAGS == "1"));
-
-        if (currentReqPW != defaultReqPWValue ||
-            currentHideImageThumbs != defaultHideImageThumbsValue ||
-            currentHideVideoThumbs != defaultHideVideoThumbsValue ||
-            categoriesWouldChange || tagsWouldChange ||
-            categoriesHideWouldChange || tagsHideWouldChange) {
             // These settings would change, so validate password
             return PasswordValidation::validatePasswordForOperation(
                 m_mainWindow, "Reset Encrypted Data Settings to Default", username);
@@ -1746,6 +1801,12 @@ void Operations_Settings::SetupSettingDescriptions()
     m_settingNames[m_mainWindow->ui->pushButton_DataENC_Hidden_Tags] = "Hidden Tags";
     m_settingDescriptions[m_mainWindow->ui->pushButton_DataENC_Hidden_Tags] = "Manage a list of tags to hide from the encrypted data view.\n\nFiles with these tags will not be displayed in the file list.";
 
+    m_settingNames[m_mainWindow->ui->checkBox_DataENC_HideCategories] = "Hide Categories";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_DataENC_HideCategories] = "Hide files from categories that are in the hidden categories list.\n\nFiles in hidden categories will not be displayed in the file list.\n\nYou can manage the list of hidden categories using the 'Hidden Categories' button.";
+
+    m_settingNames[m_mainWindow->ui->checkBox_DataENC_HideTags] = "Hide Tags";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_DataENC_HideTags] = "Hide files with tags that are in the hidden tags list.\n\nFiles with hidden tags will not be displayed in the file list.\n\nYou can manage the list of hidden tags using the 'Hidden Tags' button.";
+
     // Install event filters on all UI controls
     QMap<QObject*, QString>::iterator it;
     for (it = m_settingNames.begin(); it != m_settingNames.end(); ++it) {
@@ -1944,8 +2005,7 @@ void Operations_Settings::onHiddenCategoriesClicked()
         return; // Password validation failed
     }
 
-    showHiddenItemsDialog("Category", m_mainWindow->setting_DataENC_Hidden_Categories,
-                          m_mainWindow->setting_DataENC_Hide_Categories);
+    showHiddenItemsDialog("Category", m_mainWindow->setting_DataENC_Hidden_Categories);
 }
 
 void Operations_Settings::onHiddenTagsClicked()
@@ -1959,12 +2019,11 @@ void Operations_Settings::onHiddenTagsClicked()
         return; // Password validation failed
     }
 
-    showHiddenItemsDialog("Tag", m_mainWindow->setting_DataENC_Hidden_Tags,
-                          m_mainWindow->setting_DataENC_Hide_Tags);
+    showHiddenItemsDialog("Tag", m_mainWindow->setting_DataENC_Hidden_Tags);
 }
 
 // Main dialog implementation
-void Operations_Settings::showHiddenItemsDialog(const QString& itemType, QString& settingValue, bool& hideItemsSetting)
+void Operations_Settings::showHiddenItemsDialog(const QString& itemType, QString& settingValue)
 {
     // Create dialog
     QDialog dialog(m_mainWindow);
@@ -1974,9 +2033,12 @@ void Operations_Settings::showHiddenItemsDialog(const QString& itemType, QString
     // Set window title and labels based on item type
     QString plural = itemType + "s";
     dialog.setWindowTitle(QString("Hidden %1").arg(plural));
-    ui.label_HideItems->setText(QString("Hide %1:").arg(plural));
+    ui.label_HideItems->setText(QString("Manage Hidden %1:").arg(plural));
     ui.pushButton_AddItem->setText(QString("Add %1").arg(itemType));
     ui.pushButton_RemoveItem->setText(QString("Remove %1").arg(itemType));
+
+    // Hide the checkbox since hide functionality is now on the main settings page
+    ui.checkBox_HideItems->setVisible(false);
 
     // Load existing items
     QStringList currentItems = parseItemList(settingValue);
@@ -1984,8 +2046,44 @@ void Operations_Settings::showHiddenItemsDialog(const QString& itemType, QString
         ui.listWidget_ItemsList->addItem(item);
     }
 
-    // Set initial checkbox state from the hideItemsSetting
-    ui.checkBox_HideItems->setChecked(hideItemsSetting);
+    // Connect double-click signal for editing
+    connect(ui.listWidget_ItemsList, &QListWidget::itemDoubleClicked, [&](QListWidgetItem* item) {
+        if (!item) return;
+
+        QString currentText = item->text();
+        QString newText = QInputDialog::getText(&dialog,
+                                                QString("Edit %1").arg(itemType),
+                                                QString("Edit %1 name:").arg(itemType.toLower()),
+                                                QLineEdit::Normal,
+                                                currentText);
+
+        if (!newText.isEmpty() && newText != currentText) {
+            // Validate input
+            InputValidation::ValidationResult result = InputValidation::validateInput(
+                newText, InputValidation::InputType::CategoryTag, 50);
+
+            if (result.isValid) {
+                // Check for duplicates (excluding the current item)
+                bool duplicate = false;
+                for (int i = 0; i < ui.listWidget_ItemsList->count(); ++i) {
+                    QListWidgetItem* listItem = ui.listWidget_ItemsList->item(i);
+                    if (listItem != item && listItem->text() == newText) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+
+                if (!duplicate) {
+                    item->setText(newText);
+                } else {
+                    QMessageBox::warning(&dialog, "Duplicate Entry",
+                                         QString("This %1 already exists in the list.").arg(itemType.toLower()));
+                }
+            } else {
+                QMessageBox::warning(&dialog, "Invalid Input", result.errorMessage);
+            }
+        }
+    });
 
     // Connect dialog signals
     connect(ui.pushButton_AddItem, &QPushButton::clicked, [&]() {
@@ -2058,16 +2156,13 @@ void Operations_Settings::showHiddenItemsDialog(const QString& itemType, QString
             newItems.append(ui.listWidget_ItemsList->item(i)->text());
         }
 
-        // Update the setting values
+        // Update the setting value
         settingValue = formatItemList(newItems);
-        hideItemsSetting = ui.checkBox_HideItems->isChecked();
 
         // Update button states to reflect changes
         UpdateButtonStates(Constants::DBSettings_Type_EncryptedData);
 
-        qDebug() << QString("Updated hidden %1: %2, Hide active: %3")
-                        .arg(plural.toLower(), settingValue)
-                        .arg(hideItemsSetting ? "true" : "false");
+        qDebug() << QString("Updated hidden %1: %2").arg(plural.toLower(), settingValue);
     }
 }
 
