@@ -66,6 +66,7 @@ ImageViewer::ImageViewer(QWidget *parent) :
         m_imageLabel->setAlignment(Qt::AlignCenter);
         m_imageLabel->setScaledContents(false);
         m_imageLabel->setMinimumSize(1, 1);
+        m_imageLabel->setMouseTracking(true); // Enable mouse tracking for cursor changes
     }
 
     // Configure scroll area (don't call setWidget - already set up in .ui file)
@@ -74,6 +75,17 @@ ImageViewer::ImageViewer(QWidget *parent) :
         m_scrollArea->setAlignment(Qt::AlignCenter);
         m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        m_scrollArea->setMouseTracking(true); // Enable mouse tracking
+
+        // Remove the image label from the layout and set it directly as scroll area widget
+        if (m_imageLabel) {
+            m_imageLabel->setParent(nullptr); // Remove from layout
+            m_scrollArea->setWidget(m_imageLabel); // Set directly as scroll area widget
+            m_imageLabel->installEventFilter(this); // Install event filter for mouse handling
+        }
+
+        // Install event filter on scroll area as well
+        m_scrollArea->installEventFilter(this);
     }
 
     // Set up keyboard shortcuts
@@ -308,8 +320,7 @@ void ImageViewer::updateImage()
     m_imageLabel->setPixmap(m_scaledPixmap);
     m_imageLabel->resize(m_scaledPixmap.size());
 
-    // Update cursor based on whether the image can be dragged
-    updateCursor();
+    // Don't update cursor here - let it be handled by mouse events
 }
 
 void ImageViewer::updateZoomInfo()
@@ -376,53 +387,101 @@ void ImageViewer::on_pushButton_ActualSize_clicked()
     actualSize();
 }
 
-void ImageViewer::mousePressEvent(QMouseEvent *event)
+bool ImageViewer::eventFilter(QObject *obj, QEvent *event)
 {
-    if (event->button() == Qt::LeftButton && canDragImage()) {
-        m_dragging = true;
-        m_lastDragPos = event->globalPosition().toPoint();
-        setCursor(Qt::ClosedHandCursor);
-        event->accept();
-    } else {
-        QDialog::mousePressEvent(event);
-    }
-}
-
-void ImageViewer::mouseMoveEvent(QMouseEvent *event)
-{
-    if (m_dragging && (event->buttons() & Qt::LeftButton)) {
-        QPoint currentPos = event->globalPosition().toPoint();
-        QPoint delta = currentPos - m_lastDragPos;
-
-        // Scroll the scroll area by the delta
-        if (m_scrollArea) {
-            QScrollBar* hScrollBar = m_scrollArea->horizontalScrollBar();
-            QScrollBar* vScrollBar = m_scrollArea->verticalScrollBar();
-
-            if (hScrollBar) {
-                hScrollBar->setValue(hScrollBar->value() - delta.x());
+    // Handle mouse events only for the image label and scroll area
+    if ((obj == m_imageLabel || obj == m_scrollArea) && !m_originalPixmap.isNull()) {
+        switch (event->type()) {
+        case QEvent::MouseButtonPress: {
+            QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+            if (mouseEvent->button() == Qt::LeftButton && canDragImage()) {
+                m_dragging = true;
+                m_lastDragPos = mouseEvent->globalPosition().toPoint();
+                if (m_imageLabel) {
+                    m_imageLabel->setCursor(Qt::ClosedHandCursor);
+                }
+                return true; // Event handled
             }
-            if (vScrollBar) {
-                vScrollBar->setValue(vScrollBar->value() - delta.y());
-            }
+            break;
         }
+        case QEvent::MouseMove: {
+            QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
 
-        m_lastDragPos = currentPos;
-        event->accept();
-    } else {
-        QDialog::mouseMoveEvent(event);
-    }
-}
+            if (m_dragging && (mouseEvent->buttons() & Qt::LeftButton)) {
+                // Handle dragging
+                QPoint currentPos = mouseEvent->globalPosition().toPoint();
+                QPoint delta = currentPos - m_lastDragPos;
 
-void ImageViewer::mouseReleaseEvent(QMouseEvent *event)
-{
-    if (event->button() == Qt::LeftButton && m_dragging) {
-        m_dragging = false;
-        updateCursor();
-        event->accept();
-    } else {
-        QDialog::mouseReleaseEvent(event);
+                // Scroll the scroll area by the delta
+                if (m_scrollArea) {
+                    QScrollBar* hScrollBar = m_scrollArea->horizontalScrollBar();
+                    QScrollBar* vScrollBar = m_scrollArea->verticalScrollBar();
+
+                    if (hScrollBar) {
+                        hScrollBar->setValue(hScrollBar->value() - delta.x());
+                    }
+                    if (vScrollBar) {
+                        vScrollBar->setValue(vScrollBar->value() - delta.y());
+                    }
+                }
+
+                m_lastDragPos = currentPos;
+                return true; // Event handled
+            } else {
+                // Handle cursor changes on hover
+                if (canDragImage()) {
+                    if (m_imageLabel) {
+                        m_imageLabel->setCursor(Qt::OpenHandCursor);
+                    }
+                } else {
+                    if (m_imageLabel) {
+                        m_imageLabel->setCursor(Qt::ArrowCursor);
+                    }
+                }
+            }
+            break;
+        }
+        case QEvent::MouseButtonRelease: {
+            QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+            if (mouseEvent->button() == Qt::LeftButton && m_dragging) {
+                m_dragging = false;
+                if (canDragImage()) {
+                    if (m_imageLabel) {
+                        m_imageLabel->setCursor(Qt::OpenHandCursor);
+                    }
+                } else {
+                    if (m_imageLabel) {
+                        m_imageLabel->setCursor(Qt::ArrowCursor);
+                    }
+                }
+                return true; // Event handled
+            }
+            break;
+        }
+        case QEvent::Leave: {
+            // Reset cursor when leaving the image area
+            if (m_imageLabel && !m_dragging) {
+                m_imageLabel->setCursor(Qt::ArrowCursor);
+            }
+            break;
+        }
+        case QEvent::Enter: {
+            // Set appropriate cursor when entering the image area
+            if (m_imageLabel && !m_dragging) {
+                if (canDragImage()) {
+                    m_imageLabel->setCursor(Qt::OpenHandCursor);
+                } else {
+                    m_imageLabel->setCursor(Qt::ArrowCursor);
+                }
+            }
+            break;
+        }
+        default:
+            break;
+        }
     }
+
+    return QDialog::eventFilter(obj, event);
 }
 
 bool ImageViewer::canDragImage() const
@@ -441,11 +500,13 @@ bool ImageViewer::canDragImage() const
 
 void ImageViewer::updateCursor()
 {
-    if (m_dragging) {
-        setCursor(Qt::ClosedHandCursor);
-    } else if (canDragImage()) {
-        setCursor(Qt::OpenHandCursor);
-    } else {
-        setCursor(m_originalCursor);
+    // This method is now primarily used for cleanup
+    // The actual cursor management is handled in the event filter
+    if (!m_dragging && m_imageLabel) {
+        if (canDragImage()) {
+            m_imageLabel->setCursor(Qt::OpenHandCursor);
+        } else {
+            m_imageLabel->setCursor(Qt::ArrowCursor);
+        }
     }
 }
