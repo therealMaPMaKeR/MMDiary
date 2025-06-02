@@ -775,14 +775,13 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
                             // Calculate size based on number of images
                             int imageCount = validImagePaths.size();
                             if (imageCount == 1) {
-                                // Single image - use original size calculation
-                                QPixmap imagePixmap = loadEncryptedImage(validImagePaths.first());
-                                if (!imagePixmap.isNull()) {
-                                    QSize imageSize = imagePixmap.size();
-                                    int itemHeight = imageSize.height() + 10; // Image + padding
-                                    int itemWidth = qMax(imageSize.width() + 20, 300);
-                                    m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setSizeHint(QSize(itemWidth, itemHeight));
-                                }
+                                // Single image - use SAME size calculation as multi-image
+                                const int THUMBNAIL_SIZE = 64;
+                                const int MARGIN = 10;
+
+                                int itemHeight = THUMBNAIL_SIZE + (2 * MARGIN);
+                                int itemWidth = THUMBNAIL_SIZE + (2 * MARGIN);
+                                m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setSizeHint(QSize(itemWidth, itemHeight));
                             } else {
                                 // Multiple images - calculate grid size
                                 const int THUMBNAIL_SIZE = 64;
@@ -1003,14 +1002,13 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
                     int imageCount = validImagePaths.size();
                     qDebug() << "DIARY-DEBUG7: About to calculate size for" << imageCount << "images";
                     if (imageCount == 1) {
-                        // Single image - use original size calculation
-                        QPixmap imagePixmap = loadEncryptedImage(validImagePaths.first());
-                        if (!imagePixmap.isNull()) {
-                            QSize imageSize = imagePixmap.size();
-                            int itemHeight = imageSize.height() + 10; // Image + padding
-                            int itemWidth = qMax(imageSize.width() + 20, 300);
-                            m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setSizeHint(QSize(itemWidth, itemHeight));
-                        }
+                        // Single image - use SAME size calculation as multi-image
+                        const int THUMBNAIL_SIZE = 64;
+                        const int MARGIN = 10;
+
+                        int itemHeight = THUMBNAIL_SIZE + (2 * MARGIN);
+                        int itemWidth = THUMBNAIL_SIZE + (2 * MARGIN);
+                        m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setSizeHint(QSize(itemWidth, itemHeight));
                     } else {
                         // Multiple images - calculate grid size
                         const int THUMBNAIL_SIZE = 64;
@@ -3108,17 +3106,14 @@ void Operations_Diary::deleteSpecificImage(QListWidgetItem* item, int imageIndex
         item->setData(Qt::UserRole+4, imagePaths.first());
         item->setData(Qt::UserRole+5, false); // Mark as single image
 
-        // Update size hint for single image
-        QPixmap imagePixmap = loadEncryptedImage(imagePaths.first());
-        if (!imagePixmap.isNull()) {
-            QSize imageSize = imagePixmap.size();
-            int itemHeight = imageSize.height() + 10;
-            int itemWidth = qMax(imageSize.width() + 20, 300);
-            item->setSizeHint(QSize(itemWidth, itemHeight));
-            qDebug() << "Set single image size hint:" << QSize(itemWidth, itemHeight);
-        } else {
-            qDebug() << "Failed to load image for size calculation";
-        }
+        // Update size hint for single image (CONSISTENT WITH MULTI-IMAGE)
+        const int THUMBNAIL_SIZE = 64;
+        const int MARGIN = 10;
+
+        int itemHeight = THUMBNAIL_SIZE + (2 * MARGIN);
+        int itemWidth = THUMBNAIL_SIZE + (2 * MARGIN);
+        item->setSizeHint(QSize(itemWidth, itemHeight));
+        qDebug() << "Set single image size hint (consistent):" << QSize(itemWidth, itemHeight);
     } else if (imagePaths.isEmpty()) {
         qDebug() << "No images left - calling DeleteEntry()";
         // No images left - delete the whole entry
@@ -3717,6 +3712,36 @@ void Operations_Diary::on_DiaryTextDisplay_entered(const QModelIndex &index)
 
 void Operations_Diary::on_DiaryTextDisplay_clicked()
 {
+    // Get the current item that was clicked
+    QListWidgetItem* currentItem = m_mainWindow->ui->DiaryTextDisplay->currentItem();
+
+    if (currentItem) {
+        // Check if this is an image item
+        bool isImageItem = currentItem->data(Qt::UserRole+3).toBool();
+
+        if (isImageItem) {
+            // Get the click position from the widget
+            QPoint clickPos = m_mainWindow->ui->DiaryTextDisplay->getLastClickPos();
+
+            // Use the SAME logic as context menu for click detection
+            m_clickedImageIndex = calculateClickedImageIndex(currentItem, clickPos);
+
+            bool isMultiImage = currentItem->data(Qt::UserRole+5).toBool();
+
+            if (isMultiImage && m_clickedImageIndex >= 0) {
+                // Specific image was clicked in a multi-image item - open that exact image
+                handleSpecificImageClick(currentItem, m_clickedImageIndex);
+            } else {
+                // Single image OR no specific image detected in multi-image
+                // For single images: opens directly
+                // For multi-images with no specific click: shows selection dialog
+                handleImageClick(currentItem);
+            }
+            return;
+        }
+    }
+
+    // For non-image items, keep the original behavior
     m_mainWindow->ui->DiaryTextInput->setFocus();
 }
 

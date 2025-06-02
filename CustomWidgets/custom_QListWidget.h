@@ -5,6 +5,7 @@
 #include <QWheelEvent>
 #include <QResizeEvent>
 #include <QEvent>
+#include <QMouseEvent>
 
 class custom_QTextEditWidget;
 
@@ -21,10 +22,13 @@ public:
     // Add method to select the last item
     void selectLastItem();
 
+    QPoint getLastClickPos() const { return m_lastClickPos; }
+
 protected:
     void wheelEvent(QWheelEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     bool eventFilter(QObject *obj, QEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
 
     // Add event handlers for mouse events
     void leaveEvent(QEvent *event) override;
@@ -42,6 +46,8 @@ private:
     int m_fontSize = 10;
     bool m_inSizeUpdate = false;
     bool m_inMouseEvent = false; // New flag to prevent recursive events
+
+    QPoint m_lastClickPos;
 
 signals:
     void sizeUpdateStarted();

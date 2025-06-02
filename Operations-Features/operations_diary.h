@@ -34,8 +34,8 @@ private:
     void cleanupBrokenImageReferences();
 
     // Constants for image handling
-    static const int MAX_IMAGE_WIDTH = 400; // always use thumbnails
-    static const int MAX_IMAGE_HEIGHT = 400; // always use thumbnails
+    static const int MAX_IMAGE_WIDTH = 0;
+    static const int MAX_IMAGE_HEIGHT = 0;
     static const int THUMBNAIL_SIZE = 64;
 
     bool loadAndDisplayImage(const QString& imagePath, const QString& imageFilename);

@@ -137,23 +137,16 @@ QSize CombinedDelegate::sizeHint(const QStyleOptionViewItem &option, const QMode
             qDebug() << "Calculated multi-image size:" << QSize(totalWidth, totalHeight);
             return QSize(totalWidth, totalHeight);
         } else {
-            // Single image - try to get image path and load it
-            QString imagePath = index.data(Qt::UserRole+4).toString();
-            if (!imagePath.isEmpty()) {
-                QPixmap imagePixmap = loadImageForDisplay(imagePath);
-                if (!imagePixmap.isNull()) {
-                    QSize imageSize = imagePixmap.size();
-                    int itemHeight = imageSize.height() + 10; // Image + padding (no caption space)
-                    int itemWidth = qMax(imageSize.width() + 20, 300);
+            // Single image - use SAME size calculation as multi-image (1 image)
+            const int THUMBNAIL_SIZE = 64;
+            const int MARGIN = 10;
 
-                    qDebug() << "Calculated single image size:" << QSize(itemWidth, itemHeight);
-                    return QSize(itemWidth, itemHeight);
-                }
-            }
+            // Same calculation as multi-image with 1 image
+            int totalHeight = THUMBNAIL_SIZE + (2 * MARGIN);
+            int totalWidth = THUMBNAIL_SIZE + (2 * MARGIN);
 
-            // Fallback size for single image items
-            qDebug() << "Using fallback size for single image item";
-            return QSize(400, 250);
+            qDebug() << "Calculated single image size (consistent):" << QSize(totalWidth, totalHeight);
+            return QSize(totalWidth, totalHeight);
         }
     }
 
@@ -340,19 +333,25 @@ void CombinedDelegate::paintSingleImage(QPainter *painter, const QStyleOptionVie
         return;
     }
 
-    // Use full rect since no caption space needed
-    QRect imageRect = option.rect;
+    // Use the SAME constants as paintMultipleImages for consistency
+    const int THUMBNAIL_SIZE = 64;
+    const int MARGIN = 10;
+    const int SPACING = 5; // Not used for single image, but keep consistent
 
-    // Scale image to fit while preserving aspect ratio
-    QPixmap scaledPixmap = imagePixmap.scaled(imageRect.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    // Scale to 64x64 thumbnail (same as multi-image)
+    QPixmap thumbnail = imagePixmap.scaled(THUMBNAIL_SIZE, THUMBNAIL_SIZE,
+                                           Qt::KeepAspectRatio, Qt::SmoothTransformation);
 
-    // Left-align the image with a small margin
-    int leftMargin = 10;
-    int x = imageRect.x() + leftMargin;
-    int y = imageRect.y() + (imageRect.height() - scaledPixmap.height()) / 2;
+    // Position with same margins as multi-image
+    int x = option.rect.x() + MARGIN;
+    int y = option.rect.y() + MARGIN;
 
-    // Draw the image
-    painter->drawPixmap(x, y, scaledPixmap);
+    // Center the thumbnail in the 64x64 space (same as multi-image)
+    int drawX = x + (THUMBNAIL_SIZE - thumbnail.width()) / 2;
+    int drawY = y + (THUMBNAIL_SIZE - thumbnail.height()) / 2;
+
+    // Draw the thumbnail
+    painter->drawPixmap(drawX, drawY, thumbnail);
 }
 
 void CombinedDelegate::paintMultipleImages(QPainter *painter, const QStyleOptionViewItem &option, const QStringList& imagePaths) const {

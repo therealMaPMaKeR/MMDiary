@@ -52,6 +52,7 @@ void custom_QListWidget::selectLastItem()
         }
     }
 }
+
 void custom_QListWidget::wheelEvent(QWheelEvent *event)
 {
     if (event->modifiers() & Qt::ControlModifier) {
@@ -123,6 +124,17 @@ void custom_QListWidget::keyPressEvent(QKeyEvent *event)
 {
     // for some reason this is also needed for the event filter to work in main window
     // Empty implementation as per the provided source code
+}
+
+void custom_QListWidget::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton) {
+        // Store the click position for later use
+        m_lastClickPos = event->pos();
+    }
+
+    // Call base class implementation
+    QListWidget::mousePressEvent(event);
 }
 
 void custom_QListWidget::UpdateFontSize_Slot(int size, bool resize)
