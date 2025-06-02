@@ -37,8 +37,11 @@ public:
     static bool validatePasswordWithCustomCancel(QWidget* parent, const QString& operationName,
                                                  const QString& username, const QString& cancelButtonText,
                                                  int gracePeriodSeconds);
-    //Grace Period Funct ..  in public because it needs to be accessed in main window
+
+    // NEW: Public grace period management methods
     static void recordSuccessfulValidation(const QString& username);
+    static bool isWithinGracePeriod(const QString& username, int gracePeriodSeconds);
+    static int getGracePeriodForUser(const QString& username);
 
 private slots:
     void onProceedClicked();
@@ -49,7 +52,6 @@ private:
 
     // Grace period functionality - static to persist across instances
     static QMap<QString, QDateTime> s_lastValidationTimes; // username -> last validation time
-    static bool isWithinGracePeriod(const QString& username, int gracePeriodSeconds);
 };
 
 #endif // PASSWORDVALIDATION_H

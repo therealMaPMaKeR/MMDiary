@@ -165,6 +165,9 @@ private:
 
     DatabasePersistentSettingsManager* m_persistentSettingsManager;
 
+    // NEW: Helper method to check if current tab requires password protection
+    bool isCurrentTabPasswordProtected() const;
+
 signals:
     void passUsername_Signal(QString username);
 private slots:
@@ -235,8 +238,6 @@ private slots:
 
     void on_checkBox_PWMan_HidePWS_stateChanged(int arg1);
 
-    void on_pushButton_Acc_ChangePW_clicked();
-
     void onPasswordValidationRequested(int targetTabIndex, int currentIndex);
 
     void onUnsavedChangesCheckRequested(int targetTabIndex, int currentIndex);
@@ -248,6 +249,8 @@ private slots:
     void on_pushButton_AboutMMDiary_clicked();
 
     void on_pushButton_ChangeLog_clicked();
+
+    void on_pushButton_Acc_ChangePW_clicked();
 
     void on_pushButton_DataENC_SecureDel_clicked();
 

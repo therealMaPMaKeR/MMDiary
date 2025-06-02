@@ -27,6 +27,9 @@ public:
     void setTabVisibleByObjectName(const QString& tabObjectName, bool visible);
     bool isTabVisibleByObjectName(const QString& tabObjectName) const;
 
+    // NEW: Method to ensure settings tab is always visible
+    void ensureSettingsTabVisible();
+
 signals:
     // Signal to request password validation
     void passwordValidationRequested(int targetTabIndex, int currentIndex);

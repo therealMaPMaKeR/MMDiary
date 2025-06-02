@@ -98,6 +98,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Set the settings tab object name
     ui->tabWidget_Main->setSettingsTabObjectName("tab_Settings");
+    ui->tabWidget_Main->ensureSettingsTabVisible();
 
     connect(ui->tabWidget_Main, &QTabWidget::currentChanged,
             this, &MainWindow::onTabChanged);
@@ -262,21 +263,71 @@ void MainWindow::showAndActivate() {
 
     // Check if password is required after minimize to tray
     if (setting_AskPWAfterMin && !isVisible()) {
-        // Use custom password validation with "Quit App" as cancel button text
-        bool validPassword = PasswordValidation::validatePasswordWithCustomCancel(
-            this, "Unlock Application", user_Username, "Quit App");
+        // NEW: Respect grace period for minimize-to-tray unlock
+        int gracePeriodSeconds = PasswordValidation::getGracePeriodForUser(user_Username);
 
-        if (!validPassword) {
-            // If validation failed or was cancelled, quit the application
-            QApplication::quit();
-            return;
+        if (!PasswordValidation::isWithinGracePeriod(user_Username, gracePeriodSeconds)) {
+            // Grace period expired, require password validation
+            bool validPassword = PasswordValidation::validatePasswordWithCustomCancel(
+                this, "Unlock Application", user_Username, "Quit App");
+
+            if (!validPassword) {
+                // If validation failed or was cancelled, quit the application
+                QApplication::quit();
+                return;
+            }
+        }
+        // If within grace period, continue without password prompt
+    }
+
+    // Check if current tab requires password protection and grace period has expired
+    if (isCurrentTabPasswordProtected()) {
+        int gracePeriodSeconds = PasswordValidation::getGracePeriodForUser(user_Username);
+
+        if (!PasswordValidation::isWithinGracePeriod(user_Username, gracePeriodSeconds)) {
+            // Grace period expired for password-protected tab, switch to settings tab
+            qDebug() << "Grace period expired for password-protected tab, switching to settings";
+
+            // Ensure settings tab is visible
+            ui->tabWidget_Main->ensureSettingsTabVisible();
+
+            // Find the settings tab index dynamically
+            int settingsTabIndex = Operations::GetTabIndexByObjectName("tab_Settings", ui->tabWidget_Main);
+            if (settingsTabIndex >= 0) {
+                ui->tabWidget_Main->setCurrentIndex(settingsTabIndex);
+            }
         }
     }
 
-    // If we got here, either no password was required or validation succeeded
+    // If we got here, either no password was required, validation succeeded, or grace period is active
     show();
     raise();        // Raise the window above others
     activateWindow(); // Activate it to ensure focus
+}
+
+bool MainWindow::isCurrentTabPasswordProtected() const
+{
+    // Get current tab index and corresponding widget
+    int currentTabIndex = ui->tabWidget_Main->currentIndex();
+    if (currentTabIndex < 0) {
+        return false;
+    }
+
+    QWidget* currentWidget = ui->tabWidget_Main->widget(currentTabIndex);
+    if (!currentWidget) {
+        return false;
+    }
+
+    QString currentTabObjectName = currentWidget->objectName();
+
+    // Check if current tab is password-protected and the setting is enabled
+    if (currentTabObjectName == "tab_Passwords" && setting_PWMan_ReqPassword) {
+        return true;
+    } else if (currentTabObjectName == "tab_DataEncryption" && setting_DataENC_ReqPassword) {
+        return true;
+    }
+
+    return false;
 }
 
 //-------- Persistent Settings ---------//
@@ -329,6 +380,10 @@ void MainWindow::LoadPersistentSettings()
 
         ui->tabWidget_Main->setTabVisibleByObjectName(tabInfo.objectName, isVisible == 1);
     }
+
+    // This ensures settings tab cannot be hidden, even if older versions allowed it
+    ui->tabWidget_Main->setTabVisibleByObjectName("tab_Settings", true);
+    qDebug() << "Forced settings tab to be visible (settings tab cannot be hidden)";
 
     // Load and apply tab order
     struct TabOrderInfo {
@@ -713,9 +768,16 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     if(quitToLogin == false && setting_MinToTray == true) // minimize to tray
     {
-    hide();
-    PasswordValidation::clearGracePeriod(user_Username);
-    event->ignore(); // Ignore the close event to keep the app running
+        // If current tab is password-protected, renew grace period
+        if (isCurrentTabPasswordProtected()) {
+            PasswordValidation::recordSuccessfulValidation(user_Username);
+            qDebug() << "Renewed grace period for password-protected tab on minimize to tray";
+        } else {
+            // No need to do anything.
+        }
+
+        hide();
+        event->ignore(); // Ignore the close event to keep the app running
     }
     else if(quitToLogin == false && setting_MinToTray == false) // close app entirely
     {

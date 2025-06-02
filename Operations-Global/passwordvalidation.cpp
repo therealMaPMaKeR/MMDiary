@@ -33,8 +33,8 @@ PasswordValidation::~PasswordValidation()
 
 // ---------- Grace Period Implementation -----------//
 
-// Helper method to get grace period setting from database
-int getGracePeriodForUser(const QString& username)
+// NEW: Public static method to get grace period setting from database
+int PasswordValidation::getGracePeriodForUser(const QString& username)
 {
     // Get database manager instance
     DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
@@ -63,6 +63,7 @@ int getGracePeriodForUser(const QString& username)
     return gracePeriod;
 }
 
+// NEW: Public static method to check if within grace period
 bool PasswordValidation::isWithinGracePeriod(const QString& username, int gracePeriodSeconds)
 {
     // If grace period is 0, always require password
@@ -89,6 +90,7 @@ bool PasswordValidation::isWithinGracePeriod(const QString& username, int graceP
     return (secondsElapsed < gracePeriodSeconds);
 }
 
+// NEW: Public static method to record successful validation
 void PasswordValidation::recordSuccessfulValidation(const QString& username)
 {
     s_lastValidationTimes[username] = QDateTime::currentDateTime();

@@ -61,6 +61,11 @@ void custom_QTabWidget_Main::createTabVisibilityMenu()
 
         const QString& objectName = tabWidget->objectName();
 
+        // NEW: Skip settings tab - it should not be hideable
+        if (objectName == m_settingsTabObjectName) {
+            continue;
+        }
+
         // Get display name from our mapping, or use object name as fallback
         QString displayName = m_tabObjectNameToDisplayName.value(objectName, objectName);
 
@@ -116,7 +121,7 @@ void custom_QTabWidget_Main::updateTabVisibilityMenuStates()
 
         const QString& objectName = tabWidget->objectName();
 
-        // Update action if it exists
+        // Update action if it exists (settings tab won't have an action)
         if (m_tabVisibilityActions.contains(objectName)) {
             QAction* action = m_tabVisibilityActions[objectName];
             bool isVisible = isTabVisible(i);
@@ -143,6 +148,16 @@ void custom_QTabWidget_Main::onTabVisibilityToggled()
             action->setChecked(true);
             return;
         }
+
+        // NEW: Before hiding any tab, switch to settings tab for security
+        int settingsTabIndex = getTabIndexByObjectName(m_settingsTabObjectName);
+        if (settingsTabIndex >= 0) {
+            // Ensure settings tab is visible first
+            setTabVisible(settingsTabIndex, true);
+            // Switch to settings tab before hiding the requested tab
+            setCurrentIndex(settingsTabIndex);
+            qDebug() << "Switched to settings tab before hiding tab:" << objectName;
+        }
     }
 
     // Make the tab visible/hidden
@@ -159,6 +174,12 @@ void custom_QTabWidget_Main::onTabVisibilityToggled()
 
 void custom_QTabWidget_Main::setTabVisibleByObjectName(const QString& tabObjectName, bool visible)
 {
+    // NEW: Prevent hiding the settings tab
+    if (tabObjectName == m_settingsTabObjectName && !visible) {
+        qDebug() << "Attempt to hide settings tab blocked - settings tab cannot be hidden";
+        return;
+    }
+
     int tabIndex = getTabIndexByObjectName(tabObjectName);
     if (tabIndex >= 0) {
         setTabVisible(tabIndex, visible);
@@ -209,6 +230,16 @@ void custom_QTabWidget_Main::setRequirePasswordForTab(const QString& tabObjectNa
 void custom_QTabWidget_Main::setSettingsTabObjectName(const QString& tabObjectName)
 {
     m_settingsTabObjectName = tabObjectName;
+}
+
+// NEW: Method to ensure settings tab is always visible
+void custom_QTabWidget_Main::ensureSettingsTabVisible()
+{
+    int settingsTabIndex = getTabIndexByObjectName(m_settingsTabObjectName);
+    if (settingsTabIndex >= 0) {
+        setTabVisible(settingsTabIndex, true);
+        qDebug() << "Ensured settings tab is visible";
+    }
 }
 
 bool custom_QTabWidget_Main::eventFilter(QObject *watched, QEvent *event)
