@@ -8,6 +8,23 @@
 #include <QMessageBox>
 #include <QMutex>
 class MainWindow;
+
+// Image validation structures
+struct ImageValidationResult {
+    bool isValid;
+    bool needsThumbnailRecreation;
+    QString validImagePath;
+    QString errorMessage;
+};
+
+struct ImageCleanupInfo {
+    QString diaryPath;
+    QStringList brokenImageEntries; // Original image data that needs to be removed/fixed
+    QMap<QString, QString> imageReplacements; // old -> new image data mappings
+};
+
+static QMap<QString, ImageCleanupInfo> pendingCleanups;
+
 class Operations_Diary : public QObject
 {
     Q_OBJECT
@@ -31,7 +48,7 @@ private:
     void processAndAddImages(const QStringList& imagePaths, bool forceThumbnails = false);
     void addImageToDisplay(const QString& imagePath, bool isThumbnail);
     bool openImageWithViewer(const QString& imagePath);
-    void cleanupBrokenImageReferences();
+    void cleanupBrokenImageReferences(const QString& diaryFilePath);
 
     // Constants for image handling
     static const int MAX_IMAGE_WIDTH = 0;
@@ -72,6 +89,11 @@ private:
     void exportSingleImage(QListWidgetItem* item);
     void exportSpecificImage(QListWidgetItem* item, int imageIndex);
     void exportSelectedImage(QListWidgetItem* item);
+
+    // Image validation and repair methods
+    ImageValidationResult validateImageFile(const QString& imageFilename, const QString& diaryDir);
+    bool recreateThumbnail(const QString& thumbnailPath, const QString& diaryDir);
+    QPixmap generateThumbnail_FromPixmap(const QPixmap& originalPixmap, int maxSize = 64);
 
 public:
     ~Operations_Diary();

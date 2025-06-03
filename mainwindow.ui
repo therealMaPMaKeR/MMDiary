@@ -1715,7 +1715,7 @@
                <item row="2" column="0">
                 <widget class="QLabel" name="label_24">
                  <property name="text">
-                  <string>Require Password to view tab: </string>
+                  <string>Require password to view tab: </string>
                  </property>
                 </widget>
                </item>
