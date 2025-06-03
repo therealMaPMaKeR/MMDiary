@@ -284,27 +284,19 @@ void MainWindow::showAndActivate() {
         // If within grace period, continue without password prompt
     }
 
-    // Check if current tab requires password protection and grace period has expired
-    if (isCurrentTabPasswordProtected()) {
+    // Check if we should open on settings tab OR if grace period expired for password-protected tab
+    bool shouldOpenOnSettings = setting_OpenOnSettings;
+
+    // Also open on settings if current tab is password-protected and grace period expired
+    if (!shouldOpenOnSettings && isCurrentTabPasswordProtected()) {
         int gracePeriodSeconds = PasswordValidation::getGracePeriodForUser(user_Username);
-
         if (!PasswordValidation::isWithinGracePeriod(user_Username, gracePeriodSeconds)) {
-            // Grace period expired for password-protected tab, switch to settings tab
+            shouldOpenOnSettings = true;
             qDebug() << "Grace period expired for password-protected tab, switching to settings";
-
-            // Ensure settings tab is visible
-            ui->tabWidget_Main->ensureSettingsTabVisible();
-
-            // Find the settings tab index dynamically
-            int settingsTabIndex = Operations::GetTabIndexByObjectName("tab_Settings", ui->tabWidget_Main);
-            if (settingsTabIndex >= 0) {
-                ui->tabWidget_Main->setCurrentIndex(settingsTabIndex);
-            }
         }
     }
 
-    // Check if we should open on settings tab
-    if (setting_OpenOnSettings) {
+    if (shouldOpenOnSettings) {
         // Ensure settings tab is visible
         ui->tabWidget_Main->ensureSettingsTabVisible();
 
