@@ -1936,6 +1936,15 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
         bool isImageItem = selectedItem->data(Qt::UserRole+3).toBool();
 
         if (isImageItem) {
+
+            // Check if click was actually on an image
+            m_clickedImageIndex = calculateClickedImageIndex(selectedItem, pos);
+
+            if (m_clickedImageIndex == -1) {
+                // Click was not on an image, don't show context menu
+                return;
+            }
+
             // ENABLE CLICK DETECTION FOR MULTI-IMAGE SUPPORT
             m_clickedImageIndex = calculateClickedImageIndex(selectedItem, pos);
 
@@ -3278,67 +3287,97 @@ int Operations_Diary::calculateClickedImageIndex(QListWidgetItem* item, const QP
         return -1; // Not an image item
     }
 
-    bool isMultiImage = item->data(Qt::UserRole+5).toBool();
-    if (!isMultiImage) {
-        return 0; // Single image, always index 0
-    }
-
-    QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
-    int imageCount = qMin(imagePaths.size(), 10); // Cap at 10 images
-
-    if (imageCount <= 1) {
-        return 0;
-    }
-
     // Get the item's rect in widget coordinates
     QRect itemRect = m_mainWindow->ui->DiaryTextDisplay->visualItemRect(item);
 
     // Convert click position to relative coordinates within the item
     QPoint relativePos = clickPos - itemRect.topLeft();
 
-    // Grid layout constants (must match paintMultipleImages)
-    const int THUMBNAIL_SIZE = 64;
-    const int MARGIN = 10;
-    const int SPACING = 5;
+    bool isMultiImage = item->data(Qt::UserRole+5).toBool();
 
-    // Calculate available width and images per row
-    int availableWidth = itemRect.width() - (2 * MARGIN);
-    int imagesPerRow = availableWidth / (THUMBNAIL_SIZE + SPACING);
-    if (imagesPerRow < 1) imagesPerRow = 1;
+    if (!isMultiImage) {
+        // Single image click detection
+        const int THUMBNAIL_SIZE = 64;
+        const int MARGIN = 10;
 
-    // Account for margins
-    int clickX = relativePos.x() - MARGIN;
-    int clickY = relativePos.y() - MARGIN;
+        // Calculate image position (same logic as paintSingleImage)
+        int imageX = MARGIN;
+        int imageY = MARGIN;
 
-    // Check if click is outside the image area
-    if (clickX < 0 || clickY < 0) {
-        return -1;
+        // Get the actual thumbnail size by trying to load it
+        QString imagePath = item->data(Qt::UserRole+4).toString();
+        QPixmap imagePixmap = loadEncryptedImage(imagePath);
+
+        if (!imagePixmap.isNull()) {
+            // Scale to thumbnail size while preserving aspect ratio
+            QPixmap thumbnail = imagePixmap.scaled(THUMBNAIL_SIZE, THUMBNAIL_SIZE,
+                                                   Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+            // Center the thumbnail in the 64x64 space
+            int drawX = imageX + (THUMBNAIL_SIZE - thumbnail.width()) / 2;
+            int drawY = imageY + (THUMBNAIL_SIZE - thumbnail.height()) / 2;
+
+            // Check if click is within the actual thumbnail bounds
+            if (relativePos.x() >= drawX && relativePos.x() <= drawX + thumbnail.width() &&
+                relativePos.y() >= drawY && relativePos.y() <= drawY + thumbnail.height()) {
+                return 0; // Single image clicked
+            }
+        }
+
+        return -1; // Click outside single image
+    } else {
+        // Multi-image click detection (existing logic)
+        QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
+        int imageCount = qMin(imagePaths.size(), 10); // Cap at 10 images
+
+        if (imageCount <= 1) {
+            return 0;
+        }
+
+        // Grid layout constants (must match paintMultipleImages)
+        const int THUMBNAIL_SIZE = 64;
+        const int MARGIN = 10;
+        const int SPACING = 5;
+
+        // Calculate available width and images per row
+        int availableWidth = itemRect.width() - (2 * MARGIN);
+        int imagesPerRow = availableWidth / (THUMBNAIL_SIZE + SPACING);
+        if (imagesPerRow < 1) imagesPerRow = 1;
+
+        // Account for margins
+        int clickX = relativePos.x() - MARGIN;
+        int clickY = relativePos.y() - MARGIN;
+
+        // Check if click is outside the image area
+        if (clickX < 0 || clickY < 0) {
+            return -1;
+        }
+
+        // Calculate grid position
+        int col = clickX / (THUMBNAIL_SIZE + SPACING);
+        int row = clickY / (THUMBNAIL_SIZE + SPACING);
+
+        // Convert to image index
+        int imageIndex = (row * imagesPerRow) + col;
+
+        // Validate bounds
+        if (imageIndex < 0 || imageIndex >= imageCount) {
+            return -1;
+        }
+
+        // Additional check: ensure click is within the actual thumbnail area
+        int thumbnailStartX = col * (THUMBNAIL_SIZE + SPACING);
+        int thumbnailStartY = row * (THUMBNAIL_SIZE + SPACING);
+        int thumbnailEndX = thumbnailStartX + THUMBNAIL_SIZE;
+        int thumbnailEndY = thumbnailStartY + THUMBNAIL_SIZE;
+
+        if (clickX >= thumbnailStartX && clickX <= thumbnailEndX &&
+            clickY >= thumbnailStartY && clickY <= thumbnailEndY) {
+            return imageIndex;
+        }
+
+        return -1; // Click was in spacing/margin area
     }
-
-    // Calculate grid position
-    int col = clickX / (THUMBNAIL_SIZE + SPACING);
-    int row = clickY / (THUMBNAIL_SIZE + SPACING);
-
-    // Convert to image index
-    int imageIndex = (row * imagesPerRow) + col;
-
-    // Validate bounds
-    if (imageIndex < 0 || imageIndex >= imageCount) {
-        return -1;
-    }
-
-    // Additional check: ensure click is within the actual thumbnail area
-    int thumbnailStartX = col * (THUMBNAIL_SIZE + SPACING);
-    int thumbnailStartY = row * (THUMBNAIL_SIZE + SPACING);
-    int thumbnailEndX = thumbnailStartX + THUMBNAIL_SIZE;
-    int thumbnailEndY = thumbnailStartY + THUMBNAIL_SIZE;
-
-    if (clickX >= thumbnailStartX && clickX <= thumbnailEndX &&
-        clickY >= thumbnailStartY && clickY <= thumbnailEndY) {
-        return imageIndex;
-    }
-
-    return -1; // Click was in spacing/margin area
 }
 
 void Operations_Diary::deleteSpecificImage(QListWidgetItem* item, int imageIndex)
@@ -4343,29 +4382,29 @@ void Operations_Diary::on_DiaryTextDisplay_entered(const QModelIndex &index)
 
 void Operations_Diary::on_DiaryTextDisplay_clicked()
 {
-    // Get the current item that was clicked
     QListWidgetItem* currentItem = m_mainWindow->ui->DiaryTextDisplay->currentItem();
 
     if (currentItem) {
-        // Check if this is an image item
         bool isImageItem = currentItem->data(Qt::UserRole+3).toBool();
 
         if (isImageItem) {
-            // Get the click position from the widget
             QPoint clickPos = m_mainWindow->ui->DiaryTextDisplay->getLastClickPos();
 
-            // Use the SAME logic as context menu for click detection
+            // Check if click was actually on an image
             m_clickedImageIndex = calculateClickedImageIndex(currentItem, clickPos);
 
+            if (m_clickedImageIndex == -1) {
+                // Click was not on an image, don't do anything
+                m_mainWindow->ui->DiaryTextInput->setFocus();
+                return;
+            }
+
+            // Click was on an image, proceed with image handling
             bool isMultiImage = currentItem->data(Qt::UserRole+5).toBool();
 
             if (isMultiImage && m_clickedImageIndex >= 0) {
-                // Specific image was clicked in a multi-image item - open that exact image
                 handleSpecificImageClick(currentItem, m_clickedImageIndex);
-            } else {
-                // Single image OR no specific image detected in multi-image
-                // For single images: opens directly
-                // For multi-images with no specific click: shows selection dialog
+            } else if (!isMultiImage && m_clickedImageIndex == 0) {
                 handleImageClick(currentItem);
             }
             return;

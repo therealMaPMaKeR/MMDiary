@@ -71,11 +71,15 @@ private:
 
     // Helper functions for image deletion and click detection
     void deleteImageFiles(const QString& imageData, const QString& diaryDir);
-    int calculateClickedImageIndex(QListWidgetItem* item, const QPoint& clickPos);
     void deleteSpecificImage(QListWidgetItem* item, int imageIndex);
     QString removeImageFromData(const QString& imageData, int indexToRemove);
     void updateImageEntryInDiary(QListWidgetItem* item, const QString& originalImageData);
     void handleSpecificImageClick(QListWidgetItem* item, int imageIndex);
+
+    // Returns the index of the clicked image, or -1 if no image was clicked
+    // For single images: returns 0 if clicked on image, -1 if not
+    // For multi images: returns index of clicked image, -1 if clicked outside all images
+    int calculateClickedImageIndex(QListWidgetItem* item, const QPoint& clickPos);
 
     // Helper functions for thumbnail/original image handling
     bool isThumbnailPath(const QString& imagePath) const;
