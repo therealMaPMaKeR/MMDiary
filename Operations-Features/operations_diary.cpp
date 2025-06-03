@@ -18,7 +18,9 @@
 #include <QPainter>
 #include <QInputDialog>
 #include <QFileDialog>
-
+#include <QEvent>
+#include <QApplication>
+#include <QMouseEvent>
 
 
 Operations_Diary::Operations_Diary(MainWindow* mainWindow)
@@ -36,10 +38,16 @@ Operations_Diary::Operations_Diary(MainWindow* mainWindow)
             this, [this](const QStringList& imagePaths) {
                 processAndAddImages(imagePaths, imagePaths.size() > 1);
             });
+
+    QApplication::instance()->installEventFilter(this);
 }
 
 Operations_Diary::~Operations_Diary()
 {
+    QApplication::instance()->removeEventFilter(this);
+
+    // Clean up any open image viewers
+    cleanupOpenImageViewers();
 }
 
 // Operational Functions
@@ -247,6 +255,43 @@ QString Operations_Diary::FindLastTimeStampType(int index)
         }
     }
     return "";
+}
+
+bool Operations_Diary::eventFilter(QObject* watched, QEvent* event)
+{
+    // Only handle mouse press events
+    if (event->type() == QEvent::MouseButtonPress) {
+        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+
+        // Check if the click is on any diary ImageViewer window
+        bool clickOnDiaryViewer = false;
+
+        for (auto it = m_openImageViewers.begin(); it != m_openImageViewers.end(); ++it) {
+            QPointer<ImageViewer> viewer = it.value();
+            if (viewer && !viewer.isNull()) {
+                // Check if this is a diary viewer
+                bool isDiaryViewer = viewer->property("isDiaryViewer").toBool();
+                if (isDiaryViewer) {
+                    // Check if the mouse click is within this viewer's window
+                    QPoint globalClickPos = mouseEvent->globalPosition().toPoint();
+                    QRect viewerGeometry = viewer->frameGeometry();
+
+                    if (viewerGeometry.contains(globalClickPos)) {
+                        clickOnDiaryViewer = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // If click was not on a diary viewer, close all diary viewers
+        if (!clickOnDiaryViewer && !m_openImageViewers.isEmpty()) {
+            closeAllDiaryImageViewers();
+        }
+    }
+
+    // Always pass the event to the parent for normal processing
+    return QObject::eventFilter(watched, event);
 }
 
 // Diary Operations
@@ -2681,6 +2726,27 @@ bool Operations_Diary::openImageWithViewer(const QString& imagePath)
         return false;
     }
 
+    // Check if this image is already open in a viewer
+    if (m_openImageViewers.contains(imagePath)) {
+        QPointer<ImageViewer> existingViewer = m_openImageViewers[imagePath];
+
+        // Check if the viewer still exists and is valid
+        if (existingViewer && !existingViewer.isNull()) {
+            qDebug() << "Closing existing ImageViewer to reopen fresh for:" << imagePath;
+
+            // Close the existing viewer - this will trigger cleanup via destroyed signal
+            existingViewer->close();
+            existingViewer->deleteLater();
+
+            // Remove from tracking immediately since we're closing it
+            m_openImageViewers.remove(imagePath);
+        } else {
+            // Viewer was already destroyed, just remove it from tracking
+            qDebug() << "Removing destroyed viewer from tracking:" << imagePath;
+            m_openImageViewers.remove(imagePath);
+        }
+    }
+
     try {
         // Read the encrypted binary data
         QFile encryptedFile(imagePath);
@@ -2728,6 +2794,9 @@ bool Operations_Diary::openImageWithViewer(const QString& imagePath)
         // Create new image viewer instance (non-modal, multiple instances allowed)
         ImageViewer* viewer = new ImageViewer(m_mainWindow);
 
+        // Mark this viewer as a diary viewer so we can distinguish it from other viewers
+        viewer->setProperty("isDiaryViewer", true);
+
         // FIXED: Use file path overload for proper GIF detection
         bool loadSuccess = viewer->loadImage(tempFilePath);
 
@@ -2738,8 +2807,19 @@ bool Operations_Diary::openImageWithViewer(const QString& imagePath)
             return false;
         }
 
+        // Add the viewer to our tracking map
+        m_openImageViewers[imagePath] = QPointer<ImageViewer>(viewer);
+        qDebug() << "Created new ImageViewer for:" << imagePath << "Total open viewers:" << m_openImageViewers.size();
+
         // Clean up temp file when viewer is destroyed using secure deletion
-        connect(viewer, &QObject::destroyed, [tempFilePath]() {
+        connect(viewer, &QObject::destroyed, [this, tempFilePath, imagePath]() {
+            // Remove from tracking when viewer is destroyed
+            if (m_openImageViewers.contains(imagePath)) {
+                m_openImageViewers.remove(imagePath);
+                qDebug() << "Removed viewer from tracking on destruction:" << imagePath << "Remaining viewers:" << m_openImageViewers.size();
+            }
+
+            // Clean up temporary file
             bool deleteSuccess = OperationsFiles::secureDelete(tempFilePath, 3, true); // Allow external files
             if (deleteSuccess) {
                 qDebug() << "Securely deleted temporary image file:" << tempFilePath;
@@ -4181,6 +4261,48 @@ QPixmap Operations_Diary::generateThumbnail_FromPixmap(const QPixmap& originalPi
     painter.drawPixmap(x, y, thumbnail);
 
     return squareThumbnail;
+}
+
+void Operations_Diary::closeAllDiaryImageViewers()
+{
+    qDebug() << "Closing all diary image viewers";
+
+    // Close only viewers that are marked as diary viewers
+    for (auto it = m_openImageViewers.begin(); it != m_openImageViewers.end();) {
+        QPointer<ImageViewer> viewer = it.value();
+        if (viewer && !viewer.isNull()) {
+            // Check if this viewer is marked as a diary viewer
+            bool isDiaryViewer = viewer->property("isDiaryViewer").toBool();
+            if (isDiaryViewer) {
+                qDebug() << "Closing diary viewer for:" << it.key();
+                viewer->close();
+                viewer->deleteLater();
+                it = m_openImageViewers.erase(it); // Remove and get next iterator
+            } else {
+                ++it; // Keep non-diary viewers, move to next
+            }
+        } else {
+            // Viewer was already destroyed, remove from tracking
+            it = m_openImageViewers.erase(it);
+        }
+    }
+}
+
+void Operations_Diary::cleanupOpenImageViewers()
+{
+    qDebug() << "Cleaning up" << m_openImageViewers.size() << "open image viewers";
+
+    // Close all open viewers
+    for (auto it = m_openImageViewers.begin(); it != m_openImageViewers.end(); ++it) {
+        QPointer<ImageViewer> viewer = it.value();
+        if (viewer && !viewer.isNull()) {
+            viewer->close();
+            viewer->deleteLater();
+        }
+    }
+
+    // Clear the tracking map
+    m_openImageViewers.clear();
 }
 
 // ----  SLOTS implementation ----- //

@@ -703,10 +703,10 @@ void MainWindow::SavePersistentSettings()
 
 bool MainWindow::eventFilter( QObject * obj, QEvent * event ) // event filter, used for the context menu
 {
-
     // Handle lineEdit_DisplayName focus loss
     if (event->type() == QEvent::MouseButtonPress) {
         QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+
         if (ui->lineEdit_DisplayName->hasFocus()) {
             // Check if the click is outside the lineEdit_DisplayName
             QPoint lineEditPos = ui->lineEdit_DisplayName->mapToGlobal(QPoint(0, 0));
@@ -721,7 +721,7 @@ bool MainWindow::eventFilter( QObject * obj, QEvent * event ) // event filter, u
     bool val= QObject::eventFilter(obj, event); // borrowed code, don't understand it well.
 
     if(QApplication::activePopupWidget()) // if context menu is open
-  {
+    {
         if(event->type() == QEvent::KeyPress)
         {
             ui->DiaryTextDisplay->clearSelection(); // clear the selection so that we cant open the context menu on the current item by right clicking a different item
@@ -731,38 +731,38 @@ bool MainWindow::eventFilter( QObject * obj, QEvent * event ) // event filter, u
             return val; // return the value of the keypress. might change to true in the future if conflicts happen.
         }
 
-    QMenu * menu = dynamic_cast<QMenu*>(obj); // borrowed code, don't understand it well. I think its supposed to check if context menu is open but it doesnt actually work
-    if(menu && event->type() == QEvent::MouseButtonPress) // Mouse button is pressed
-    {
-        QMouseEvent * ev = dynamic_cast<QMouseEvent*>(event); //convert event to QMouseEvent
-        if(ev)
+        QMenu * menu = dynamic_cast<QMenu*>(obj); // borrowed code, don't understand it well. I think its supposed to check if context menu is open but it doesnt actually work
+        if(menu && event->type() == QEvent::MouseButtonPress) // Mouse button is pressed
         {
-            if(ev->button() == Qt::RightButton) // if event is right button
+            QMouseEvent * ev = dynamic_cast<QMouseEvent*>(event); //convert event to QMouseEvent
+            if(ev)
             {
-                ev->ignore(); // ignore the event
-                if(!QApplication::activePopupWidget()->underMouse()) // if the users mouse is over the context menu
+                if(ev->button() == Qt::RightButton) // if event is right button
                 {
-                ui->DiaryTextDisplay->clearSelection(); // clear the selection so that we cant open the context menu on the current item by right clicking a different item
-                QApplication::activePopupWidget()->close(); // close the context menu
+                    ev->ignore(); // ignore the event
+                    if(!QApplication::activePopupWidget()->underMouse()) // if the users mouse is over the context menu
+                    {
+                        ui->DiaryTextDisplay->clearSelection(); // clear the selection so that we cant open the context menu on the current item by right clicking a different item
+                        QApplication::activePopupWidget()->close(); // close the context menu
+                    }
+                    return true; // yes we filter the event
                 }
-                return true; // yes we filter the event
             }
         }
-    }
-    else if(menu && event->type() == QEvent::MouseButtonRelease) // if mouse button released
-    {
-        QMouseEvent * ev = dynamic_cast<QMouseEvent*>(event); //convert event to QMouseEvent
-        if(ev)
+        else if(menu && event->type() == QEvent::MouseButtonRelease) // if mouse button released
         {
-            if(ev->button() == Qt::RightButton)
+            QMouseEvent * ev = dynamic_cast<QMouseEvent*>(event); //convert event to QMouseEvent
+            if(ev)
             {
-                ev->ignore();
-                return true; // yes we filter the event
+                if(ev->button() == Qt::RightButton)
+                {
+                    ev->ignore();
+                    return true; // yes we filter the event
+                }
             }
         }
-    }
 
-  }
+    }
 
     return val;
 }

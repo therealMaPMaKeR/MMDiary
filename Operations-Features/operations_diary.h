@@ -7,7 +7,10 @@
 #include "../Operations-Global/inputvalidation.h"
 #include <QMessageBox>
 #include <QMutex>
+#include <QPointer>
+
 class MainWindow;
+class ImageViewer;
 
 // Image validation structures
 struct ImageValidationResult {
@@ -99,6 +102,13 @@ private:
     bool recreateThumbnail(const QString& thumbnailPath, const QString& diaryDir);
     QPixmap generateThumbnail_FromPixmap(const QPixmap& originalPixmap, int maxSize = 64);
 
+    // Image viewer tracking to prevent duplicate windows
+    QMap<QString, QPointer<ImageViewer>> m_openImageViewers;
+
+    // Helper method to clean up open viewers
+    void cleanupOpenImageViewers();
+    void closeAllDiaryImageViewers();
+
 public:
     ~Operations_Diary();
     explicit Operations_Diary(MainWindow* mainWindow);
@@ -146,6 +156,9 @@ public slots:
 
 signals:
     void UpdateFontSize(int size, bool resize);
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
 };
 
 #endif // OPERATIONS_DIARY_H
