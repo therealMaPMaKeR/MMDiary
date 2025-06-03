@@ -1353,9 +1353,18 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
             qDebug() << "DIARY-DEBUG6:  - Visual rect:" << m_mainWindow->ui->DiaryTextDisplay->visualItemRect(item);
         }
     }
-    UpdateDisplayName();
-    UpdateFontSize(m_mainWindow->setting_Diary_TextSize, true);
-    QTimer::singleShot(50, this, &Operations_Diary::ScrollBottom); // scroll to bottom of diary text display // we use a very short delay otherwise it doesnt fully scroll down due to fontsize changes.
+
+    // Defer these calls to avoid UI inconsistency issues
+    QTimer::singleShot(0, this, [this]() {
+        UpdateDisplayName();
+    });
+
+    QTimer::singleShot(10, this, [this]() {
+        UpdateFontSize(m_mainWindow->setting_Diary_TextSize, true);
+    });
+
+    QTimer::singleShot(50, this, &Operations_Diary::ScrollBottom);
+
 
     // If we found broken image references, clean them up AFTER the diary is fully loaded
     if (markDiaryForCleanup) {
