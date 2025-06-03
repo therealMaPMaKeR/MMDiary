@@ -1177,10 +1177,99 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
         }
     }
 
-    items = getTextDisplayItems(); // Update the list of all the text in the listview diary text display. //Make a Widget List of all the text in the listview diary text display.
-    if(m_mainWindow->ui->DiaryTextDisplay->item(items.length() -1)->text().contains(GetDiaryDateStamp(formattedTime))) //if last line is a datestamp, guarantee a timestamp on next entry
-    {
-        cur_entriesNoSpacer = 100000; // set absurd value to make sure that we will add a timestamp on our first entry, in this case, when an empty journal is loaded.
+    items = getTextDisplayItems(); // Update the list of all the text in the listview diary text display.
+
+    // Check if this is today's diary and calculate proper cur_entriesNoSpacer
+    fileInfo.setFile(DiaryFileName);
+    fileName.clear();
+    fileName = fileInfo.fileName();
+    QString datePart = fileName.left(fileName.lastIndexOf('.'));
+
+    if (datePart == formattedTime) { // If we loaded today's diary
+        // Find the last timestamp in the display and calculate entries since then
+        QList<QListWidgetItem*> allItems = getTextDisplayItems();
+
+        // Check if diary is empty (only contains date stamp)
+        if (allItems.length() <= 1 ||
+            (allItems.length() > 0 && allItems.last()->text().contains(GetDiaryDateStamp(formattedTime)))) {
+            // Empty diary, guarantee a timestamp on next entry
+            cur_entriesNoSpacer = 100000;
+        } else {
+            // Find the last timestamp marker (either regular or task manager)
+            int lastTimestampIndex = -1;
+
+            for (int i = allItems.size() - 1; i >= 0; i--) {
+                QListWidgetItem* item = allItems[i];
+                if (item->text() == Constants::Diary_TimeStampStart ||
+                    item->text() == Constants::Diary_TaskManagerStart) {
+                    lastTimestampIndex = i;
+                    break;
+                }
+            }
+
+            if (lastTimestampIndex >= 0) {
+                // Count entries after the last timestamp
+                int entriesCount = 0;
+
+                // Start counting from after the timestamp marker
+                // Skip the timestamp marker itself and the actual timestamp text
+                int startIndex = lastTimestampIndex + 2; // +1 for marker, +1 for timestamp text
+
+                for (int i = startIndex; i < allItems.size(); i++) {
+                    QListWidgetItem* item = allItems[i];
+
+                    // Skip spacers, hidden items, markers, and disabled items
+                    if (item->text() == Constants::Diary_Spacer ||
+                        item->text() == Constants::Diary_TextBlockStart ||
+                        item->text() == Constants::Diary_TextBlockEnd ||
+                        item->text() == Constants::Diary_TimeStampStart ||
+                        item->text() == Constants::Diary_TaskManagerStart ||
+                        item->isHidden() ||
+                        !(item->flags() & Qt::ItemIsEnabled)) {
+                        continue;
+                    }
+
+                    // Check if this is an image item
+                    bool isImageItem = item->data(Qt::UserRole+3).toBool();
+
+                    if (isImageItem) {
+                        // For image groups, set to TStampCounter - 1 and continue counting from there
+                        entriesCount = qMax(0, m_mainWindow->setting_Diary_TStampCounter - 1);
+
+                        // Continue counting any entries that come after this image
+                        // (this handles the case where there are multiple entries after an image)
+
+                    } else if (item->text().contains("\n")) {
+                        // Text block - count 1 + number of newlines
+                        int newlineCount = 0;
+                        for (QChar c : item->text()) {
+                            if (c == '\n') {
+                                newlineCount++;
+                            }
+                        }
+                        entriesCount += (1 + newlineCount);
+
+                    } else {
+                        // Regular text entry
+                        entriesCount += 1;
+                    }
+                }
+
+                // Ensure the count doesn't go below 0
+                cur_entriesNoSpacer = qMax(0, entriesCount);
+
+                qDebug() << "Calculated cur_entriesNoSpacer for today's diary:" << cur_entriesNoSpacer;
+
+            } else {
+                // No timestamp found, set to high value to ensure timestamp on next entry
+                cur_entriesNoSpacer = 100000;
+                qDebug() << "No timestamp found in today's diary, setting cur_entriesNoSpacer to 100000";
+            }
+        }
+    } else {
+        // Not today's diary, set to high value
+        cur_entriesNoSpacer = 100000;
+        qDebug() << "Not today's diary, setting cur_entriesNoSpacer to 100000";
     }
 
     //add a spacer that is used only for one reason, being able to deselect the last entry of the display. IT IS NOT SAVED INTO OUR DIARY FILE
@@ -1194,7 +1283,7 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
     fileInfo.setFile(DiaryFileName);
     fileName.clear();
     fileName = fileInfo.fileName();
-    QString datePart = fileName.left(fileName.lastIndexOf('.'));
+    datePart = fileName.left(fileName.lastIndexOf('.'));
 
     if(datePart != formattedTime) // if we are not loading todays diary
     {
