@@ -6,6 +6,13 @@
 #include <QResizeEvent>
 #include <QEvent>
 #include <QMouseEvent>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QUrl>
+#include <QFileInfo>
+#include <QTimer>
 
 class custom_QTextEditWidget;
 
@@ -34,6 +41,11 @@ protected:
     void leaveEvent(QEvent *event) override;
     void enterEvent(QEnterEvent *event) override;
 
+    // Add drag & drop event handlers
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
+
 public slots:
     void keyPressEvent(QKeyEvent *event); // needed for event filter to work in main window because it makes the slot public
     void UpdateFontSize_Slot(int size, bool resize);
@@ -49,9 +61,16 @@ private:
 
     QPoint m_lastClickPos;
 
+    // Helper methods for drag & drop
+    bool isImageFile(const QString& filePath);
+    QStringList getSupportedImageFormats();
+
 signals:
     void sizeUpdateStarted();
     void sizeUpdateFinished();
+
+    // Add signal for image dropping
+    void imagesDropped(const QStringList& imagePaths);
 };
 
 #endif // CUSTOM_QLISTWIDGET_H

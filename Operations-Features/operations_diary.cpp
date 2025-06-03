@@ -28,13 +28,19 @@ Operations_Diary::Operations_Diary(MainWindow* mainWindow)
 {
     DiariesFilePath = "Data/" + m_mainWindow->user_Username + "/Diaries/";
 
-    // Connect image handling signals
+    // Connect image handling signals from DiaryTextInput
     connect(m_mainWindow->ui->DiaryTextInput, &custom_QTextEditWidget::imagesDropped,
             this, [this](const QStringList& imagePaths) {
                 processAndAddImages(imagePaths, imagePaths.size() > 1);
             });
 
     connect(m_mainWindow->ui->DiaryTextInput, &custom_QTextEditWidget::imagesPasted,
+            this, [this](const QStringList& imagePaths) {
+                processAndAddImages(imagePaths, imagePaths.size() > 1);
+            });
+
+    // Connect image handling signals from DiaryTextDisplay (reroute to same logic)
+    connect(m_mainWindow->ui->DiaryTextDisplay, &custom_QListWidget::imagesDropped,
             this, [this](const QStringList& imagePaths) {
                 processAndAddImages(imagePaths, imagePaths.size() > 1);
             });

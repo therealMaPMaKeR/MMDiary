@@ -8,6 +8,7 @@
 #include <QTextDocument>
 #include <QListWidgetItem>
 #include <QDebug>
+#include <QTimer>
 #include "../Operations-Global/inputvalidation.h" // Add this include
 
 custom_QListWidget::custom_QListWidget(QWidget *parent)
@@ -16,6 +17,14 @@ custom_QListWidget::custom_QListWidget(QWidget *parent)
     this->setParent(parent);
     this->show();
     this->setContextMenuPolicy(Qt::CustomContextMenu);
+
+    // Enable drag & drop
+    setAcceptDrops(true);
+
+    // Use a delay to re-enable drag & drop in case something else disables it
+    QTimer::singleShot(100, this, [this]() {
+        setAcceptDrops(true);
+    });
 }
 
 custom_QListWidget::~custom_QListWidget()
@@ -289,4 +298,75 @@ void custom_QListWidget::updateItemFonts()
 
     // After updating fonts, update the item sizes
     updateItemSizes();
+}
+
+// Drag & Drop implementation
+void custom_QListWidget::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (event->mimeData()->hasUrls()) {
+        QStringList imagePaths;
+
+        foreach(const QUrl &url, event->mimeData()->urls()) {
+            QString filePath = url.toLocalFile();
+            if (isImageFile(filePath)) {
+                imagePaths.append(filePath);
+            }
+        }
+
+        if (!imagePaths.isEmpty()) {
+            event->acceptProposedAction();
+            return;
+        }
+    }
+
+    QListWidget::dragEnterEvent(event);
+}
+
+void custom_QListWidget::dragMoveEvent(QDragMoveEvent *event)
+{
+    if (event->mimeData()->hasUrls()) {
+        event->acceptProposedAction();
+    } else {
+        QListWidget::dragMoveEvent(event);
+    }
+}
+
+void custom_QListWidget::dropEvent(QDropEvent *event)
+{
+    if (event->mimeData()->hasUrls()) {
+        QStringList imagePaths;
+
+        foreach(const QUrl &url, event->mimeData()->urls()) {
+            QString filePath = url.toLocalFile();
+            if (isImageFile(filePath)) {
+                imagePaths.append(filePath);
+            }
+        }
+
+        if (!imagePaths.isEmpty()) {
+            emit imagesDropped(imagePaths);
+            event->acceptProposedAction();
+            return;
+        }
+    }
+
+    QListWidget::dropEvent(event);
+}
+
+bool custom_QListWidget::isImageFile(const QString& filePath)
+{
+    if (!QFileInfo::exists(filePath)) {
+        return false;
+    }
+
+    QStringList supportedFormats = getSupportedImageFormats();
+    QString fileExtension = QFileInfo(filePath).suffix().toLower();
+
+    return supportedFormats.contains(fileExtension);
+}
+
+QStringList custom_QListWidget::getSupportedImageFormats()
+{
+    return QStringList() << "png" << "jpg" << "jpeg" << "gif" << "bmp"
+                         << "tiff" << "tif" << "webp" << "ico" << "svg";
 }
