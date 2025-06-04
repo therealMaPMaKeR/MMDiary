@@ -98,7 +98,6 @@ void CombinedDelegate::updateEditorGeometry(QWidget *editor, const QStyleOptionV
 }
 
 QSize CombinedDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
-
     // First check if the item has a specific size hint set
     QVariant sizeHintVar = index.data(Qt::SizeHintRole);
     if (sizeHintVar.isValid()) {
@@ -108,46 +107,20 @@ QSize CombinedDelegate::sizeHint(const QStyleOptionViewItem &option, const QMode
     // Check if this is an image item - handle it specially
     bool isImageItem = index.data(Qt::UserRole+3).toBool();
     if (isImageItem) {
-        qDebug() << "=== sizeHint called for image item";
+        qDebug() << "CombinedDelegate: sizeHint called for image item";
 
-        bool isMultiImage = index.data(Qt::UserRole+5).toBool();
+        // Single image only now - calculate size based on actual image dimensions
+        QString imagePath = index.data(Qt::UserRole+4).toString();
 
-        if (isMultiImage) {
-            // Multi-image item - calculate grid size
-            QStringList imagePaths = index.data(Qt::UserRole+4).toStringList();
-            int imageCount = qMin(imagePaths.size(), 10); // Cap at 10
+        // Try to get the actual display size for this image
+        QSize imageSize = getActualImageDisplaySize(imagePath);
 
-            const int THUMBNAIL_SIZE = 64;
-            const int MARGIN = 10;
-            const int SPACING = 5;
+        const int MARGIN = 10;
+        int totalHeight = imageSize.height() + (2 * MARGIN);
+        int totalWidth = imageSize.width() + (2 * MARGIN);
 
-            int availableWidth = option.rect.width();
-            if (availableWidth <= 0) {
-                availableWidth = 400; // Default width
-            }
-            availableWidth -= (2 * MARGIN);
-
-            int imagesPerRow = availableWidth / (THUMBNAIL_SIZE + SPACING);
-            if (imagesPerRow < 1) imagesPerRow = 1;
-
-            int rows = (imageCount + imagesPerRow - 1) / imagesPerRow; // Ceiling division
-            int totalHeight = (rows * THUMBNAIL_SIZE) + ((rows - 1) * SPACING) + (2 * MARGIN);
-            int totalWidth = qMin(imageCount, imagesPerRow) * (THUMBNAIL_SIZE + SPACING) - SPACING + (2 * MARGIN);
-
-            qDebug() << "Calculated multi-image size:" << QSize(totalWidth, totalHeight);
-            return QSize(totalWidth, totalHeight);
-        } else {
-            // Single image - use SAME size calculation as multi-image (1 image)
-            const int THUMBNAIL_SIZE = 64;
-            const int MARGIN = 10;
-
-            // Same calculation as multi-image with 1 image
-            int totalHeight = THUMBNAIL_SIZE + (2 * MARGIN);
-            int totalWidth = THUMBNAIL_SIZE + (2 * MARGIN);
-
-            qDebug() << "Calculated single image size (consistent):" << QSize(totalWidth, totalHeight);
-            return QSize(totalWidth, totalHeight);
-        }
+        qDebug() << "CombinedDelegate: Calculated single image size:" << QSize(totalWidth, totalHeight);
+        return QSize(totalWidth, totalHeight);
     }
 
     // Check if this is a colored text item
@@ -183,6 +156,81 @@ QSize CombinedDelegate::sizeHint(const QStyleOptionViewItem &option, const QMode
     }
 
     return size;
+}
+
+QSize CombinedDelegate::getActualImageDisplaySize(const QString& imagePath) const
+{
+    // Cache results to avoid repeated calculations
+    static QMap<QString, QSize> sizeCache;
+
+    if (sizeCache.contains(imagePath)) {
+        return sizeCache[imagePath];
+    }
+
+    QSize resultSize;
+
+    // Get the main window to access the encryption key and diary operations
+    QWidget* parentWidget = qobject_cast<QWidget*>(parent());
+    MainWindow* mainWindow = nullptr;
+    QWidget* current = parentWidget;
+    while (current && !mainWindow) {
+        mainWindow = qobject_cast<MainWindow*>(current);
+        current = current->parentWidget();
+    }
+
+    if (!mainWindow) {
+        qDebug() << "CombinedDelegate: No main window found, using default size";
+        resultSize = QSize(200, 150); // Reasonable default
+        sizeCache[imagePath] = resultSize;
+        return resultSize;
+    }
+
+    try {
+        // Load the actual image to determine its display size
+        QPixmap imagePixmap = loadImageForDisplay(imagePath);
+
+        if (!imagePixmap.isNull()) {
+            QSize originalSize = imagePixmap.size();
+
+            // Apply the same sizing logic as the diary would use
+            const int MAX_WIDTH = 400;
+            const int MAX_HEIGHT = 300;
+            const int MIN_SIZE = 64;
+
+            // Check if image is very small
+            if (originalSize.width() < MIN_SIZE && originalSize.height() < MIN_SIZE) {
+                // Scale up to minimum size
+                double scaleX = double(MIN_SIZE) / originalSize.width();
+                double scaleY = double(MIN_SIZE) / originalSize.height();
+                double scale = qMax(scaleX, scaleY);
+
+                resultSize = QSize(
+                    qRound(originalSize.width() * scale),
+                    qRound(originalSize.height() * scale)
+                    );
+            }
+            // Check if image is too large
+            else if (originalSize.width() > MAX_WIDTH || originalSize.height() > MAX_HEIGHT) {
+                // Scale down to fit within maximum dimensions
+                resultSize = originalSize.scaled(QSize(MAX_WIDTH, MAX_HEIGHT), Qt::KeepAspectRatio);
+            }
+            // Image is within acceptable range
+            else {
+                resultSize = originalSize;
+            }
+
+            qDebug() << "CombinedDelegate: Actual image size" << originalSize << "display size" << resultSize;
+        } else {
+            qDebug() << "CombinedDelegate: Failed to load image, using default size";
+            resultSize = QSize(64, 64); // Default thumbnail size
+        }
+    } catch (...) {
+        qDebug() << "CombinedDelegate: Exception loading image, using default size";
+        resultSize = QSize(64, 64);
+    }
+
+    sizeCache[imagePath] = resultSize;
+    return resultSize;
 }
 
 void CombinedDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
@@ -269,54 +317,21 @@ void CombinedDelegate::paintImageItem(QPainter *painter, const QStyleOptionViewI
         painter->fillRect(option.rect, option.palette.highlight());
     }
 
-    // Check if this is a multi-image item
-    bool isMultiImage = index.data(Qt::UserRole+5).toBool();
+    // Single image handling only
+    QString imagePath = index.data(Qt::UserRole+4).toString();
+    qDebug() << "CombinedDelegate: Single image path:" << imagePath;
 
-    qDebug() << "=== paintImageItem called - isMultiImage:" << isMultiImage;
-
-    if (isMultiImage) {
-        // Handle multi-image painting
-        QStringList imagePaths = index.data(Qt::UserRole+4).toStringList();
-        qDebug() << "Multi-image paths from QStringList:" << imagePaths;
-
-        if (!imagePaths.isEmpty()) {
-            qDebug() << "Calling paintMultipleImages with" << imagePaths.size() << "images";
-            paintMultipleImages(painter, option, imagePaths);
-        } else {
-            // Fallback: try to parse from string data
-            QString imagePathString = index.data(Qt::UserRole+4).toString();
-            qDebug() << "Fallback: trying to parse string data:" << imagePathString;
-
-            if (imagePathString.contains("|")) {
-                QStringList paths = imagePathString.split("|", Qt::SkipEmptyParts);
-                if (!paths.isEmpty()) {
-                    qDebug() << "Fallback: calling paintMultipleImages with" << paths.size() << "images";
-                    paintMultipleImages(painter, option, paths);
-                } else {
-                    qDebug() << "Fallback: no valid paths found";
-                }
-            } else {
-                qDebug() << "Fallback: painting as single image";
-                paintSingleImage(painter, option, index, imagePathString);
-            }
-        }
+    if (!imagePath.isEmpty()) {
+        qDebug() << "CombinedDelegate: Calling paintSingleImage";
+        paintSingleImage(painter, option, index, imagePath);
     } else {
-        // Handle single image painting
-        QString imagePath = index.data(Qt::UserRole+4).toString();
-        qDebug() << "Single image path:" << imagePath;
-
-        if (!imagePath.isEmpty()) {
-            qDebug() << "Calling paintSingleImage";
-            paintSingleImage(painter, option, index, imagePath);
-        } else {
-            qDebug() << "No image path found for single image";
-        }
+        qDebug() << "CombinedDelegate: No image path found for single image";
     }
 }
 
 void CombinedDelegate::paintSingleImage(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index, const QString& imagePath) const {
     if (imagePath.isEmpty()) {
-        qDebug() << "Image path is empty, falling back to default paint";
+        qDebug() << "CombinedDelegate: Image path is empty, falling back to default paint";
         QStyledItemDelegate::paint(painter, option, index);
         return;
     }
@@ -324,7 +339,7 @@ void CombinedDelegate::paintSingleImage(QPainter *painter, const QStyleOptionVie
     // Load and decrypt the image
     QPixmap imagePixmap = loadImageForDisplay(imagePath);
     if (imagePixmap.isNull()) {
-        qDebug() << "Image pixmap is null, drawing error text";
+        qDebug() << "CombinedDelegate: Image pixmap is null, drawing error text";
         painter->save();
         painter->setPen(Qt::red);
         painter->setFont(option.font);
@@ -333,102 +348,58 @@ void CombinedDelegate::paintSingleImage(QPainter *painter, const QStyleOptionVie
         return;
     }
 
-    // Use the SAME constants as paintMultipleImages for consistency
-    const int THUMBNAIL_SIZE = 64;
     const int MARGIN = 10;
-    const int SPACING = 5; // Not used for single image, but keep consistent
 
-    // Scale to 64x64 thumbnail (same as multi-image)
-    QPixmap thumbnail = imagePixmap.scaled(THUMBNAIL_SIZE, THUMBNAIL_SIZE,
-                                           Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    // Left-align the image instead of centering
+    int x = option.rect.x() + MARGIN; // Left alignment
+    int y = option.rect.y() + MARGIN; // Top alignment with margin
 
-    // Position with same margins as multi-image
-    int x = option.rect.x() + MARGIN;
-    int y = option.rect.y() + MARGIN;
-
-    // Center the thumbnail in the 64x64 space (same as multi-image)
-    int drawX = x + (THUMBNAIL_SIZE - thumbnail.width()) / 2;
-    int drawY = y + (THUMBNAIL_SIZE - thumbnail.height()) / 2;
-
-    // Draw the thumbnail
-    painter->drawPixmap(drawX, drawY, thumbnail);
-}
-
-void CombinedDelegate::paintMultipleImages(QPainter *painter, const QStyleOptionViewItem &option, const QStringList& imagePaths) const {
-    const int THUMBNAIL_SIZE = 64;
-    const int MARGIN = 10;
-    const int SPACING = 5;
-
+    // Calculate available space for the image
     int availableWidth = option.rect.width() - (2 * MARGIN);
-    int imagesPerRow = availableWidth / (THUMBNAIL_SIZE + SPACING);
-    if (imagesPerRow < 1) imagesPerRow = 1; // At least one image per row
+    int availableHeight = option.rect.height() - (2 * MARGIN);
 
-    int currentX = option.rect.x() + MARGIN;
-    int currentY = option.rect.y() + MARGIN;
-    int imagesInCurrentRow = 0;
+    // Scale the image to fit the available space while preserving aspect ratio
+    QPixmap scaledPixmap = imagePixmap.scaled(
+        QSize(availableWidth, availableHeight),
+        Qt::KeepAspectRatio,
+        Qt::SmoothTransformation
+        );
 
-    for (int i = 0; i < imagePaths.size() && i < 10; ++i) { // Cap at 10 images
-        QString imagePath = imagePaths[i];
+    // Draw the image at left-aligned position
+    painter->drawPixmap(x, y, scaledPixmap);
 
-        // Load and decrypt the image
-        QPixmap imagePixmap = loadImageForDisplay(imagePath);
-        if (imagePixmap.isNull()) {
-            continue; // Skip failed images
-        }
-
-        // Scale to 64x64 thumbnail
-        QPixmap thumbnail = imagePixmap.scaled(THUMBNAIL_SIZE, THUMBNAIL_SIZE,
-                                               Qt::KeepAspectRatio, Qt::SmoothTransformation);
-
-        // Center the thumbnail in the 64x64 space
-        int drawX = currentX + (THUMBNAIL_SIZE - thumbnail.width()) / 2;
-        int drawY = currentY + (THUMBNAIL_SIZE - thumbnail.height()) / 2;
-
-        // Draw the thumbnail
-        painter->drawPixmap(drawX, drawY, thumbnail);
-
-        // Move to next position
-        currentX += THUMBNAIL_SIZE + SPACING;
-        imagesInCurrentRow++;
-
-        // Check if we need to wrap to next row
-        if (imagesInCurrentRow >= imagesPerRow && i < imagePaths.size() - 1) {
-            currentX = option.rect.x() + MARGIN;
-            currentY += THUMBNAIL_SIZE + SPACING;
-            imagesInCurrentRow = 0;
-        }
-    }
+    qDebug() << "CombinedDelegate: Painted left-aligned image at" << QPoint(x, y) << "size" << scaledPixmap.size();
 }
 
 QPixmap CombinedDelegate::loadImageForDisplay(const QString& imagePath) const
 {
-    qDebug() << "=== CombinedDelegate::loadImageForDisplay called for:" << imagePath;
+    qDebug() << "CombinedDelegate: loadImageForDisplay called for:" << imagePath;
 
     // Check if the encrypted image file exists
     if (!QFileInfo::exists(imagePath)) {
-        qDebug() << "Image file does not exist in delegate";
+        qDebug() << "CombinedDelegate: Image file does not exist";
         return QPixmap();
     }
 
-    qDebug() << "Image file exists in delegate";
+    qDebug() << "CombinedDelegate: Image file exists";
 
     try {
         // Read the encrypted binary data
         QFile encryptedFile(imagePath);
         if (!encryptedFile.open(QIODevice::ReadOnly)) {
-            qDebug() << "Failed to open encrypted file in delegate";
+            qDebug() << "CombinedDelegate: Failed to open encrypted file";
             return QPixmap();
         }
 
         QByteArray encryptedData = encryptedFile.readAll();
         encryptedFile.close();
 
-        qDebug() << "Read encrypted data in delegate, size:" << encryptedData.size();
+        qDebug() << "CombinedDelegate: Read encrypted data, size:" << encryptedData.size();
 
         // We need access to the encryption key - get it from the parent widget
         QWidget* parentWidget = qobject_cast<QWidget*>(parent());
         if (!parentWidget) {
-            qDebug() << "No parent widget found in delegate";
+            qDebug() << "CombinedDelegate: No parent widget found";
             return QPixmap();
         }
 
@@ -441,36 +412,36 @@ QPixmap CombinedDelegate::loadImageForDisplay(const QString& imagePath) const
         }
 
         if (!mainWindow) {
-            qDebug() << "No main window found in delegate";
+            qDebug() << "CombinedDelegate: No main window found";
             return QPixmap();
         }
 
-        qDebug() << "Found main window in delegate, attempting decryption";
+        qDebug() << "CombinedDelegate: Found main window, attempting decryption";
 
         // Decrypt using binary decryption
         QByteArray decryptedData = CryptoUtils::Encryption_DecryptBArray(
             mainWindow->user_Key, encryptedData);
 
         if (decryptedData.isEmpty()) {
-            qDebug() << "Decryption failed in delegate";
+            qDebug() << "CombinedDelegate: Decryption failed";
             return QPixmap();
         }
 
-        qDebug() << "Decryption successful in delegate, size:" << decryptedData.size();
+        qDebug() << "CombinedDelegate: Decryption successful, size:" << decryptedData.size();
 
         // Load image directly from binary data
         QPixmap pixmap;
         bool loadSuccess = pixmap.loadFromData(decryptedData);
 
-        qDebug() << "Load from data in delegate - success:" << loadSuccess << "size:" << pixmap.size();
+        qDebug() << "CombinedDelegate: Load from data - success:" << loadSuccess << "size:" << pixmap.size();
 
         return loadSuccess ? pixmap : QPixmap();
 
     } catch (const std::exception& e) {
-        qDebug() << "Exception in delegate loadImageForDisplay:" << e.what();
+        qDebug() << "CombinedDelegate: Exception in loadImageForDisplay:" << e.what();
         return QPixmap();
     } catch (...) {
-        qDebug() << "Unknown exception in delegate loadImageForDisplay";
+        qDebug() << "CombinedDelegate: Unknown exception in loadImageForDisplay";
         return QPixmap();
     }
 }

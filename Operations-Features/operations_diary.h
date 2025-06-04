@@ -12,6 +12,15 @@
 class MainWindow;
 class ImageViewer;
 
+struct ImageDisplayInfo {
+    QSize targetSize;           // The size we want to display the image at
+    bool needsThumbnail;        // Whether we need to create a thumbnail file
+    bool needsScaling;          // Whether the image needs to be scaled for display
+    QString displayType;        // "original", "scaled_up", "scaled_down", "thumbnail"
+
+    ImageDisplayInfo() : needsThumbnail(false), needsScaling(false), displayType("original") {}
+};
+
 // Image validation structures
 struct ImageValidationResult {
     bool isValid;
@@ -54,35 +63,28 @@ private:
     void cleanupBrokenImageReferences(const QString& diaryFilePath);
 
     // Constants for image handling
-    static const int MAX_IMAGE_WIDTH = 0;
-    static const int MAX_IMAGE_HEIGHT = 0;
-    static const int THUMBNAIL_SIZE = 64;
+    static const int MAX_IMAGE_WIDTH = 400;
+    static const int MAX_IMAGE_HEIGHT = 300;
+    static const int MIN_THUMBNAIL_SIZE = 64;
 
     bool loadAndDisplayImage(const QString& imagePath, const QString& imageFilename);
-    QPixmap loadEncryptedImage(const QString& encryptedImagePath);
+    QPixmap loadEncryptedImage(const QString& encryptedImagePath) const;
     QString getImageDisplayText(const QString& imageFilename, const QSize& imageSize);
     void setupImageItem(QListWidgetItem* item, const QString& imagePath, const QString& displayText);
     bool markDiaryForCleanup = false; // Flag to indicate diary needs cleanup
 
     void handleImageClick(QListWidgetItem* item);
-    void addImagesToCurrentDiary(const QStringList& imageFilenames, const QString& diaryFilePath, bool shouldGroup = false);
-    bool checkShouldGroupImages(const QString& diaryFilePath);
 
-    // Image click detection
-    int m_clickedImageIndex = -1;  // Index of clicked image in multi-image items
+    // NEW: Simplified single image handling
+    void addSingleImageToDiary(const QString& imageFilename, const QString& diaryFilePath);
+    bool shouldAddTimestampForImage(const QStringList& diaryContent);
+
+    // Image click detection (simplified for single images)
     QPoint m_lastContextMenuPos;   // Position where context menu was requested
 
     // Helper functions for image deletion and click detection
     void deleteImageFiles(const QString& imageData, const QString& diaryDir);
-    void deleteSpecificImage(QListWidgetItem* item, int imageIndex);
-    QString removeImageFromData(const QString& imageData, int indexToRemove);
     void updateImageEntryInDiary(QListWidgetItem* item, const QString& originalImageData);
-    void handleSpecificImageClick(QListWidgetItem* item, int imageIndex);
-
-    // Returns the index of the clicked image, or -1 if no image was clicked
-    // For single images: returns 0 if clicked on image, -1 if not
-    // For multi images: returns index of clicked image, -1 if clicked outside all images
-    int calculateClickedImageIndex(QListWidgetItem* item, const QPoint& clickPos);
 
     // Helper functions for thumbnail/original image handling
     bool isThumbnailPath(const QString& imagePath) const;
@@ -94,8 +96,6 @@ private:
     bool decryptAndExportImage(const QString& encryptedImagePath, const QString& originalFilename);
     bool isOldDiaryEntry();
     void exportSingleImage(QListWidgetItem* item);
-    void exportSpecificImage(QListWidgetItem* item, int imageIndex);
-    void exportSelectedImage(QListWidgetItem* item);
 
     // Image validation and repair methods
     ImageValidationResult validateImageFile(const QString& imageFilename, const QString& diaryDir);
@@ -108,6 +108,13 @@ private:
     // Helper method to clean up open viewers
     void cleanupOpenImageViewers();
     void closeAllDiaryImageViewers();
+
+    ImageDisplayInfo calculateImageDisplayInfo(const QSize& originalSize, bool isGrouped = false) const;
+    QPixmap generateDynamicThumbnail(const QString& imagePath, const QSize& targetSize);
+    QSize calculateOptimalDisplaySize(const QSize& originalSize, const QSize& maxSize, int minSize = MIN_THUMBNAIL_SIZE) const;
+    QSize calculateItemSizeForImage(const QString& imagePath, bool isMultiImage, const QStringList& allImagePaths) const;
+
+    int calculateClickedImageIndex(QListWidgetItem* item, const QPoint& clickPos);
 
 public:
     ~Operations_Diary();

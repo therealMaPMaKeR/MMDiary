@@ -484,21 +484,12 @@ void Operations_Diary::SaveDiary(QString DiaryFileName, bool previousDiary)
         bool isImageItem = item->data(Qt::UserRole+3).toBool();
 
         if (isImageItem) {
-            // Reconstruct image markers for image items
+            // Reconstruct image markers for single image items only
             diaryContent.append(Constants::Diary_ImageStart);
 
-            bool isMultiImage = item->data(Qt::UserRole+5).toBool();
-            if (isMultiImage) {
-                QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
-                QStringList imageFilenames;
-                foreach(const QString& path, imagePaths) {
-                    imageFilenames.append(QFileInfo(path).fileName());
-                }
-                diaryContent.append(imageFilenames.join("|"));
-            } else {
-                QString imagePath = item->data(Qt::UserRole+4).toString();
-                diaryContent.append(QFileInfo(imagePath).fileName());
-            }
+            // Single image handling only
+            QString imagePath = item->data(Qt::UserRole+4).toString();
+            diaryContent.append(QFileInfo(imagePath).fileName());
 
             diaryContent.append(Constants::Diary_ImageEnd);
         } else {
@@ -801,83 +792,41 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
                     }
                     else if(nextLine_isImage == true)
                     {
-                        // Process the image filename(s) - could be single or multiple separated by |
-                        QString imageData = line;
-                        QStringList imageFilenames;
+                        // Process the image filename - single image only now
+                        QString imageFilename = line;
 
-                        if (imageData.contains("|")) {
-                            // Multiple images
-                            imageFilenames = imageData.split("|", Qt::SkipEmptyParts);
-                        } else {
-                            // Single image
-                            imageFilenames.append(imageData);
-                        }
+                        // Simple validation - check if image is loadable
+                        QString imagePath = QDir::cleanPath(currentProcessingDiaryDir + "/" + imageFilename);
 
-                        // Simple validation - just check if at least one image is loadable
-                        QStringList validImagePaths;
-                        bool hasValidImages = false;
+                        // Try to load the image to verify it exists and is valid
+                        try {
+                            QPixmap testPixmap = loadEncryptedImage(imagePath);
+                            if (!testPixmap.isNull()) {
+                                // Set up the item for image display
+                                setupImageItem(m_mainWindow->ui->DiaryTextDisplay->item(lastindex), imagePath, "");
 
-                        foreach(const QString& imageFilename, imageFilenames) {
-                            // Use the previous diary's directory for image paths
-                            QString imagePath = QDir::cleanPath(currentProcessingDiaryDir + "/" + imageFilename);
+                                // Calculate dynamic size based on actual image content
+                                QSize itemSize = calculateItemSizeForImage(imagePath, false, QStringList());
 
-                            // Try to load the image to verify it exists and is valid
-                            try {
-                                QPixmap testPixmap = loadEncryptedImage(imagePath);
-                                if (!testPixmap.isNull()) {
-                                    validImagePaths.append(imagePath);
-                                    hasValidImages = true;
-                                } else {
-                                    qWarning() << "Failed to load image (will be cleaned up later):" << imagePath;
-                                    markDiaryForCleanup = true;
+                                m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setSizeHint(itemSize);
+
+                                qDebug() << "Operations_Diary: Set size hint:" << itemSize << "for image:" << imageFilename;
+
+                                // Hide if part of Task Manager section and setting is false
+                                if (inTaskManagerSection && !m_mainWindow->setting_Diary_ShowTManLogs) {
+                                    m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setHidden(true);
                                 }
-                            } catch (...) {
-                                qWarning() << "Exception loading image (will be cleaned up later):" << imagePath;
-                                markDiaryForCleanup = true;
-                            }
-                        }
-
-                        if (hasValidImages) {
-                            // Set up the item for image display using original image data
-                            QString combinedPaths = validImagePaths.join("|");
-
-                            // Create display text (empty since we removed captions)
-                            setupImageItem(m_mainWindow->ui->DiaryTextDisplay->item(lastindex), combinedPaths, "");
-
-                            // Calculate size based on number of images
-                            int imageCount = validImagePaths.size();
-                            if (imageCount == 1) {
-                                // Single image - use SAME size calculation as multi-image
-                                const int THUMBNAIL_SIZE = 64;
-                                const int MARGIN = 10;
-
-                                int itemHeight = THUMBNAIL_SIZE + (2 * MARGIN);
-                                int itemWidth = THUMBNAIL_SIZE + (2 * MARGIN);
-                                m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setSizeHint(QSize(itemWidth, itemHeight));
                             } else {
-                                // Multiple images - calculate grid size
-                                const int THUMBNAIL_SIZE = 64;
-                                const int MARGIN = 10;
-                                const int SPACING = 5;
-
-                                int availableWidth = m_mainWindow->ui->DiaryTextDisplay->viewport()->width() - (2 * MARGIN);
-                                int imagesPerRow = availableWidth / (THUMBNAIL_SIZE + SPACING);
-                                if (imagesPerRow < 1) imagesPerRow = 1;
-
-                                int rows = (imageCount + imagesPerRow - 1) / imagesPerRow; // Ceiling division
-                                int totalHeight = (rows * THUMBNAIL_SIZE) + ((rows - 1) * SPACING) + (2 * MARGIN);
-
-                                m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setSizeHint(QSize(availableWidth + (2 * MARGIN), totalHeight));
+                                qWarning() << "Failed to load image (will be cleaned up later):" << imagePath;
+                                markDiaryForCleanup = true;
+                                // Remove the line and mark for cleanup
+                                m_mainWindow->ui->DiaryTextDisplay->takeItem(lastindex);
                             }
-
-                            // Hide if part of Task Manager section and setting is false
-                            if (inTaskManagerSection && !m_mainWindow->setting_Diary_ShowTManLogs) {
-                                m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setHidden(true);
-                            }
-                        } else {
-                            // No valid images, remove the line and mark for cleanup
-                            m_mainWindow->ui->DiaryTextDisplay->takeItem(lastindex);
+                        } catch (...) {
+                            qWarning() << "Exception loading image (will be cleaned up later):" << imagePath;
                             markDiaryForCleanup = true;
+                            // Remove the line and mark for cleanup
+                            m_mainWindow->ui->DiaryTextDisplay->takeItem(lastindex);
                         }
 
                         // Note: nextLine_isImage remains true until we hit IMAGE_END
@@ -1056,84 +1005,41 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
             }
             else if(nextLine_isImage == true)
             {
-                // Process the image filename(s) - could be single or multiple separated by |
-                QString imageData = line;
-                QStringList imageFilenames;
+                // Process the image filename - single image only now
+                QString imageFilename = line;
 
-                if (imageData.contains("|")) {
-                    // Multiple images
-                    imageFilenames = imageData.split("|", Qt::SkipEmptyParts);
-                } else {
-                    // Single image
-                    imageFilenames.append(imageData);
-                }
+                // Simple validation - check if image is loadable
+                QString imagePath = QDir::cleanPath(currentProcessingDiaryDir + "/" + imageFilename);
 
-                // Simple validation - just check if at least one image is loadable
-                QStringList validImagePaths;
-                bool hasValidImages = false;
+                // Try to load the image to verify it exists and is valid
+                try {
+                    QPixmap testPixmap = loadEncryptedImage(imagePath);
+                    if (!testPixmap.isNull()) {
+                        // Set up the item for image display
+                        setupImageItem(m_mainWindow->ui->DiaryTextDisplay->item(lastindex), imagePath, "");
 
-                foreach(const QString& imageFilename, imageFilenames) {
-                    // Use the current diary's directory for image paths
-                    QString imagePath = QDir::cleanPath(currentProcessingDiaryDir + "/" + imageFilename);
+                        // Calculate dynamic size based on actual image content
+                        QSize itemSize = calculateItemSizeForImage(imagePath, false, QStringList());
 
-                    // Try to load the image to verify it exists and is valid
-                    try {
-                        QPixmap testPixmap = loadEncryptedImage(imagePath);
-                        if (!testPixmap.isNull()) {
-                            validImagePaths.append(imagePath);
-                            hasValidImages = true;
-                        } else {
-                            qWarning() << "Failed to load image (will be cleaned up later):" << imagePath;
-                            markDiaryForCleanup = true;
+                        m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setSizeHint(itemSize);
+
+                        qDebug() << "Operations_Diary: Set size hint:" << itemSize << "for image:" << imageFilename;
+
+                        // Hide if part of Task Manager section and setting is false
+                        if (inTaskManagerSection && !m_mainWindow->setting_Diary_ShowTManLogs) {
+                            m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setHidden(true);
                         }
-                    } catch (...) {
-                        qWarning() << "Exception loading image (will be cleaned up later):" << imagePath;
-                        markDiaryForCleanup = true;
-                    }
-                }
-
-                if (hasValidImages) {
-                    // Set up the item for image display using original image data
-                    QString combinedPaths = validImagePaths.join("|");
-
-                    // Create display text (empty since we removed captions)
-                    setupImageItem(m_mainWindow->ui->DiaryTextDisplay->item(lastindex), combinedPaths, "");
-
-                    // Calculate size based on number of images
-                    int imageCount = validImagePaths.size();
-                    qDebug() << "DIARY-DEBUG7: About to calculate size for" << imageCount << "images";
-                    if (imageCount == 1) {
-                        // Single image - use SAME size calculation as multi-image
-                        const int THUMBNAIL_SIZE = 64;
-                        const int MARGIN = 10;
-
-                        int itemHeight = THUMBNAIL_SIZE + (2 * MARGIN);
-                        int itemWidth = THUMBNAIL_SIZE + (2 * MARGIN);
-                        m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setSizeHint(QSize(itemWidth, itemHeight));
                     } else {
-                        // Multiple images - calculate grid size
-                        const int THUMBNAIL_SIZE = 64;
-                        const int MARGIN = 10;
-                        const int SPACING = 5;
-
-                        int availableWidth = m_mainWindow->ui->DiaryTextDisplay->viewport()->width() - (2 * MARGIN);
-                        int imagesPerRow = availableWidth / (THUMBNAIL_SIZE + SPACING);
-                        if (imagesPerRow < 1) imagesPerRow = 1;
-
-                        int rows = (imageCount + imagesPerRow - 1) / imagesPerRow; // Ceiling division
-                        int totalHeight = (rows * THUMBNAIL_SIZE) + ((rows - 1) * SPACING) + (2 * MARGIN);
-
-                        m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setSizeHint(QSize(availableWidth + (2 * MARGIN), totalHeight));
+                        qWarning() << "Failed to load image (will be cleaned up later):" << imagePath;
+                        markDiaryForCleanup = true;
+                        // Remove the line and mark for cleanup
+                        m_mainWindow->ui->DiaryTextDisplay->takeItem(lastindex);
                     }
-
-                    // Hide if part of Task Manager section and setting is false
-                    if (inTaskManagerSection && !m_mainWindow->setting_Diary_ShowTManLogs) {
-                        m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setHidden(true);
-                    }
-                } else {
-                    // No valid images, remove the line and mark for cleanup
-                    m_mainWindow->ui->DiaryTextDisplay->takeItem(lastindex);
+                } catch (...) {
+                    qWarning() << "Exception loading image (will be cleaned up later):" << imagePath;
                     markDiaryForCleanup = true;
+                    // Remove the line and mark for cleanup
+                    m_mainWindow->ui->DiaryTextDisplay->takeItem(lastindex);
                 }
 
                 // Note: nextLine_isImage remains true until we hit IMAGE_END
@@ -1640,9 +1546,8 @@ void Operations_Diary::DeleteEntry()
 {
     qDebug() << "=== DeleteEntry called ===";
 
-    QList<QListWidgetItem*> items = getTextDisplayItems(); // Update the list of all the text in the listview diary text display.
-    if(items.length() > 0 && m_mainWindow->ui->DiaryTextDisplay->currentRow() > 0) // if our display has at least 1 line and the current row is the first one. prevents SIGSEV crash
-    {
+    QList<QListWidgetItem*> items = getTextDisplayItems();
+    if(items.length() > 0 && m_mainWindow->ui->DiaryTextDisplay->currentRow() > 0) {
         QListWidgetItem* currentItem = m_mainWindow->ui->DiaryTextDisplay->item(m_mainWindow->ui->DiaryTextDisplay->currentRow());
 
         qDebug() << "Current row:" << m_mainWindow->ui->DiaryTextDisplay->currentRow();
@@ -1652,10 +1557,10 @@ void Operations_Diary::DeleteEntry()
         if (currentItem && currentItem->data(Qt::UserRole+3).toBool()) {
             qDebug() << "Deleting image item";
 
-            // FIXED: Determine which diary directory to use based on current row
+            // Determine which diary directory to use based on current row
             QString diaryPath = current_DiaryFileName;
             if (m_mainWindow->ui->DiaryTextDisplay->currentRow() < previousDiaryLineCounter && previous_DiaryFileName != "") {
-                diaryPath = previous_DiaryFileName; // Use previous diary path
+                diaryPath = previous_DiaryFileName;
                 qDebug() << "Using previous diary path:" << diaryPath;
             } else {
                 qDebug() << "Using current diary path:" << diaryPath;
@@ -1665,87 +1570,60 @@ void Operations_Diary::DeleteEntry()
             QString diaryDir = diaryFileInfo.dir().absolutePath();
             qDebug() << "Using diary directory:" << diaryDir;
 
-            // Get image data and delete files
-            bool isMultiImage = currentItem->data(Qt::UserRole+5).toBool();
-            if (isMultiImage) {
-                QStringList imagePaths = currentItem->data(Qt::UserRole+4).toStringList();
-                QStringList imageFilenames;
-                foreach(const QString& path, imagePaths) {
-                    imageFilenames.append(QFileInfo(path).fileName());
-                }
-                deleteImageFiles(imageFilenames.join("|"), diaryDir);
-                qDebug() << "Deleted multi-image files:" << imageFilenames;
-            } else {
-                QString imagePath = currentItem->data(Qt::UserRole+4).toString();
-                QString imageFilename = QFileInfo(imagePath).fileName();
-                deleteImageFiles(imageFilename, diaryDir);
-                qDebug() << "Deleted single image file:" << imageFilename;
-            }
+            // Get image data and delete file (single image only)
+            QString imagePath = currentItem->data(Qt::UserRole+4).toString();
+            QString imageFilename = QFileInfo(imagePath).fileName();
+            deleteImageFiles(imageFilename, diaryDir);
+            qDebug() << "Deleted image file:" << imageFilename;
         }
 
-        if(m_mainWindow->ui->DiaryTextDisplay->currentRow() < previousDiaryLineCounter && previous_DiaryFileName != "") // if current row is within range of previous diary in the text display and a previous diary is loaded
-        {
+        // Rest of DeleteEntry function remains the same...
+        if(m_mainWindow->ui->DiaryTextDisplay->currentRow() < previousDiaryLineCounter && previous_DiaryFileName != "") {
             qDebug() << "Deleting from previous diary";
 
-            if (m_mainWindow->ui->DiaryTextDisplay->item(m_mainWindow->ui->DiaryTextDisplay->currentRow())->text().contains("\n")) // if current row is a text block
-            {
-                m_mainWindow->ui->DiaryTextDisplay->takeItem(m_mainWindow->ui->DiaryTextDisplay->currentRow()-1); // remove the text block start marker
-                m_mainWindow->ui->DiaryTextDisplay->takeItem(m_mainWindow->ui->DiaryTextDisplay->currentRow()+1); // remove the text block end marker
-                previousDiaryLineCounter = previousDiaryLineCounter - 2; //update the previous diary line counter variable
+            if (m_mainWindow->ui->DiaryTextDisplay->item(m_mainWindow->ui->DiaryTextDisplay->currentRow())->text().contains("\n")) {
+                m_mainWindow->ui->DiaryTextDisplay->takeItem(m_mainWindow->ui->DiaryTextDisplay->currentRow()-1);
+                m_mainWindow->ui->DiaryTextDisplay->takeItem(m_mainWindow->ui->DiaryTextDisplay->currentRow()+1);
+                previousDiaryLineCounter = previousDiaryLineCounter - 2;
             }
-            m_mainWindow->ui->DiaryTextDisplay->takeItem(m_mainWindow->ui->DiaryTextDisplay->currentRow()); // remove the entry
-            previousDiaryLineCounter--; //update the previous diary line counter variable
-            remove_EmptyTimestamps(true); // scans the diary text display for timestamps that have no text attached to them, and removes them. true means we are editing the previous diary
-            items = getTextDisplayItems(); // Update the list of all the text in the listview diary text display.
-            foreach(QListWidgetItem *item, items) // for each line of text
-            {
-                if(items.indexOf(item) >= previousDiaryLineCounter) // if it's index is bigger or equal to the length of our previous diary display
-                {
-                    items.removeAt(items.indexOf(item)); //remove the item from our list, we only want the previous diary in the item list
+            m_mainWindow->ui->DiaryTextDisplay->takeItem(m_mainWindow->ui->DiaryTextDisplay->currentRow());
+            previousDiaryLineCounter--;
+            remove_EmptyTimestamps(true);
+            items = getTextDisplayItems();
+            foreach(QListWidgetItem *item, items) {
+                if(items.indexOf(item) >= previousDiaryLineCounter) {
+                    items.removeAt(items.indexOf(item));
                 }
             }
-            if(items.length() == 1) // if previous diary length is 1(meaning its empty), delete the diary
-            {
+            if(items.length() == 1) {
                 DeleteDiary(previous_DiaryFileName);
+            } else {
+                SaveDiary(previous_DiaryFileName, true);
             }
-            else //otherwise, save it.
-            {
-                SaveDiary(previous_DiaryFileName, true); // Save the previous diary. true means are saving the previous diary
-            }
-        }
-        else // if current row is in todays diary.
-        {
+        } else {
             qDebug() << "Deleting from current diary";
 
-            if (m_mainWindow->ui->DiaryTextDisplay->item(m_mainWindow->ui->DiaryTextDisplay->currentRow())->text().contains("\n")) // if current row is a text block
-            {
-                m_mainWindow->ui->DiaryTextDisplay->takeItem(m_mainWindow->ui->DiaryTextDisplay->currentRow()-1); // remove the text block start marker
-                m_mainWindow->ui->DiaryTextDisplay->takeItem(m_mainWindow->ui->DiaryTextDisplay->currentRow()+1); // remove the text block end marker
+            if (m_mainWindow->ui->DiaryTextDisplay->item(m_mainWindow->ui->DiaryTextDisplay->currentRow())->text().contains("\n")) {
+                m_mainWindow->ui->DiaryTextDisplay->takeItem(m_mainWindow->ui->DiaryTextDisplay->currentRow()-1);
+                m_mainWindow->ui->DiaryTextDisplay->takeItem(m_mainWindow->ui->DiaryTextDisplay->currentRow()+1);
             }
-            m_mainWindow->ui->DiaryTextDisplay->takeItem(m_mainWindow->ui->DiaryTextDisplay->currentRow()); // remove the entry altogether. Prevents empty lines from becoming spacers.
-            prevent_onDiaryTextDisplay_itemChanged = true; // prevents infinite loop
-            // REMOVES THE SPACER WIDGET USED IN DESELECTING THE LAST ENTRY. WE DONT WANT TO SAVE IT IN THE DIARY FILE
-            QList<QListWidgetItem *> items = getTextDisplayItems(); // Update the list of all the text in the listview diary text display.
+            m_mainWindow->ui->DiaryTextDisplay->takeItem(m_mainWindow->ui->DiaryTextDisplay->currentRow());
+            prevent_onDiaryTextDisplay_itemChanged = true;
+            QList<QListWidgetItem *> items = getTextDisplayItems();
             m_mainWindow->ui->DiaryTextDisplay->takeItem(items.length() - 1);
-            //----------------------//
-            remove_EmptyTimestamps(false); // scans the diary text display for timestamps that have no text attached to them, and removes them. false means we are editing todays diary
-            items = getTextDisplayItems(); // Update the list of all the text in the listview diary text display.
-            items.remove(0, previousDiaryLineCounter); // remove the previous diary text. We want to check the length of the current diary
-            if(items.length() == 2) // todays diary's length is 2, meaning it is empty
-            {
-                DeleteDiary(current_DiaryFileName); // delete it
+            remove_EmptyTimestamps(false);
+            items = getTextDisplayItems();
+            items.remove(0, previousDiaryLineCounter);
+            if(items.length() == 2) {
+                DeleteDiary(current_DiaryFileName);
+            } else {
+                SaveDiary(current_DiaryFileName, false);
             }
-            else
-            {
-                SaveDiary(current_DiaryFileName, false); // Save the current diary. false means we are saving todays diary
-            }
-            //Add a spacer that is used only for one reason, being able to deselect the last entry of the display. IT IS NOT SAVED INTO OUR DIARY FILE
-            m_mainWindow->ui->DiaryTextDisplay->addItem(Constants::Diary_Spacer); //Add spacer
-            items = getTextDisplayItems(); // Update the list of all the text in the listview diary text display.
-            m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setData(Qt::UserRole, true);// uses hidetext delegate to hide the spacer
-            m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->flags() & ~Qt::ItemIsEnabled); // disable the spacer
-            //------------------------------//
-            prevent_onDiaryTextDisplay_itemChanged = false; // prevents infinite loop
+            m_mainWindow->ui->DiaryTextDisplay->addItem(Constants::Diary_Spacer);
+            items = getTextDisplayItems();
+            m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setData(Qt::UserRole, true);
+            m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->flags() & ~Qt::ItemIsEnabled);
+            prevent_onDiaryTextDisplay_itemChanged = false;
         }
     }
 
@@ -2074,8 +1952,7 @@ void Operations_Diary::CopyToClipboard()
 
 void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
 {
-    if(!m_mainWindow->ui->DiaryTextDisplay->selectedItems().isEmpty()) // if we requested a context menu and we currently have an item selected
-    {
+    if(!m_mainWindow->ui->DiaryTextDisplay->selectedItems().isEmpty()) {
         QListWidgetItem* selectedItem = m_mainWindow->ui->DiaryTextDisplay->selectedItems().first();
 
         // Store the context menu position for click detection
@@ -2085,87 +1962,35 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
         bool isImageItem = selectedItem->data(Qt::UserRole+3).toBool();
 
         if (isImageItem) {
+            // Check if click was actually on the image
+            int clickedImageIndex = calculateClickedImageIndex(selectedItem, pos);
 
-            // Check if click was actually on an image
-            m_clickedImageIndex = calculateClickedImageIndex(selectedItem, pos);
-
-            if (m_clickedImageIndex == -1) {
-                // Click was not on an image, don't show context menu
+            if (clickedImageIndex == -1) {
+                // Click was not on the image, don't show image context menu
+                // Instead, focus the text input as if it were a normal area
+                m_mainWindow->ui->DiaryTextInput->setFocus();
                 return;
             }
 
-            // ENABLE CLICK DETECTION FOR MULTI-IMAGE SUPPORT
-            m_clickedImageIndex = calculateClickedImageIndex(selectedItem, pos);
-
-            bool isMultiImage = selectedItem->data(Qt::UserRole+5).toBool();
+            // Click was on the image, show image context menu
             bool isOldEntry = isOldDiaryEntry();
 
-            // Show image context menu with click detection
             QMenu contextMenu(tr("Image menu"), m_mainWindow->ui->DiaryTextDisplay);
 
-            if (isMultiImage) {
-                // Multi-image - show different options based on click detection
-                if (m_clickedImageIndex >= 0) {
-                    // Specific image was clicked
-                    QStringList imagePaths = selectedItem->data(Qt::UserRole+4).toStringList();
-                    QString imageFileName = QFileInfo(imagePaths[m_clickedImageIndex]).fileName();
+            QAction *actionOpen = contextMenu.addAction("Open Image");
+            QAction *actionExport = contextMenu.addAction("Decrypt and Export");
 
-                    // Show specific image options
-                    QAction *actionOpen = contextMenu.addAction("Open Image");
-                    QAction *actionExport = contextMenu.addAction("Decrypt and Export");
+            connect(actionOpen, &QAction::triggered, this, [this, selectedItem]() {
+                handleImageClick(selectedItem);
+            });
+            connect(actionExport, &QAction::triggered, this, [this, selectedItem]() {
+                exportSingleImage(selectedItem);
+            });
 
-                    connect(actionOpen, &QAction::triggered, this, [this, selectedItem]() {
-                        handleSpecificImageClick(selectedItem, m_clickedImageIndex);
-                    });
-                    connect(actionExport, &QAction::triggered, this, [this, selectedItem]() {
-                        exportSpecificImage(selectedItem, m_clickedImageIndex);
-                    });
-
-                    // Only show delete option if not viewing old diary entry
-                    if (!isOldEntry) {
-                        QAction *actionDelete = contextMenu.addAction("Delete Image");
-                        connect(actionDelete, &QAction::triggered, this, [this, selectedItem]() {
-                            deleteSpecificImage(selectedItem, m_clickedImageIndex);
-                        });
-                    }
-                } else {
-                    // No specific image clicked, show general multi-image options
-                    QAction *actionOpen = contextMenu.addAction("Select Image to Open...");
-                    QAction *actionExport = contextMenu.addAction("Select Image to Export...");
-
-                    connect(actionOpen, &QAction::triggered, this, [this, selectedItem]() {
-                        handleImageClick(selectedItem); // This will show the selection dialog
-                    });
-                    connect(actionExport, &QAction::triggered, this, [this, selectedItem]() {
-                        exportSelectedImage(selectedItem);
-                    });
-
-                    // Only show delete option if not viewing old diary entry
-                    if (!isOldEntry) {
-                        QAction *actionDelete = contextMenu.addAction("Delete All Images");
-                        connect(actionDelete, &QAction::triggered, this, &Operations_Diary::DeleteEntry);
-                    }
-                }
-            } else {
-                // Single image - always show single image options
-                QString imagePath = selectedItem->data(Qt::UserRole+4).toString();
-                QString imageFileName = QFileInfo(imagePath).fileName();
-
-                QAction *actionOpen = contextMenu.addAction("Open Image");
-                QAction *actionExport = contextMenu.addAction("Decrypt and Export");
-
-                connect(actionOpen, &QAction::triggered, this, [this, selectedItem]() {
-                    handleImageClick(selectedItem);
-                });
-                connect(actionExport, &QAction::triggered, this, [this, selectedItem]() {
-                    exportSingleImage(selectedItem);
-                });
-
-                // Only show delete option if not viewing old diary entry
-                if (!isOldEntry) {
-                    QAction *actionDelete = contextMenu.addAction("Delete Image");
-                    connect(actionDelete, &QAction::triggered, this, &Operations_Diary::DeleteEntry);
-                }
+            // Only show delete option if not viewing old diary entry
+            if (!isOldEntry) {
+                QAction *actionDelete = contextMenu.addAction("Delete Image");
+                connect(actionDelete, &QAction::triggered, this, &Operations_Diary::DeleteEntry);
             }
 
             // Use the widget's mapToGlobal with the original pos
@@ -2174,7 +1999,7 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
             return;
         }
 
-        // Regular text context menu (existing code)
+        // Regular text context menu (existing code unchanged)
         QMenu contextMenu(tr("Context menu"), m_mainWindow->ui->DiaryTextDisplay);
         contextMenu.installEventFilter(m_mainWindow);
         contextMenu.setAttribute(Qt::WA_DeleteOnClose);
@@ -2193,8 +2018,7 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
 
         //build context menu
         contextMenu.addAction(&action3);
-        if(m_mainWindow->setting_Diary_CanEditRecent == true && !isOldEntry)
-        {
+        if(m_mainWindow->setting_Diary_CanEditRecent == true && !isOldEntry) {
             contextMenu.addAction(&action2);
         }
 
@@ -2212,8 +2036,7 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
         int selectedIndex = m_mainWindow->ui->DiaryTextDisplay->row(selectedItem);
 
         // Use the index in FindLastTimeStampType
-        if (FindLastTimeStampType(selectedIndex) == Constants::Diary_TaskManagerStart)
-        {
+        if (FindLastTimeStampType(selectedIndex) == Constants::Diary_TaskManagerStart) {
             action2.setEnabled(false);
         }
         contextMenu.exec(m_mainWindow->mapToGlobal(newpos));
@@ -2515,27 +2338,8 @@ bool Operations_Diary::saveEncryptedImage(const QString& sourcePath, const QStri
 
 QPixmap Operations_Diary::generateThumbnail(const QString& imagePath, int maxSize)
 {
-    QPixmap originalPixmap(imagePath);
-    if (originalPixmap.isNull()) {
-        return QPixmap();
-    }
-
-    // Scale the pixmap to fit within maxSize while preserving aspect ratio
-    QPixmap thumbnail = originalPixmap.scaled(maxSize, maxSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-
-    // Create a square pixmap with padding
-    QPixmap squareThumbnail(maxSize, maxSize);
-    squareThumbnail.fill(Qt::transparent);
-
-    QPainter painter(&squareThumbnail);
-    painter.setRenderHint(QPainter::Antialiasing);
-
-    // Center the thumbnail
-    int x = (maxSize - thumbnail.width()) / 2;
-    int y = (maxSize - thumbnail.height()) / 2;
-    painter.drawPixmap(x, y, thumbnail);
-
-    return squareThumbnail;
+    // This method is kept for backward compatibility but now uses the dynamic system
+    return generateDynamicThumbnail(imagePath, QSize(maxSize, maxSize));
 }
 
 QSize Operations_Diary::getImageDimensions(const QString& imagePath)
@@ -2546,7 +2350,11 @@ QSize Operations_Diary::getImageDimensions(const QString& imagePath)
 
 bool Operations_Diary::isImageOversized(const QSize& imageSize, int maxWidth, int maxHeight)
 {
-    return imageSize.width() > maxWidth || imageSize.height() > maxHeight;
+    // Use the class constants if parameters are 0 (backward compatibility)
+    int effectiveMaxWidth = (maxWidth > 0) ? maxWidth : MAX_IMAGE_WIDTH;
+    int effectiveMaxHeight = (maxHeight > 0) ? maxHeight : MAX_IMAGE_HEIGHT;
+
+    return imageSize.width() > effectiveMaxWidth || imageSize.height() > effectiveMaxHeight;
 }
 
 void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool forceThumbnails)
@@ -2574,6 +2382,7 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
     QStringList processedImages;
     QStringList failedImages;
 
+    // Process each image individually (no grouping)
     foreach(const QString& imagePath, imagePaths) {
         try {
             // Validate image file
@@ -2589,11 +2398,12 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
                 continue;
             }
 
-            // Force thumbnails for grouped images, or use existing logic for single images
-            bool needsThumbnail = (imagePaths.size() > 1) || forceThumbnails ||
-                                  isImageOversized(imageSize, MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT);
+            qDebug() << "Operations_Diary: Processing image" << imagePath << "with size" << imageSize;
 
-            // Generate filename
+            // Always create thumbnails now
+            ImageDisplayInfo displayInfo = calculateImageDisplayInfo(imageSize, false);
+
+            // Generate filename for original
             QString originalExtension = QFileInfo(imagePath).suffix();
             QString imageFilename = generateImageFilename(originalExtension, diaryDir);
             QString encryptedImagePath = QDir::cleanPath(diaryDir + "/" + imageFilename);
@@ -2607,9 +2417,9 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
 
             QString displayFilename = imageFilename;
 
-            // Generate thumbnail if needed
-            if (needsThumbnail) {
-                QPixmap thumbnail = generateThumbnail(imagePath, THUMBNAIL_SIZE);
+            // Always generate thumbnail now
+            if (displayInfo.needsThumbnail) {
+                QPixmap thumbnail = generateDynamicThumbnail(imagePath, displayInfo.targetSize);
                 if (!thumbnail.isNull()) {
                     QString thumbnailFilename = QFileInfo(imageFilename).completeBaseName() + ".thumb";
                     QString thumbnailPath = QDir::cleanPath(diaryDir + "/" + thumbnailFilename);
@@ -2622,8 +2432,12 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
 
                         if (thumbnailSaveSuccess) {
                             displayFilename = thumbnailFilename;
+                            qDebug() << "Operations_Diary: Created thumbnail:" << displayFilename
+                                     << "with size" << displayInfo.targetSize;
                         }
                     }
+                } else {
+                    qWarning() << "Operations_Diary: Failed to generate thumbnail for" << imagePath;
                 }
             }
 
@@ -2643,16 +2457,14 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
         }
     }
 
-    // Add images to diary if any were processed successfully
+    // Add each image individually to diary if any were processed successfully
     if (!processedImages.isEmpty()) {
-        // Get current diary file path
         QString todayDiaryPath = getDiaryFilePath(formattedDate);
 
-        // Check if we should group images
-        bool shouldGroup = checkShouldGroupImages(todayDiaryPath);
-
-        // Add images to diary
-        addImagesToCurrentDiary(processedImages, todayDiaryPath, shouldGroup);
+        foreach(const QString& imageFilename, processedImages) {
+            // Add each image as separate entry
+            addSingleImageToDiary(imageFilename, todayDiaryPath);
+        }
 
         // If user was typing, preserve their text and add it after images
         QString currentText = m_mainWindow->ui->DiaryTextInput->toPlainText().trimmed();
@@ -2671,58 +2483,6 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
         errorMessage += failedImages.join("\n");
         QMessageBox::warning(m_mainWindow, "Image Processing Errors", errorMessage);
     }
-}
-
-bool Operations_Diary::checkShouldGroupImages(const QString& diaryFilePath)
-{
-    qDebug() << "=== checkShouldGroupImages called ===";
-
-    // Check timestamp condition first
-    QDateTime currentDateTime = QDateTime::currentDateTime();
-    QString formattedTime = currentDateTime.toString("hh:mm");
-    int currentTimeMinutes = formattedTime.section(":",0,0).toInt() * 60 + formattedTime.section(":",1,1).toInt();
-
-    bool needsTimestamp = true;
-    if (lastTimeStamp_Hours * 60 + lastTimeStamp_Minutes > currentTimeMinutes - m_mainWindow->setting_Diary_TStampTimer &&
-        cur_entriesNoSpacer < m_mainWindow->setting_Diary_TStampCounter) {
-        needsTimestamp = false;
-        qDebug() << "No timestamp needed - can potentially group";
-    } else {
-        qDebug() << "Timestamp needed - cannot group";
-        return false; // Don't group if we need a new timestamp
-    }
-
-    // Check if last visible entry in the display is an image
-    QList<QListWidgetItem*> items = getTextDisplayItems();
-    if (items.isEmpty()) {
-        qDebug() << "No items in display";
-        return false;
-    }
-
-    // Look for the last non-spacer item (skip the last item which is always a spacer)
-    for (int i = items.size() - 2; i >= 0; i--) { // -2 to skip the spacer
-        QListWidgetItem* item = items[i];
-
-        // Skip hidden items and spacers
-        if (item->isHidden() || item->text() == Constants::Diary_Spacer) {
-            continue;
-        }
-
-        // Check if this item is an image
-        bool isImageItem = item->data(Qt::UserRole+3).toBool();
-        qDebug() << "Last visible item at index" << i << "is image:" << isImageItem;
-
-        if (isImageItem) {
-            qDebug() << "Found image item - can group!";
-            return true; // Can group with this image
-        } else {
-            qDebug() << "Found non-image item - cannot group";
-            return false; // Hit a non-image item, can't group
-        }
-    }
-
-    qDebug() << "No suitable item found for grouping";
-    return false;
 }
 
 bool Operations_Diary::openImageWithViewer(const QString& imagePath)
@@ -2895,57 +2655,34 @@ void Operations_Diary::cleanupBrokenImageReferences(const QString& diaryFilePath
                 inImageSection = false;
                 cleanedContent.append(line);
             } else if (inImageSection) {
-                // This is image data - validate and clean it
-                QString imageData = line;
-                QStringList imageFilenames;
+                // This is image data - validate single image only
+                QString imageFilename = line;
 
-                if (imageData.contains("|")) {
-                    imageFilenames = imageData.split("|", Qt::SkipEmptyParts);
-                } else {
-                    imageFilenames.append(imageData);
-                }
+                ImageValidationResult validation = validateImageFile(imageFilename, diaryDir);
 
-                QStringList validFilenames;
+                if (validation.isValid) {
+                    if (validation.needsThumbnailRecreation) {
+                        // Try to recreate thumbnail
+                        QString thumbnailPath = QDir::cleanPath(diaryDir + "/" + imageFilename);
+                        bool recreateSuccess = recreateThumbnail(thumbnailPath, diaryDir);
 
-                foreach(const QString& imageFilename, imageFilenames) {
-                    ImageValidationResult validation = validateImageFile(imageFilename, diaryDir);
-
-                    if (validation.isValid) {
-                        if (validation.needsThumbnailRecreation) {
-                            // Try to recreate thumbnail
-                            QString thumbnailPath = QDir::cleanPath(diaryDir + "/" + imageFilename);
-                            bool recreateSuccess = recreateThumbnail(thumbnailPath, diaryDir);
-
-                            if (recreateSuccess) {
-                                validFilenames.append(imageFilename);
-                                qDebug() << "Recreated thumbnail during cleanup:" << imageFilename;
-                            } else {
-                                // Use original instead
-                                QString originalFilename = QFileInfo(getOriginalImagePath(thumbnailPath, diaryDir)).fileName();
-                                validFilenames.append(originalFilename);
-                                contentChanged = true;
-                                qDebug() << "Replaced thumbnail with original during cleanup:" << imageFilename << "->" << originalFilename;
-                            }
+                        if (recreateSuccess) {
+                            cleanedContent.append(imageFilename);
+                            qDebug() << "Recreated thumbnail during cleanup:" << imageFilename;
                         } else {
-                            validFilenames.append(imageFilename);
+                            // Use original instead
+                            QString originalFilename = QFileInfo(getOriginalImagePath(thumbnailPath, diaryDir)).fileName();
+                            cleanedContent.append(originalFilename);
+                            contentChanged = true;
+                            qDebug() << "Replaced thumbnail with original during cleanup:" << imageFilename << "->" << originalFilename;
                         }
                     } else {
-                        qDebug() << "Removed invalid image during cleanup:" << imageFilename;
-                        contentChanged = true;
-                    }
-                }
-
-                if (!validFilenames.isEmpty()) {
-                    QString newImageData = (validFilenames.size() == 1) ?
-                                          validFilenames.first() :
-                                          validFilenames.join("|");
-                    cleanedContent.append(newImageData);
-
-                    if (newImageData != imageData) {
-                        contentChanged = true;
+                        cleanedContent.append(imageFilename);
                     }
                 } else {
-                    // No valid images - remove the entire image section
+                    qDebug() << "Removed invalid image during cleanup:" << imageFilename;
+
+                    // Remove the entire image section
                     // Remove the IMAGE_START that we just added
                     cleanedContent.removeLast();
 
@@ -2955,7 +2692,7 @@ void Operations_Diary::cleanupBrokenImageReferences(const QString& diaryFilePath
                     }
 
                     contentChanged = true;
-                    qDebug() << "Removed entire image section - no valid images";
+                    qDebug() << "Removed entire image section - invalid image";
                 }
             } else {
                 cleanedContent.append(line);
@@ -3039,7 +2776,7 @@ bool Operations_Diary::loadAndDisplayImage(const QString& imagePath, const QStri
     }
 }
 
-QPixmap Operations_Diary::loadEncryptedImage(const QString& encryptedImagePath)
+QPixmap Operations_Diary::loadEncryptedImage(const QString& encryptedImagePath) const
 {
     qDebug() << "=== loadEncryptedImage called for:" << encryptedImagePath;
 
@@ -3098,305 +2835,6 @@ QString Operations_Diary::getImageDisplayText(const QString& imageFilename, cons
     } else {
         return QString("%1.%2 %3").arg(baseName).arg(extension).arg(sizeText);
     }
-}
-
-void Operations_Diary::setupImageItem(QListWidgetItem* item, const QString& imagePath, const QString& displayText)
-{
-    // Set up the item as a clickable image
-    item->setText(""); // Remove caption completely
-    item->setData(Qt::UserRole+3, true); // Mark as image
-
-    // Check if this is multiple images (contains |)
-    if (imagePath.contains("|")) {
-        QStringList imagePaths = imagePath.split("|", Qt::SkipEmptyParts);
-        item->setData(Qt::UserRole+4, imagePaths); // Store as QStringList
-        item->setData(Qt::UserRole+5, true); // Mark as multi-image
-    } else {
-        item->setData(Qt::UserRole+4, imagePath); // Store single path as QString
-        item->setData(Qt::UserRole+5, false); // Mark as single image
-    }
-
-    item->setFlags(item->flags() & ~Qt::ItemIsEditable); // Make non-editable but still selectable
-
-    // No background color - use theme default
-    // No font changes needed since we have no text
-}
-
-void Operations_Diary::handleImageClick(QListWidgetItem* item)
-{
-    if (!item || !item->data(Qt::UserRole+3).toBool()) {
-        return; // Not an image item
-    }
-
-    bool isMultiImage = item->data(Qt::UserRole+5).toBool();
-
-    if (isMultiImage) {
-        // For multi-image items, check if we have a stored clicked index from context menu
-        if (m_clickedImageIndex >= 0) {
-            QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
-            if (m_clickedImageIndex < imagePaths.size()) {
-                // FIXED: Determine which diary directory to use based on current row
-                QString diaryPath = current_DiaryFileName;
-                int currentRow = m_mainWindow->ui->DiaryTextDisplay->row(item);
-                if (currentRow < previousDiaryLineCounter && previous_DiaryFileName != "") {
-                    diaryPath = previous_DiaryFileName;
-                    qDebug() << "Handle image click (multi with index): Using previous diary path:" << diaryPath;
-                } else {
-                    qDebug() << "Handle image click (multi with index): Using current diary path:" << diaryPath;
-                }
-
-                QFileInfo diaryFileInfo(diaryPath);
-                QString diaryDir = diaryFileInfo.dir().absolutePath();
-
-                QString originalPath = getOriginalImagePath(imagePaths[m_clickedImageIndex], diaryDir);
-                openImageWithViewer(originalPath);
-                return;
-            }
-        }
-
-        // Fallback to selection dialog if no valid clicked index
-        QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
-
-        // FIXED: Determine which diary directory to use based on current row
-        QString diaryPath = current_DiaryFileName;
-        int currentRow = m_mainWindow->ui->DiaryTextDisplay->row(item);
-        if (currentRow < previousDiaryLineCounter && previous_DiaryFileName != "") {
-            diaryPath = previous_DiaryFileName;
-            qDebug() << "Handle image click (multi selection): Using previous diary path:" << diaryPath;
-        } else {
-            qDebug() << "Handle image click (multi selection): Using current diary path:" << diaryPath;
-        }
-
-        QFileInfo diaryFileInfo(diaryPath);
-        QString diaryDir = diaryFileInfo.dir().absolutePath();
-
-        QStringList originalPaths = getOriginalImagePaths(imagePaths, diaryDir);
-        QStringList imageFilenames;
-        foreach(const QString& path, originalPaths) {
-            imageFilenames.append(QFileInfo(path).fileName());
-        }
-
-        bool ok;
-        QString selectedFilename = QInputDialog::getItem(
-            m_mainWindow,
-            "Select Image to Open",
-            "Multiple images found. Select which image to open:",
-            imageFilenames,
-            0,
-            false,
-            &ok
-            );
-
-        if (ok && !selectedFilename.isEmpty()) {
-            int index = imageFilenames.indexOf(selectedFilename);
-            if (index >= 0 && index < originalPaths.size()) {
-                openImageWithViewer(originalPaths[index]);
-            }
-        }
-    } else {
-        // Single image
-        QString imagePath = item->data(Qt::UserRole+4).toString();
-
-        if (imagePath.isEmpty()) {
-            QMessageBox::warning(m_mainWindow, "Error", "Image path not found.");
-            return;
-        }
-
-        // FIXED: Determine which diary directory to use based on current row
-        QString diaryPath = current_DiaryFileName;
-        int currentRow = m_mainWindow->ui->DiaryTextDisplay->row(item);
-        if (currentRow < previousDiaryLineCounter && previous_DiaryFileName != "") {
-            diaryPath = previous_DiaryFileName;
-            qDebug() << "Handle image click (single): Using previous diary path:" << diaryPath;
-        } else {
-            qDebug() << "Handle image click (single): Using current diary path:" << diaryPath;
-        }
-
-        QFileInfo diaryFileInfo(diaryPath);
-        QString diaryDir = diaryFileInfo.dir().absolutePath();
-
-        QString originalPath = getOriginalImagePath(imagePath, diaryDir);
-        openImageWithViewer(originalPath);
-    }
-}
-
-void Operations_Diary::addImagesToCurrentDiary(const QStringList& imageFilenames, const QString& diaryFilePath, bool shouldGroup)
-{
-    qDebug() << "=== addImagesToCurrentDiary called ===";
-    qDebug() << "imageFilenames:" << imageFilenames;
-    qDebug() << "shouldGroup:" << shouldGroup;
-
-    // Ensure the diary exists or create it
-    if (!QFileInfo::exists(diaryFilePath)) {
-        // Create new diary with just the date header
-        QDateTime currentDateTime = QDateTime::currentDateTime();
-        QString formattedDate = currentDateTime.toString("yyyy.MM.dd");
-        QStringList diaryContent;
-        diaryContent.append(GetDiaryDateStamp(formattedDate));
-
-        bool writeSuccess = OperationsFiles::writeEncryptedFileLines(
-            diaryFilePath, m_mainWindow->user_Key, diaryContent);
-
-        if (!writeSuccess) {
-            qWarning() << "Failed to create diary file for images";
-            return;
-        }
-        qDebug() << "Created new diary file";
-    }
-
-    // Read current diary content
-    QStringList diaryContent;
-    bool readSuccess = OperationsFiles::readEncryptedFileLines(
-        diaryFilePath, m_mainWindow->user_Key, diaryContent);
-
-    if (!readSuccess) {
-        qWarning() << "Failed to read diary file for adding images";
-        return;
-    }
-
-    qDebug() << "DIARY-DEBUG9: Read diary content from file:";
-    for (int i = 0; i < diaryContent.size(); i++) {
-        qDebug() << "DIARY-DEBUG9: Line" << i << ":" << diaryContent[i];
-    }
-
-    qDebug() << "Read diary content, lines:" << diaryContent.size();
-
-    if (shouldGroup && !diaryContent.isEmpty()) {
-        qDebug() << "Attempting to group with existing image";
-
-        // Find the last image entry and modify it
-        for (int i = diaryContent.size() - 1; i >= 0; i--) {
-            if (diaryContent[i] == Constants::Diary_ImageStart) {
-                qDebug() << "Found IMAGE_START at line" << i;
-
-                // Found start of last image entry, find the corresponding end
-                for (int j = i + 1; j < diaryContent.size(); j++) {
-                    if (diaryContent[j] == Constants::Diary_ImageEnd) {
-                        qDebug() << "Found IMAGE_END at line" << j;
-                        qDebug() << "Current image data:" << diaryContent[j - 1];
-
-                        // Found the image data line (between start and end)
-                        QString existingImages = diaryContent[j - 1];
-                        QString newImages = imageFilenames.join("|");
-
-                        // Combine existing and new images
-                        diaryContent[j - 1] = existingImages + "|" + newImages;
-                        qDebug() << "Updated image data:" << diaryContent[j - 1];
-
-                        // Write the updated content back
-                        bool writeSuccess = OperationsFiles::writeEncryptedFileLines(
-                            diaryFilePath, m_mainWindow->user_Key, diaryContent);
-
-                        if (writeSuccess) {
-                            qDebug() << "Successfully grouped images in diary file";
-
-                            // Reload the diary if it's currently displayed
-                            if (current_DiaryFileName == diaryFilePath) {
-                                qDebug() << "Reloading diary to show grouped images";
-                                LoadDiary(diaryFilePath);
-                            }
-                        } else {
-                            qWarning() << "Failed to write grouped images to diary";
-                        }
-                        return;
-                    }
-                }
-                break; // Found start but no end, something's wrong
-            }
-        }
-        qDebug() << "Could not find existing image entry to group with";
-    }
-
-    qDebug() << "Adding as new image entry (not grouping)";
-
-    // Not grouping or no existing image found - add as new entry
-
-    // Check if we need to add a timestamp
-    QDateTime currentDateTime = QDateTime::currentDateTime();
-    QString formattedTime = currentDateTime.toString("hh:mm");
-    int currentTimeMinutes = formattedTime.section(":",0,0).toInt() * 60 + formattedTime.section(":",1,1).toInt();
-
-    // Check if we need a timestamp, with smart logic for images
-    bool needsTimestamp = true;
-    int lastTimestampMinutes = lastTimeStamp_Hours * 60 + lastTimeStamp_Minutes;
-    int timeSinceLastTimestamp = currentTimeMinutes - lastTimestampMinutes;
-
-    if (timeSinceLastTimestamp < m_mainWindow->setting_Diary_TStampTimer &&
-        cur_entriesNoSpacer < m_mainWindow->setting_Diary_TStampCounter) {
-        needsTimestamp = false;
-
-        // For new image entries (not grouping), check if we're close to needing a timestamp
-        if (!shouldGroup) {
-            // Counter-based check: use half of the counter setting as threshold
-            int halfCounterThreshold = m_mainWindow->setting_Diary_TStampCounter / 2;
-            if (m_mainWindow->setting_Diary_TStampCounter >= halfCounterThreshold &&
-                cur_entriesNoSpacer > m_mainWindow->setting_Diary_TStampCounter - halfCounterThreshold) {
-                needsTimestamp = true;
-                qDebug() << "Forcing timestamp due to entry count proximity. Current:" << cur_entriesNoSpacer
-                         << "Threshold:" << (m_mainWindow->setting_Diary_TStampCounter - halfCounterThreshold);
-            }
-
-            // Time-based check: use half of the time setting as threshold
-            int halfTimeThreshold = m_mainWindow->setting_Diary_TStampTimer / 2;
-            if (timeSinceLastTimestamp >= halfTimeThreshold) {
-                needsTimestamp = true;
-                qDebug() << "Forcing timestamp due to time proximity. Time since last:" << timeSinceLastTimestamp
-                         << "Threshold:" << halfTimeThreshold;
-            }
-        }
-    }
-
-    if (needsTimestamp) {
-        qDebug() << "Adding timestamp for new image entry";
-
-        // Add timestamp
-        QString timestamp = m_mainWindow->user_Displayname + " at " + formattedTime;
-        diaryContent.append(Constants::Diary_Spacer);
-        diaryContent.append(Constants::Diary_TimeStampStart);
-        diaryContent.append(timestamp);
-
-        // Update timestamp tracking
-        lastTimeStamp_Hours = formattedTime.section(":",0,0).toInt();
-        lastTimeStamp_Minutes = formattedTime.section(":",1,1).toInt();
-        cur_entriesNoSpacer = 0;
-    } else {
-        qDebug() << "No timestamp needed for new image entry";
-    }
-
-    // Add image(s) as single or grouped entry
-    diaryContent.append(Constants::Diary_ImageStart);
-    if (imageFilenames.size() == 1) {
-        diaryContent.append(imageFilenames.first());
-        qDebug() << "Added single image:" << imageFilenames.first();
-    } else {
-        diaryContent.append(imageFilenames.join("|"));
-        qDebug() << "Added grouped images:" << imageFilenames.join("|");
-    }
-    diaryContent.append(Constants::Diary_ImageEnd);
-
-    qDebug() << "DIARY-DEBUG8: About to write diary content:";
-    for (int i = 0; i < diaryContent.size(); i++) {
-        qDebug() << "DIARY-DEBUG8: Line" << i << ":" << diaryContent[i];
-    }
-
-    // Write the updated content back to the diary
-    bool writeSuccess = OperationsFiles::writeEncryptedFileLines(
-        diaryFilePath, m_mainWindow->user_Key, diaryContent);
-
-    if (!writeSuccess) {
-        qWarning() << "Failed to write images to diary file";
-        return;
-    }
-
-    qDebug() << "Successfully wrote image entry to diary";
-
-    // Reload the diary if it's currently displayed
-    if (current_DiaryFileName == diaryFilePath) {
-        qDebug() << "Reloading diary to show new images";
-        LoadDiary(diaryFilePath);
-    }
-    cur_entriesNoSpacer = m_mainWindow->setting_Diary_TStampCounter - 1;
-    qDebug() << "=== addImagesToCurrentDiary completed ===";
 }
 
 void Operations_Diary::deleteImageFiles(const QString& imageData, const QString& diaryDir)
@@ -3462,242 +2900,6 @@ void Operations_Diary::deleteImageFiles(const QString& imageData, const QString&
                 }
             }
         }
-    }
-}
-
-int Operations_Diary::calculateClickedImageIndex(QListWidgetItem* item, const QPoint& clickPos)
-{
-    if (!item || !item->data(Qt::UserRole+3).toBool()) {
-        return -1; // Not an image item
-    }
-
-    // Get the item's rect in widget coordinates
-    QRect itemRect = m_mainWindow->ui->DiaryTextDisplay->visualItemRect(item);
-
-    // Convert click position to relative coordinates within the item
-    QPoint relativePos = clickPos - itemRect.topLeft();
-
-    bool isMultiImage = item->data(Qt::UserRole+5).toBool();
-
-    if (!isMultiImage) {
-        // Single image click detection
-        const int THUMBNAIL_SIZE = 64;
-        const int MARGIN = 10;
-
-        // Calculate image position (same logic as paintSingleImage)
-        int imageX = MARGIN;
-        int imageY = MARGIN;
-
-        // Get the actual thumbnail size by trying to load it
-        QString imagePath = item->data(Qt::UserRole+4).toString();
-        QPixmap imagePixmap = loadEncryptedImage(imagePath);
-
-        if (!imagePixmap.isNull()) {
-            // Scale to thumbnail size while preserving aspect ratio
-            QPixmap thumbnail = imagePixmap.scaled(THUMBNAIL_SIZE, THUMBNAIL_SIZE,
-                                                   Qt::KeepAspectRatio, Qt::SmoothTransformation);
-
-            // Center the thumbnail in the 64x64 space
-            int drawX = imageX + (THUMBNAIL_SIZE - thumbnail.width()) / 2;
-            int drawY = imageY + (THUMBNAIL_SIZE - thumbnail.height()) / 2;
-
-            // Check if click is within the actual thumbnail bounds
-            if (relativePos.x() >= drawX && relativePos.x() <= drawX + thumbnail.width() &&
-                relativePos.y() >= drawY && relativePos.y() <= drawY + thumbnail.height()) {
-                return 0; // Single image clicked
-            }
-        }
-
-        return -1; // Click outside single image
-    } else {
-        // Multi-image click detection (existing logic)
-        QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
-        int imageCount = qMin(imagePaths.size(), 10); // Cap at 10 images
-
-        if (imageCount <= 1) {
-            return 0;
-        }
-
-        // Grid layout constants (must match paintMultipleImages)
-        const int THUMBNAIL_SIZE = 64;
-        const int MARGIN = 10;
-        const int SPACING = 5;
-
-        // Calculate available width and images per row
-        int availableWidth = itemRect.width() - (2 * MARGIN);
-        int imagesPerRow = availableWidth / (THUMBNAIL_SIZE + SPACING);
-        if (imagesPerRow < 1) imagesPerRow = 1;
-
-        // Account for margins
-        int clickX = relativePos.x() - MARGIN;
-        int clickY = relativePos.y() - MARGIN;
-
-        // Check if click is outside the image area
-        if (clickX < 0 || clickY < 0) {
-            return -1;
-        }
-
-        // Calculate grid position
-        int col = clickX / (THUMBNAIL_SIZE + SPACING);
-        int row = clickY / (THUMBNAIL_SIZE + SPACING);
-
-        // Convert to image index
-        int imageIndex = (row * imagesPerRow) + col;
-
-        // Validate bounds
-        if (imageIndex < 0 || imageIndex >= imageCount) {
-            return -1;
-        }
-
-        // Additional check: ensure click is within the actual thumbnail area
-        int thumbnailStartX = col * (THUMBNAIL_SIZE + SPACING);
-        int thumbnailStartY = row * (THUMBNAIL_SIZE + SPACING);
-        int thumbnailEndX = thumbnailStartX + THUMBNAIL_SIZE;
-        int thumbnailEndY = thumbnailStartY + THUMBNAIL_SIZE;
-
-        if (clickX >= thumbnailStartX && clickX <= thumbnailEndX &&
-            clickY >= thumbnailStartY && clickY <= thumbnailEndY) {
-            return imageIndex;
-        }
-
-        return -1; // Click was in spacing/margin area
-    }
-}
-
-void Operations_Diary::deleteSpecificImage(QListWidgetItem* item, int imageIndex)
-{
-    qDebug() << "=== deleteSpecificImage called ===";
-    qDebug() << "imageIndex:" << imageIndex;
-
-    if (!item || !item->data(Qt::UserRole+3).toBool()) {
-        qDebug() << "Not an image item, returning";
-        return; // Not an image item
-    }
-
-    bool isMultiImage = item->data(Qt::UserRole+5).toBool();
-    qDebug() << "isMultiImage:" << isMultiImage;
-
-    if (!isMultiImage) {
-        qDebug() << "Single image - calling DeleteEntry()";
-        // Single image - just delete the whole entry
-        DeleteEntry();
-        return;
-    }
-
-    QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
-    qDebug() << "Original imagePaths:" << imagePaths;
-
-    if (imageIndex < 0 || imageIndex >= imagePaths.size()) {
-        qDebug() << "Invalid imageIndex, returning";
-        return; // Invalid index
-    }
-
-    // CAPTURE THE ORIGINAL IMAGE DATA BEFORE MODIFICATION
-    QStringList originalImageFilenames;
-    foreach(const QString& path, imagePaths) {
-        originalImageFilenames.append(QFileInfo(path).fileName());
-    }
-    QString originalImageData = originalImageFilenames.join("|");
-    qDebug() << "Captured original image data:" << originalImageData;
-
-    // FIXED: Determine which diary directory to use based on current row
-    QString diaryPath = current_DiaryFileName;
-    int currentRow = m_mainWindow->ui->DiaryTextDisplay->row(item);
-    if (currentRow < previousDiaryLineCounter && previous_DiaryFileName != "") {
-        diaryPath = previous_DiaryFileName;
-        qDebug() << "Delete specific: Using previous diary path:" << diaryPath;
-    } else {
-        qDebug() << "Delete specific: Using current diary path:" << diaryPath;
-    }
-
-    QFileInfo diaryFileInfo(diaryPath);
-    QString diaryDir = diaryFileInfo.dir().absolutePath();
-    qDebug() << "diaryDir:" << diaryDir;
-
-    // Get the image filename to delete
-    QString imagePathToDelete = imagePaths[imageIndex];
-    QString imageFilename = QFileInfo(imagePathToDelete).fileName();
-    qDebug() << "Deleting imageFilename:" << imageFilename;
-
-    // Delete the actual file
-    deleteImageFiles(imageFilename, diaryDir);
-
-    // Remove from the list
-    imagePaths.removeAt(imageIndex);
-    qDebug() << "Remaining imagePaths after removal:" << imagePaths;
-
-    if (imagePaths.size() == 1) {
-        qDebug() << "Converting to single image";
-        // Only one image left - convert back to single image
-        item->setData(Qt::UserRole+4, imagePaths.first());
-        item->setData(Qt::UserRole+5, false); // Mark as single image
-
-        // Update size hint for single image (CONSISTENT WITH MULTI-IMAGE)
-        const int THUMBNAIL_SIZE = 64;
-        const int MARGIN = 10;
-
-        int itemHeight = THUMBNAIL_SIZE + (2 * MARGIN);
-        int itemWidth = THUMBNAIL_SIZE + (2 * MARGIN);
-        item->setSizeHint(QSize(itemWidth, itemHeight));
-        qDebug() << "Set single image size hint (consistent):" << QSize(itemWidth, itemHeight);
-    } else if (imagePaths.isEmpty()) {
-        qDebug() << "No images left - calling DeleteEntry()";
-        // No images left - delete the whole entry
-        DeleteEntry();
-        return;
-    } else {
-        qDebug() << "Multiple images still remain - updating data";
-        // Multiple images still remain - update the data
-        item->setData(Qt::UserRole+4, imagePaths);
-
-        // Recalculate size hint for remaining images
-        int imageCount = imagePaths.size();
-        const int THUMBNAIL_SIZE = 64;
-        const int MARGIN = 10;
-        const int SPACING = 5;
-
-        int availableWidth = m_mainWindow->ui->DiaryTextDisplay->viewport()->width() - (2 * MARGIN);
-        int imagesPerRow = availableWidth / (THUMBNAIL_SIZE + SPACING);
-        if (imagesPerRow < 1) imagesPerRow = 1;
-
-        int rows = (imageCount + imagesPerRow - 1) / imagesPerRow;
-        int totalHeight = (rows * THUMBNAIL_SIZE) + ((rows - 1) * SPACING) + (2 * MARGIN);
-
-        item->setSizeHint(QSize(availableWidth + (2 * MARGIN), totalHeight));
-        qDebug() << "Set multi-image size hint:" << QSize(availableWidth + (2 * MARGIN), totalHeight);
-    }
-
-    qDebug() << "About to call updateImageEntryInDiary with original data:" << originalImageData;
-    // Update the diary file WITH THE ORIGINAL IMAGE DATA
-    updateImageEntryInDiary(item, originalImageData);
-
-    qDebug() << "About to force repaint";
-    // Force repaint
-    m_mainWindow->ui->DiaryTextDisplay->update();
-
-    qDebug() << "=== deleteSpecificImage completed ===";
-}
-
-QString Operations_Diary::removeImageFromData(const QString& imageData, int indexToRemove)
-{
-    QStringList imageFilenames;
-
-    if (imageData.contains("|")) {
-        imageFilenames = imageData.split("|", Qt::SkipEmptyParts);
-    } else {
-        imageFilenames.append(imageData);
-    }
-
-    if (indexToRemove >= 0 && indexToRemove < imageFilenames.size()) {
-        imageFilenames.removeAt(indexToRemove);
-    }
-
-    if (imageFilenames.isEmpty()) {
-        return "";
-    } else if (imageFilenames.size() == 1) {
-        return imageFilenames.first();
-    } else {
-        return imageFilenames.join("|");
     }
 }
 
@@ -3798,54 +3000,6 @@ void Operations_Diary::updateImageEntryInDiary(QListWidgetItem* item, const QStr
     }
 
     qDebug() << "=== updateImageEntryInDiary completed ===";
-}
-
-void Operations_Diary::handleSpecificImageClick(QListWidgetItem* item, int imageIndex)
-{
-    if (!item || !item->data(Qt::UserRole+3).toBool()) {
-        return; // Not an image item
-    }
-
-    bool isMultiImage = item->data(Qt::UserRole+5).toBool();
-
-    if (isMultiImage) {
-        QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
-        if (imageIndex >= 0 && imageIndex < imagePaths.size()) {
-            // FIXED: Determine which diary directory to use based on current row
-            QString diaryPath = current_DiaryFileName;
-            int currentRow = m_mainWindow->ui->DiaryTextDisplay->row(item);
-            if (currentRow < previousDiaryLineCounter && previous_DiaryFileName != "") {
-                diaryPath = previous_DiaryFileName;
-                qDebug() << "Handle specific click: Using previous diary path:" << diaryPath;
-            } else {
-                qDebug() << "Handle specific click: Using current diary path:" << diaryPath;
-            }
-
-            QFileInfo diaryFileInfo(diaryPath);
-            QString diaryDir = diaryFileInfo.dir().absolutePath();
-
-            QString originalPath = getOriginalImagePath(imagePaths[imageIndex], diaryDir);
-            openImageWithViewer(originalPath);
-        }
-    } else {
-        QString imagePath = item->data(Qt::UserRole+4).toString();
-
-        // FIXED: Determine which diary directory to use based on current row
-        QString diaryPath = current_DiaryFileName;
-        int currentRow = m_mainWindow->ui->DiaryTextDisplay->row(item);
-        if (currentRow < previousDiaryLineCounter && previous_DiaryFileName != "") {
-            diaryPath = previous_DiaryFileName;
-            qDebug() << "Handle single click: Using previous diary path:" << diaryPath;
-        } else {
-            qDebug() << "Handle single click: Using current diary path:" << diaryPath;
-        }
-
-        QFileInfo diaryFileInfo(diaryPath);
-        QString diaryDir = diaryFileInfo.dir().absolutePath();
-
-        QString originalPath = getOriginalImagePath(imagePath, diaryDir);
-        openImageWithViewer(originalPath);
-    }
 }
 
 bool Operations_Diary::isThumbnailPath(const QString& imagePath) const
@@ -4028,85 +3182,6 @@ void Operations_Diary::exportSingleImage(QListWidgetItem* item)
     decryptAndExportImage(originalPath, originalFilename);
 }
 
-void Operations_Diary::exportSpecificImage(QListWidgetItem* item, int imageIndex)
-{
-    if (!item || !item->data(Qt::UserRole+3).toBool()) {
-        return; // Not an image item
-    }
-
-    bool isMultiImage = item->data(Qt::UserRole+5).toBool();
-    if (isMultiImage) {
-        QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
-        if (imageIndex >= 0 && imageIndex < imagePaths.size()) {
-            // FIXED: Determine which diary directory to use based on current row
-            QString diaryPath = current_DiaryFileName;
-            int currentRow = m_mainWindow->ui->DiaryTextDisplay->row(item);
-            if (currentRow < previousDiaryLineCounter && previous_DiaryFileName != "") {
-                diaryPath = previous_DiaryFileName;
-                qDebug() << "Export specific: Using previous diary path:" << diaryPath;
-            } else {
-                qDebug() << "Export specific: Using current diary path:" << diaryPath;
-            }
-
-            QFileInfo diaryFileInfo(diaryPath);
-            QString diaryDir = diaryFileInfo.dir().absolutePath();
-
-            QString originalPath = getOriginalImagePath(imagePaths[imageIndex], diaryDir);
-            QString originalFilename = QFileInfo(originalPath).fileName();
-
-            decryptAndExportImage(originalPath, originalFilename);
-        }
-    } else {
-        exportSingleImage(item);
-    }
-}
-
-void Operations_Diary::exportSelectedImage(QListWidgetItem* item)
-{
-    if (!item || !item->data(Qt::UserRole+3).toBool()) {
-        return; // Not an image item
-    }
-
-    QStringList imagePaths = item->data(Qt::UserRole+4).toStringList();
-
-    // FIXED: Determine which diary directory to use based on current row
-    QString diaryPath = current_DiaryFileName;
-    int currentRow = m_mainWindow->ui->DiaryTextDisplay->row(item);
-    if (currentRow < previousDiaryLineCounter && previous_DiaryFileName != "") {
-        diaryPath = previous_DiaryFileName;
-        qDebug() << "Export selected: Using previous diary path:" << diaryPath;
-    } else {
-        qDebug() << "Export selected: Using current diary path:" << diaryPath;
-    }
-
-    QFileInfo diaryFileInfo(diaryPath);
-    QString diaryDir = diaryFileInfo.dir().absolutePath();
-
-    QStringList originalPaths = getOriginalImagePaths(imagePaths, diaryDir);
-    QStringList imageFilenames;
-    foreach(const QString& path, originalPaths) {
-        imageFilenames.append(QFileInfo(path).fileName());
-    }
-
-    bool ok;
-    QString selectedFilename = QInputDialog::getItem(
-        m_mainWindow,
-        "Select Image to Export",
-        "Multiple images found. Select which image to export:",
-        imageFilenames,
-        0,
-        false,
-        &ok
-        );
-
-    if (ok && !selectedFilename.isEmpty()) {
-        int index = imageFilenames.indexOf(selectedFilename);
-        if (index >= 0 && index < originalPaths.size()) {
-            decryptAndExportImage(originalPaths[index], selectedFilename);
-        }
-    }
-}
-
 ImageValidationResult Operations_Diary::validateImageFile(const QString& imageFilename, const QString& diaryDir)
 {
     ImageValidationResult result;
@@ -4216,7 +3291,7 @@ bool Operations_Diary::recreateThumbnail(const QString& thumbnailPath, const QSt
         }
 
         // Generate thumbnail
-        QPixmap thumbnail = generateThumbnail_FromPixmap(originalPixmap, THUMBNAIL_SIZE);
+        QPixmap thumbnail = generateThumbnail_FromPixmap(originalPixmap, MIN_THUMBNAIL_SIZE);
         if (thumbnail.isNull()) {
             qWarning() << "Failed to generate thumbnail from original image:" << originalPath;
             return false;
@@ -4319,6 +3394,374 @@ void Operations_Diary::cleanupOpenImageViewers()
     // Clear the tracking map
     m_openImageViewers.clear();
 }
+
+QSize Operations_Diary::calculateOptimalDisplaySize(const QSize& originalSize, const QSize& maxSize, int minSize) const
+{
+    if (originalSize.width() <= 0 || originalSize.height() <= 0) {
+        return QSize(minSize > 0 ? minSize : 64, minSize > 0 ? minSize : 64);
+    }
+
+    QSize targetSize = originalSize;
+
+    // Apply minimum size constraint if specified
+    if (minSize > 0) {
+        if (targetSize.width() < minSize && targetSize.height() < minSize) {
+            // Scale up to meet minimum size while preserving aspect ratio
+            double scaleX = double(minSize) / targetSize.width();
+            double scaleY = double(minSize) / targetSize.height();
+            double scale = qMax(scaleX, scaleY); // Use the larger scale to ensure both dimensions meet minimum
+
+            targetSize = QSize(
+                qRound(targetSize.width() * scale),
+                qRound(targetSize.height() * scale)
+            );
+        }
+    }
+
+    // Apply maximum size constraint
+    if (maxSize.width() > 0 && maxSize.height() > 0) {
+        if (targetSize.width() > maxSize.width() || targetSize.height() > maxSize.height()) {
+            // Scale down to fit within maximum size while preserving aspect ratio
+            targetSize = targetSize.scaled(maxSize, Qt::KeepAspectRatio);
+        }
+    }
+
+    qDebug() << "Operations_Diary: Calculated optimal size from" << originalSize << "to" << targetSize
+             << "with max" << maxSize << "and min" << minSize;
+
+    return targetSize;
+}
+
+QPixmap Operations_Diary::generateDynamicThumbnail(const QString& imagePath, const QSize& targetSize)
+{
+    QPixmap originalPixmap(imagePath);
+    if (originalPixmap.isNull()) {
+        qWarning() << "Operations_Diary: Failed to load image for dynamic thumbnail:" << imagePath;
+        return QPixmap();
+    }
+
+    qDebug() << "Operations_Diary: Generating dynamic thumbnail from" << originalPixmap.size() << "to" << targetSize;
+
+    // Scale the pixmap to the target size while preserving aspect ratio
+    QPixmap scaledPixmap = originalPixmap.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+    // For thumbnails that need to be square (like grouped images), center in a square canvas
+    if (targetSize.width() == targetSize.height() && targetSize.width() == MIN_THUMBNAIL_SIZE) {
+        QPixmap squareThumbnail(targetSize);
+        squareThumbnail.fill(Qt::transparent);
+
+        QPainter painter(&squareThumbnail);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        // Center the scaled image
+        int x = (targetSize.width() - scaledPixmap.width()) / 2;
+        int y = (targetSize.height() - scaledPixmap.height()) / 2;
+        painter.drawPixmap(x, y, scaledPixmap);
+
+        return squareThumbnail;
+    }
+
+    // For non-square thumbnails, return the scaled pixmap directly
+    return scaledPixmap;
+}
+
+void Operations_Diary::addSingleImageToDiary(const QString& imageFilename, const QString& diaryFilePath)
+{
+    qDebug() << "=== addSingleImageToDiary called ===";
+    qDebug() << "imageFilename:" << imageFilename;
+
+    // Ensure the diary exists or create it
+    if (!QFileInfo::exists(diaryFilePath)) {
+        // Create new diary with just the date header
+        QDateTime currentDateTime = QDateTime::currentDateTime();
+        QString formattedDate = currentDateTime.toString("yyyy.MM.dd");
+        QStringList diaryContent;
+        diaryContent.append(GetDiaryDateStamp(formattedDate));
+
+        bool writeSuccess = OperationsFiles::writeEncryptedFileLines(
+            diaryFilePath, m_mainWindow->user_Key, diaryContent);
+
+        if (!writeSuccess) {
+            qWarning() << "Failed to create diary file for image";
+            return;
+        }
+        qDebug() << "Created new diary file";
+    }
+
+    // Read current diary content
+    QStringList diaryContent;
+    bool readSuccess = OperationsFiles::readEncryptedFileLines(
+        diaryFilePath, m_mainWindow->user_Key, diaryContent);
+
+    if (!readSuccess) {
+        qWarning() << "Failed to read diary file for adding image";
+        return;
+    }
+
+    qDebug() << "Read diary content, lines:" << diaryContent.size();
+
+    // Check if we need to add a timestamp
+    // Smart timestamp logic: add timestamp if last entry is NOT an image
+    bool needsTimestamp = shouldAddTimestampForImage(diaryContent);
+
+    QDateTime currentDateTime = QDateTime::currentDateTime();
+    QString formattedTime = currentDateTime.toString("hh:mm");
+
+    if (needsTimestamp) {
+        qDebug() << "Adding timestamp for new image entry";
+
+        // Add timestamp
+        QString timestamp = m_mainWindow->user_Displayname + " at " + formattedTime;
+        diaryContent.append(Constants::Diary_Spacer);
+        diaryContent.append(Constants::Diary_TimeStampStart);
+        diaryContent.append(timestamp);
+
+        // Update timestamp tracking
+        lastTimeStamp_Hours = formattedTime.section(":",0,0).toInt();
+        lastTimeStamp_Minutes = formattedTime.section(":",1,1).toInt();
+        cur_entriesNoSpacer = 0;
+    } else {
+        qDebug() << "No timestamp needed - last entry is an image";
+    }
+
+    // Add single image entry
+    diaryContent.append(Constants::Diary_ImageStart);
+    diaryContent.append(imageFilename);
+    diaryContent.append(Constants::Diary_ImageEnd);
+
+    // Write the updated content back to the diary
+    bool writeSuccess = OperationsFiles::writeEncryptedFileLines(
+        diaryFilePath, m_mainWindow->user_Key, diaryContent);
+
+    if (!writeSuccess) {
+        qWarning() << "Failed to write image to diary file";
+        return;
+    }
+
+    qDebug() << "Successfully wrote image entry to diary";
+
+    // Reload the diary if it's currently displayed
+    if (current_DiaryFileName == diaryFilePath) {
+        qDebug() << "Reloading diary to show new image";
+        LoadDiary(diaryFilePath);
+    }
+
+    // Set cur_entriesNoSpacer as requested
+    cur_entriesNoSpacer = m_mainWindow->setting_Diary_TStampCounter - 1;
+    qDebug() << "Set cur_entriesNoSpacer to:" << cur_entriesNoSpacer;
+}
+
+bool Operations_Diary::shouldAddTimestampForImage(const QStringList& diaryContent)
+{
+    // Work backwards through diary content to find the last actual entry
+    for (int i = diaryContent.size() - 1; i >= 0; i--) {
+        const QString& line = diaryContent[i];
+
+        // Skip markers and spacers
+        if (line == Constants::Diary_Spacer ||
+            line == Constants::Diary_TimeStampStart ||
+            line == Constants::Diary_TaskManagerStart ||
+            line == Constants::Diary_TextBlockStart ||
+            line == Constants::Diary_TextBlockEnd ||
+            line == Constants::Diary_ImageStart ||
+            line == Constants::Diary_ImageEnd) {
+            continue;
+        }
+
+        // Check if this line is a timestamp (contains " at ")
+        if (line.contains(" at ") &&
+            (line.startsWith(m_mainWindow->user_Displayname) || line.startsWith("Task Manager"))) {
+            continue; // Skip timestamps
+        }
+
+        // Check if this line is part of an image entry
+        // Look backwards to see if we're inside an image block
+        bool insideImageBlock = false;
+        for (int j = i; j >= 0; j--) {
+            if (diaryContent[j] == Constants::Diary_ImageEnd) {
+                insideImageBlock = true;
+                break;
+            }
+            if (diaryContent[j] == Constants::Diary_ImageStart) {
+                break;
+            }
+        }
+
+        if (insideImageBlock) {
+            // Last entry is an image, don't add timestamp
+            qDebug() << "Operations_Diary: Last entry is an image, no timestamp needed";
+            return false;
+        } else {
+            // Last entry is text or other content, add timestamp
+            qDebug() << "Operations_Diary: Last entry is text/other, timestamp needed";
+            return true;
+        }
+    }
+
+    // If we get here, diary is empty or only has header, add timestamp
+    qDebug() << "Operations_Diary: Diary is empty/header-only, timestamp needed";
+    return true;
+}
+
+ImageDisplayInfo Operations_Diary::calculateImageDisplayInfo(const QSize& originalSize, bool isGrouped) const
+{
+    ImageDisplayInfo info;
+    info.needsThumbnail = true; // Always use thumbnails now
+    info.needsScaling = true;
+    info.displayType = "thumbnail";
+
+    // Use the MAX_IMAGE_WIDTH and MAX_IMAGE_HEIGHT constants for thumbnail size
+    QSize maxThumbSize(MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT);
+
+    // Calculate optimal thumbnail size within our constraints
+    info.targetSize = calculateOptimalDisplaySize(originalSize, maxThumbSize, MIN_THUMBNAIL_SIZE);
+
+    qDebug() << "Operations_Diary: Always creating thumbnail from" << originalSize << "to" << info.targetSize;
+    return info;
+}
+
+void Operations_Diary::setupImageItem(QListWidgetItem* item, const QString& imagePath, const QString& displayText)
+{
+    // Set up the item as a clickable image (single image only now)
+    item->setText(""); // Remove caption completely
+    item->setData(Qt::UserRole+3, true); // Mark as image
+    item->setData(Qt::UserRole+4, imagePath); // Store single path as QString
+    // Note: UserRole+5 (isMultiImage) is no longer used
+
+    item->setFlags(item->flags() & ~Qt::ItemIsEditable); // Make non-editable but still selectable
+}
+
+void Operations_Diary::handleImageClick(QListWidgetItem* item)
+{
+    if (!item || !item->data(Qt::UserRole+3).toBool()) {
+        return; // Not an image item
+    }
+
+    // Single image handling only
+    QString imagePath = item->data(Qt::UserRole+4).toString();
+
+    if (imagePath.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "Error", "Image path not found.");
+        return;
+    }
+
+    // Determine which diary directory to use based on current row
+    QString diaryPath = current_DiaryFileName;
+    int currentRow = m_mainWindow->ui->DiaryTextDisplay->row(item);
+    if (currentRow < previousDiaryLineCounter && previous_DiaryFileName != "") {
+        diaryPath = previous_DiaryFileName;
+        qDebug() << "Handle image click: Using previous diary path:" << diaryPath;
+    } else {
+        qDebug() << "Handle image click: Using current diary path:" << diaryPath;
+    }
+
+    QFileInfo diaryFileInfo(diaryPath);
+    QString diaryDir = diaryFileInfo.dir().absolutePath();
+
+    QString originalPath = getOriginalImagePath(imagePath, diaryDir);
+    openImageWithViewer(originalPath);
+}
+
+QSize Operations_Diary::calculateItemSizeForImage(const QString& imagePath, bool isMultiImage,
+                                                  const QStringList& allImagePaths) const
+{
+    // Single image sizing only now
+    const int MARGIN = 10;
+
+    if (imagePath.isEmpty()) {
+        return QSize(MAX_IMAGE_WIDTH + (2 * MARGIN), MAX_IMAGE_HEIGHT + (2 * MARGIN));
+    }
+
+    try {
+        // Load the image to get its actual display size
+        QPixmap imagePixmap = loadEncryptedImage(imagePath);
+        QSize imageSize;
+
+        if (!imagePixmap.isNull()) {
+            // Use the actual size of the loaded image (which should be a thumbnail)
+            imageSize = imagePixmap.size();
+            qDebug() << "Operations_Diary: Loaded image size:" << imageSize << "for" << QFileInfo(imagePath).fileName();
+        } else {
+            // Fallback to max size
+            imageSize = QSize(MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT);
+            qDebug() << "Operations_Diary: Failed to load image, using fallback size:" << imageSize;
+        }
+
+        // Add margins to get total item size
+        int totalWidth = imageSize.width() + (2 * MARGIN);
+        int totalHeight = imageSize.height() + (2 * MARGIN);
+
+        return QSize(totalWidth, totalHeight);
+
+    } catch (const std::exception& e) {
+        qWarning() << "Operations_Diary: Exception calculating image size:" << e.what();
+        return QSize(MAX_IMAGE_WIDTH + (2 * MARGIN), MAX_IMAGE_HEIGHT + (2 * MARGIN));
+    } catch (...) {
+        qWarning() << "Operations_Diary: Unknown exception calculating image size";
+        return QSize(MAX_IMAGE_WIDTH + (2 * MARGIN), MAX_IMAGE_HEIGHT + (2 * MARGIN));
+    }
+}
+
+int Operations_Diary::calculateClickedImageIndex(QListWidgetItem* item, const QPoint& clickPos)
+{
+    if (!item || !item->data(Qt::UserRole+3).toBool()) {
+        return -1; // Not an image item
+    }
+
+    // Get the item's rect in widget coordinates
+    QRect itemRect = m_mainWindow->ui->DiaryTextDisplay->visualItemRect(item);
+
+    // Convert click position to relative coordinates within the item
+    QPoint relativePos = clickPos - itemRect.topLeft();
+
+    // Single image click detection
+    const int MARGIN = 10;
+
+    // Calculate where the actual image is drawn within the item
+    QString imagePath = item->data(Qt::UserRole+4).toString();
+    QPixmap imagePixmap = loadEncryptedImage(imagePath);
+
+    if (!imagePixmap.isNull()) {
+        // Calculate available space for the image (same as in paintSingleImage)
+        int availableWidth = itemRect.width() - (2 * MARGIN);
+        int availableHeight = itemRect.height() - (2 * MARGIN);
+
+        // Scale the image to fit the available space while preserving aspect ratio
+        QPixmap scaledPixmap = imagePixmap.scaled(
+            QSize(availableWidth, availableHeight),
+            Qt::KeepAspectRatio,
+            Qt::SmoothTransformation
+            );
+
+        // The image is left-aligned at (MARGIN, MARGIN)
+        int imageX = MARGIN;
+        int imageY = MARGIN;
+        int imageWidth = scaledPixmap.width();
+        int imageHeight = scaledPixmap.height();
+
+        // Check if click is within the actual image bounds
+        if (relativePos.x() >= imageX && relativePos.x() <= imageX + imageWidth &&
+            relativePos.y() >= imageY && relativePos.y() <= imageY + imageHeight) {
+            return 0; // Single image clicked
+        }
+    } else {
+        // Fallback: assume image takes up most of the available space
+        int imageX = MARGIN;
+        int imageY = MARGIN;
+        int imageWidth = itemRect.width() - (2 * MARGIN);
+        int imageHeight = itemRect.height() - (2 * MARGIN);
+
+        // Check if click is within the estimated image bounds
+        if (relativePos.x() >= imageX && relativePos.x() <= imageX + imageWidth &&
+            relativePos.y() >= imageY && relativePos.y() <= imageY + imageHeight) {
+            return 0; // Estimated image area clicked
+        }
+    }
+
+    return -1; // Click outside image area
+}
+
+
 
 // ----  SLOTS implementation ----- //
 
@@ -4617,22 +4060,16 @@ void Operations_Diary::on_DiaryTextDisplay_clicked()
             QPoint clickPos = m_mainWindow->ui->DiaryTextDisplay->getLastClickPos();
 
             // Check if click was actually on an image
-            m_clickedImageIndex = calculateClickedImageIndex(currentItem, clickPos);
+            int clickedImageIndex = calculateClickedImageIndex(currentItem, clickPos);
 
-            if (m_clickedImageIndex == -1) {
-                // Click was not on an image, don't do anything
+            if (clickedImageIndex == -1) {
+                // Click was not on the image, treat as normal list item click
                 m_mainWindow->ui->DiaryTextInput->setFocus();
                 return;
             }
 
-            // Click was on an image, proceed with image handling
-            bool isMultiImage = currentItem->data(Qt::UserRole+5).toBool();
-
-            if (isMultiImage && m_clickedImageIndex >= 0) {
-                handleSpecificImageClick(currentItem, m_clickedImageIndex);
-            } else if (!isMultiImage && m_clickedImageIndex == 0) {
-                handleImageClick(currentItem);
-            }
+            // Click was on the image, open it
+            handleImageClick(currentItem);
             return;
         }
     }
