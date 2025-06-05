@@ -2428,6 +2428,9 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
         return;
     }
 
+    // Check if today's diary exists before processing images
+    bool todayDiaryExistedBefore = QFileInfo::exists(diaryPath);
+
     QFileInfo diaryFileInfo(diaryPath);
     QString diaryDir = diaryFileInfo.dir().absolutePath();
 
@@ -2519,6 +2522,23 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
         foreach(const QString& imageFilename, processedImages) {
             // Add each image as separate entry
             addSingleImageToDiary(imageFilename, todayDiaryPath);
+        }
+
+        // Check if we need to switch to today's diary (similar to text input logic)
+        if (!todayDiaryExistedBefore && QFileInfo::exists(todayDiaryPath)) {
+            qDebug() << "Operations_Diary: Today's diary was created by image drop, switching to it";
+
+            // Use the same pattern as on_DiaryTextInput_returnPressed()
+            current_DiaryFileName = todayDiaryPath;
+
+            // Update the diary sorter and load the diary properly
+            UpdateDiarySorter(formattedDate.section('.',0,0), formattedDate.section('.',1,1), formattedDate.section('.',2,2));
+
+            // Explicitly load the diary to ensure it's displayed
+            //LoadDiary(todayDiaryPath);
+
+            // Enable text input since we're now on today's diary
+            m_mainWindow->ui->DiaryTextInput->setEnabled(true);
         }
 
         // If user was typing, preserve their text and add it after images
