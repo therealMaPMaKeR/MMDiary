@@ -116,6 +116,8 @@ private:
 
     int calculateClickedImageIndex(QListWidgetItem* item, const QPoint& clickPos);
 
+    bool isYesterdaysDiaryEntry();
+
 public:
     ~Operations_Diary();
     explicit Operations_Diary(MainWindow* mainWindow);

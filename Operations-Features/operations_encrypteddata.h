@@ -485,6 +485,7 @@ private:
     bool shouldHideFileByTags(const EncryptedFileMetadata::FileMetadata& metadata);
     bool shouldHideThumbnail(const QString& fileTypeDir);
 
+
 #ifdef QT_DEBUG
     // Debug function to purposefully corrupt metadata for testing
     bool debugCorruptFileMetadata(const QString& encryptedFilePath);
@@ -597,6 +598,8 @@ private slots:
     void onContextMenuOpenWith();
 
     void onContextMenuOpenWithImageViewer();
+
+
 
 protected:
     // Event filter for Delete key functionality

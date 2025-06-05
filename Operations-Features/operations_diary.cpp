@@ -300,6 +300,77 @@ bool Operations_Diary::eventFilter(QObject* watched, QEvent* event)
     return QObject::eventFilter(watched, event);
 }
 
+bool Operations_Diary::isYesterdaysDiaryEntry()
+{
+    // Check if we're viewing a previous diary entry (loaded together with current diary)
+    if (m_mainWindow->ui->DiaryTextDisplay->currentRow() < previousDiaryLineCounter && previous_DiaryFileName != "") {
+        // Get today's date
+        QDateTime date = QDateTime::currentDateTime();
+        QString formattedTime = date.toString("yyyy.MM.dd");
+        QDate todayDate(
+            formattedTime.section('.', 0, 0).toInt(),
+            formattedTime.section('.', 1, 1).toInt(),
+            formattedTime.section('.', 2, 2).toInt()
+            );
+
+        // Extract previous diary date from file path
+        QFileInfo prevFileInfo(previous_DiaryFileName);
+        QString prevFileName = prevFileInfo.fileName();
+        QString prevDateString = prevFileName.left(prevFileName.lastIndexOf('.'));
+
+        QDate prevDate(
+            prevDateString.section('.', 0, 0).toInt(),
+            prevDateString.section('.', 1, 1).toInt(),
+            prevDateString.section('.', 2, 2).toInt()
+            );
+
+        // Check if previous diary is yesterday's
+        return (prevDate.addDays(1) == todayDate);
+    }
+
+    return false;
+}
+
+bool Operations_Diary::isOldDiaryEntry()
+{
+    // Check if we're viewing a previous diary entry (loaded together with current diary)
+    if (m_mainWindow->ui->DiaryTextDisplay->currentRow() < previousDiaryLineCounter && previous_DiaryFileName != "") {
+        // Get today's date
+        QDateTime date = QDateTime::currentDateTime();
+        QString formattedTime = date.toString("yyyy.MM.dd");
+        QDate todayDate(
+            formattedTime.section('.', 0, 0).toInt(),
+            formattedTime.section('.', 1, 1).toInt(),
+            formattedTime.section('.', 2, 2).toInt()
+            );
+
+        // Extract previous diary date from file path
+        QFileInfo prevFileInfo(previous_DiaryFileName);
+        QString prevFileName = prevFileInfo.fileName();
+        QString prevDateString = prevFileName.left(prevFileName.lastIndexOf('.'));
+
+        QDate prevDate(
+            prevDateString.section('.', 0, 0).toInt(),
+            prevDateString.section('.', 1, 1).toInt(),
+            prevDateString.section('.', 2, 2).toInt()
+            );
+
+        // Only return true if previous diary is older than yesterday
+        return (prevDate.addDays(1) != todayDate);
+    }
+
+    // Check if we're viewing a diary that's not today's diary
+    QDateTime date = QDateTime::currentDateTime();
+    QString formattedTime = date.toString("yyyy.MM.dd");
+    QString todayDiaryPath = getDiaryFilePath(formattedTime);
+
+    if (!todayDiaryPath.isEmpty() && current_DiaryFileName != todayDiaryPath) {
+        return true;
+    }
+
+    return false;
+}
+
 // Diary Operations
 
 void Operations_Diary::AddNewEntryToDisplay()
@@ -857,10 +928,12 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
 
             // IF PREVIOUS DIARY IS NOT YESTERDAYS, DISABLE TEXT EDITING
             if (prevDate.addDays(1) == todayDate) {
-                // Previous diary is yesterday's, do nothing (keep editable)
+                // Previous diary is yesterday's, keep editable for both text and images
+                // No changes needed - items remain editable by default
             } else {
-                // Previous diary is not yesterday's - disable text items but keep images selectable
-                foreach(QListWidgetItem *item, items) {
+                // Previous diary is older than yesterday - disable text items but keep images selectable
+                for (int i = 0; i < previousDiaryLineCounter && i < items.size(); i++) {
+                    QListWidgetItem* item = items[i];
                     bool isImageItem = item->data(Qt::UserRole+3).toBool();
                     if (isImageItem) {
                         // Keep images selectable but not editable
@@ -2063,24 +2136,6 @@ void Operations_Diary::showContextMenu_ListDays(const QPoint &pos)
     }
 }
 
-bool Operations_Diary::isOldDiaryEntry()
-{
-    // Check if we're viewing a previous diary entry (loaded together with current diary)
-    if (m_mainWindow->ui->DiaryTextDisplay->currentRow() < previousDiaryLineCounter && previous_DiaryFileName != "") {
-        return true;
-    }
-
-    // Check if we're viewing a diary that's not today's diary
-    QDateTime date = QDateTime::currentDateTime();
-    QString formattedTime = date.toString("yyyy.MM.dd");
-    QString todayDiaryPath = getDiaryFilePath(formattedTime);
-
-    if (!todayDiaryPath.isEmpty() && current_DiaryFileName != todayDiaryPath) {
-        return true;
-    }
-
-    return false;
-}
 
 //Misc
 
