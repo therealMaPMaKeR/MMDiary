@@ -1264,8 +1264,8 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
 
                     if (isImageItem) {
                         // For image groups, set to TStampCounter - 1 and continue counting from there
-                        entriesCount = qMax(0, m_mainWindow->setting_Diary_TStampCounter - 1);
-
+                        //entriesCount = qMax(0, m_mainWindow->setting_Diary_TStampCounter - 1); //disabled for now
+                        entriesCount = 0; // used to set to entrycountlimit -1 , now we just reset the limit because a timestamp is always added when an image is added and the last entry is text
                         // Continue counting any entries that come after this image
                         // (this handles the case where there are multiple entries after an image)
 
@@ -1342,7 +1342,7 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
         UpdateFontSize(m_mainWindow->setting_Diary_TextSize, true);
     });
 
-    QTimer::singleShot(50, this, &Operations_Diary::ScrollBottom);
+    QTimer::singleShot(30, this, &Operations_Diary::ScrollBottom);
 
 
     // If we found broken image references, clean them up AFTER the diary is fully loaded
@@ -3624,7 +3624,8 @@ void Operations_Diary::addSingleImageToDiary(const QString& imageFilename, const
     }
 
     // Set cur_entriesNoSpacer as requested
-    cur_entriesNoSpacer = m_mainWindow->setting_Diary_TStampCounter - 1;
+    //cur_entriesNoSpacer = m_mainWindow->setting_Diary_TStampCounter - 1; // disabled for now
+    cur_entriesNoSpacer = 0; // we now reset to 0 because we always add a timestamp if last entry is not an image
     qDebug() << "Set cur_entriesNoSpacer to:" << cur_entriesNoSpacer;
 }
 
@@ -3655,19 +3656,31 @@ bool Operations_Diary::shouldAddTimestampForImage(const QStringList& diaryConten
         // Look backwards to see if we're inside an image block
         bool insideImageBlock = false;
         for (int j = i; j >= 0; j--) {
-            if (diaryContent[j] == Constants::Diary_ImageEnd) {
+            if (diaryContent[j] == Constants::Diary_ImageStart) {
                 insideImageBlock = true;
                 break;
             }
-            if (diaryContent[j] == Constants::Diary_ImageStart) {
+            if (diaryContent[j] == Constants::Diary_ImageEnd) {
                 break;
             }
         }
 
         if (insideImageBlock) {
-            // Last entry is an image, don't add timestamp
-            qDebug() << "Operations_Diary: Last entry is an image, no timestamp needed";
-            return false;
+            // Last entry is an image, check time difference
+            QDateTime currentDateTime = QDateTime::currentDateTime();
+            QString formattedTime = currentDateTime.toString("hh:mm");
+            int currentTimeMinutes = formattedTime.section(":",0,0).toInt() * 60 + formattedTime.section(":",1,1).toInt();
+
+            // Use the same time logic as InputNewEntry() - check if enough time has passed since last timestamp
+            if (lastTimeStamp_Hours * 60 + lastTimeStamp_Minutes > currentTimeMinutes - m_mainWindow->setting_Diary_TStampTimer) {
+                // Not enough time has passed, don't add timestamp
+                qDebug() << "Operations_Diary: Last entry is image and not enough time passed, no timestamp needed";
+                return false;
+            } else {
+                // Enough time has passed, add timestamp
+                qDebug() << "Operations_Diary: Last entry is image but enough time passed, timestamp needed";
+                return true;
+            }
         } else {
             // Last entry is text or other content, add timestamp
             qDebug() << "Operations_Diary: Last entry is text/other, timestamp needed";

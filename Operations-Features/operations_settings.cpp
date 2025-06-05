@@ -282,7 +282,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
             if (canEditRecent == "0" || canEditRecent == "1") {
                 bool value = (canEditRecent == "1");
                 m_mainWindow->ui->checkBox_Diary_CanEditRecent->setChecked(value);
-                m_mainWindow->setting_Diary_CanEditRecent = value; // Update member variable
+                // disabled m_mainWindow->setting_Diary_CanEditRecent = value; // Update member variable
+                m_mainWindow->setting_Diary_CanEditRecent = 1; //the setting is disabled, default to 1 for safety of backwards compatibility
             } else {
                 qDebug() << "Invalid can edit recent value:" << canEditRecent;
                 validationFailed = true;
@@ -298,7 +299,8 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
             if (showTManLogs == "0" || showTManLogs == "1") {
                 bool value = (showTManLogs == "1");
                 m_mainWindow->ui->checkBox_Diary_TManLogs->setChecked(value);
-                m_mainWindow->setting_Diary_ShowTManLogs = value; // Update member variable
+                // disabled m_mainWindow->setting_Diary_ShowTManLogs = value; // Update member variable
+                m_mainWindow->setting_Diary_ShowTManLogs = 0; //the setting is disabled, default to 0 for safety of backwards compatibility
             } else {
                 qDebug() << "Invalid show task manager logs value:" << showTManLogs;
                 validationFailed = true;

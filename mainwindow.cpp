@@ -39,6 +39,8 @@ MainWindow::MainWindow(QWidget *parent)
     ui->label_Settings_TDLog->setHidden(true);
     ui->checkBox_Diary_TManLogs->setHidden(true);
     ui->checkBox_TList_LogToDiary->setHidden(true);
+    ui->checkBox_Diary_CanEditRecent->setHidden(true);
+    ui->groupBox_Setting_Diary_Misc->setHidden(true);
 
     // Set default values for Diary widgets
     ui->DiaryTextDisplay->clear();

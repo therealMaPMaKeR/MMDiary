@@ -1246,7 +1246,7 @@
              </widget>
             </item>
             <item>
-             <widget class="QGroupBox" name="groupBox_6">
+             <widget class="QGroupBox" name="groupBox_Setting_Diary_Misc">
               <property name="title">
                <string>Miscellaneous</string>
               </property>
@@ -1690,18 +1690,64 @@
                 </layout>
                </item>
                <item>
-                <widget class="QPushButton" name="pushButton_DataENC_Hidden_Categories">
-                 <property name="text">
-                  <string>Hidden Categories List</string>
-                 </property>
-                </widget>
+                <layout class="QHBoxLayout" name="horizontalLayout_19">
+                 <item>
+                  <widget class="QPushButton" name="pushButton_DataENC_Hidden_Categories">
+                   <property name="minimumSize">
+                    <size>
+                     <width>292</width>
+                     <height>25</height>
+                    </size>
+                   </property>
+                   <property name="text">
+                    <string>Hidden Categories List</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <spacer name="horizontalSpacer_4">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>40</width>
+                     <height>20</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                </layout>
                </item>
                <item>
-                <widget class="QPushButton" name="pushButton_DataENC_Hidden_Tags">
-                 <property name="text">
-                  <string>Hidden Tags List</string>
-                 </property>
-                </widget>
+                <layout class="QHBoxLayout" name="horizontalLayout_20">
+                 <item>
+                  <widget class="QPushButton" name="pushButton_DataENC_Hidden_Tags">
+                   <property name="minimumSize">
+                    <size>
+                     <width>292</width>
+                     <height>25</height>
+                    </size>
+                   </property>
+                   <property name="text">
+                    <string>Hidden Tags List</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <spacer name="horizontalSpacer_5">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>40</width>
+                     <height>20</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                </layout>
                </item>
               </layout>
              </widget>
