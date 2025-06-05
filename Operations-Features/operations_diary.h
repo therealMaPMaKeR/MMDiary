@@ -64,7 +64,7 @@ private:
 
     // Constants for image handling
     static const int MAX_IMAGE_WIDTH = 400;
-    static const int MAX_IMAGE_HEIGHT = 300;
+    static const int MAX_IMAGE_HEIGHT = 200;
     static const int MIN_THUMBNAIL_SIZE = 64;
 
     bool loadAndDisplayImage(const QString& imagePath, const QString& imageFilename);

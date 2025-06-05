@@ -2541,6 +2541,7 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
             m_mainWindow->ui->DiaryTextInput->setEnabled(true);
         }
 
+        /*
         // If user was typing, preserve their text and add it after images
         QString currentText = m_mainWindow->ui->DiaryTextInput->toPlainText().trimmed();
         if (!currentText.isEmpty()) {
@@ -2550,6 +2551,7 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
             // Clear the text input since we're not using it
             m_mainWindow->ui->DiaryTextInput->clear();
         }
+        */
     }
 
     // Show error message if any images failed
