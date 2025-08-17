@@ -56,17 +56,14 @@ void Operations_PasswordManager::SetupPWDisplay(QString sortingMethod)
     if(sortingMethod == "Password")
     {
         m_mainWindow->ui->tableWidget_PWDisplay->setHorizontalHeaderLabels(QStringList() << "Password" << "Account" << "Service");
-        m_mainWindow->ui->label_PWDisplayIND->setText("Passwords");
     }
     else if(sortingMethod == "Account")
     {
         m_mainWindow->ui->tableWidget_PWDisplay->setHorizontalHeaderLabels(QStringList() << "Account" << "Password" << "Service");
-        m_mainWindow->ui->label_PWDisplayIND->setText("Accounts");
     }
     else if(sortingMethod == "Service")
     {
         m_mainWindow->ui->tableWidget_PWDisplay->setHorizontalHeaderLabels(QStringList() << "Service" << "Account" << "Password");
-        m_mainWindow->ui->label_PWDisplayIND->setText("Services");
     }
 
     m_mainWindow->ui->tableWidget_PWDisplay->horizontalHeader()->setSectionsMovable(true); // we make the columns movable
