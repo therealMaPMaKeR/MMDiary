@@ -343,9 +343,12 @@ void Operations_PasswordManager::SetupPWList(QString sortingMethod, bool applyMa
         }
     }
 
-    // Convert the set to a sorted list
+    // Convert the set to a sorted list with case-insensitive sorting
     QStringList sortedValues = uniqueValues.values();
-    std::sort(sortedValues.begin(), sortedValues.end());
+    std::sort(sortedValues.begin(), sortedValues.end(), 
+              [](const QString& a, const QString& b) {
+                  return a.compare(b, Qt::CaseInsensitive) < 0;
+              });
 
     // Add the sorted values to the list widget
     foreach (const QString &value, sortedValues) {
