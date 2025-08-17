@@ -6,6 +6,8 @@
 #include "Operations-Global/sqlite-database-auth.h"
 #include "constants.h"
 #include <QMessageBox>
+#include <QPushButton>
+#include <QDateTime>
 
 ChangePassword::ChangePassword(QWidget *parent)
     : QDialog(parent)
@@ -57,7 +59,15 @@ void ChangePassword::on_pushButton_ChangePW_clicked()
     // Validate input and change password
     if (validateUserInput()) {
         if (verifyCurrentPassword()) {
-            if (changePassword()) {
+            // Show backup deletion dialog
+            BackupDeletionMode backupMode = showBackupDeletionDialog();
+            
+            // User cancelled the dialog
+            if (backupMode == BackupDeletionMode::None) {
+                return;
+            }
+            
+            if (changePassword(backupMode)) {
                 QMessageBox::information(this, "Success", "Password changed successfully.");
                 accept(); // Close dialog with success status
             } else {
@@ -109,14 +119,14 @@ bool ChangePassword::verifyCurrentPassword()
 
     // Connect to the database
     if (!db.isConnected() && !db.connect()) {
-        qCritical() << "Failed to connect to database:" << db.lastError();
+        qCritical() << "ChangePassword: Failed to connect to database:" << db.lastError();
         return false;
     }
 
     // Get the stored password hash
     QString storedHash = db.GetUserData_String(m_username, Constants::UserT_Index_Password);
     if (storedHash == Constants::ErrorMessage_Default || storedHash == Constants::ErrorMessage_INVUSER) {
-        qCritical() << "Failed to retrieve password hash from database";
+        qCritical() << "ChangePassword: Failed to retrieve password hash from database";
         return false;
     }
 
@@ -124,19 +134,49 @@ bool ChangePassword::verifyCurrentPassword()
     return CryptoUtils::Hashing_CompareHash(storedHash, ui->lineEdit_CurPW->text());
 }
 
-bool ChangePassword::changePassword()
+ChangePassword::BackupDeletionMode ChangePassword::showBackupDeletionDialog()
+{
+    QMessageBox msgBox;
+    msgBox.setWindowTitle("Backup Deletion Policy");
+    msgBox.setText("When would you like to delete old backups?");
+    msgBox.setInformativeText("Old backups can still be accessed with your old password. \n"
+                             "For security, it's recommended to delete them after changing your password.");
+    
+    // Create custom buttons
+    QPushButton *immediateButton = msgBox.addButton("Delete on next login", QMessageBox::ActionRole);
+    QPushButton *delayedButton = msgBox.addButton("Delete in 7 days (Recommended)", QMessageBox::ActionRole);
+    QPushButton *cancelButton = msgBox.addButton(QMessageBox::Cancel);
+    
+    // Set delayed as default button
+    msgBox.setDefaultButton(delayedButton);
+    
+    msgBox.exec();
+    
+    if (msgBox.clickedButton() == immediateButton) {
+        qDebug() << "ChangePassword: User selected immediate backup deletion";
+        return BackupDeletionMode::Immediate;
+    } else if (msgBox.clickedButton() == delayedButton) {
+        qDebug() << "ChangePassword: User selected delayed backup deletion (7 days)";
+        return BackupDeletionMode::Delayed;
+    } else {
+        qDebug() << "ChangePassword: User cancelled backup deletion dialog";
+        return BackupDeletionMode::None;
+    }
+}
+
+bool ChangePassword::changePassword(BackupDeletionMode backupMode)
 {
     DatabaseAuthManager& db = DatabaseAuthManager::instance();
 
     // Connect to the database
     if (!db.isConnected() && !db.connect()) {
-        qCritical() << "Failed to connect to database:" << db.lastError();
+        qCritical() << "ChangePassword: Failed to connect to database:" << db.lastError();
         return false;
     }
 
     // Start a transaction
     if (!db.beginTransaction()) {
-        qCritical() << "Failed to begin database transaction:" << db.lastError();
+        qCritical() << "ChangePassword: Failed to begin database transaction:" << db.lastError();
         return false;
     }
 
@@ -159,35 +199,62 @@ bool ChangePassword::changePassword()
 
         // Update password hash
         if (!db.UpdateUserData_TEXT(m_username, Constants::UserT_Index_Password, newHashedPassword)) {
-            qCritical() << "Failed to update password hash:" << db.lastError();
+            qCritical() << "ChangePassword: Failed to update password hash:" << db.lastError();
             db.rollbackTransaction();
             return false;
         }
 
         // Update salt
         if (!db.UpdateUserData_BLOB(m_username, Constants::UserT_Index_Salt, newSalt)) {
-            qCritical() << "Failed to update salt:" << db.lastError();
+            qCritical() << "ChangePassword: Failed to update salt:" << db.lastError();
             db.rollbackTransaction();
             return false;
         }
 
         // Update encrypted key
         if (!db.UpdateUserData_BLOB(m_username, Constants::UserT_Index_EncryptionKey, reEncryptedKey)) {
-            qCritical() << "Failed to update encryption key:" << db.lastError();
+            qCritical() << "ChangePassword: Failed to update encryption key:" << db.lastError();
             db.rollbackTransaction();
             return false;
+        }
+
+        // 6. Store backup deletion mode and date
+        QString modeStr = QString::number(static_cast<int>(backupMode));
+        if (!db.UpdateUserData_TEXT(m_username, Constants::UserT_Index_BackupDeletionMode, modeStr)) {
+            qCritical() << "ChangePassword: Failed to update backup deletion mode:" << db.lastError();
+            db.rollbackTransaction();
+            return false;
+        }
+
+        // Calculate deletion date based on mode
+        QString deletionDate;
+        if (backupMode == BackupDeletionMode::Immediate) {
+            // Set to current date for immediate deletion on next login
+            deletionDate = QDateTime::currentDateTime().toString(Qt::ISODate);
+        } else if (backupMode == BackupDeletionMode::Delayed) {
+            // Set to 7 days from now
+            deletionDate = QDateTime::currentDateTime().addDays(7).toString(Qt::ISODate);
+        }
+
+        if (!deletionDate.isEmpty()) {
+            if (!db.UpdateUserData_TEXT(m_username, Constants::UserT_Index_BackupDeletionDate, deletionDate)) {
+                qCritical() << "ChangePassword: Failed to update backup deletion date:" << db.lastError();
+                db.rollbackTransaction();
+                return false;
+            }
         }
 
         // Commit the transaction
         if (!db.commitTransaction()) {
-            qCritical() << "Failed to commit transaction:" << db.lastError();
+            qCritical() << "ChangePassword: Failed to commit transaction:" << db.lastError();
             db.rollbackTransaction();
             return false;
         }
 
+        qDebug() << "ChangePassword: Password changed successfully with backup mode:" << modeStr;
         return true;
     } catch (const std::exception& e) {
-        qCritical() << "Exception during password change:" << e.what();
+        qCritical() << "ChangePassword: Exception during password change:" << e.what();
         db.rollbackTransaction();
         return false;
     }

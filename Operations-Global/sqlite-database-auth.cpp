@@ -4,6 +4,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
+#include <QDateTime>
+#include <QRandomGenerator>
 
 DatabaseAuthManager::DatabaseAuthManager()
 {
@@ -59,6 +61,9 @@ bool DatabaseAuthManager::IndexIsValid(QString index, QString type)
         columnTypes[Constants::UserT_Index_EncryptionKey] = Constants::DataType_QByteArray;
         columnTypes[Constants::UserT_Index_Salt] = Constants::DataType_QByteArray;
         columnTypes[Constants::UserT_Index_Iterations] = Constants::DataType_QString;
+        // Backup Management columns
+        columnTypes[Constants::UserT_Index_BackupDeletionMode] = Constants::DataType_QString;
+        columnTypes[Constants::UserT_Index_BackupDeletionDate] = Constants::DataType_QString;
     }
 
     // Check if the column exists in our map
@@ -260,6 +265,8 @@ bool DatabaseAuthManager::authMigrationCallback(int version)
         return migrateToV3();
     case 4:
         return migrateToV4();
+    case 5:
+        return migrateToV5();
     default:
         qWarning() << "No auth migration defined for version" << version;
         return false;
@@ -275,6 +282,8 @@ bool DatabaseAuthManager::authRollbackCallback(int version)
         return rollbackFromV3();
     case 4:
         return rollbackFromV4();
+    case 5:
+        return rollbackFromV5();
     default:
         qWarning() << "No auth rollback defined for version" << version;
         return false;
@@ -411,6 +420,28 @@ bool DatabaseAuthManager::migrateToV4()
     return true;
 }
 
+bool DatabaseAuthManager::migrateToV5()
+{
+    // Create backup before migration
+    if (!createBackupBeforeWrite()) {
+        qWarning() << "Failed to create backup before V5 migration";
+        // Continue anyway - backup failure shouldn't prevent migration
+    }
+
+    // Add backup deletion management columns
+    if (!m_dbManager.executeQuery("ALTER TABLE users ADD COLUMN " + Constants::UserT_Index_BackupDeletionMode + " TEXT")) {
+        qWarning() << "Failed to add backup_deletion_mode column to users table:" << m_dbManager.lastError();
+        return false;
+    }
+
+    if (!m_dbManager.executeQuery("ALTER TABLE users ADD COLUMN " + Constants::UserT_Index_BackupDeletionDate + " TEXT")) {
+        qWarning() << "Failed to add backup_deletion_date column to users table:" << m_dbManager.lastError();
+        return false;
+    }
+
+    qInfo() << "Migration to V5 completed - added backup deletion management columns";
+    return true;
+}
 
 // Example rollback: Remove users table. This shouldn't ever happen, because v2 is basically first version.
 bool DatabaseAuthManager::rollbackFromV2()
@@ -474,6 +505,23 @@ bool DatabaseAuthManager::rollbackFromV4()
     }
 
     return success;
+}
+
+bool DatabaseAuthManager::rollbackFromV5()
+{
+    // Remove the backup deletion management columns
+    if (!m_dbManager.removeColumn("users", Constants::UserT_Index_BackupDeletionMode)) {
+        qWarning() << "Failed to remove backup_deletion_mode column:" << m_dbManager.lastError();
+        return false;
+    }
+
+    if (!m_dbManager.removeColumn("users", Constants::UserT_Index_BackupDeletionDate)) {
+        qWarning() << "Failed to remove backup_deletion_date column:" << m_dbManager.lastError();
+        return false;
+    }
+
+    qInfo() << "Rollback from V5 completed - removed backup deletion management columns";
+    return true;
 }
 
 //Generic Methods
@@ -683,4 +731,185 @@ int DatabaseAuthManager::countExistingBackups() const
         }
     }
     return count;
+}
+
+bool DatabaseAuthManager::checkAndDeleteBackupsIfNeeded(const QString& username)
+{
+    qDebug() << "DatabaseAuthManager: Checking if backups need to be deleted for user:" << username;
+    
+    // Get backup deletion mode from database
+    QString modeStr = GetUserData_String(username, Constants::UserT_Index_BackupDeletionMode);
+    if (modeStr == Constants::ErrorMessage_Default || modeStr == Constants::ErrorMessage_INVUSER || modeStr.isEmpty()) {
+        // No deletion scheduled
+        return true;
+    }
+    
+    int mode = modeStr.toInt();
+    if (mode == 0) {
+        // No deletion scheduled
+        return true;
+    }
+    
+    // Get deletion date
+    QString deletionDateStr = GetUserData_String(username, Constants::UserT_Index_BackupDeletionDate);
+    if (deletionDateStr == Constants::ErrorMessage_Default || deletionDateStr == Constants::ErrorMessage_INVUSER || deletionDateStr.isEmpty()) {
+        qWarning() << "DatabaseAuthManager: Backup deletion mode set but no date found";
+        return true;
+    }
+    
+    QDateTime deletionDate = QDateTime::fromString(deletionDateStr, Qt::ISODate);
+    QDateTime currentDate = QDateTime::currentDateTime();
+    
+    bool shouldDelete = false;
+    
+    if (mode == 1) { // Immediate
+        qDebug() << "DatabaseAuthManager: Immediate backup deletion scheduled";
+        shouldDelete = true;
+    } else if (mode == 2) { // Delayed (7 days)
+        if (currentDate >= deletionDate) {
+            qDebug() << "DatabaseAuthManager: Delayed backup deletion date reached";
+            shouldDelete = true;
+        } else {
+            qDebug() << "DatabaseAuthManager: Delayed backup deletion scheduled for:" << deletionDateStr;
+        }
+    }
+    
+    if (shouldDelete) {
+        qInfo() << "DatabaseAuthManager: Starting backup deletion process";
+        
+        // Delete existing backups securely
+        if (!secureDeleteBackups()) {
+            qWarning() << "DatabaseAuthManager: Failed to securely delete backups";
+            return false;
+        }
+        
+        // Create a new backup after deletion
+        if (!createNewBackupAfterDeletion()) {
+            qWarning() << "DatabaseAuthManager: Failed to create new backup after deletion";
+            return false;
+        }
+        
+        // Clear the backup deletion flags
+        UpdateUserData_TEXT(username, Constants::UserT_Index_BackupDeletionMode, "0");
+        UpdateUserData_TEXT(username, Constants::UserT_Index_BackupDeletionDate, "");
+        
+        qInfo() << "DatabaseAuthManager: Backup deletion process completed successfully";
+    }
+    
+    return true;
+}
+
+bool DatabaseAuthManager::secureDeleteBackups()
+{
+    qDebug() << "DatabaseAuthManager: Starting secure deletion of backups";
+    
+    // Securely delete all backup files
+    for (int i = 1; i <= 5; i++) {
+        QString backupFile = getBackupFileName(i);
+        if (QFile::exists(backupFile)) {
+            QFile file(backupFile);
+            
+            // Open the file for writing
+            if (!file.open(QIODevice::WriteOnly)) {
+                qWarning() << "DatabaseAuthManager: Failed to open backup file for secure deletion:" << backupFile;
+                continue;
+            }
+            
+            // Get file size
+            qint64 fileSize = file.size();
+            
+            // Overwrite with random data multiple times
+            const int overwritePasses = 3;
+            for (int pass = 0; pass < overwritePasses; pass++) {
+                file.seek(0);
+                
+                // Create random data buffer
+                const int bufferSize = 4096;
+                QByteArray randomData(bufferSize, 0);
+                
+                qint64 written = 0;
+                while (written < fileSize) {
+                    // Fill buffer with random data
+                    for (int j = 0; j < bufferSize; j++) {
+                        randomData[j] = static_cast<char>(QRandomGenerator::global()->generate() & 0xFF);
+                    }
+                    
+                    qint64 toWrite = qMin(qint64(bufferSize), fileSize - written);
+                    qint64 bytesWritten = file.write(randomData.data(), toWrite);
+                    
+                    if (bytesWritten < 0) {
+                        qWarning() << "DatabaseAuthManager: Error overwriting backup file:" << backupFile;
+                        break;
+                    }
+                    
+                    written += bytesWritten;
+                }
+                
+                file.flush();
+            }
+            
+            file.close();
+            
+            // Now delete the file
+            if (!QFile::remove(backupFile)) {
+                qWarning() << "DatabaseAuthManager: Failed to delete backup file after overwriting:" << backupFile;
+            } else {
+                qDebug() << "DatabaseAuthManager: Securely deleted backup:" << backupFile;
+            }
+        }
+    }
+    
+    // Also delete old MMDiary.db if it exists
+    QString oldDbPath = "Data/MMDiary.db";
+    if (QFile::exists(oldDbPath)) {
+        QFile oldFile(oldDbPath);
+        if (oldFile.open(QIODevice::WriteOnly)) {
+            qint64 fileSize = oldFile.size();
+            QByteArray randomData(4096, 0);
+            
+            // Single pass overwrite for old file
+            qint64 written = 0;
+            while (written < fileSize) {
+                for (int j = 0; j < randomData.size(); j++) {
+                    randomData[j] = static_cast<char>(QRandomGenerator::global()->generate() & 0xFF);
+                }
+                
+                qint64 toWrite = qMin(qint64(randomData.size()), fileSize - written);
+                qint64 bytesWritten = oldFile.write(randomData.data(), toWrite);
+                
+                if (bytesWritten < 0) break;
+                written += bytesWritten;
+            }
+            
+            oldFile.close();
+        }
+        
+        if (QFile::remove(oldDbPath)) {
+            qDebug() << "DatabaseAuthManager: Securely deleted old MMDiary.db";
+        }
+    }
+    
+    qInfo() << "DatabaseAuthManager: Secure deletion of backups completed";
+    return true;
+}
+
+bool DatabaseAuthManager::createNewBackupAfterDeletion()
+{
+    qDebug() << "DatabaseAuthManager: Creating new backup after deletion";
+    
+    QString dbPath = Constants::DBPath_User;
+    QString backup1 = getBackupFileName(1);
+    
+    // Copy current database to backup1
+    if (QFile::exists(backup1)) {
+        QFile::remove(backup1);
+    }
+    
+    if (!QFile::copy(dbPath, backup1)) {
+        qWarning() << "DatabaseAuthManager: Failed to create new backup after deletion";
+        return false;
+    }
+    
+    qInfo() << "DatabaseAuthManager: Successfully created new backup at:" << backup1;
+    return true;
 }

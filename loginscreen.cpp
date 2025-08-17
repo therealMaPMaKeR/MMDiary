@@ -114,6 +114,12 @@ void loginscreen::on_pushButton_Login_clicked()
             OperationsFiles::setUsername(ui->lineEdit_Username->text()); // set the username in OperationsFiles so that we may create temp files at the correct location
             QByteArray encryptionKey = CryptoUtils::Encryption_DecryptBArray(CryptoUtils::Encryption_DeriveWithSalt(ui->lineEdit_Password->text(),db.GetUserData_ByteA(ui->lineEdit_Username->text(), Constants::UserT_Index_Salt)),db.GetUserData_ByteA(ui->lineEdit_Username->text(),Constants::UserT_Index_EncryptionKey));
 
+            // Check if we need to delete backups (after password change)
+            qDebug() << "loginscreen: Checking for scheduled backup deletion";
+            if (!db.checkAndDeleteBackupsIfNeeded(ui->lineEdit_Username->text())) {
+                qWarning() << "loginscreen: Failed to process backup deletion, but continuing with login";
+            }
+
             MainWindow *mw =  new MainWindow(this->parentWidget());
             connect(this, &loginscreen::passDataMW_Signal, mw, &MainWindow::ReceiveDataLogin_Slot);
             passDataMW_Signal(ui->lineEdit_Username->text(), encryptionKey);

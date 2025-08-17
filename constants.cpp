@@ -101,6 +101,9 @@ const QString SettingsT_Index_DataENC_Hidden_Categories = "ENCRYPTEDDATA_Hidden_
 const QString SettingsT_Index_DataENC_Hidden_Tags = "ENCRYPTEDDATA_Hidden_Tags";
 const QString SettingsT_Index_DataENC_Hide_Categories = "ENCRYPTEDDATA_Hide_Categories";
 const QString SettingsT_Index_DataENC_Hide_Tags = "ENCRYPTEDDATA_Hide_Tags";
+// User Database Table Indexes - Backup Management
+const QString UserT_Index_BackupDeletionMode = "backup_deletion_mode";
+const QString UserT_Index_BackupDeletionDate = "backup_deletion_date";
 //------------- Persistent Settings Database -----------//
 //Main window
 const QString PSettingsT_Index_MainWindow_SizeX = "PSettings_MW_SizeX";

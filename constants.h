@@ -77,6 +77,9 @@ extern const QString SettingsT_Index_DataENC_Hidden_Categories;
 extern const QString SettingsT_Index_DataENC_Hidden_Tags;
 extern const QString SettingsT_Index_DataENC_Hide_Categories;
 extern const QString SettingsT_Index_DataENC_Hide_Tags;
+// User Database Table Indexes - Backup Management
+extern const QString UserT_Index_BackupDeletionMode;
+extern const QString UserT_Index_BackupDeletionDate;
 //------------- Persistent Settings Database -----------//
 //Main window
 extern const QString PSettingsT_Index_MainWindow_SizeX;

@@ -20,6 +20,13 @@ public:
     // Initialize with current username and encryption key
     void initialize(const QString& username, const QByteArray& encryptionKey);
 
+    // Enum for backup deletion modes
+    enum class BackupDeletionMode {
+        None = 0,        // No deletion scheduled
+        Immediate = 1,   // Delete on next login
+        Delayed = 2      // Delete after 7 days
+    };
+
 private slots:
     void on_pushButton_Cancel_clicked();
     void on_pushButton_ChangePW_clicked();
@@ -37,8 +44,11 @@ private:
     // Verifies that the current password is correct
     bool verifyCurrentPassword();
 
+    // Shows backup deletion confirmation dialog
+    BackupDeletionMode showBackupDeletionDialog();
+
     // Changes the password in the database
-    bool changePassword();
+    bool changePassword(BackupDeletionMode backupMode);
 };
 
 #endif // CHANGEPASSWORD_H
