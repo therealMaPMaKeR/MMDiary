@@ -32,6 +32,10 @@ Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
     connect(m_mainWindow->ui->tableWidget_PWDisplay, &QTableWidget::itemDoubleClicked,
             this, &Operations_PasswordManager::onTableItemDoubleClicked);
 
+    // Connect search functionality
+    connect(m_mainWindow->ui->lineEdit_PWSearch, &QLineEdit::textChanged,
+            this, &Operations_PasswordManager::onSearchTextChanged);
+
     // Enable context menu policies
     m_mainWindow->ui->tableWidget_PWDisplay->setContextMenuPolicy(Qt::CustomContextMenu);
     m_mainWindow->ui->listWidget_PWList->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -40,6 +44,9 @@ Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
     m_clipboardTimer = new QTimer(this);
     m_clipboardTimer->setSingleShot(true);
     connect(m_clipboardTimer, &QTimer::timeout, this, &Operations_PasswordManager::clearClipboard);
+
+    // Initialize search placeholder text
+    updateSearchPlaceholder();
 }
 
 //-----------------Password Display-----------------//
@@ -215,6 +222,69 @@ void Operations_PasswordManager::SetupPWList(QString sortingMethod, bool applyMa
     }
 }
 
+// New Function: Update Search Placeholder Text
+void Operations_PasswordManager::updateSearchPlaceholder()
+{
+    qDebug() << "Operations_PasswordManager: Updating search placeholder text";
+    
+    QString currentSortingMethod = m_mainWindow->ui->comboBox_PWSortBy->currentText();
+    QString placeholderText;
+    
+    if (currentSortingMethod == "Password") {
+        placeholderText = "Search passwords...";
+    } else if (currentSortingMethod == "Account") {
+        placeholderText = "Search accounts...";
+    } else if (currentSortingMethod == "Service") {
+        placeholderText = "Search services...";
+    } else {
+        placeholderText = "Search...";
+    }
+    
+    m_mainWindow->ui->lineEdit_PWSearch->setPlaceholderText(placeholderText);
+    qDebug() << "Operations_PasswordManager: Placeholder text set to:" << placeholderText;
+}
+
+// New Function: Filter Password List Based on Search Text
+void Operations_PasswordManager::filterPWList(const QString& searchText)
+{
+    qDebug() << "Operations_PasswordManager: Filtering list with search text:" << searchText;
+    
+    // If search text is empty, show all items
+    if (searchText.isEmpty()) {
+        for (int i = 0; i < m_mainWindow->ui->listWidget_PWList->count(); ++i) {
+            QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
+            if (item) {
+                item->setHidden(false);
+            }
+        }
+        qDebug() << "Operations_PasswordManager: Search text empty, showing all items";
+        return;
+    }
+    
+    // Filter items based on search text (case-insensitive)
+    int visibleCount = 0;
+    int totalCount = m_mainWindow->ui->listWidget_PWList->count();
+    
+    for (int i = 0; i < totalCount; ++i) {
+        QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
+        if (item) {
+            bool matches = item->text().contains(searchText, Qt::CaseInsensitive);
+            item->setHidden(!matches);
+            if (matches) {
+                visibleCount++;
+            }
+        }
+    }
+    
+    qDebug() << "Operations_PasswordManager: Filter applied. Visible items:" << visibleCount << "of" << totalCount;
+}
+
+// New Slot: Handle Search Text Changes
+void Operations_PasswordManager::onSearchTextChanged(const QString& text)
+{
+    qDebug() << "Operations_PasswordManager: Search text changed to:" << text;
+    filterPWList(text);
+}
 
 void Operations_PasswordManager::UpdatePWDisplayForSelection(const QString &selectedValue)
 {
@@ -1322,6 +1392,16 @@ void Operations_PasswordManager::onTableItemDoubleClicked(QTableWidgetItem *item
 }
 void Operations_PasswordManager::on_SortByChanged(QString currentText)
 {
+    qDebug() << "Operations_PasswordManager: Sorting method changed to:" << currentText;
+    
+    // Clear search text when sorting method changes to avoid confusion
+    m_mainWindow->ui->lineEdit_PWSearch->clear();
+    qDebug() << "Operations_PasswordManager: Search text cleared due to sorting change";
+    
+    // Update placeholder text for new sorting method
+    updateSearchPlaceholder();
+    
+    // Update the password list and display
     SetupPWList(currentText);
     SetupPWDisplay(currentText);
 
@@ -1338,6 +1418,8 @@ void Operations_PasswordManager::on_SortByChanged(QString currentText)
             on_PWListItemClicked(firstItem);
         }
     }
+    
+    qDebug() << "Operations_PasswordManager: UI updated for new sorting method";
 }
 
 void Operations_PasswordManager::on_AddPasswordClicked()

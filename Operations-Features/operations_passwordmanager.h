@@ -29,6 +29,10 @@ private:
     bool ModifyPassword(const QString &oldAccount, const QString &oldPassword, const QString &oldService,const QString &newAccount, const QString &newPassword, const QString &newService);
     bool DeleteAllAssociatedPasswords(const QString &value, const QString &field);
 
+    // Search functionality
+    void updateSearchPlaceholder();
+    void filterPWList(const QString& searchText);
+
     QTimer* m_clipboardTimer; // Timer for clearing clipboard
     void startClipboardClearTimer();
     void clearClipboard();
@@ -42,6 +46,9 @@ public slots:
     void on_PWListItemClicked(QListWidgetItem *item);
 
     void onTableItemDoubleClicked(QTableWidgetItem *item);
+
+    // Search functionality slot
+    void onSearchTextChanged(const QString& text);
 
     // Context menu action slots
     void onDeletePasswordClicked();
