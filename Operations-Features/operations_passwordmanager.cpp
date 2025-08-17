@@ -253,7 +253,7 @@ void Operations_PasswordManager::filterPWList(const QString& searchText)
     int visibleCount = 0;
     int totalCount = m_mainWindow->ui->listWidget_PWList->count();
     
-    // If search text is empty, show all items
+    // If search text is empty, show all items and select first one
     if (searchText.isEmpty()) {
         for (int i = 0; i < totalCount; ++i) {
             QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
@@ -265,6 +265,18 @@ void Operations_PasswordManager::filterPWList(const QString& searchText)
             }
         }
         qDebug() << "Operations_PasswordManager: Search text empty, showing all items";
+        
+        // When clearing search, always select the first item
+        if (firstVisibleIndex >= 0) {
+            qDebug() << "Operations_PasswordManager: Search cleared, auto-selecting first item at index:" << firstVisibleIndex;
+            m_mainWindow->ui->listWidget_PWList->setCurrentRow(firstVisibleIndex);
+            
+            // Trigger the item click to load its details
+            QListWidgetItem* firstItem = m_mainWindow->ui->listWidget_PWList->item(firstVisibleIndex);
+            if (firstItem) {
+                on_PWListItemClicked(firstItem);
+            }
+        }
     }
     else {
         // Filter items based on search text (case-insensitive)
@@ -282,31 +294,31 @@ void Operations_PasswordManager::filterPWList(const QString& searchText)
             }
         }
         qDebug() << "Operations_PasswordManager: Filter applied. Visible items:" << visibleCount << "of" << totalCount;
-    }
-    
-    // Auto-select the first visible item if there is one and nothing is selected
-    // or if the currently selected item is now hidden
-    bool currentSelectionHidden = false;
-    QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_PWList->currentItem();
-    if (currentItem && currentItem->isHidden()) {
-        currentSelectionHidden = true;
-    }
-    
-    if (firstVisibleIndex >= 0 && (!currentItem || currentSelectionHidden)) {
-        qDebug() << "Operations_PasswordManager: Auto-selecting first visible item at index:" << firstVisibleIndex;
-        m_mainWindow->ui->listWidget_PWList->setCurrentRow(firstVisibleIndex);
         
-        // Trigger the item click to load its details
-        QListWidgetItem* firstItem = m_mainWindow->ui->listWidget_PWList->item(firstVisibleIndex);
-        if (firstItem) {
-            on_PWListItemClicked(firstItem);
+        // Auto-select the first visible item if there is one and nothing is selected
+        // or if the currently selected item is now hidden
+        bool currentSelectionHidden = false;
+        QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_PWList->currentItem();
+        if (currentItem && currentItem->isHidden()) {
+            currentSelectionHidden = true;
         }
-    }
-    else if (firstVisibleIndex == -1) {
-        // No visible items, clear the display
-        qDebug() << "Operations_PasswordManager: No visible items after filtering, clearing display";
-        m_currentLoadedValue.clear();
-        SetupPWDisplay(m_mainWindow->ui->comboBox_PWSortBy->currentText());
+        
+        if (firstVisibleIndex >= 0 && (!currentItem || currentSelectionHidden)) {
+            qDebug() << "Operations_PasswordManager: Auto-selecting first visible item at index:" << firstVisibleIndex;
+            m_mainWindow->ui->listWidget_PWList->setCurrentRow(firstVisibleIndex);
+            
+            // Trigger the item click to load its details
+            QListWidgetItem* firstItem = m_mainWindow->ui->listWidget_PWList->item(firstVisibleIndex);
+            if (firstItem) {
+                on_PWListItemClicked(firstItem);
+            }
+        }
+        else if (firstVisibleIndex == -1) {
+            // No visible items, clear the display
+            qDebug() << "Operations_PasswordManager: No visible items after filtering, clearing display";
+            m_currentLoadedValue.clear();
+            SetupPWDisplay(m_mainWindow->ui->comboBox_PWSortBy->currentText());
+        }
     }
 }
 
