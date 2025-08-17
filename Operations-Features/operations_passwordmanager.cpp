@@ -286,6 +286,16 @@ void Operations_PasswordManager::onSearchTextChanged(const QString& text)
     filterPWList(text);
 }
 
+// Helper Function: Preserve and Reapply Search Filter
+void Operations_PasswordManager::preserveAndReapplySearchFilter()
+{
+    QString currentSearchText = m_mainWindow->ui->lineEdit_PWSearch->text();
+    if (!currentSearchText.isEmpty()) {
+        qDebug() << "Operations_PasswordManager: Reapplying preserved search filter:" << currentSearchText;
+        filterPWList(currentSearchText);
+    }
+}
+
 void Operations_PasswordManager::UpdatePWDisplayForSelection(const QString &selectedValue)
 {
     // Get current sorting method
@@ -574,6 +584,9 @@ void Operations_PasswordManager::AddPassword(QString account, QString password, 
 
     // Update the password list
     SetupPWList(currentSortingMethod);
+    
+    // Reapply search filter after rebuilding the list
+    preserveAndReapplySearchFilter();
 
     // Find and select the newly added item in the list
     for (int i = 0; i < m_mainWindow->ui->listWidget_PWList->count(); ++i) {
@@ -725,6 +738,9 @@ bool Operations_PasswordManager::ModifyPassword(const QString &oldAccount, const
 
     // Update the list
     SetupPWList(currentSortingMethod);
+    
+    // Reapply search filter after rebuilding the list
+    preserveAndReapplySearchFilter();
 
     // Check if the current selection still exists in the list
     bool selectionExists = false;
@@ -1052,6 +1068,9 @@ void Operations_PasswordManager::onDeletePasswordClicked()
 
             // Update list widget
             SetupPWList(sortingMethod);
+            
+            // Reapply search filter after rebuilding the list
+            preserveAndReapplySearchFilter();
 
             // Check if the current selection still exists in the list
             bool selectionExists = false;
@@ -1333,6 +1352,10 @@ void Operations_PasswordManager::onDeleteAllAssociatedPasswordsClicked()
         if (DeleteAllAssociatedPasswords(value, field)) {
             // Update UI after deletion
             SetupPWList(field);
+            
+            // Reapply search filter after rebuilding the list
+            preserveAndReapplySearchFilter();
+            
             // Clear the table as the selected item might no longer exist
             SetupPWDisplay(field);
         } else {
@@ -1394,9 +1417,9 @@ void Operations_PasswordManager::on_SortByChanged(QString currentText)
 {
     qDebug() << "Operations_PasswordManager: Sorting method changed to:" << currentText;
     
-    // Clear search text when sorting method changes to avoid confusion
-    m_mainWindow->ui->lineEdit_PWSearch->clear();
-    qDebug() << "Operations_PasswordManager: Search text cleared due to sorting change";
+    // Store current search text before making changes
+    QString preservedSearchText = m_mainWindow->ui->lineEdit_PWSearch->text();
+    qDebug() << "Operations_PasswordManager: Preserving search text:" << preservedSearchText;
     
     // Update placeholder text for new sorting method
     updateSearchPlaceholder();
@@ -1404,6 +1427,13 @@ void Operations_PasswordManager::on_SortByChanged(QString currentText)
     // Update the password list and display
     SetupPWList(currentText);
     SetupPWDisplay(currentText);
+    
+    // Reapply the preserved search filter
+    if (!preservedSearchText.isEmpty()) {
+        m_mainWindow->ui->lineEdit_PWSearch->setText(preservedSearchText);
+        filterPWList(preservedSearchText);
+        qDebug() << "Operations_PasswordManager: Search filter reapplied after sorting change";
+    }
 
     // Check if there are any items in the list
     if (m_mainWindow->ui->listWidget_PWList->count() > 0) {
@@ -1497,8 +1527,20 @@ void Operations_PasswordManager::on_AddPasswordClicked()
 void Operations_PasswordManager::on_PWListItemClicked(QListWidgetItem *item)
 {
     if (item) {
+        qDebug() << "Operations_PasswordManager: List item clicked, preserving search filter";
+        
+        // Store the current search text before updating display
+        QString currentSearchText = m_mainWindow->ui->lineEdit_PWSearch->text();
+        qDebug() << "Operations_PasswordManager: Current search text:" << currentSearchText;
+        
         SetupPWDisplay(m_mainWindow->ui->comboBox_PWSortBy->currentText());
         UpdatePWDisplayForSelection(item->text());
+        
+        // Reapply the search filter if there was search text
+        if (!currentSearchText.isEmpty()) {
+            qDebug() << "Operations_PasswordManager: Reapplying search filter after click";
+            filterPWList(currentSearchText);
+        }
     }
 }
 
@@ -1602,7 +1644,10 @@ void Operations_PasswordManager::UpdatePasswordMasking()
             }
         }
     }
-    QTimer::singleShot(25, this, [=]() {SetupPWList(currentSortingMethod, false);});
+    QTimer::singleShot(25, this, [=]() {
+        SetupPWList(currentSortingMethod, false);
+        preserveAndReapplySearchFilter();
+    });
 }
 
 

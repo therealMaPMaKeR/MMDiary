@@ -32,6 +32,7 @@ private:
     // Search functionality
     void updateSearchPlaceholder();
     void filterPWList(const QString& searchText);
+    void preserveAndReapplySearchFilter();
 
     QTimer* m_clipboardTimer; // Timer for clearing clipboard
     void startClipboardClearTimer();
