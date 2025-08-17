@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFile>
+#include <QCoreApplication>
 // IMPORTANT: ONLY INT FIELDS SHOULD BE LEFT UNENCRYPTED. WE NEED TO ENCRYPT EVERYTHING ELSE
 
 DatabasePersistentSettingsManager::DatabasePersistentSettingsManager()
@@ -23,7 +24,21 @@ DatabasePersistentSettingsManager& DatabasePersistentSettingsManager::instance()
 
 QString DatabasePersistentSettingsManager::getPersistentSettingsDatabasePath(const QString& username)
 {
-    return QString("Data/%1/persistent.db").arg(username);
+    // Try to use the existing relative path first (for backward compatibility)
+    QString relativePath = QString("Data/%1/persistent.db").arg(username);
+    QFileInfo relativeInfo(relativePath);
+    
+    // Check if the relative path exists or if its parent directory exists
+    QDir relativeDir = relativeInfo.absoluteDir();
+    if (relativeDir.exists() || QFile::exists(relativePath)) {
+        return relativePath;
+    }
+    
+    // Otherwise, use absolute path based on application directory
+    QString appDir = QCoreApplication::applicationDirPath();
+    QString dbPath = QString("%1/Data/%2/persistent.db").arg(appDir).arg(username);
+    
+    return dbPath;
 }
 
 bool DatabasePersistentSettingsManager::connect(const QString& username, const QByteArray& encryptionKey)
@@ -38,14 +53,14 @@ bool DatabasePersistentSettingsManager::connect(const QString& username, const Q
     QDir dir = fileInfo.absoluteDir();
     if (!dir.exists()) {
         if (!dir.mkpath(".")) {
-            qDebug() << "Failed to create directory for persistent settings database:" << dir.path();
+            qDebug() << "DatabasePersistentSettingsManager: Failed to create directory for persistent settings database:" << dir.path();
             return false;
         }
     }
 
     bool success = m_dbManager.connect(dbPath);
     if (!success) {
-        qDebug() << "Failed to connect to persistent settings database:" << m_dbManager.lastError();
+        qDebug() << "DatabasePersistentSettingsManager: Failed to connect to persistent settings database:" << m_dbManager.lastError();
         return false;
     }
 
@@ -55,19 +70,19 @@ bool DatabasePersistentSettingsManager::connect(const QString& username, const Q
     if (isNewDatabase) {
         // Initialize versioning for new database
         if (!initializeVersioning()) {
-            qDebug() << "Failed to initialize versioning for persistent settings database";
+            qDebug() << "DatabasePersistentSettingsManager: Failed to initialize versioning for persistent settings database";
             return false;
         }
 
         // Run migrations to create tables
         if (!migratePersistentSettingsDatabase()) {
-            qDebug() << "Failed to migrate persistent settings database";
+            qDebug() << "DatabasePersistentSettingsManager: Failed to migrate persistent settings database";
             return false;
         }
     } else {
         // Validate database integrity (silent corruption recovery)
         if (!isDatabaseValid()) {
-            qDebug() << "Persistent settings database corrupted, recreating silently";
+            qDebug() << "DatabasePersistentSettingsManager: Persistent settings database corrupted, recreating silently";
             close();
             return createOrRecreatePersistentSettingsDatabase(username, encryptionKey);
         }
@@ -136,7 +151,7 @@ bool DatabasePersistentSettingsManager::createOrRecreatePersistentSettingsDataba
     // Remove existing database file if it exists (silent recovery)
     if (QFile::exists(dbPath)) {
         if (!QFile::remove(dbPath)) {
-            qDebug() << "Failed to remove corrupted persistent settings database";
+            qDebug() << "DatabasePersistentSettingsManager: Failed to remove corrupted persistent settings database";
             return false;
         }
     }
@@ -146,7 +161,7 @@ bool DatabasePersistentSettingsManager::createOrRecreatePersistentSettingsDataba
     QDir dir = fileInfo.absoluteDir();
     if (!dir.exists()) {
         if (!dir.mkpath(".")) {
-            qDebug() << "Failed to create directory for persistent settings database:" << dir.path();
+            qDebug() << "DatabasePersistentSettingsManager: Failed to create directory for persistent settings database:" << dir.path();
             return false;
         }
     }
@@ -154,19 +169,19 @@ bool DatabasePersistentSettingsManager::createOrRecreatePersistentSettingsDataba
     // Connect to new database
     bool success = m_dbManager.connect(dbPath);
     if (!success) {
-        qDebug() << "Failed to connect to new persistent settings database:" << m_dbManager.lastError();
+        qDebug() << "DatabasePersistentSettingsManager: Failed to connect to new persistent settings database:" << m_dbManager.lastError();
         return false;
     }
 
     // Initialize versioning
     if (!initializeVersioning()) {
-        qDebug() << "Failed to initialize versioning for persistent settings database";
+        qDebug() << "DatabasePersistentSettingsManager: Failed to initialize versioning for persistent settings database";
         return false;
     }
 
     // Run migrations to create tables
     if (!migratePersistentSettingsDatabase()) {
-        qDebug() << "Failed to migrate persistent settings database";
+        qDebug() << "DatabasePersistentSettingsManager: Failed to migrate persistent settings database";
         return false;
     }
 
@@ -224,13 +239,13 @@ bool DatabasePersistentSettingsManager::IndexIsValid(QString index, QString type
 
     // Check if the column exists in our map
     if (!columnTypes.contains(index)) {
-        qDebug() << "INDEXINVALID: Column does not exist in persistent settings mapping:" << index;
+        qDebug() << "DatabasePersistentSettingsManager: INDEXINVALID: Column does not exist in persistent settings mapping:" << index;
         return false;
     }
 
     // Check if the requested type matches the actual column type
     if (columnTypes[index] != type) {
-        qDebug() << "INDEXINVALID: Type mismatch for persistent settings column" << index
+        qDebug() << "DatabasePersistentSettingsManager: INDEXINVALID: Type mismatch for persistent settings column" << index
                  << "- expected:" << columnTypes[index]
                  << "requested:" << type;
         return false;
@@ -270,7 +285,7 @@ QString DatabasePersistentSettingsManager::GetPersistentSettingsData_String(QStr
     try {
         return CryptoUtils::Encryption_Decrypt(m_encryptionKey, encryptedValue);
     } catch (...) {
-        qDebug() << "Failed to decrypt persistent settings value for index:" << index;
+        qDebug() << "DatabasePersistentSettingsManager: Failed to decrypt persistent settings value for index:" << index;
         return "";
     }
 }
@@ -306,7 +321,7 @@ QByteArray DatabasePersistentSettingsManager::GetPersistentSettingsData_ByteA(QS
     try {
         return CryptoUtils::Encryption_DecryptBArray(m_encryptionKey, encryptedValue);
     } catch (...) {
-        qDebug() << "Failed to decrypt persistent settings ByteArray for index:" << index;
+        qDebug() << "DatabasePersistentSettingsManager: Failed to decrypt persistent settings ByteArray for index:" << index;
         return QByteArray();
     }
 }
@@ -365,7 +380,7 @@ bool DatabasePersistentSettingsManager::UpdatePersistentSettingsData_TEXT(QStrin
         try {
             encryptedData = CryptoUtils::Encryption_Encrypt(m_encryptionKey, data, m_currentUsername);
         } catch (...) {
-            qDebug() << "Failed to encrypt persistent settings data for index:" << index;
+            qDebug() << "DatabasePersistentSettingsManager: Failed to encrypt persistent settings data for index:" << index;
             return false;
         }
     }
@@ -400,7 +415,7 @@ bool DatabasePersistentSettingsManager::UpdatePersistentSettingsData_BLOB(QStrin
         try {
             encryptedData = CryptoUtils::Encryption_EncryptBArray(m_encryptionKey, data, m_currentUsername);
         } catch (...) {
-            qDebug() << "Failed to encrypt persistent settings ByteArray for index:" << index;
+            qDebug() << "DatabasePersistentSettingsManager: Failed to encrypt persistent settings ByteArray for index:" << index;
             return false;
         }
     }
