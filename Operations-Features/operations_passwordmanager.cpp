@@ -17,7 +17,7 @@
 #include "Operations-Global/inputvalidation.h"
 
 Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
-    : m_mainWindow(mainWindow)
+    : m_mainWindow(mainWindow), m_currentLoadedValue(QString())
 {
     connect(m_mainWindow->ui->listWidget_PWList, &QListWidget::itemClicked,
             this, &Operations_PasswordManager::on_PWListItemClicked);
@@ -249,34 +249,65 @@ void Operations_PasswordManager::filterPWList(const QString& searchText)
 {
     qDebug() << "Operations_PasswordManager: Filtering list with search text:" << searchText;
     
-    // If search text is empty, show all items
-    if (searchText.isEmpty()) {
-        for (int i = 0; i < m_mainWindow->ui->listWidget_PWList->count(); ++i) {
-            QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
-            if (item) {
-                item->setHidden(false);
-            }
-        }
-        qDebug() << "Operations_PasswordManager: Search text empty, showing all items";
-        return;
-    }
-    
-    // Filter items based on search text (case-insensitive)
+    int firstVisibleIndex = -1;
     int visibleCount = 0;
     int totalCount = m_mainWindow->ui->listWidget_PWList->count();
     
-    for (int i = 0; i < totalCount; ++i) {
-        QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
-        if (item) {
-            bool matches = item->text().contains(searchText, Qt::CaseInsensitive);
-            item->setHidden(!matches);
-            if (matches) {
-                visibleCount++;
+    // If search text is empty, show all items
+    if (searchText.isEmpty()) {
+        for (int i = 0; i < totalCount; ++i) {
+            QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
+            if (item) {
+                item->setHidden(false);
+                if (firstVisibleIndex == -1) {
+                    firstVisibleIndex = i;
+                }
             }
         }
+        qDebug() << "Operations_PasswordManager: Search text empty, showing all items";
+    }
+    else {
+        // Filter items based on search text (case-insensitive)
+        for (int i = 0; i < totalCount; ++i) {
+            QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
+            if (item) {
+                bool matches = item->text().contains(searchText, Qt::CaseInsensitive);
+                item->setHidden(!matches);
+                if (matches) {
+                    visibleCount++;
+                    if (firstVisibleIndex == -1) {
+                        firstVisibleIndex = i;
+                    }
+                }
+            }
+        }
+        qDebug() << "Operations_PasswordManager: Filter applied. Visible items:" << visibleCount << "of" << totalCount;
     }
     
-    qDebug() << "Operations_PasswordManager: Filter applied. Visible items:" << visibleCount << "of" << totalCount;
+    // Auto-select the first visible item if there is one and nothing is selected
+    // or if the currently selected item is now hidden
+    bool currentSelectionHidden = false;
+    QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_PWList->currentItem();
+    if (currentItem && currentItem->isHidden()) {
+        currentSelectionHidden = true;
+    }
+    
+    if (firstVisibleIndex >= 0 && (!currentItem || currentSelectionHidden)) {
+        qDebug() << "Operations_PasswordManager: Auto-selecting first visible item at index:" << firstVisibleIndex;
+        m_mainWindow->ui->listWidget_PWList->setCurrentRow(firstVisibleIndex);
+        
+        // Trigger the item click to load its details
+        QListWidgetItem* firstItem = m_mainWindow->ui->listWidget_PWList->item(firstVisibleIndex);
+        if (firstItem) {
+            on_PWListItemClicked(firstItem);
+        }
+    }
+    else if (firstVisibleIndex == -1) {
+        // No visible items, clear the display
+        qDebug() << "Operations_PasswordManager: No visible items after filtering, clearing display";
+        m_currentLoadedValue.clear();
+        SetupPWDisplay(m_mainWindow->ui->comboBox_PWSortBy->currentText());
+    }
 }
 
 // New Slot: Handle Search Text Changes
@@ -753,12 +784,15 @@ bool Operations_PasswordManager::ModifyPassword(const QString &oldAccount, const
     }
 
     if (selectionExists) {
+        // Clear the current loaded value to force refresh
+        m_currentLoadedValue.clear();
         // Trigger a click on the current item to refresh the table
         if (m_mainWindow->ui->listWidget_PWList->currentItem()) {
             on_PWListItemClicked(m_mainWindow->ui->listWidget_PWList->currentItem());
         }
     } else {
-        // Reset the display
+        // Clear the current loaded value and reset the display
+        m_currentLoadedValue.clear();
         SetupPWDisplay(currentSortingMethod);
     }
 
@@ -1083,12 +1117,15 @@ void Operations_PasswordManager::onDeletePasswordClicked()
             }
 
             if (selectionExists) {
+                // Clear the current loaded value to force refresh
+                m_currentLoadedValue.clear();
                 // Trigger a click on the current item to refresh the table
                 if (m_mainWindow->ui->listWidget_PWList->currentItem()) {
                     on_PWListItemClicked(m_mainWindow->ui->listWidget_PWList->currentItem());
                 }
             } else {
-                // Reset the display
+                // Clear the current loaded value and reset the display
+                m_currentLoadedValue.clear();
                 SetupPWDisplay(sortingMethod);
             }
         } else {
@@ -1350,6 +1387,9 @@ void Operations_PasswordManager::onDeleteAllAssociatedPasswordsClicked()
     if (reply == QMessageBox::Yes) {
         // Delete all matching passwords
         if (DeleteAllAssociatedPasswords(value, field)) {
+            // Clear the current loaded value since we're deleting items
+            m_currentLoadedValue.clear();
+            
             // Update UI after deletion
             SetupPWList(field);
             
@@ -1417,6 +1457,10 @@ void Operations_PasswordManager::on_SortByChanged(QString currentText)
 {
     qDebug() << "Operations_PasswordManager: Sorting method changed to:" << currentText;
     
+    // Clear the currently loaded value since we're changing sorting method
+    m_currentLoadedValue.clear();
+    qDebug() << "Operations_PasswordManager: Cleared currently loaded value due to sorting change";
+    
     // Store current search text before making changes
     QString preservedSearchText = m_mainWindow->ui->lineEdit_PWSearch->text();
     qDebug() << "Operations_PasswordManager: Preserving search text:" << preservedSearchText;
@@ -1434,18 +1478,31 @@ void Operations_PasswordManager::on_SortByChanged(QString currentText)
         filterPWList(preservedSearchText);
         qDebug() << "Operations_PasswordManager: Search filter reapplied after sorting change";
     }
-
-    // Check if there are any items in the list
-    if (m_mainWindow->ui->listWidget_PWList->count() > 0) {
-        // Select the first item
-        m_mainWindow->ui->listWidget_PWList->setCurrentRow(0);
-
-        // Get the first item
-        QListWidgetItem* firstItem = m_mainWindow->ui->listWidget_PWList->item(0);
-
-        // Simulate a click on the first item to load its details
-        if (firstItem) {
-            on_PWListItemClicked(firstItem);
+    else {
+        // No search filter active, select the first item if available
+        if (m_mainWindow->ui->listWidget_PWList->count() > 0) {
+            // Find the first non-hidden item
+            int firstVisibleIndex = -1;
+            for (int i = 0; i < m_mainWindow->ui->listWidget_PWList->count(); ++i) {
+                QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
+                if (item && !item->isHidden()) {
+                    firstVisibleIndex = i;
+                    break;
+                }
+            }
+            
+            if (firstVisibleIndex >= 0) {
+                qDebug() << "Operations_PasswordManager: Selecting first visible item at index:" << firstVisibleIndex;
+                m_mainWindow->ui->listWidget_PWList->setCurrentRow(firstVisibleIndex);
+                
+                // Get the first visible item
+                QListWidgetItem* firstItem = m_mainWindow->ui->listWidget_PWList->item(firstVisibleIndex);
+                
+                // Load its details
+                if (firstItem) {
+                    on_PWListItemClicked(firstItem);
+                }
+            }
         }
     }
     
@@ -1527,7 +1584,19 @@ void Operations_PasswordManager::on_AddPasswordClicked()
 void Operations_PasswordManager::on_PWListItemClicked(QListWidgetItem *item)
 {
     if (item) {
-        qDebug() << "Operations_PasswordManager: List item clicked, preserving search filter";
+        QString clickedValue = item->text();
+        
+        // Check if this item is already loaded to prevent unnecessary refreshes
+        if (m_currentLoadedValue == clickedValue) {
+            qDebug() << "Operations_PasswordManager: Item already loaded, skipping refresh:" << clickedValue;
+            return;
+        }
+        
+        qDebug() << "Operations_PasswordManager: List item clicked, loading:" << clickedValue;
+        qDebug() << "Operations_PasswordManager: Previous loaded value was:" << m_currentLoadedValue;
+        
+        // Update the currently loaded value
+        m_currentLoadedValue = clickedValue;
         
         // Store the current search text before updating display
         QString currentSearchText = m_mainWindow->ui->lineEdit_PWSearch->text();

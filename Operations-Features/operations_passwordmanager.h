@@ -33,6 +33,9 @@ private:
     void updateSearchPlaceholder();
     void filterPWList(const QString& searchText);
     void preserveAndReapplySearchFilter();
+    
+    // Currently loaded password tracking
+    QString m_currentLoadedValue;  // The value from the list that's currently loaded in the display
 
     QTimer* m_clipboardTimer; // Timer for clearing clipboard
     void startClipboardClearTimer();
