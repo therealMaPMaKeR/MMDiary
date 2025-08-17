@@ -73,6 +73,9 @@ MainWindow::MainWindow(QWidget *parent)
     connect(quitAction, &QAction::triggered, this, [this]() {
         qDebug() << "MainWindow: System tray quit action triggered";
         
+        // Hide window immediately for responsive feel
+        hide();
+        
         // Save persistent settings
         if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
             SavePersistentSettings();
@@ -816,7 +819,10 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     if(quitToLogin == false && setting_MinToTray == true) // minimize to tray
     {
-        // Save persistent settings before minimizing to tray
+        // Hide immediately for responsive feel
+        hide();
+        
+        // Save persistent settings after hiding
         if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
             SavePersistentSettings();
             qDebug() << "MainWindow: Saved persistent settings before minimizing to tray";
@@ -830,7 +836,6 @@ void MainWindow::closeEvent(QCloseEvent *event)
             // No need to do anything.
         }
 
-        hide();
         event->ignore(); // Ignore the close event to keep the app running
     }
     else if(quitToLogin == false && setting_MinToTray == false) // close app entirely
@@ -1247,6 +1252,9 @@ void MainWindow::on_pushButton_CloseApp_clicked()
     
     // Check if minimize to tray is enabled
     if (setting_MinToTray == true) {
+        // Hide window immediately for responsive feel
+        hide();
+        
         // When minimize to tray is enabled, we need to save settings and clean up properly
         
         // Save persistent settings
