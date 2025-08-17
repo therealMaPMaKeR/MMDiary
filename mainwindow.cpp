@@ -19,6 +19,7 @@
 #include "changepassword.h"
 #include "ui_about_MMDiary.h"
 #include "ui_changelog.h"
+#include "Operations-Global/noncechecker.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -1215,6 +1216,20 @@ void MainWindow::on_checkBox_DataENC_HideThumbnails_Video_stateChanged(int arg1)
 void MainWindow::on_pushButton_DataENC_Encrypt_clicked()
 {
     Operations_EncryptedData_ptr->encryptSelectedFile();
+}
+
+void MainWindow::on_pushButton_NonceCheck_clicked()
+{
+    qDebug() << "MainWindow: Nonce integrity check button clicked";
+    
+    // Create nonce checker instance and perform check
+    NonceChecker* checker = new NonceChecker(this);
+    checker->performCheck();
+    
+    // The checker will delete itself when done
+    connect(checker, &QObject::destroyed, [](){ 
+        qDebug() << "MainWindow: NonceChecker cleaned up"; 
+    });
 }
 
 void MainWindow::on_pushButton_DataENC_SecureDel_clicked()

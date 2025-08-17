@@ -66,6 +66,7 @@ SOURCES += \
     Operations-Global/fileiconprovider.cpp \
     Operations-Global/imageviewer.cpp \
     Operations-Global/inputvalidation.cpp \
+    Operations-Global/noncechecker.cpp \
     Operations-Global/operations.cpp \
     Operations-Global/operations_files.cpp \
     Operations-Global/passwordvalidation.cpp \
@@ -100,6 +101,7 @@ HEADERS += \
     Operations-Global/fileiconprovider.h \
     Operations-Global/imageviewer.h \
     Operations-Global/inputvalidation.h \
+    Operations-Global/noncechecker.h \
     Operations-Global/operations.h \
     Operations-Global/operations_files.h \
     Operations-Global/passwordvalidation.h \

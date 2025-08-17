@@ -1105,6 +1105,13 @@
                 </property>
                </widget>
               </item>
+              <item>
+               <widget class="QPushButton" name="pushButton_NonceCheck">
+                <property name="text">
+                 <string>Verify Nonce Integrity</string>
+                </property>
+               </widget>
+              </item>
              </layout>
             </widget>
            </item>

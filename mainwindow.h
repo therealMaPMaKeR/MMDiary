@@ -178,6 +178,8 @@ signals:
 private slots:
 
     void on_pushButton_DataENC_Encrypt_clicked();
+    
+    void on_pushButton_NonceCheck_clicked();
 
     void on_pushButton_Acc_Save_clicked();
 
