@@ -44,6 +44,14 @@ private:
     // Function to show context menu
     void showContextMenu_PWDisplay(const QPoint &pos);
     void showContextMenu_PWList(const QPoint &pos);
+    
+    // Password generation
+    QString generatePassword();
+    
+    // Password generation configuration (future menu settings)
+    int m_passwordLength = 12;
+    QString m_allowedSymbols = "!@#$%&*";
+    int m_maxSymbols = 3;
 public slots:
     void on_SortByChanged(QString currentText);
     void on_AddPasswordClicked();

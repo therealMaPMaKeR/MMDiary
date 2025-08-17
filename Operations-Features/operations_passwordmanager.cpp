@@ -14,6 +14,7 @@
 #include <QClipboard>
 #include <QGuiApplication>
 #include <QDialog>
+#include <QRandomGenerator>
 #include "Operations-Global/inputvalidation.h"
 
 Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
@@ -47,6 +48,149 @@ Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
 
     // Initialize search placeholder text
     updateSearchPlaceholder();
+}
+
+//-----------------Password Generation-----------------//
+QString Operations_PasswordManager::generatePassword()
+{
+    qDebug() << "Operations_PasswordManager: Generating password with length:" << m_passwordLength;
+    
+    // Character sets for password generation
+    const QString lowercase = "abcdefghijklmnopqrstuvwxyz";
+    const QString uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const QString numbers = "0123456789";
+    const QString symbols = m_allowedSymbols;
+    
+    // Ensure we have at least the minimum required characters
+    if (m_passwordLength < 4) {
+        qWarning() << "Operations_PasswordManager: Password length too short, minimum is 4";
+        return QString();
+    }
+    
+    QString password;
+    password.reserve(m_passwordLength);
+    
+    // Track how many of each type we've added
+    int symbolCount = 0;
+    int numberCount = 0;
+    int uppercaseCount = 0;
+    int lowercaseCount = 0;
+    
+    // Use cryptographically secure random generator
+    QRandomGenerator* rng = QRandomGenerator::system();
+    
+    // First, ensure we meet minimum requirements
+    // Add one uppercase
+    password.append(uppercase.at(rng->bounded(uppercase.length())));
+    uppercaseCount++;
+    
+    // Add one number
+    password.append(numbers.at(rng->bounded(numbers.length())));
+    numberCount++;
+    
+    // Add one symbol
+    password.append(symbols.at(rng->bounded(symbols.length())));
+    symbolCount++;
+    
+    // Add one lowercase to ensure we have all types
+    password.append(lowercase.at(rng->bounded(lowercase.length())));
+    lowercaseCount++;
+    
+    // Calculate how many more characters we need
+    int remainingChars = m_passwordLength - 4;
+    
+    // Calculate ideal distribution for remaining characters
+    // We want roughly even distribution while respecting max symbols
+    int remainingSymbols = qMin(m_maxSymbols - symbolCount, remainingChars / 4);
+    int remainingNumbers = remainingChars / 3;
+    int remainingUppercase = remainingChars / 3;
+    int remainingLowercase = remainingChars - remainingSymbols - remainingNumbers - remainingUppercase;
+    
+    // Add remaining characters based on distribution
+    for (int i = 0; i < remainingSymbols && password.length() < m_passwordLength; i++) {
+        password.append(symbols.at(rng->bounded(symbols.length())));
+        symbolCount++;
+    }
+    
+    for (int i = 0; i < remainingNumbers && password.length() < m_passwordLength; i++) {
+        password.append(numbers.at(rng->bounded(numbers.length())));
+        numberCount++;
+    }
+    
+    for (int i = 0; i < remainingUppercase && password.length() < m_passwordLength; i++) {
+        password.append(uppercase.at(rng->bounded(uppercase.length())));
+        uppercaseCount++;
+    }
+    
+    // Fill the rest with lowercase
+    while (password.length() < m_passwordLength) {
+        password.append(lowercase.at(rng->bounded(lowercase.length())));
+        lowercaseCount++;
+    }
+    
+    // Shuffle the password to avoid predictable patterns
+    QString shuffledPassword;
+    shuffledPassword.reserve(m_passwordLength);
+    
+    QList<QChar> chars;
+    for (const QChar& c : password) {
+        chars.append(c);
+    }
+    
+    // Fisher-Yates shuffle for true randomness
+    for (int i = chars.size() - 1; i > 0; i--) {
+        int j = rng->bounded(i + 1);
+        chars.swapItemsAt(i, j);
+    }
+    
+    // Build the shuffled password while checking for consecutive characters
+    for (int i = 0; i < chars.size(); i++) {
+        shuffledPassword.append(chars[i]);
+    }
+    
+    // Check for consecutive characters and fix them
+    bool hasConsecutive = true;
+    int maxAttempts = 100; // Prevent infinite loop
+    int attempts = 0;
+    
+    while (hasConsecutive && attempts < maxAttempts) {
+        hasConsecutive = false;
+        
+        for (int i = 0; i < shuffledPassword.length() - 1; i++) {
+            if (shuffledPassword[i] == shuffledPassword[i + 1]) {
+                hasConsecutive = true;
+                
+                // Swap with a random position that's not adjacent
+                int swapPos;
+                do {
+                    swapPos = rng->bounded(shuffledPassword.length());
+                } while (swapPos == i || swapPos == i + 1 || 
+                         (swapPos > 0 && shuffledPassword[swapPos - 1] == shuffledPassword[i]) ||
+                         (swapPos < shuffledPassword.length() - 1 && shuffledPassword[swapPos + 1] == shuffledPassword[i]));
+                
+                // Perform the swap
+                QChar temp = shuffledPassword[i];
+                shuffledPassword[i] = shuffledPassword[swapPos];
+                shuffledPassword[swapPos] = temp;
+                
+                break; // Check from beginning again
+            }
+        }
+        
+        attempts++;
+    }
+    
+    if (attempts >= maxAttempts) {
+        qWarning() << "Operations_PasswordManager: Could not eliminate all consecutive characters after" << maxAttempts << "attempts";
+    }
+    
+    qDebug() << "Operations_PasswordManager: Generated password with"
+             << "uppercase:" << uppercaseCount
+             << "lowercase:" << lowercaseCount  
+             << "numbers:" << numberCount
+             << "symbols:" << symbolCount;
+    
+    return shuffledPassword;
 }
 
 //-----------------Password Display-----------------//
@@ -1265,6 +1409,23 @@ void Operations_PasswordManager::onEditPasswordClicked()
     QRegularExpression noWhitespace("[^\\s]*"); // Matches any non-whitespace characters
     QRegularExpressionValidator* validator = new QRegularExpressionValidator(noWhitespace, &dialog);
     ui.lineEdit_Password->setValidator(validator);
+    
+    // Connect the Generate Password button
+    QObject::connect(ui.pushButton_GenPassword, &QPushButton::clicked, [&]()
+    {
+        qDebug() << "Operations_PasswordManager: Generate Password button clicked in Edit dialog";
+        QString generatedPassword = generatePassword();
+        if (!generatedPassword.isEmpty()) {
+            ui.lineEdit_Password->setText(generatedPassword);
+            ui.label_ErrorDisplay->setText("Password generated successfully!");
+            ui.label_ErrorDisplay->setStyleSheet("color: green;");
+            qDebug() << "Operations_PasswordManager: Password set in field";
+        } else {
+            ui.label_ErrorDisplay->setText("Failed to generate password.");
+            ui.label_ErrorDisplay->setStyleSheet("color: red;");
+            qDebug() << "Operations_PasswordManager: Password generation failed";
+        }
+    });
 
     // Dialog Logic
     QObject::connect(ui.pushButton_AddPW, &QPushButton::clicked, [&]() // if modify button is pushed
@@ -1531,6 +1692,24 @@ void Operations_PasswordManager::on_AddPasswordClicked()
     QRegularExpression noWhitespace("[^\\s]*"); // Matches any non-whitespace characters
     QRegularExpressionValidator* validator = new QRegularExpressionValidator(noWhitespace, &dialog);
     ui.lineEdit_Password->setValidator(validator);
+    
+    // Connect the Generate Password button
+    QObject::connect(ui.pushButton_GenPassword, &QPushButton::clicked, [&]()
+    {
+        qDebug() << "Operations_PasswordManager: Generate Password button clicked";
+        QString generatedPassword = generatePassword();
+        if (!generatedPassword.isEmpty()) {
+            ui.lineEdit_Password->setText(generatedPassword);
+            ui.label_ErrorDisplay->setText("Password generated successfully!");
+            ui.label_ErrorDisplay->setStyleSheet("color: green;");
+            qDebug() << "Operations_PasswordManager: Password set in field";
+        } else {
+            ui.label_ErrorDisplay->setText("Failed to generate password.");
+            ui.label_ErrorDisplay->setStyleSheet("color: red;");
+            qDebug() << "Operations_PasswordManager: Password generation failed";
+        }
+    });
+    
     //Dialog Logic
     QObject::connect(ui.pushButton_AddPW, &QPushButton::clicked, [&]() // if add pw button is pushed
                      {
