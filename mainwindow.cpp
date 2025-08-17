@@ -69,8 +69,34 @@ MainWindow::MainWindow(QWidget *parent)
     // Connect the "Open" action to show the window
     connect(openAction, &QAction::triggered, this, &MainWindow::showAndActivate);
 
-    // Connect the "Quit" action to exit the application
-    connect(quitAction, &QAction::triggered, qApp, &QApplication::quit);
+    // Connect the "Quit" action to properly close the application with settings save
+    connect(quitAction, &QAction::triggered, this, [this]() {
+        qDebug() << "MainWindow: System tray quit action triggered";
+        
+        // Save persistent settings
+        if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
+            SavePersistentSettings();
+            m_persistentSettingsManager->close();
+            qDebug() << "MainWindow: Saved persistent settings from system tray quit";
+        }
+        
+        // Clean up and quit
+        PasswordValidation::clearGracePeriod(user_Username);
+        OperationsFiles::cleanupAllUserTempFolders();
+        Operations_Diary_ptr->DeleteEmptyCurrentDayDiary();
+        
+        // Clear sensitive data
+        QByteArray ba(user_Key);
+        ba.detach();            // ensure unique buffer
+        ba.fill('\0');          // overwrite all bytes
+        ba.clear();             // reset size to 0
+        
+        trayIcon->hide();
+        trayIcon->disconnect();
+        trayIcon->deleteLater();
+        
+        qApp->quit();
+    });
 
     // Handle double-click on the tray icon to show the window
     connect(trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
@@ -790,10 +816,16 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     if(quitToLogin == false && setting_MinToTray == true) // minimize to tray
     {
+        // Save persistent settings before minimizing to tray
+        if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
+            SavePersistentSettings();
+            qDebug() << "MainWindow: Saved persistent settings before minimizing to tray";
+        }
+        
         // If current tab is password-protected, renew grace period
         if (isCurrentTabPasswordProtected()) {
             PasswordValidation::recordSuccessfulValidation(user_Username);
-            qDebug() << "Renewed grace period for password-protected tab on minimize to tray";
+            qDebug() << "MainWindow: Renewed grace period for password-protected tab on minimize to tray";
         } else {
             // No need to do anything.
         }
@@ -1211,7 +1243,39 @@ void MainWindow::on_pushButton_MinToTray_clicked()
 
 void MainWindow::on_pushButton_CloseApp_clicked()
 {
-    qApp->quit();
+    qDebug() << "MainWindow: Close App button clicked";
+    
+    // Check if minimize to tray is enabled
+    if (setting_MinToTray == true) {
+        // When minimize to tray is enabled, we need to save settings and clean up properly
+        
+        // Save persistent settings
+        if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
+            SavePersistentSettings();
+            m_persistentSettingsManager->close();
+            qDebug() << "MainWindow: Saved persistent settings from Close App button";
+        }
+        
+        // Clean up
+        PasswordValidation::clearGracePeriod(user_Username);
+        OperationsFiles::cleanupAllUserTempFolders();
+        Operations_Diary_ptr->DeleteEmptyCurrentDayDiary();
+        
+        // Clear sensitive data
+        QByteArray ba(user_Key);
+        ba.detach();            // ensure unique buffer
+        ba.fill('\0');          // overwrite all bytes
+        ba.clear();             // reset size to 0
+        
+        trayIcon->hide();
+        trayIcon->disconnect();
+        trayIcon->deleteLater();
+        
+        qApp->quit();
+    } else {
+        // When minimize to tray is disabled, the normal closeEvent will handle everything
+        qApp->quit();
+    }
 }
 
 
