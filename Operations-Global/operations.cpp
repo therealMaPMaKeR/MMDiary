@@ -1,5 +1,5 @@
 #include "operations.h"
-#include "custom_QListWidget.h"
+#include "qlist_DiaryTextDisplay.h"
 #include "qdatetime.h"
 
 namespace Operations

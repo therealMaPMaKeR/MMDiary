@@ -1337,38 +1337,38 @@ void Operations_Settings::InitializeCustomCheckboxes()
     QByteArray encryptionKey = m_mainWindow->user_Key;
 
     // Get the existing custom checkboxes
-    custom_QCheckboxWidget* hidePasswordsCheckbox =
-        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_PWMan_HidePWS);
+    qcheckbox_PWValidation* hidePasswordsCheckbox =
+        qobject_cast<qcheckbox_PWValidation*>(m_mainWindow->ui->checkBox_PWMan_HidePWS);
 
-    custom_QCheckboxWidget* reqPasswordCheckbox =
-        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_PWMan_ReqPW);
+    qcheckbox_PWValidation* reqPasswordCheckbox =
+        qobject_cast<qcheckbox_PWValidation*>(m_mainWindow->ui->checkBox_PWMan_ReqPW);
 
-    custom_QCheckboxWidget* askPWOnCloseCheckbox =
-        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_AskPW);
+    qcheckbox_PWValidation* askPWOnCloseCheckbox =
+        qobject_cast<qcheckbox_PWValidation*>(m_mainWindow->ui->checkBox_AskPW);
 
-    custom_QCheckboxWidget* dataEncReqPWCheckbox =
-        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_DataENC_ReqPW);
+    qcheckbox_PWValidation* dataEncReqPWCheckbox =
+        qobject_cast<qcheckbox_PWValidation*>(m_mainWindow->ui->checkBox_DataENC_ReqPW);
 
     // Get the new thumbnail hiding checkboxes
-    custom_QCheckboxWidget* hideThumbnailsImageCheckbox =
-        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Image);
+    qcheckbox_PWValidation* hideThumbnailsImageCheckbox =
+        qobject_cast<qcheckbox_PWValidation*>(m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Image);
 
-    custom_QCheckboxWidget* hideThumbnailsVideoCheckbox =
-        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video);
+    qcheckbox_PWValidation* hideThumbnailsVideoCheckbox =
+        qobject_cast<qcheckbox_PWValidation*>(m_mainWindow->ui->checkBox_DataENC_HideThumbnails_Video);
 
     // Get the new hide categories/tags checkboxes
-    custom_QCheckboxWidget* hideCategoriesCheckbox =
-        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_DataENC_HideCategories);
+    qcheckbox_PWValidation* hideCategoriesCheckbox =
+        qobject_cast<qcheckbox_PWValidation*>(m_mainWindow->ui->checkBox_DataENC_HideCategories);
 
-    custom_QCheckboxWidget* hideTagsCheckbox =
-        qobject_cast<custom_QCheckboxWidget*>(m_mainWindow->ui->checkBox_DataENC_HideTags);
+    qcheckbox_PWValidation* hideTagsCheckbox =
+        qobject_cast<qcheckbox_PWValidation*>(m_mainWindow->ui->checkBox_DataENC_HideTags);
 
     // Set validation info for Hide Passwords checkbox
     if (hidePasswordsCheckbox) {
         hidePasswordsCheckbox->setValidationInfo(
             "Disable 'Hide Passwords' in Password Manager", username);
         hidePasswordsCheckbox->setRequireValidation(true);
-        hidePasswordsCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        hidePasswordsCheckbox->setValidationMode(qcheckbox_PWValidation::ValidateOnUncheck);
         hidePasswordsCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
             DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
             if (!db.connect(username, encryptionKey)) {
@@ -1387,7 +1387,7 @@ void Operations_Settings::InitializeCustomCheckboxes()
         reqPasswordCheckbox->setValidationInfo(
             "Disable 'Require Password' in Password Manager", username);
         reqPasswordCheckbox->setRequireValidation(true);
-        reqPasswordCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        reqPasswordCheckbox->setValidationMode(qcheckbox_PWValidation::ValidateOnUncheck);
         reqPasswordCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
             DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
             if (!db.connect(username, encryptionKey)) {
@@ -1406,7 +1406,7 @@ void Operations_Settings::InitializeCustomCheckboxes()
         askPWOnCloseCheckbox->setValidationInfo(
             "Disable 'Ask Password on Close' in Account Settings", username);
         askPWOnCloseCheckbox->setRequireValidation(true);
-        askPWOnCloseCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        askPWOnCloseCheckbox->setValidationMode(qcheckbox_PWValidation::ValidateOnUncheck);
         askPWOnCloseCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
             DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
             if (!db.connect(username, encryptionKey)) {
@@ -1425,7 +1425,7 @@ void Operations_Settings::InitializeCustomCheckboxes()
         dataEncReqPWCheckbox->setValidationInfo(
             "Disable 'Require Password' in Encrypted Data Settings", username);
         dataEncReqPWCheckbox->setRequireValidation(true);
-        dataEncReqPWCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        dataEncReqPWCheckbox->setValidationMode(qcheckbox_PWValidation::ValidateOnUncheck);
         dataEncReqPWCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
             DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
             if (!db.connect(username, encryptionKey)) {
@@ -1444,7 +1444,7 @@ void Operations_Settings::InitializeCustomCheckboxes()
         hideThumbnailsImageCheckbox->setValidationInfo(
             "Disable 'Hide Image Thumbnails' in Encrypted Data Settings", username);
         hideThumbnailsImageCheckbox->setRequireValidation(true);
-        hideThumbnailsImageCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        hideThumbnailsImageCheckbox->setValidationMode(qcheckbox_PWValidation::ValidateOnUncheck);
         hideThumbnailsImageCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
             DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
             if (!db.connect(username, encryptionKey)) {
@@ -1463,7 +1463,7 @@ void Operations_Settings::InitializeCustomCheckboxes()
         hideThumbnailsVideoCheckbox->setValidationInfo(
             "Disable 'Hide Video Thumbnails' in Encrypted Data Settings", username);
         hideThumbnailsVideoCheckbox->setRequireValidation(true);
-        hideThumbnailsVideoCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        hideThumbnailsVideoCheckbox->setValidationMode(qcheckbox_PWValidation::ValidateOnUncheck);
         hideThumbnailsVideoCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
             DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
             if (!db.connect(username, encryptionKey)) {
@@ -1482,7 +1482,7 @@ void Operations_Settings::InitializeCustomCheckboxes()
         hideCategoriesCheckbox->setValidationInfo(
             "Disable 'Hide Categories' in Encrypted Data Settings", username);
         hideCategoriesCheckbox->setRequireValidation(true);
-        hideCategoriesCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        hideCategoriesCheckbox->setValidationMode(qcheckbox_PWValidation::ValidateOnUncheck);
         hideCategoriesCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
             DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
             if (!db.connect(username, encryptionKey)) {
@@ -1501,7 +1501,7 @@ void Operations_Settings::InitializeCustomCheckboxes()
         hideTagsCheckbox->setValidationInfo(
             "Disable 'Hide Tags' in Encrypted Data Settings", username);
         hideTagsCheckbox->setRequireValidation(true);
-        hideTagsCheckbox->setValidationMode(custom_QCheckboxWidget::ValidateOnUncheck);
+        hideTagsCheckbox->setValidationMode(qcheckbox_PWValidation::ValidateOnUncheck);
         hideTagsCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
             DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
             if (!db.connect(username, encryptionKey)) {

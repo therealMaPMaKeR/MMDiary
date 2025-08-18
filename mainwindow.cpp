@@ -1,7 +1,7 @@
 ﻿#include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "CombinedDelegate.h"
-#include "custom_qlistwidget.h"
+#include "qlist_DiaryTextDisplay.h"
 #include "CryptoUtils.h"
 #include "operations.h"
 #include "operations_diary.h"
@@ -120,10 +120,10 @@ MainWindow::MainWindow(QWidget *parent)
         ba.clear();             // reset size to 0
     });
     // Connect the custom signal to our slot
-    connect(ui->tabWidget_Main, &custom_QTabWidget_Main::passwordValidationRequested,
+    connect(ui->tabWidget_Main, &qtab_Main::passwordValidationRequested,
             this, &MainWindow::onPasswordValidationRequested);
 
-    connect(ui->tabWidget_Main, &custom_QTabWidget_Main::unsavedChangesCheckRequested,
+    connect(ui->tabWidget_Main, &qtab_Main::unsavedChangesCheckRequested,
             this, &MainWindow::onUnsavedChangesCheckRequested);
 
     // Set up password protection for specific tabs using object names directly
@@ -271,10 +271,10 @@ void MainWindow::FinishInitialization()
         connect(ui->spinBox_ReqPWDelay, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &MainWindow::on_spinBox_ReqPWDelay_valueChanged);
         //Diary Signals
-        connect(ui->DiaryTextInput, &custom_QTextEditWidget::customSignal,Operations_Diary_ptr, &Operations_Diary::on_DiaryTextInput_returnPressed);
-        connect(delegate, &CombinedDelegate::TextModificationsMade, ui->DiaryTextDisplay, &custom_QListWidget::TextWasEdited);
-        connect(Operations_Diary_ptr, &Operations_Diary::UpdateFontSize, ui->DiaryTextInput, &custom_QTextEditWidget::UpdateFontSizeTrigger);
-        connect(Operations_Diary_ptr, &Operations_Diary::UpdateFontSize, ui->DiaryTextDisplay, &custom_QListWidget::UpdateFontSize_Slot);
+        connect(ui->DiaryTextInput, &qtextedit_DiaryTextInput::customSignal,Operations_Diary_ptr, &Operations_Diary::on_DiaryTextInput_returnPressed);
+        connect(delegate, &CombinedDelegate::TextModificationsMade, ui->DiaryTextDisplay, &qlist_DiaryTextDisplay::TextWasEdited);
+        connect(Operations_Diary_ptr, &Operations_Diary::UpdateFontSize, ui->DiaryTextInput, &qtextedit_DiaryTextInput::UpdateFontSizeTrigger);
+        connect(Operations_Diary_ptr, &Operations_Diary::UpdateFontSize, ui->DiaryTextDisplay, &qlist_DiaryTextDisplay::UpdateFontSize_Slot);
         connect(ui->DiaryTextDisplay, &MainWindow::customContextMenuRequested, Operations_Diary_ptr, &Operations_Diary::showContextMenu_TextDisplay);
         connect(ui->DiaryListDays, &MainWindow::customContextMenuRequested, Operations_Diary_ptr, &Operations_Diary::showContextMenu_ListDays);
         //PasswordManager Signals
@@ -307,14 +307,14 @@ void MainWindow::FinishInitialization()
         Operations_TaskLists_ptr->UpdateTasklistsTextSize(setting_TLists_TextSize); // set tasklist text size
         // Diary signals (fix lag on resize and zoom)
 
-        connect(ui->DiaryTextDisplay, &custom_QListWidget::sizeUpdateStarted,
+        connect(ui->DiaryTextDisplay, &qlist_DiaryTextDisplay::sizeUpdateStarted,
                 [this]() {
                     if(Operations_Diary_ptr) { // Safety check
                         Operations_Diary_ptr->prevent_onDiaryTextDisplay_itemChanged = true;
                     }
                 });
 
-        connect(ui->DiaryTextDisplay, &custom_QListWidget::sizeUpdateFinished,
+        connect(ui->DiaryTextDisplay, &qlist_DiaryTextDisplay::sizeUpdateFinished,
                 [this]() {
                     if(Operations_Diary_ptr) { // Safety check
                         Operations_Diary_ptr->prevent_onDiaryTextDisplay_itemChanged = false;

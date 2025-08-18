@@ -5,7 +5,7 @@
 #include <QListWidget>
 #include <QPainter>
 #include <QTextDocument>
-#include "custom_QTextEditWidget.h"
+#include "qtextedit_DiaryTextInput.h"
 #include "inputvalidation.h"
 #include "operations_files.h"
 #include "CryptoUtils.h"
@@ -17,23 +17,27 @@ CombinedDelegate::CombinedDelegate(QObject *parent)
     , m_taskManagerLength(12)
     , m_textColor(QColor(255, 0, 0))
 {
+    qDebug() << "CombinedDelegate: Constructor called";
     // Connect our custom signal to our non-const slot
     connect(this, &CombinedDelegate::textCommitted, this, &CombinedDelegate::onEditorClosed);
 }
 
 void CombinedDelegate::setColorLength(int length) {
+    qDebug() << "CombinedDelegate: setColorLength called with length:" << length;
     m_colorLength = length;
 }
 
 void CombinedDelegate::setTextColor(const QColor &color) {
+    qDebug() << "CombinedDelegate: setTextColor called";
     m_textColor = color;
 }
 
 QWidget *CombinedDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &index) const {
+    qDebug() << "CombinedDelegate: createEditor called for index:" << index.row();
     if (index.data(Qt::UserRole).toBool()) {
         return nullptr; // Don't create an editor if UserRole is true
     } else {
-        custom_QTextEditWidget *editor = new custom_QTextEditWidget(parent);
+        qtextedit_DiaryTextInput *editor = new qtextedit_DiaryTextInput(parent);
 
         // Set the font from the item
         QFont itemFont = index.data(Qt::FontRole).value<QFont>();
@@ -61,7 +65,8 @@ QWidget *CombinedDelegate::createEditor(QWidget *parent, const QStyleOptionViewI
 }
 
 void CombinedDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const {
-    if (custom_QTextEditWidget *textEdit = qobject_cast<custom_QTextEditWidget*>(editor)) {
+    qDebug() << "CombinedDelegate: setEditorData called for index:" << index.row();
+    if (qtextedit_DiaryTextInput *textEdit = qobject_cast<qtextedit_DiaryTextInput*>(editor)) {
         textEdit->setPlainText(index.model()->data(index, Qt::EditRole).toString());
 
         // Set the font from the item
@@ -73,6 +78,7 @@ void CombinedDelegate::setEditorData(QWidget *editor, const QModelIndex &index) 
 }
 
 void CombinedDelegate::setModelData(QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const {
+    qDebug() << "CombinedDelegate: setModelData called for index:" << index.row();
     if (QTextEdit *textEdit = qobject_cast<QTextEdit *>(editor)) {
         // Add input validation before setting the data
         QString text = textEdit->document()->toPlainText();
@@ -82,7 +88,7 @@ void CombinedDelegate::setModelData(QWidget *editor, QAbstractItemModel *model, 
         if (result.isValid) {
             model->setData(index, text, Qt::EditRole);
         } else {
-            qWarning() << "Input validation failed:" << result.errorMessage;
+            qWarning() << "CombinedDelegate: Input validation failed:" << result.errorMessage;
             // Do not set the data if validation fails
             // Instead, keep the previous value
             // We could also inform the user here about the validation failure
@@ -312,6 +318,7 @@ void CombinedDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
 }
 
 void CombinedDelegate::paintImageItem(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
+    qDebug() << "CombinedDelegate: paintImageItem called";
     // Draw the selection background if item is selected
     if (option.state & QStyle::State_Selected) {
         painter->fillRect(option.rect, option.palette.highlight());
@@ -330,6 +337,7 @@ void CombinedDelegate::paintImageItem(QPainter *painter, const QStyleOptionViewI
 }
 
 void CombinedDelegate::paintSingleImage(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index, const QString& imagePath) const {
+    qDebug() << "CombinedDelegate: paintSingleImage called for path:" << imagePath;
     if (imagePath.isEmpty()) {
         qDebug() << "CombinedDelegate: Image path is empty, falling back to default paint";
         QStyledItemDelegate::paint(painter, option, index);
@@ -485,6 +493,7 @@ void CombinedDelegate::editorTextChanged(void) {
 }
 
 void CombinedDelegate::onEditorClosed(const QString &text, int itemIndex) {
+    qDebug() << "CombinedDelegate: onEditorClosed called for item:" << itemIndex;
     // Validate text before triggering the signal
     InputValidation::ValidationResult result =
         InputValidation::validateInput(text, InputValidation::InputType::DiaryContent, 10000);
@@ -492,7 +501,7 @@ void CombinedDelegate::onEditorClosed(const QString &text, int itemIndex) {
     if (result.isValid) {
         TextModificationsMade(text, itemIndex);
     } else {
-        qWarning() << "Input validation failed on editor close:" << result.errorMessage;
+        qWarning() << "CombinedDelegate: Input validation failed on editor close:" << result.errorMessage;
         // Don't process the edited text if validation fails
     }
 }

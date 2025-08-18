@@ -7,8 +7,8 @@
 #include <QTextEdit>
 
 // Forward Declarations
-class custom_QTextEditWidget;
-class custom_QListWidget;
+class qtextedit_DiaryTextInput;
+class qlist_DiaryTextDisplay;
 class QPainter;
 class QWidget;
 class QStyleOptionViewItem;

@@ -1,10 +1,10 @@
-#ifndef CUSTOM_QCHECKBOXWIDGET_H
-#define CUSTOM_QCHECKBOXWIDGET_H
+#ifndef QCHECKBOX_PWVALIDATION_H
+#define QCHECKBOX_PWVALIDATION_H
 
 #include <QCheckBox>
 #include <functional>
 
-class custom_QCheckboxWidget : public QCheckBox
+class qcheckbox_PWValidation : public QCheckBox
 {
     Q_OBJECT
 
@@ -16,7 +16,7 @@ public:
         ValidateOnBoth     // Validate in both directions
     };
 
-    explicit custom_QCheckboxWidget(QWidget *parent = nullptr);
+    explicit qcheckbox_PWValidation(QWidget *parent = nullptr);
 
     // Set the operation name and username for validation
     void setValidationInfo(const QString& operationName, const QString& username);
@@ -49,4 +49,4 @@ private:
     bool m_hasGracePeriodGetter;
 };
 
-#endif // CUSTOM_QCHECKBOXWIDGET_H
+#endif // QCHECKBOX_PWVALIDATION_H

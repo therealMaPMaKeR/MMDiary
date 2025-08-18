@@ -1,12 +1,14 @@
-#include "custom_qtabwidget_main.h"
-#include "operations.h"
+#include "qtab_Main.h"
+#include "../Operations-Global/operations.h"
 #include <QEvent>
 #include <QMouseEvent>
 #include <QContextMenuEvent>
+#include <QDebug>
 
-custom_QTabWidget_Main::custom_QTabWidget_Main(QWidget *parent)
+qtab_Main::qtab_Main(QWidget *parent)
     : QTabWidget{parent}, m_settingsTabObjectName("tab_Settings"), m_tabVisibilityMenu(nullptr)
 {
+    qDebug() << "qtab_Main: Constructor called";
     // Install event filter on the tab bar
     tabBar()->installEventFilter(this);
 
@@ -17,8 +19,9 @@ custom_QTabWidget_Main::custom_QTabWidget_Main(QWidget *parent)
     createTabVisibilityMenu();
 }
 
-void custom_QTabWidget_Main::initializeTabMappings()
+void qtab_Main::initializeTabMappings()
 {
+    qDebug() << "qtab_Main: initializeTabMappings called";
     // Map tab object names to user-friendly display names
     m_tabObjectNameToDisplayName["tab_Diaries"] = "Diaries";
     m_tabObjectNameToDisplayName["tab_Tasklists"] = "Task Lists";
@@ -27,7 +30,7 @@ void custom_QTabWidget_Main::initializeTabMappings()
     m_tabObjectNameToDisplayName["tab_Settings"] = "Settings";
 }
 
-int custom_QTabWidget_Main::countVisibleTabs() const
+int qtab_Main::countVisibleTabs() const
 {
     int visibleCount = 0;
     for (int i = 0; i < count(); ++i) {
@@ -35,11 +38,13 @@ int custom_QTabWidget_Main::countVisibleTabs() const
             visibleCount++;
         }
     }
+    qDebug() << "qtab_Main: countVisibleTabs returning:" << visibleCount;
     return visibleCount;
 }
 
-void custom_QTabWidget_Main::createTabVisibilityMenu()
+void qtab_Main::createTabVisibilityMenu()
 {
+    qDebug() << "qtab_Main: createTabVisibilityMenu called";
     // Only create the menu if it doesn't exist
     if (!m_tabVisibilityMenu) {
         m_tabVisibilityMenu = new QMenu("Tab Visibility", this);
@@ -81,7 +86,7 @@ void custom_QTabWidget_Main::createTabVisibilityMenu()
             action->setChecked(isCurrentTabVisible); // Set based on current visibility
             action->setData(objectName); // Store object name in action data
 
-            connect(action, &QAction::triggered, this, &custom_QTabWidget_Main::onTabVisibilityToggled);
+            connect(action, &QAction::triggered, this, &qtab_Main::onTabVisibilityToggled);
 
             m_tabVisibilityMenu->addAction(action);
             m_tabVisibilityActions[objectName] = action;
@@ -89,8 +94,9 @@ void custom_QTabWidget_Main::createTabVisibilityMenu()
     }
 }
 
-void custom_QTabWidget_Main::showTabVisibilityContextMenu(const QPoint& position)
+void qtab_Main::showTabVisibilityContextMenu(const QPoint& position)
 {
+    qDebug() << "qtab_Main: showTabVisibilityContextMenu called";
     if (!m_tabVisibilityMenu) {
         return;
     }
@@ -109,7 +115,7 @@ void custom_QTabWidget_Main::showTabVisibilityContextMenu(const QPoint& position
     }
 }
 
-void custom_QTabWidget_Main::updateTabVisibilityMenuStates()
+void qtab_Main::updateTabVisibilityMenuStates()
 {
     // Update checkbox states based on current tab visibility
     // Iterate through tabs in actual order to get correct visibility state
@@ -130,8 +136,9 @@ void custom_QTabWidget_Main::updateTabVisibilityMenuStates()
     }
 }
 
-void custom_QTabWidget_Main::onTabVisibilityToggled()
+void qtab_Main::onTabVisibilityToggled()
 {
+    qDebug() << "qtab_Main: onTabVisibilityToggled called";
     QAction* action = qobject_cast<QAction*>(sender());
     if (!action) {
         return;
@@ -140,12 +147,15 @@ void custom_QTabWidget_Main::onTabVisibilityToggled()
     QString objectName = action->data().toString();
     bool shouldBeVisible = action->isChecked();
 
+    qDebug() << "qtab_Main: Toggling visibility for tab:" << objectName << "to:" << shouldBeVisible;
+
     // SAFEGUARD: Prevent hiding the last visible tab
     if (!shouldBeVisible) {
         int visibleCount = countVisibleTabs();
         if (visibleCount <= 1) {
             // Silently prevent hiding the last tab by unchecking the action
             action->setChecked(true);
+            qDebug() << "qtab_Main: Prevented hiding last visible tab";
             return;
         }
 
@@ -156,7 +166,7 @@ void custom_QTabWidget_Main::onTabVisibilityToggled()
             setTabVisible(settingsTabIndex, true);
             // Switch to settings tab before hiding the requested tab
             setCurrentIndex(settingsTabIndex);
-            qDebug() << "Switched to settings tab before hiding tab:" << objectName;
+            qDebug() << "qtab_Main: Switched to settings tab before hiding tab:" << objectName;
         }
     }
 
@@ -172,11 +182,12 @@ void custom_QTabWidget_Main::onTabVisibilityToggled()
     }
 }
 
-void custom_QTabWidget_Main::setTabVisibleByObjectName(const QString& tabObjectName, bool visible)
+void qtab_Main::setTabVisibleByObjectName(const QString& tabObjectName, bool visible)
 {
+    qDebug() << "qtab_Main: setTabVisibleByObjectName called for:" << tabObjectName << "visible:" << visible;
     // NEW: Prevent hiding the settings tab
     if (tabObjectName == m_settingsTabObjectName && !visible) {
-        qDebug() << "Attempt to hide settings tab blocked - settings tab cannot be hidden";
+        qDebug() << "qtab_Main: Attempt to hide settings tab blocked - settings tab cannot be hidden";
         return;
     }
 
@@ -186,7 +197,7 @@ void custom_QTabWidget_Main::setTabVisibleByObjectName(const QString& tabObjectN
     }
 }
 
-bool custom_QTabWidget_Main::isTabVisibleByObjectName(const QString& tabObjectName) const
+bool qtab_Main::isTabVisibleByObjectName(const QString& tabObjectName) const
 {
     int tabIndex = getTabIndexByObjectName(tabObjectName);
     if (tabIndex >= 0) {
@@ -195,7 +206,7 @@ bool custom_QTabWidget_Main::isTabVisibleByObjectName(const QString& tabObjectNa
     return false;
 }
 
-int custom_QTabWidget_Main::getTabIndexByObjectName(const QString& objectName) const
+int qtab_Main::getTabIndexByObjectName(const QString& objectName) const
 {
     // Loop through all tabs to find the one with matching object name
     for (int i = 0; i < count(); ++i) {
@@ -207,7 +218,7 @@ int custom_QTabWidget_Main::getTabIndexByObjectName(const QString& objectName) c
     return -1; // Not found
 }
 
-QString custom_QTabWidget_Main::getTabObjectNameByIndex(int index) const
+QString qtab_Main::getTabObjectNameByIndex(int index) const
 {
     if (index >= 0 && index < count()) {
         QWidget* tabPage = widget(index);
@@ -218,8 +229,9 @@ QString custom_QTabWidget_Main::getTabObjectNameByIndex(int index) const
     return QString();
 }
 
-void custom_QTabWidget_Main::setRequirePasswordForTab(const QString& tabObjectName, bool required)
+void qtab_Main::setRequirePasswordForTab(const QString& tabObjectName, bool required)
 {
+    qDebug() << "qtab_Main: setRequirePasswordForTab called for:" << tabObjectName << "required:" << required;
     if (required) {
         m_passwordProtectedTabs.insert(tabObjectName);
     } else {
@@ -227,22 +239,24 @@ void custom_QTabWidget_Main::setRequirePasswordForTab(const QString& tabObjectNa
     }
 }
 
-void custom_QTabWidget_Main::setSettingsTabObjectName(const QString& tabObjectName)
+void qtab_Main::setSettingsTabObjectName(const QString& tabObjectName)
 {
+    qDebug() << "qtab_Main: setSettingsTabObjectName called with:" << tabObjectName;
     m_settingsTabObjectName = tabObjectName;
 }
 
 // NEW: Method to ensure settings tab is always visible
-void custom_QTabWidget_Main::ensureSettingsTabVisible()
+void qtab_Main::ensureSettingsTabVisible()
 {
+    qDebug() << "qtab_Main: ensureSettingsTabVisible called";
     int settingsTabIndex = getTabIndexByObjectName(m_settingsTabObjectName);
     if (settingsTabIndex >= 0) {
         setTabVisible(settingsTabIndex, true);
-        qDebug() << "Ensured settings tab is visible";
+        qDebug() << "qtab_Main: Ensured settings tab is visible";
     }
 }
 
-bool custom_QTabWidget_Main::eventFilter(QObject *watched, QEvent *event)
+bool qtab_Main::eventFilter(QObject *watched, QEvent *event)
 {
     // Check if this is a mouse event on the tab bar
     if (watched == tabBar()) {
@@ -251,6 +265,7 @@ bool custom_QTabWidget_Main::eventFilter(QObject *watched, QEvent *event)
 
             // Handle right-click for context menu
             if (mouseEvent->button() == Qt::RightButton) {
+                qDebug() << "qtab_Main: Right-click detected on tab bar";
                 showTabVisibilityContextMenu(mouseEvent->pos());
                 return true; // Consume the event
             }
@@ -272,6 +287,8 @@ bool custom_QTabWidget_Main::eventFilter(QObject *watched, QEvent *event)
                     return QTabWidget::eventFilter(watched, event);
                 }
 
+                qDebug() << "qtab_Main: Tab click from" << currentTab << "to" << clickedTab;
+
                 // Get tab object names by finding the widget at each index
                 QString clickedTabObjectName;
                 QString currentTabObjectName;
@@ -291,11 +308,13 @@ bool custom_QTabWidget_Main::eventFilter(QObject *watched, QEvent *event)
 
                 // First check: Are we trying to leave the settings tab?
                 if (currentTabObjectName == m_settingsTabObjectName && clickedTabObjectName != m_settingsTabObjectName) {
+                    qDebug() << "qtab_Main: Leaving settings tab, checking for unsaved changes";
                     needsValidation = true;
                     emit unsavedChangesCheckRequested(clickedTab, currentTab);
                 }
                 // Second check: Are we trying to access a password-protected tab?
                 else if (m_passwordProtectedTabs.contains(clickedTabObjectName)) {
+                    qDebug() << "qtab_Main: Accessing password-protected tab, requesting validation";
                     needsValidation = true;
                     emit passwordValidationRequested(clickedTab, currentTab);
                 }
@@ -315,8 +334,9 @@ bool custom_QTabWidget_Main::eventFilter(QObject *watched, QEvent *event)
     return QTabWidget::eventFilter(watched, event);
 }
 
-void custom_QTabWidget_Main::attemptTabSwitch(int targetTabIndex)
+void qtab_Main::attemptTabSwitch(int targetTabIndex)
 {
+    qDebug() << "qtab_Main: attemptTabSwitch called for index:" << targetTabIndex;
     // Get the current tab
     int currentTab = currentIndex();
 
@@ -341,6 +361,7 @@ void custom_QTabWidget_Main::attemptTabSwitch(int targetTabIndex)
 
     // First check: Are we trying to leave the settings tab?
     if (currentTabObjectName == m_settingsTabObjectName && targetTabObjectName != m_settingsTabObjectName) {
+        qDebug() << "qtab_Main: Leaving settings tab during tab switch, checking for unsaved changes";
         // Emit signal to check for unsaved changes
         emit unsavedChangesCheckRequested(targetTabIndex, currentTab);
         return; // Let the unsaved changes handler deal with the actual tab switch
@@ -348,15 +369,18 @@ void custom_QTabWidget_Main::attemptTabSwitch(int targetTabIndex)
 
     // Second check: Are we trying to access a password-protected tab?
     if (m_passwordProtectedTabs.contains(targetTabObjectName)) {
+        qDebug() << "qtab_Main: Accessing password-protected tab during tab switch, requesting validation";
         // Emit signal to request password validation
         emit passwordValidationRequested(targetTabIndex, currentTab);
         return; // Let the password validation handler deal with the actual tab switch
     }
 
     // No validation needed, switch directly
+    qDebug() << "qtab_Main: No validation needed, switching to tab:" << targetTabIndex;
     setCurrentIndex(targetTabIndex);
 }
 
-void custom_QTabWidget_Main::moveTab(int fromIndex, int toIndex) {
+void qtab_Main::moveTab(int fromIndex, int toIndex) {
+    qDebug() << "qtab_Main: moveTab called from" << fromIndex << "to" << toIndex;
     tabBar()->moveTab(fromIndex, toIndex);
 }

@@ -1,5 +1,5 @@
-#ifndef CUSTOM_QTEXTEDITWIDGET_H
-#define CUSTOM_QTEXTEDITWIDGET_H
+#ifndef QTEXTEDIT_DIARYTEXTINPUT_H
+#define QTEXTEDIT_DIARYTEXTINPUT_H
 // AI GENERATED
 #include <QWidget>
 #include <QTextEdit>
@@ -9,12 +9,12 @@
 #include <QMenu>
 #include <QAbstractTextDocumentLayout>
 
-// In custom_QTextEditWidget.h
-class custom_QTextEditWidget : public QTextEdit
+// In qtextedit_DiaryTextInput.h
+class qtextedit_DiaryTextInput : public QTextEdit
 {
     Q_OBJECT
 public:
-    custom_QTextEditWidget(QWidget *parent = nullptr);
+    qtextedit_DiaryTextInput(QWidget *parent = nullptr);
 
 public slots:
     void keyPressEvent(QKeyEvent *event) override;
@@ -46,4 +46,4 @@ signals:
     void imagesDropped(const QStringList& imagePaths);
     void imagesPasted(const QStringList& imagePaths);
 };
-#endif // CUSTOM_QTEXTEDITWIDGET_H
+#endif // QTEXTEDIT_DIARYTEXTINPUT_H

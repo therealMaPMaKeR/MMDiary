@@ -1,8 +1,8 @@
-#include "custom_qcheckboxwidget.h"
-#include "passwordvalidation.h"
+#include "qcheckbox_PWValidation.h"
+#include "../Operations-Global/passwordvalidation.h"
 #include <QDebug>
 
-custom_QCheckboxWidget::custom_QCheckboxWidget(QWidget *parent)
+qcheckbox_PWValidation::qcheckbox_PWValidation(QWidget *parent)
     : QCheckBox(parent)
     , m_operationName("")
     , m_username("")
@@ -11,38 +11,45 @@ custom_QCheckboxWidget::custom_QCheckboxWidget(QWidget *parent)
     , m_hasDatabaseGetter(false)
     , m_hasGracePeriodGetter(false)
 {
+    qDebug() << "qcheckbox_PWValidation: Constructor called";
 }
 
-void custom_QCheckboxWidget::setGracePeriodGetter(const std::function<int()>& getter)
+void qcheckbox_PWValidation::setGracePeriodGetter(const std::function<int()>& getter)
 {
+    qDebug() << "qcheckbox_PWValidation: setGracePeriodGetter called";
     m_gracePeriodGetter = getter;
     m_hasGracePeriodGetter = true;
 }
 
-void custom_QCheckboxWidget::setValidationInfo(const QString& operationName, const QString& username)
+void qcheckbox_PWValidation::setValidationInfo(const QString& operationName, const QString& username)
 {
+    qDebug() << "qcheckbox_PWValidation: setValidationInfo called for operation:" << operationName;
     m_operationName = operationName;
     m_username = username;
 }
 
-void custom_QCheckboxWidget::setRequireValidation(bool require)
+void qcheckbox_PWValidation::setRequireValidation(bool require)
 {
+    qDebug() << "qcheckbox_PWValidation: setRequireValidation called with require:" << require;
     m_requireValidation = require;
 }
 
-void custom_QCheckboxWidget::setValidationMode(ValidationMode mode)
+void qcheckbox_PWValidation::setValidationMode(ValidationMode mode)
 {
+    qDebug() << "qcheckbox_PWValidation: setValidationMode called with mode:" << mode;
     m_validationMode = mode;
 }
 
-void custom_QCheckboxWidget::setDatabaseValueGetter(const std::function<bool()>& getter)
+void qcheckbox_PWValidation::setDatabaseValueGetter(const std::function<bool()>& getter)
 {
+    qDebug() << "qcheckbox_PWValidation: setDatabaseValueGetter called";
     m_databaseValueGetter = getter;
     m_hasDatabaseGetter = true;
 }
 
-void custom_QCheckboxWidget::nextCheckState()
+void qcheckbox_PWValidation::nextCheckState()
 {
+    qDebug() << "qcheckbox_PWValidation: nextCheckState called";
     // Determine if validation is needed based on current state and validation mode
     bool needsValidation = false;
     bool dbValue = false;
@@ -70,6 +77,7 @@ void custom_QCheckboxWidget::nextCheckState()
     }
 
     if (needsValidation) {
+        qDebug() << "qcheckbox_PWValidation: Password validation required for operation:" << m_operationName;
         // Get grace period if available
         int gracePeriod = m_hasGracePeriodGetter ? m_gracePeriodGetter() : 0;
 
@@ -85,9 +93,10 @@ void custom_QCheckboxWidget::nextCheckState()
 
         if (!validationPassed) {
             // If validation failed, don't change the state
-            qDebug() << "Password validation failed for" << m_operationName;
+            qDebug() << "qcheckbox_PWValidation: Password validation failed for" << m_operationName;
             return;
         }
+        qDebug() << "qcheckbox_PWValidation: Password validation passed for" << m_operationName;
     }
 
     // If validation passed or not required, proceed with normal state change

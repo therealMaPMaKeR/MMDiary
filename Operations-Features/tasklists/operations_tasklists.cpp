@@ -1,6 +1,6 @@
 #include "operations_tasklists.h"
 #include "../diary/operations_diary.h"
-#include "../../CustomWidgets/CombinedDelegate.h"
+#include "CombinedDelegate.h"
 #include "encryption/CryptoUtils.h"
 #include "operations.h"
 #include "inputvalidation.h"
@@ -143,13 +143,13 @@ Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow, Operations_Di
     m_mainWindow->ui->listWidget_TaskList_List->setDragDropMode(QAbstractItemView::InternalMove);
 
     // Install event filters to capture drop events
-    connect(m_mainWindow->ui->listWidget_TaskListDisplay, &custom_QListWidget_Task::itemsReordered,
+    connect(m_mainWindow->ui->listWidget_TaskListDisplay, &qlist_TasklistDisplay::itemsReordered,
             this, [this]() {
                 // Brief delay to ensure the drag and drop operation is complete
                 QTimer::singleShot(0, this, &Operations_TaskLists::EnforceTaskOrder);
             });
 
-    connect(m_mainWindow->ui->listWidget_TaskList_List, &custom_QListWidget_Task::itemsReordered,
+    connect(m_mainWindow->ui->listWidget_TaskList_List, &qlist_TasklistDisplay::itemsReordered,
             this, &Operations_TaskLists::SaveTasklistOrder);
     LoadTasklists();
 }
@@ -6020,7 +6020,7 @@ void Operations_TaskLists::UpdateTasklistsTextSize(int fontSize)
 
     // ===== Checkbox scaling in the task list display =====
     // Scale the checkbox detection area in our custom list widget
-    if (auto* customList = dynamic_cast<custom_QListWidget_Task*>(m_mainWindow->ui->listWidget_TaskListDisplay)) {
+    if (auto* customList = dynamic_cast<qlist_TasklistDisplay*>(m_mainWindow->ui->listWidget_TaskListDisplay)) {
         // Determine appropriate checkbox width based on font size
         // Base checkbox width is 25 at font size 10
         int scaledCheckboxWidth = static_cast<int>(25 * (fontSizeRatio));

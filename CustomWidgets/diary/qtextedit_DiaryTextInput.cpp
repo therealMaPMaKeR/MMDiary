@@ -1,10 +1,10 @@
-#include "custom_QTextEditWidget.h"
+#include "qtextedit_DiaryTextInput.h"
 #include <QTextEdit>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QKeyEvent>
 #include <QDebug>
- #include "inputvalidation.h"
+#include "../../Operations-Global/inputvalidation.h"
 #include <QMimeData>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -13,37 +13,38 @@
 #include <QFileInfo>
 #include <QImageReader>
 
-custom_QTextEditWidget::custom_QTextEditWidget(QWidget *parent): QTextEdit(parent) {
+qtextedit_DiaryTextInput::qtextedit_DiaryTextInput(QWidget *parent): QTextEdit(parent) {
+    qDebug() << "qtextedit_DiaryTextInput: Constructor called";
     // Force plain text mode - no rich text allowed
     setAcceptRichText(false);
 
     // Connect to textChanged signal to adjust height automatically when content changes
-    connect(this, &QTextEdit::textChanged, this, &custom_QTextEditWidget::adjustHeight);
+    connect(this, &QTextEdit::textChanged, this, &qtextedit_DiaryTextInput::adjustHeight);
     // Connect to document layout changes which happen during font changes
     connect(document()->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged,
-            this, &custom_QTextEditWidget::adjustHeight);
+            this, &qtextedit_DiaryTextInput::adjustHeight);
     this->setParent(parent);
     this->show();
     this->setContextMenuPolicy(Qt::CustomContextMenu);
 
     // Add validation when text changes
-    connect(this, &QTextEdit::textChanged, this, &custom_QTextEditWidget::validateText);
+    connect(this, &QTextEdit::textChanged, this, &qtextedit_DiaryTextInput::validateText);
 }
 
-void custom_QTextEditWidget::validateText() {
+void qtextedit_DiaryTextInput::validateText() {
     QString currentText = this->toPlainText();
     InputValidation::ValidationResult result =
         InputValidation::validateInput(currentText, InputValidation::InputType::DiaryContent, 10000);
 
     if (!result.isValid) {
-        qWarning() << "Text validation warning:" << result.errorMessage;
+        qWarning() << "qtextedit_DiaryTextInput: Text validation warning:" << result.errorMessage;
 
         // Block the invalid input by restoring the previous valid text
         // Store the cursor position
         int cursorPosition = textCursor().position();
 
         // Disconnect the textChanged signal to avoid recursion
-        disconnect(this, &QTextEdit::textChanged, this, &custom_QTextEditWidget::validateText);
+        disconnect(this, &QTextEdit::textChanged, this, &qtextedit_DiaryTextInput::validateText);
 
         // Set text to the last valid text
         setPlainText(lastValidText);
@@ -54,15 +55,16 @@ void custom_QTextEditWidget::validateText() {
         setTextCursor(cursor);
 
         // Reconnect the textChanged signal
-        connect(this, &QTextEdit::textChanged, this, &custom_QTextEditWidget::validateText);
+        connect(this, &QTextEdit::textChanged, this, &qtextedit_DiaryTextInput::validateText);
     } else {
         // Update the last valid text
         lastValidText = currentText;
     }
 }
 
-void custom_QTextEditWidget::keyPressEvent(QKeyEvent *event)
+void qtextedit_DiaryTextInput::keyPressEvent(QKeyEvent *event)
 {
+    qDebug() << "qtextedit_DiaryTextInput: keyPressEvent called with key:" << event->key();
     adjustHeight();
     if (event->key() == Qt::Key_Return && event->modifiers() == Qt::ShiftModifier) {
         this->insertPlainText("\n");
@@ -76,7 +78,7 @@ void custom_QTextEditWidget::keyPressEvent(QKeyEvent *event)
         if (result.isValid) {
             emit customSignal();
         } else {
-            qWarning() << "Text validation failed on return press:" << result.errorMessage;
+            qWarning() << "qtextedit_DiaryTextInput: Text validation failed on return press:" << result.errorMessage;
             // Do not emit the signal if validation fails
         }
     }
@@ -87,12 +89,14 @@ void custom_QTextEditWidget::keyPressEvent(QKeyEvent *event)
     }
 }
 
-void custom_QTextEditWidget::UpdateFontSizeTrigger(int size, bool zoom) // need to pass zoom for the signal connect even though we dont use it
+void qtextedit_DiaryTextInput::UpdateFontSizeTrigger(int size, bool zoom) // need to pass zoom for the signal connect even though we dont use it
 {
+    qDebug() << "qtextedit_DiaryTextInput: UpdateFontSizeTrigger called with size:" << size;
     updateFontSize(size);
 }
 
-void custom_QTextEditWidget::updateFontSize(int size) {
+void qtextedit_DiaryTextInput::updateFontSize(int size) {
+    qDebug() << "qtextedit_DiaryTextInput: updateFontSize called with size:" << size;
     QFont font = this->font();
     font.setPointSize(size);
     setFont(font);
@@ -100,7 +104,7 @@ void custom_QTextEditWidget::updateFontSize(int size) {
     adjustHeight();
 }
 
-void custom_QTextEditWidget::adjustHeight() {
+void qtextedit_DiaryTextInput::adjustHeight() {
     // Calculate the required height based on the content with current font metrics
     QTextDocument* doc = document();
     // Force layout update with current width
@@ -119,14 +123,16 @@ void custom_QTextEditWidget::adjustHeight() {
     }
 }
 
-void custom_QTextEditWidget::resizeEvent(QResizeEvent *event) {
+void qtextedit_DiaryTextInput::resizeEvent(QResizeEvent *event) {
+    qDebug() << "qtextedit_DiaryTextInput: resizeEvent called";
     QTextEdit::resizeEvent(event);
     // After any resize, adjust the height based on content
     adjustHeight();
 }
 
-void custom_QTextEditWidget::changeEvent(QEvent *event) {
+void qtextedit_DiaryTextInput::changeEvent(QEvent *event) {
     if (event->type() == QEvent::FontChange) {
+        qDebug() << "qtextedit_DiaryTextInput: Font change event";
         // When font changes, adjust height
         adjustHeight();
     }
@@ -135,8 +141,9 @@ void custom_QTextEditWidget::changeEvent(QEvent *event) {
 
 
 //-- Copy/Paste --//
-void custom_QTextEditWidget::insertFromMimeData(const QMimeData *source)
+void qtextedit_DiaryTextInput::insertFromMimeData(const QMimeData *source)
 {
+    qDebug() << "qtextedit_DiaryTextInput: insertFromMimeData called";
     // Check if the mime data contains images
     if (source->hasImage()) {
         // Handle pasted images
@@ -182,7 +189,7 @@ void custom_QTextEditWidget::insertFromMimeData(const QMimeData *source)
 
 
 //--  Import Image to Diary --//
-void custom_QTextEditWidget::dragEnterEvent(QDragEnterEvent *event)
+void qtextedit_DiaryTextInput::dragEnterEvent(QDragEnterEvent *event)
 {
     if (event->mimeData()->hasUrls()) {
         QStringList imagePaths;
@@ -203,7 +210,7 @@ void custom_QTextEditWidget::dragEnterEvent(QDragEnterEvent *event)
     QTextEdit::dragEnterEvent(event);
 }
 
-void custom_QTextEditWidget::dragMoveEvent(QDragMoveEvent *event)
+void qtextedit_DiaryTextInput::dragMoveEvent(QDragMoveEvent *event)
 {
     if (event->mimeData()->hasUrls()) {
         event->acceptProposedAction();
@@ -212,8 +219,9 @@ void custom_QTextEditWidget::dragMoveEvent(QDragMoveEvent *event)
     }
 }
 
-void custom_QTextEditWidget::dropEvent(QDropEvent *event)
+void qtextedit_DiaryTextInput::dropEvent(QDropEvent *event)
 {
+    qDebug() << "qtextedit_DiaryTextInput: dropEvent called";
     if (event->mimeData()->hasUrls()) {
         QStringList imagePaths;
 
@@ -234,7 +242,7 @@ void custom_QTextEditWidget::dropEvent(QDropEvent *event)
     QTextEdit::dropEvent(event);
 }
 
-bool custom_QTextEditWidget::isImageFile(const QString& filePath)
+bool qtextedit_DiaryTextInput::isImageFile(const QString& filePath)
 {
     if (!QFileInfo::exists(filePath)) {
         return false;
@@ -246,7 +254,7 @@ bool custom_QTextEditWidget::isImageFile(const QString& filePath)
     return supportedFormats.contains(fileExtension);
 }
 
-QStringList custom_QTextEditWidget::getSupportedImageFormats()
+QStringList qtextedit_DiaryTextInput::getSupportedImageFormats()
 {
     return QStringList() << "png" << "jpg" << "jpeg" << "gif" << "bmp"
                          << "tiff" << "tif" << "webp" << "ico" << "svg";

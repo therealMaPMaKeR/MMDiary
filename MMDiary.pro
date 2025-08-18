@@ -10,6 +10,9 @@ CONFIG += c++17
 # Add include paths for project directories
 INCLUDEPATH += $$PWD \
                $$PWD/CustomWidgets \
+               $$PWD/CustomWidgets/diary \
+               $$PWD/CustomWidgets/encrypteddata \
+               $$PWD/CustomWidgets/tasklists \
                $$PWD/Operations-Features \
                $$PWD/Operations-Features/diary \
                $$PWD/Operations-Features/encrypteddata \
@@ -62,13 +65,13 @@ TEMPLATE = app
 #CONFIG += console
 win32:RC_FILE = app.rc
 SOURCES += \
-    CustomWidgets/CombinedDelegate.cpp \
-    CustomWidgets/custom_QListWidget.cpp \
-    CustomWidgets/custom_QTextEditWidget.cpp \
-    CustomWidgets/custom_qcheckboxwidget.cpp \
-    CustomWidgets/custom_qlistwidget_task.cpp \
-    CustomWidgets/custom_qtabwidget_main.cpp \
-    CustomWidgets/encryptedfileitemwidget.cpp \
+    CustomWidgets/diary/CombinedDelegate.cpp \
+    CustomWidgets/diary/qlist_DiaryTextDisplay.cpp \
+    CustomWidgets/diary/qtextedit_DiaryTextInput.cpp \
+    CustomWidgets/qcheckbox_PWValidation.cpp \
+    CustomWidgets/qtab_Main.cpp \
+    CustomWidgets/encrypteddata/encryptedfileitemwidget.cpp \
+    CustomWidgets/tasklists/qlist_TasklistDisplay.cpp \
     Operations-Features/diary/operations_diary.cpp \
     Operations-Features/encrypteddata/operations_encrypteddata.cpp \
     Operations-Features/encrypteddata/encrypteddata_encryptionworkers.cpp \
@@ -99,13 +102,13 @@ SOURCES += \
     mainwindow.cpp
 
 HEADERS += \
-    CustomWidgets/CombinedDelegate.h \
-    CustomWidgets/custom_QListWidget.h \
-    CustomWidgets/custom_QTextEditWidget.h \
-    CustomWidgets/custom_qcheckboxwidget.h \
-    CustomWidgets/custom_qlistwidget_task.h \
-    CustomWidgets/custom_qtabwidget_main.h \
-    CustomWidgets/encryptedfileitemwidget.h \
+    CustomWidgets/diary/CombinedDelegate.h \
+    CustomWidgets/diary/qlist_DiaryTextDisplay.h \
+    CustomWidgets/diary/qtextedit_DiaryTextInput.h \
+    CustomWidgets/qcheckbox_PWValidation.h \
+    CustomWidgets/qtab_Main.h \
+    CustomWidgets/encrypteddata/encryptedfileitemwidget.h \
+    CustomWidgets/tasklists/qlist_TasklistDisplay.h \
     Operations-Features/diary/operations_diary.h \
     Operations-Features/encrypteddata/operations_encrypteddata.h \
     Operations-Features/encrypteddata/encrypteddata_encryptionworkers.h \

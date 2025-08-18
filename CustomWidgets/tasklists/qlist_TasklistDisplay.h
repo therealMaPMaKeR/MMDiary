@@ -1,5 +1,5 @@
-#ifndef CUSTOM_QLISTWIDGET_TASK_H
-#define CUSTOM_QLISTWIDGET_TASK_H
+#ifndef QLIST_TASKLISTDISPLAY_H
+#define QLIST_TASKLISTDISPLAY_H
 
 #include <QWidget>
 #include <QListWidget>
@@ -7,14 +7,16 @@
 #include <QDropEvent>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
+#include <QDebug>
 
-class custom_QListWidget_Task : public QListWidget
+class qlist_TasklistDisplay : public QListWidget
 {
     Q_OBJECT
 
 public:
-    explicit custom_QListWidget_Task(QWidget *parent = nullptr) : QListWidget(parent),
+    explicit qlist_TasklistDisplay(QWidget *parent = nullptr) : QListWidget(parent),
         m_checkboxWidth(25) {
+        qDebug() << "qlist_TasklistDisplay: Constructor called";
         // Enable drag and drop by default
         setDragEnabled(true);
         setAcceptDrops(true);
@@ -23,6 +25,7 @@ public:
     }
 
     void setCheckboxWidth(int width) {
+        qDebug() << "qlist_TasklistDisplay: setCheckboxWidth called with width:" << width;
         m_checkboxWidth = width;
     }
 
@@ -36,6 +39,7 @@ signals:
 
 protected:
     void mousePressEvent(QMouseEvent *event) override {
+        qDebug() << "qlist_TasklistDisplay: mousePressEvent called";
         // Store the clicked position and item for potential double-click check
         m_lastClickPos = event->pos();
         m_lastClickedItem = itemAt(m_lastClickPos);
@@ -45,6 +49,7 @@ protected:
     }
 
     void mouseDoubleClickEvent(QMouseEvent *event) override {
+        qDebug() << "qlist_TasklistDisplay: mouseDoubleClickEvent called";
         // Get the item at the current position
         QPoint pos = event->pos();
         QListWidgetItem* item = itemAt(pos);
@@ -57,6 +62,7 @@ protected:
             checkboxRect.setWidth(m_checkboxWidth);
 
             if (checkboxRect.contains(pos)) {
+                qDebug() << "qlist_TasklistDisplay: Double-click detected in checkbox area, treating as single click";
                 // Treat as a single click instead of a double-click
                 // We simulate another mouse press event to toggle the checkbox
                 QMouseEvent singleClick(QEvent::MouseButtonPress,
@@ -76,6 +82,7 @@ protected:
 
     // Override drop event to handle reordering
     void dropEvent(QDropEvent *event) override {
+        qDebug() << "qlist_TasklistDisplay: dropEvent called";
         // Call the base class implementation to handle the actual drop
         QListWidget::dropEvent(event);
 
@@ -101,4 +108,4 @@ private:
     QListWidgetItem* m_lastClickedItem = nullptr;  // Item of the last click
 };
 
-#endif // CUSTOM_QLISTWIDGET_TASK_H
+#endif // QLIST_TASKLISTDISPLAY_H

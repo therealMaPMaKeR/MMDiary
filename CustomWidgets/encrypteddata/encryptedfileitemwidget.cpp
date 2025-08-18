@@ -15,16 +15,19 @@ EncryptedFileItemWidget::EncryptedFileItemWidget(QWidget *parent)
     , m_filenameLabel(nullptr)
     , m_needsThumbnailLoad(true)
 {
+    qDebug() << "EncryptedFileItemWidget: Constructor called";
     setupUI();
 }
 
 EncryptedFileItemWidget::~EncryptedFileItemWidget()
 {
+    qDebug() << "EncryptedFileItemWidget: Destructor called";
     // Qt will handle cleanup of child widgets
 }
 
 void EncryptedFileItemWidget::setupUI()
 {
+    qDebug() << "EncryptedFileItemWidget: setupUI called";
     // Create layout
     m_layout = new QHBoxLayout(this);
     m_layout->setContentsMargins(4, 4, 4, 4);
@@ -54,6 +57,7 @@ void EncryptedFileItemWidget::setFileInfo(const QString& originalFilename,
                                           const QString& fileType,
                                           const QStringList& tags)
 {
+    qDebug() << "EncryptedFileItemWidget: setFileInfo called for file:" << originalFilename;
     m_originalFilename = originalFilename;
     m_encryptedFilePath = encryptedFilePath;
     m_fileType = fileType;
@@ -83,6 +87,7 @@ void EncryptedFileItemWidget::setFileInfo(const QString& originalFilename,
 
 void EncryptedFileItemWidget::setIcon(const QPixmap& pixmap)
 {
+    qDebug() << "EncryptedFileItemWidget: setIcon called with pixmap size:" << pixmap.size();
     if (!pixmap.isNull()) {
         QPixmap scaledPixmap = pixmap.scaled(s_iconSize, s_iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         m_iconLabel->setPixmap(scaledPixmap);
@@ -91,11 +96,13 @@ void EncryptedFileItemWidget::setIcon(const QPixmap& pixmap)
 
 void EncryptedFileItemWidget::setIconSize(int size)
 {
+    qDebug() << "EncryptedFileItemWidget: setIconSize called with size:" << size;
     s_iconSize = size;
     // Note: Existing widgets would need to be updated manually if size changes
 }
 
 void EncryptedFileItemWidget::updateIconSize()
 {
+    qDebug() << "EncryptedFileItemWidget: updateIconSize called";
     m_iconLabel->setFixedSize(s_iconSize, s_iconSize);
 }

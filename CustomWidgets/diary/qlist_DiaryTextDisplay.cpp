@@ -1,6 +1,6 @@
-#include "custom_QListWidget.h"
-#include "custom_QTextEditWidget.h"
-#include "../constants.h"
+#include "qlist_DiaryTextDisplay.h"
+#include "qtextedit_DiaryTextInput.h"
+#include "../../constants.h"
 #include <QKeyEvent>
 #include <QWheelEvent>
 #include <QFont>
@@ -9,11 +9,12 @@
 #include <QListWidgetItem>
 #include <QDebug>
 #include <QTimer>
- #include "inputvalidation.h" // Add this include
+#include "../../Operations-Global/inputvalidation.h" // Add this include
 
-custom_QListWidget::custom_QListWidget(QWidget *parent)
+qlist_DiaryTextDisplay::qlist_DiaryTextDisplay(QWidget *parent)
     : QListWidget(parent), m_inSizeUpdate(false)
 {
+    qDebug() << "qlist_DiaryTextDisplay: Constructor called";
     this->setParent(parent);
     this->show();
     this->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -27,8 +28,9 @@ custom_QListWidget::custom_QListWidget(QWidget *parent)
     });
 }
 
-custom_QListWidget::~custom_QListWidget()
+qlist_DiaryTextDisplay::~qlist_DiaryTextDisplay()
 {
+    qDebug() << "qlist_DiaryTextDisplay: Destructor called";
     // Make sure the "finished" signal is emitted if we're destroyed during an update
     if (m_inSizeUpdate) {
         emit sizeUpdateFinished();
@@ -36,7 +38,7 @@ custom_QListWidget::~custom_QListWidget()
 }
 
 // Add this after the constructor
-void custom_QListWidget::leaveEvent(QEvent *event)
+void qlist_DiaryTextDisplay::leaveEvent(QEvent *event)
 {
     if (!m_inMouseEvent) {
         m_inMouseEvent = true;
@@ -46,14 +48,15 @@ void custom_QListWidget::leaveEvent(QEvent *event)
     QListWidget::leaveEvent(event);
 }
 
-void custom_QListWidget::enterEvent(QEnterEvent *event)
+void qlist_DiaryTextDisplay::enterEvent(QEnterEvent *event)
 {
     // Handle enter event if needed in the future
     QListWidget::enterEvent(event);
 }
 
-void custom_QListWidget::selectLastItem()
+void qlist_DiaryTextDisplay::selectLastItem()
 {
+    qDebug() << "qlist_DiaryTextDisplay: selectLastItem() called";
     if (count() > 0) {
         QListWidgetItem* lastItem = item(count() - 1);
         if (lastItem && (lastItem->flags() & Qt::ItemIsEnabled)) {
@@ -62,9 +65,10 @@ void custom_QListWidget::selectLastItem()
     }
 }
 
-void custom_QListWidget::wheelEvent(QWheelEvent *event)
+void qlist_DiaryTextDisplay::wheelEvent(QWheelEvent *event)
 {
     if (event->modifiers() & Qt::ControlModifier) {
+        qDebug() << "qlist_DiaryTextDisplay: Wheel event with Ctrl modifier";
         // Signal we're starting a size update
         emit sizeUpdateStarted();
 
@@ -101,8 +105,9 @@ void custom_QListWidget::wheelEvent(QWheelEvent *event)
     }
 }
 
-void custom_QListWidget::resizeEvent(QResizeEvent *event)
+void qlist_DiaryTextDisplay::resizeEvent(QResizeEvent *event)
 {
+    qDebug() << "qlist_DiaryTextDisplay: resizeEvent called";
     // Signal we're starting a size update
     emit sizeUpdateStarted();
 
@@ -116,7 +121,7 @@ void custom_QListWidget::resizeEvent(QResizeEvent *event)
     emit sizeUpdateFinished();
 }
 
-bool custom_QListWidget::eventFilter(QObject *obj, QEvent *event)
+bool qlist_DiaryTextDisplay::eventFilter(QObject *obj, QEvent *event)
 {
     if (event->type() == QEvent::Scroll || event->type() == QEvent::KeyPress) {
         // Allow mouse wheel events
@@ -129,13 +134,13 @@ bool custom_QListWidget::eventFilter(QObject *obj, QEvent *event)
     return QObject::eventFilter(obj, event);
 }
 
-void custom_QListWidget::keyPressEvent(QKeyEvent *event)
+void qlist_DiaryTextDisplay::keyPressEvent(QKeyEvent *event)
 {
     // for some reason this is also needed for the event filter to work in main window
     // Empty implementation as per the provided source code
 }
 
-void custom_QListWidget::mousePressEvent(QMouseEvent *event)
+void qlist_DiaryTextDisplay::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
         // Store the click position for later use
@@ -146,8 +151,9 @@ void custom_QListWidget::mousePressEvent(QMouseEvent *event)
     QListWidget::mousePressEvent(event);
 }
 
-void custom_QListWidget::UpdateFontSize_Slot(int size, bool resize)
+void qlist_DiaryTextDisplay::UpdateFontSize_Slot(int size, bool resize)
 {
+    qDebug() << "qlist_DiaryTextDisplay: UpdateFontSize_Slot called with size:" << size;
     // Only emit if we're not already in a size update
     bool wasInSizeUpdate = m_inSizeUpdate;
 
@@ -171,8 +177,8 @@ void custom_QListWidget::UpdateFontSize_Slot(int size, bool resize)
     }
 
     // If an editor is currently open, update its font size too
-    if (QWidget* editor = this->findChild<custom_QTextEditWidget*>()) {
-        custom_QTextEditWidget* textEdit = qobject_cast<custom_QTextEditWidget*>(editor);
+    if (QWidget* editor = this->findChild<qtextedit_DiaryTextInput*>()) {
+        qtextedit_DiaryTextInput* textEdit = qobject_cast<qtextedit_DiaryTextInput*>(editor);
         if (textEdit) {
             textEdit->updateFontSize(m_fontSize);
         }
@@ -188,14 +194,15 @@ void custom_QListWidget::UpdateFontSize_Slot(int size, bool resize)
     }
 }
 
-void custom_QListWidget::TextWasEdited(QString text, int itemIndex)
+void qlist_DiaryTextDisplay::TextWasEdited(QString text, int itemIndex)
 {
+    qDebug() << "qlist_DiaryTextDisplay: TextWasEdited called for item:" << itemIndex;
     // Validate the edited text
     InputValidation::ValidationResult result =
         InputValidation::validateInput(text, InputValidation::InputType::DiaryContent, 10000);
 
     if (!result.isValid) {
-        qWarning() << "Text validation failed in TextWasEdited:" << result.errorMessage;
+        qWarning() << "qlist_DiaryTextDisplay: Text validation failed in TextWasEdited:" << result.errorMessage;
         // Do not process the edited text
         return;
     }
@@ -233,7 +240,7 @@ void custom_QListWidget::TextWasEdited(QString text, int itemIndex)
     }
 }
 
-void custom_QListWidget::updateItemSizes()
+void qlist_DiaryTextDisplay::updateItemSizes()
 {
     QFont font = this->font();
     font.setPointSize(m_fontSize);
@@ -278,7 +285,7 @@ void custom_QListWidget::updateItemSizes()
     this->doItemsLayout();
 }
 
-void custom_QListWidget::updateItemFonts()
+void qlist_DiaryTextDisplay::updateItemFonts()
 {
     QFont font = this->font();
     font.setPointSize(m_fontSize);
@@ -289,8 +296,8 @@ void custom_QListWidget::updateItemFonts()
     }
 
     // If an editor is currently open, update its font size too
-    if (QWidget* editor = this->findChild<custom_QTextEditWidget*>()) {
-        custom_QTextEditWidget* textEdit = qobject_cast<custom_QTextEditWidget*>(editor);
+    if (QWidget* editor = this->findChild<qtextedit_DiaryTextInput*>()) {
+        qtextedit_DiaryTextInput* textEdit = qobject_cast<qtextedit_DiaryTextInput*>(editor);
         if (textEdit) {
             textEdit->updateFontSize(m_fontSize);
         }
@@ -301,7 +308,7 @@ void custom_QListWidget::updateItemFonts()
 }
 
 // Drag & Drop implementation
-void custom_QListWidget::dragEnterEvent(QDragEnterEvent *event)
+void qlist_DiaryTextDisplay::dragEnterEvent(QDragEnterEvent *event)
 {
     if (event->mimeData()->hasUrls()) {
         QStringList imagePaths;
@@ -322,7 +329,7 @@ void custom_QListWidget::dragEnterEvent(QDragEnterEvent *event)
     QListWidget::dragEnterEvent(event);
 }
 
-void custom_QListWidget::dragMoveEvent(QDragMoveEvent *event)
+void qlist_DiaryTextDisplay::dragMoveEvent(QDragMoveEvent *event)
 {
     if (event->mimeData()->hasUrls()) {
         event->acceptProposedAction();
@@ -331,7 +338,7 @@ void custom_QListWidget::dragMoveEvent(QDragMoveEvent *event)
     }
 }
 
-void custom_QListWidget::dropEvent(QDropEvent *event)
+void qlist_DiaryTextDisplay::dropEvent(QDropEvent *event)
 {
     if (event->mimeData()->hasUrls()) {
         QStringList imagePaths;
@@ -353,7 +360,7 @@ void custom_QListWidget::dropEvent(QDropEvent *event)
     QListWidget::dropEvent(event);
 }
 
-bool custom_QListWidget::isImageFile(const QString& filePath)
+bool qlist_DiaryTextDisplay::isImageFile(const QString& filePath)
 {
     if (!QFileInfo::exists(filePath)) {
         return false;
@@ -365,7 +372,7 @@ bool custom_QListWidget::isImageFile(const QString& filePath)
     return supportedFormats.contains(fileExtension);
 }
 
-QStringList custom_QListWidget::getSupportedImageFormats()
+QStringList qlist_DiaryTextDisplay::getSupportedImageFormats()
 {
     return QStringList() << "png" << "jpg" << "jpeg" << "gif" << "bmp"
                          << "tiff" << "tif" << "webp" << "ico" << "svg";

@@ -29,18 +29,18 @@ Operations_Diary::Operations_Diary(MainWindow* mainWindow)
     DiariesFilePath = "Data/" + m_mainWindow->user_Username + "/Diaries/";
 
     // Connect image handling signals from DiaryTextInput
-    connect(m_mainWindow->ui->DiaryTextInput, &custom_QTextEditWidget::imagesDropped,
+    connect(m_mainWindow->ui->DiaryTextInput, &qtextedit_DiaryTextInput::imagesDropped,
             this, [this](const QStringList& imagePaths) {
                 processAndAddImages(imagePaths, imagePaths.size() > 1);
             });
 
-    connect(m_mainWindow->ui->DiaryTextInput, &custom_QTextEditWidget::imagesPasted,
+    connect(m_mainWindow->ui->DiaryTextInput, &qtextedit_DiaryTextInput::imagesPasted,
             this, [this](const QStringList& imagePaths) {
                 processAndAddImages(imagePaths, imagePaths.size() > 1);
             });
 
     // Connect image handling signals from DiaryTextDisplay (reroute to same logic)
-    connect(m_mainWindow->ui->DiaryTextDisplay, &custom_QListWidget::imagesDropped,
+    connect(m_mainWindow->ui->DiaryTextDisplay, &qlist_DiaryTextDisplay::imagesDropped,
             this, [this](const QStringList& imagePaths) {
                 processAndAddImages(imagePaths, imagePaths.size() > 1);
             });
@@ -2142,7 +2142,7 @@ void Operations_Diary::showContextMenu_ListDays(const QPoint &pos)
 void Operations_Diary::UpdateDelegate()
 {
     CombinedDelegate *delegate = new CombinedDelegate(m_mainWindow);
-    connect(delegate, &CombinedDelegate::TextModificationsMade, m_mainWindow->ui->DiaryTextDisplay, &custom_QListWidget::TextWasEdited);
+    connect(delegate, &CombinedDelegate::TextModificationsMade, m_mainWindow->ui->DiaryTextDisplay, &qlist_DiaryTextDisplay::TextWasEdited);
     delegate->setColorLength(m_mainWindow->user_Displayname.length());  // Color first 5 characters
     delegate->setTextColor(QColor(m_mainWindow->user_nameColor));  // Use red color for the text
     m_mainWindow->ui->DiaryTextDisplay->setItemDelegate(delegate);

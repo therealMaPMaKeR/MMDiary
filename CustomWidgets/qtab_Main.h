@@ -1,5 +1,5 @@
-#ifndef CUSTOM_QTABWIDGET_MAIN_H
-#define CUSTOM_QTABWIDGET_MAIN_H
+#ifndef QTAB_MAIN_H
+#define QTAB_MAIN_H
 
 #include <QWidget>
 #include <QTabWidget>
@@ -9,11 +9,11 @@
 #include <QAction>
 #include <QMap>
 
-class custom_QTabWidget_Main : public QTabWidget
+class qtab_Main : public QTabWidget
 {
     Q_OBJECT
 public:
-    explicit custom_QTabWidget_Main(QWidget *parent = nullptr);
+    explicit qtab_Main(QWidget *parent = nullptr);
 
     // Allow setting whether password validation is required for specific tabs by object name
     void setRequirePasswordForTab(const QString& tabObjectName, bool required);
@@ -69,4 +69,4 @@ private:
     int countVisibleTabs() const;
 };
 
-#endif // CUSTOM_QTABWIDGET_MAIN_H
+#endif // QTAB_MAIN_H

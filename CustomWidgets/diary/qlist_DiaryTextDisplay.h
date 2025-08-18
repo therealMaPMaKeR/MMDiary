@@ -1,5 +1,5 @@
-#ifndef CUSTOM_QLISTWIDGET_H
-#define CUSTOM_QLISTWIDGET_H
+#ifndef QLIST_DIARYTEXTDISPLAY_H
+#define QLIST_DIARYTEXTDISPLAY_H
 
 #include <QListWidget>
 #include <QWheelEvent>
@@ -14,14 +14,14 @@
 #include <QFileInfo>
 #include <QTimer>
 
-class custom_QTextEditWidget;
+class qtextedit_DiaryTextInput;
 
-class custom_QListWidget : public QListWidget
+class qlist_DiaryTextDisplay : public QListWidget
 {
     Q_OBJECT
 public:
-    custom_QListWidget(QWidget *parent = nullptr);
-    ~custom_QListWidget();
+    qlist_DiaryTextDisplay(QWidget *parent = nullptr);
+    ~qlist_DiaryTextDisplay();
 
     // Add a method to get the current font size
     int currentFontSize() const { return m_fontSize; }
@@ -73,4 +73,4 @@ signals:
     void imagesDropped(const QStringList& imagePaths);
 };
 
-#endif // CUSTOM_QLISTWIDGET_H
+#endif // QLIST_DIARYTEXTDISPLAY_H

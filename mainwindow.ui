@@ -43,7 +43,7 @@
    </property>
    <layout class="QVBoxLayout" name="verticalLayout_18">
     <item>
-     <widget class="custom_QTabWidget_Main" name="tabWidget_Main">
+     <widget class="qtab_Main" name="tabWidget_Main">
       <property name="sizePolicy">
        <sizepolicy hsizetype="Minimum" vsizetype="MinimumExpanding">
         <horstretch>0</horstretch>
@@ -125,7 +125,7 @@
         <item>
          <layout class="QVBoxLayout" name="verticalLayout_3">
           <item>
-           <widget class="custom_QListWidget" name="DiaryTextDisplay">
+           <widget class="qlist_DiaryTextDisplay" name="DiaryTextDisplay">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
               <horstretch>0</horstretch>
@@ -201,7 +201,7 @@
            </widget>
           </item>
           <item>
-           <widget class="custom_QTextEditWidget" name="DiaryTextInput">
+           <widget class="qtextedit_DiaryTextInput" name="DiaryTextInput">
             <property name="enabled">
              <bool>true</bool>
             </property>
@@ -274,7 +274,7 @@
             </layout>
            </item>
            <item>
-            <widget class="custom_QListWidget_Task" name="listWidget_TaskList_List">
+            <widget class="qlist_TasklistDisplay" name="listWidget_TaskList_List">
              <property name="dragEnabled">
               <bool>true</bool>
              </property>
@@ -333,7 +333,7 @@
             </widget>
            </item>
            <item>
-            <widget class="custom_QListWidget_Task" name="listWidget_TaskListDisplay">
+            <widget class="qlist_TasklistDisplay" name="listWidget_TaskListDisplay">
              <property name="dragEnabled">
               <bool>true</bool>
              </property>
@@ -1040,7 +1040,7 @@
                </widget>
               </item>
               <item row="2" column="1">
-               <widget class="custom_QCheckboxWidget" name="checkBox_AskPW">
+               <widget class="qcheckbox_PWValidation" name="checkBox_AskPW">
                 <property name="text">
                  <string/>
                 </property>
@@ -1546,7 +1546,7 @@
                 </widget>
                </item>
                <item row="1" column="1">
-                <widget class="custom_QCheckboxWidget" name="checkBox_PWMan_ReqPW">
+                <widget class="qcheckbox_PWValidation" name="checkBox_PWMan_ReqPW">
                  <property name="text">
                   <string/>
                  </property>
@@ -1560,7 +1560,7 @@
                 </widget>
                </item>
                <item row="2" column="1">
-                <widget class="custom_QCheckboxWidget" name="checkBox_PWMan_HidePWS">
+                <widget class="qcheckbox_PWValidation" name="checkBox_PWMan_HidePWS">
                  <property name="text">
                   <string/>
                  </property>
@@ -1668,14 +1668,14 @@
                   </widget>
                  </item>
                  <item row="0" column="1">
-                  <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_HideCategories">
+                  <widget class="qcheckbox_PWValidation" name="checkBox_DataENC_HideCategories">
                    <property name="text">
                     <string/>
                    </property>
                   </widget>
                  </item>
                  <item row="1" column="1">
-                  <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_HideTags">
+                  <widget class="qcheckbox_PWValidation" name="checkBox_DataENC_HideTags">
                    <property name="text">
                     <string/>
                    </property>
@@ -1760,7 +1760,7 @@
                 </widget>
                </item>
                <item row="2" column="1">
-                <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_ReqPW">
+                <widget class="qcheckbox_PWValidation" name="checkBox_DataENC_ReqPW">
                  <property name="text">
                   <string/>
                  </property>
@@ -1774,7 +1774,7 @@
                 </widget>
                </item>
                <item row="0" column="1">
-                <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_HideThumbnails_Image">
+                <widget class="qcheckbox_PWValidation" name="checkBox_DataENC_HideThumbnails_Image">
                  <property name="text">
                   <string/>
                  </property>
@@ -1788,7 +1788,7 @@
                 </widget>
                </item>
                <item row="1" column="1">
-                <widget class="custom_QCheckboxWidget" name="checkBox_DataENC_HideThumbnails_Video">
+                <widget class="qcheckbox_PWValidation" name="checkBox_DataENC_HideThumbnails_Video">
                  <property name="text">
                   <string/>
                  </property>
@@ -2018,29 +2018,29 @@ li.checked::marker { content: &quot;\2612&quot;; }
  </widget>
  <customwidgets>
   <customwidget>
-   <class>custom_QListWidget</class>
-   <extends>QListWidget</extends>
-   <header>CustomWidgets/custom_qlistwidget.h</header>
-  </customwidget>
-  <customwidget>
-   <class>custom_QTextEditWidget</class>
+   <class>qtextedit_DiaryTextInput</class>
    <extends>QTextEdit</extends>
-   <header>CustomWidgets/custom_qtexteditwidget.h</header>
+   <header>CustomWidgets/diary/qtextedit_DiaryTextInput.h</header>
   </customwidget>
   <customwidget>
-   <class>custom_QListWidget_Task</class>
+   <class>qlist_DiaryTextDisplay</class>
    <extends>QListWidget</extends>
-   <header>CustomWidgets/custom_qlistwidget_task.h</header>
+   <header>CustomWidgets/diary/qlist_DiaryTextDisplay.h</header>
   </customwidget>
   <customwidget>
-   <class>custom_QCheckboxWidget</class>
+   <class>qlist_TasklistDisplay</class>
+   <extends>QListWidget</extends>
+   <header>CustomWidgets/tasklists/qlist_TasklistDisplay.h</header>
+  </customwidget>
+  <customwidget>
+   <class>qcheckbox_PWValidation</class>
    <extends>QCheckBox</extends>
-   <header>CustomWidgets/custom_qcheckboxwidget.h</header>
+   <header>CustomWidgets/qcheckbox_PWValidation.h</header>
   </customwidget>
   <customwidget>
-   <class>custom_QTabWidget_Main</class>
+   <class>qtab_Main</class>
    <extends>QTabWidget</extends>
-   <header>CustomWidgets/custom_qtabwidget_main.h</header>
+   <header>CustomWidgets/qtab_Main.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>
