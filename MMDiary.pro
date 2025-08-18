@@ -57,6 +57,8 @@ SOURCES += \
     CustomWidgets/encryptedfileitemwidget.cpp \
     Operations-Features/operations_diary.cpp \
     Operations-Features/operations_encrypteddata.cpp \
+    Operations-Features/encryptionworkers.cpp \
+    Operations-Features/progressdialogs.cpp \
     Operations-Features/operations_passwordmanager.cpp \
     Operations-Features/operations_settings.cpp \
     Operations-Features/operations_tasklists.cpp \
@@ -92,6 +94,8 @@ HEADERS += \
     CustomWidgets/encryptedfileitemwidget.h \
     Operations-Features/operations_diary.h \
     Operations-Features/operations_encrypteddata.h \
+    Operations-Features/encryptionworkers.h \
+    Operations-Features/progressdialogs.h \
     Operations-Features/operations_passwordmanager.h \
     Operations-Features/operations_settings.h \
     Operations-Features/operations_tasklists.h \
