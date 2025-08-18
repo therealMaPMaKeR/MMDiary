@@ -93,12 +93,14 @@ extern const QString PSettingsT_Index_MainTabWidgetIndex_Diary;
 extern const QString PSettingsT_Index_MainTabWidgetIndex_Tasklists;
 extern const QString PSettingsT_Index_MainTabWidgetIndex_PWManager;
 extern const QString PSettingsT_Index_MainTabWidgetIndex_EncryptedData;
+extern const QString PSettingsT_Index_MainTabWidgetIndex_VideoPlayer;
 //Tab Visibility
 extern const QString PSettingsT_Index_TabVisible_Diaries;
 extern const QString PSettingsT_Index_TabVisible_Tasklists;
 extern const QString PSettingsT_Index_TabVisible_Passwords;
 extern const QString PSettingsT_Index_TabVisible_DataEncryption;
 extern const QString PSettingsT_Index_TabVisible_Settings;
+extern const QString PSettingsT_Index_TabVisible_VideoPlayer;
 //Tasklists
 extern const QString PSettingsT_Index_TLists_CurrentList;
 extern const QString PSettingsT_Index_TLists_CurrentTask;

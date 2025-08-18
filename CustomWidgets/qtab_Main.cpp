@@ -28,6 +28,7 @@ void qtab_Main::initializeTabMappings()
     m_tabObjectNameToDisplayName["tab_Passwords"] = "Passwords";
     m_tabObjectNameToDisplayName["tab_DataEncryption"] = "Encrypted Data";
     m_tabObjectNameToDisplayName["tab_Settings"] = "Settings";
+    m_tabObjectNameToDisplayName["tab_VideoPlayer"] = "Video Player";
 }
 
 int qtab_Main::countVisibleTabs() const

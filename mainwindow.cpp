@@ -459,7 +459,8 @@ void MainWindow::LoadPersistentSettings()
         {"tab_Tasklists", Constants::PSettingsT_Index_TabVisible_Tasklists},
         {"tab_Passwords", Constants::PSettingsT_Index_TabVisible_Passwords},
         {"tab_DataEncryption", Constants::PSettingsT_Index_TabVisible_DataEncryption},
-        {"tab_Settings", Constants::PSettingsT_Index_TabVisible_Settings}
+        {"tab_Settings", Constants::PSettingsT_Index_TabVisible_Settings},
+        {"tab_VideoPlayer", Constants::PSettingsT_Index_TabVisible_VideoPlayer}
     };
 
     for (const auto& tabInfo : tabVisibilityList) {
@@ -505,6 +506,9 @@ void MainWindow::LoadPersistentSettings()
     tabOrder.append({"tab_DataEncryption",
                      m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainTabWidgetIndex_EncryptedData),
                      Operations::GetTabIndexByObjectName("tab_DataEncryption", ui->tabWidget_Main), false});
+    tabOrder.append({"tab_VideoPlayer",
+                     m_persistentSettingsManager->GetPersistentSettingsData_Int(Constants::PSettingsT_Index_MainTabWidgetIndex_VideoPlayer),
+                     Operations::GetTabIndexByObjectName("tab_VideoPlayer", ui->tabWidget_Main), false});
 
     // Validate saved positions and mark valid entries
     int totalTabs = ui->tabWidget_Main->count();
@@ -695,7 +699,8 @@ void MainWindow::SavePersistentSettings()
         {"tab_Tasklists", Constants::PSettingsT_Index_TabVisible_Tasklists},
         {"tab_Passwords", Constants::PSettingsT_Index_TabVisible_Passwords},
         {"tab_DataEncryption", Constants::PSettingsT_Index_TabVisible_DataEncryption},
-        {"tab_Settings", Constants::PSettingsT_Index_TabVisible_Settings}
+        {"tab_Settings", Constants::PSettingsT_Index_TabVisible_Settings},
+        {"tab_VideoPlayer", Constants::PSettingsT_Index_TabVisible_VideoPlayer}
     };
 
     for (const auto& tabInfo : tabVisibilityList) {
@@ -719,6 +724,8 @@ void MainWindow::SavePersistentSettings()
                                                                   Operations::GetTabIndexByObjectName("tab_Passwords", ui->tabWidget_Main));
     m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainTabWidgetIndex_EncryptedData,
                                                                   Operations::GetTabIndexByObjectName("tab_DataEncryption", ui->tabWidget_Main));
+    m_persistentSettingsManager->UpdatePersistentSettingsData_INT(Constants::PSettingsT_Index_MainTabWidgetIndex_VideoPlayer,
+                                                                  Operations::GetTabIndexByObjectName("tab_VideoPlayer", ui->tabWidget_Main));
 
     // Save tasklist-specific settings
     QString currentList = "";
