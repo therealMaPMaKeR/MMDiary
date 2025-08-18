@@ -10,6 +10,9 @@
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QStyle>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QMargins>
 #include <memory>
 
 class VideoPlayer : public QWidget
@@ -27,6 +30,9 @@ public:
     void stop();
     void setVolume(int volume);
     void setPosition(qint64 position);
+    void toggleFullScreen();
+    void exitFullScreen();
+    void startInFullScreen();
     
     // State query functions
     bool isPlaying() const;
@@ -42,15 +48,24 @@ signals:
     void positionChanged(qint64 position);
     void durationChanged(qint64 duration);
     void volumeChanged(int volume);
+    void fullScreenChanged(bool isFullScreen);
 
 private slots:
     void on_playButton_clicked();
     void on_positionSlider_sliderMoved(int position);
+    void on_positionSlider_sliderPressed();
+    void on_positionSlider_sliderReleased();
     void on_volumeSlider_sliderMoved(int position);
+    void on_fullScreenButton_clicked();
     void updatePosition(qint64 position);
     void updateDuration(qint64 duration);
     void handleError(QMediaPlayer::Error error, const QString &errorString);
     void handlePlaybackStateChanged(QMediaPlayer::PlaybackState state);
+    
+protected:
+    void closeEvent(QCloseEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void setupUI();
@@ -66,11 +81,13 @@ private:
     // Control widgets
     QPushButton* m_playButton;
     QPushButton* m_stopButton;
+    QPushButton* m_fullScreenButton;
     QSlider* m_positionSlider;
     QSlider* m_volumeSlider;
     QLabel* m_positionLabel;
     QLabel* m_durationLabel;
     QLabel* m_volumeLabel;
+    QWidget* m_controlsWidget;
     
     // Layout containers
     QVBoxLayout* m_mainLayout;
@@ -80,6 +97,13 @@ private:
     // State tracking
     QString m_currentVideoPath;
     bool m_isSliderBeingMoved;
+    bool m_isFullScreen;
+    QRect m_normalGeometry;
+    QMargins m_normalMargins;
+    
+    // Custom position slider for clickable seeking
+    class ClickableSlider;
+    ClickableSlider* createClickableSlider();
 };
 
 #endif // VIDEOPLAYER_H

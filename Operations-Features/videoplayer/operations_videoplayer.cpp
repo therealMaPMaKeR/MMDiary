@@ -4,6 +4,7 @@
 #include "regularplayer/videoplayer.h"
 #include <QDebug>
 #include <QFileInfo>
+#include <QTimer>
 
 Operations_Videoplayer::Operations_Videoplayer(MainWindow* mainWindow)
     : QObject(mainWindow)
@@ -112,9 +113,21 @@ void Operations_Videoplayer::testVideoPlayer()
         // Load and play the video
         qDebug() << "Operations_Videoplayer: Loading video:" << videoPath;
         if (m_testVideoPlayer->loadVideo(videoPath)) {
+            // Show the window first
             m_testVideoPlayer->show();
-            m_testVideoPlayer->play();
-            qDebug() << "Operations_Videoplayer: Video loaded and playing";
+            
+            // Raise and activate to ensure it's on top
+            m_testVideoPlayer->raise();
+            m_testVideoPlayer->activateWindow();
+            
+            // Start in fullscreen mode
+            m_testVideoPlayer->startInFullScreen();
+            
+            // Add a small delay to ensure video widget is properly initialized
+            QTimer::singleShot(100, [this]() {
+                m_testVideoPlayer->play();
+                qDebug() << "Operations_Videoplayer: Video loaded and playing in fullscreen";
+            });
         } else {
             qDebug() << "Operations_Videoplayer: Failed to load video";
             QMessageBox::warning(m_mainWindow,
