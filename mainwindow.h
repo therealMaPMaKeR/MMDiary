@@ -20,6 +20,7 @@
 #include <QString>
 #include <QChar>
 #include <QSystemTrayIcon>
+#include <QScreen>
 #include "CustomWidgets/custom_qcheckboxwidget.h"
 #include "Operations-Global/sqlite-database-handler.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
 #include "Operations-Global/sqlite-database-auth.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
@@ -71,9 +72,17 @@ public:
 public slots:
     void ReceiveDataLogin_Slot(QString username, QByteArray key);
     void showAndActivate();
+    void handleScreenChange();
+    void forceWindowRefresh();
 protected:
     void resizeEvent(QResizeEvent *event) override;
 private slots:
+    // Screen change handling slots
+    void onScreenAdded(QScreen *screen);
+    void onScreenRemoved(QScreen *screen);
+    void onPrimaryScreenChanged(QScreen *screen);
+    void onScreenGeometryChanged(const QRect &geometry);
+    void onApplicationStateChanged(Qt::ApplicationState state);
 
     void FinishInitialization(); // This function also sets the diaries directory since it is based off of the username, it also executes the diaryloader function.
 
@@ -281,6 +290,8 @@ private:
     void UpdateTasklistTextSize();
     QSystemTrayIcon *trayIcon;
     QMenu *trayMenu;
+    QTimer *screenCheckTimer;
+    QScreen *lastKnownScreen;
     void LoadPersistentSettings();
     void SavePersistentSettings();
 };

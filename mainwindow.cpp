@@ -20,6 +20,8 @@
 #include "ui_about_MMDiary.h"
 #include "ui_changelog.h"
 #include "Operations-Global/noncechecker.h"
+#include <QApplication>
+#include <QWindow>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -138,9 +140,38 @@ MainWindow::MainWindow(QWidget *parent)
     //Setting-Always open on settings tab signal connection
     connect(ui->checkBox_OpenOnSettings, &QCheckBox::stateChanged,
             this, &MainWindow::on_checkBox_OpenOnSettings_stateChanged);
+
+    // Screen change detection setup
+    screenCheckTimer = new QTimer(this);
+    lastKnownScreen = nullptr;
+    
+    // Connect screen change signals
+    connect(qApp, &QApplication::screenAdded, this, &MainWindow::onScreenAdded);
+    connect(qApp, &QApplication::screenRemoved, this, &MainWindow::onScreenRemoved);
+    connect(qApp, &QApplication::primaryScreenChanged, this, &MainWindow::onPrimaryScreenChanged);
+    connect(qApp, &QApplication::applicationStateChanged, this, &MainWindow::onApplicationStateChanged);
+    
+    // Setup a timer to periodically check screen status (as backup)
+    connect(screenCheckTimer, &QTimer::timeout, this, [this]() {
+        if (isVisible()) {
+            QScreen *currentScreen = this->screen();
+            if (currentScreen && currentScreen != lastKnownScreen) {
+                qDebug() << "MainWindow: Screen changed detected by timer check";
+                lastKnownScreen = currentScreen;
+                handleScreenChange();
+            }
+        }
+    });
+    screenCheckTimer->start(1000); // Check every second
+    
+    qDebug() << "MainWindow: Screen change detection initialized";
 }
 MainWindow::~MainWindow()
 {
+    if (screenCheckTimer) {
+        screenCheckTimer->stop();
+        delete screenCheckTimer;
+    }
     trayIcon->destroyed();
     delete ui;
 }
@@ -343,6 +374,9 @@ void MainWindow::showAndActivate() {
     show();
     raise();        // Raise the window above others
     activateWindow(); // Activate it to ensure focus
+    
+    // Force refresh after showing in case of screen issues
+    QTimer::singleShot(100, this, &MainWindow::forceWindowRefresh);
 }
 
 bool MainWindow::isCurrentTabPasswordProtected() const
@@ -1414,6 +1448,144 @@ void MainWindow::on_pushButton_ChangeLog_clicked()
 
     // Show the dialog and wait for it to close
     dialog.exec();
+}
+
+//---------- Screen Change Handling ----------//
+
+void MainWindow::onScreenAdded(QScreen *screen)
+{
+    qDebug() << "MainWindow: Screen added:" << (screen ? screen->name() : "unknown");
+    handleScreenChange();
+}
+
+void MainWindow::onScreenRemoved(QScreen *screen)
+{
+    qDebug() << "MainWindow: Screen removed:" << (screen ? screen->name() : "unknown");
+    
+    // If our window was on the removed screen, it should have been moved
+    // Force a refresh after a short delay to ensure Windows has finished moving it
+    QTimer::singleShot(500, this, [this]() {
+        if (isVisible()) {
+            qDebug() << "MainWindow: Refreshing window after screen removal";
+            handleScreenChange();
+        }
+    });
+}
+
+void MainWindow::onPrimaryScreenChanged(QScreen *screen)
+{
+    qDebug() << "MainWindow: Primary screen changed to:" << (screen ? screen->name() : "unknown");
+    handleScreenChange();
+}
+
+void MainWindow::onScreenGeometryChanged(const QRect &geometry)
+{
+    qDebug() << "MainWindow: Screen geometry changed to:" << geometry;
+    handleScreenChange();
+}
+
+void MainWindow::onApplicationStateChanged(Qt::ApplicationState state)
+{
+    qDebug() << "MainWindow: Application state changed to:" << state;
+    
+    // When application becomes active again, check for screen changes
+    if (state == Qt::ApplicationActive) {
+        qDebug() << "MainWindow: Application became active, checking for screen changes";
+        QTimer::singleShot(100, this, &MainWindow::handleScreenChange);
+    }
+}
+
+void MainWindow::handleScreenChange()
+{
+    if (!isVisible()) {
+        return;
+    }
+    
+    qDebug() << "MainWindow: Handling screen change";
+    
+    // Get current screen
+    QScreen *currentScreen = this->screen();
+    if (currentScreen) {
+        qDebug() << "MainWindow: Current screen:" << currentScreen->name() 
+                 << "Geometry:" << currentScreen->geometry()
+                 << "Available:" << currentScreen->availableGeometry();
+        
+        // Connect to this screen's geometry change signal
+        disconnect(currentScreen, nullptr, this, nullptr); // Disconnect any previous connections
+        connect(currentScreen, &QScreen::geometryChanged, this, &MainWindow::onScreenGeometryChanged);
+        
+        lastKnownScreen = currentScreen;
+    }
+    
+    // Force window refresh
+    forceWindowRefresh();
+}
+
+void MainWindow::forceWindowRefresh()
+{
+    if (!isVisible()) {
+        return;
+    }
+    
+    qDebug() << "MainWindow: Forcing window refresh";
+    
+    // Get current window state
+    Qt::WindowStates currentStates = windowState();
+    bool wasMaximized = currentStates & Qt::WindowMaximized;
+    bool wasMinimized = currentStates & Qt::WindowMinimized;
+    bool wasFullScreen = currentStates & Qt::WindowFullScreen;
+    
+    qDebug() << "MainWindow: Current window states - Maximized:" << wasMaximized 
+             << "Minimized:" << wasMinimized << "FullScreen:" << wasFullScreen;
+    
+    // Force the window to refresh by manipulating its state
+    if (!wasMinimized) {
+        // Store current geometry
+        QRect currentGeometry = geometry();
+        
+        // Ensure the window is in normal state first
+        setWindowState(Qt::WindowNoState);
+        
+        // Force a repaint
+        hide();
+        show();
+        
+        // Restore previous state
+        if (wasMaximized) {
+            showMaximized();
+        } else if (wasFullScreen) {
+            showFullScreen();
+        } else {
+            // Restore geometry
+            setGeometry(currentGeometry);
+        }
+        
+        // Force widget updates
+        update();
+        repaint();
+        
+        // Update all child widgets
+        QList<QWidget*> widgets = findChildren<QWidget*>();
+        for (QWidget* widget : widgets) {
+            if (widget) {
+                widget->update();
+            }
+        }
+        
+        // Force Qt to process events
+        QApplication::processEvents();
+        
+        // Ensure window is active and raised
+        raise();
+        activateWindow();
+        
+        qDebug() << "MainWindow: Window refresh completed";
+    }
+    
+    // Also force the underlying window handle to update if available
+    if (windowHandle()) {
+        windowHandle()->requestUpdate();
+    }
 }
 
 
