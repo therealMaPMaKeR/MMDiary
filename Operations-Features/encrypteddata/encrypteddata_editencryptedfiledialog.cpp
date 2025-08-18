@@ -1,6 +1,6 @@
-#include "editencryptedfiledialog.h"
+#include "encrypteddata_editencryptedfiledialog.h"
 #include "qpushbutton.h"
-#include "ui_editencryptedfiledialog.h"
+#include "ui_encrypteddata_editencryptedfiledialog.h"
 #include "inputvalidation.h"
 #include <QMessageBox>
 #include <QFileInfo>

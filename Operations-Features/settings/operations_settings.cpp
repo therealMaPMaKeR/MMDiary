@@ -7,7 +7,7 @@
 #include <QMenu>
 #include <QClipboard>
 #include <QGuiApplication>
-#include "default_usersettings.h"
+#include "settings_default_usersettings.h"
 #include "databases/sqlite-database-settings.h"
 #include <QDialog>
 #include <QInputDialog>

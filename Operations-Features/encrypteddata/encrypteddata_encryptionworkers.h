@@ -8,7 +8,7 @@
 #include <QByteArray>
 #include <QPixmap>
 #include <QMap>
-#include "encryptedfilemetadata.h"
+#include "encrypteddata_encryptedfilemetadata.h"
 
 // Forward declarations
 class EncryptedFileMetadata;

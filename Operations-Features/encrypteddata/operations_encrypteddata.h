@@ -15,8 +15,8 @@
 #include "operations.h"
 #include "inputvalidation.h"
 #include "../../CustomWidgets/encryptedfileitemwidget.h"
-#include "fileiconprovider.h"
-#include "encryptedfilemetadata.h"
+#include "encrypteddata_fileiconprovider.h"
+#include "encrypteddata_encryptedfilemetadata.h"
 #include <QScrollBar>
 #include <QEvent>
 #include <QKeyEvent>

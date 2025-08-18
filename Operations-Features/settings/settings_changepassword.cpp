@@ -1,6 +1,6 @@
-#include "changepassword.h"
+#include "settings_changepassword.h"
 #include "qvalidator.h"
-#include "ui_changepassword.h"
+#include "ui_settings_changepassword.h"
 #include "CryptoUtils.h"
 #include "inputvalidation.h"
 #include "sqlite-database-auth.h"

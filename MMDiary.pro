@@ -76,9 +76,11 @@ SOURCES += \
     Operations-Features/passwordmanager/operations_passwordmanager.cpp \
     Operations-Features/settings/operations_settings.cpp \
     Operations-Features/tasklists/operations_tasklists.cpp \
-    Operations-Global/default_usersettings.cpp \
-    Operations-Global/encryptedfilemetadata.cpp \
-    Operations-Global/fileiconprovider.cpp \
+    Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.cpp \
+    Operations-Features/encrypteddata/encrypteddata_fileiconprovider.cpp \
+    Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.cpp \
+    Operations-Features/settings/settings_default_usersettings.cpp \
+    Operations-Features/settings/settings_changepassword.cpp \
     Operations-Global/imageviewer.cpp \
     Operations-Global/inputvalidation.cpp \
     Operations-Global/operations.cpp \
@@ -91,9 +93,7 @@ SOURCES += \
     Operations-Global/encryption/CryptoUtils.cpp \
     Operations-Global/encryption/noncechecker.cpp \
     Operations-Global/encryption/QT_AESGCM256/aesgcm256.cpp \
-    changepassword.cpp \
     constants.cpp \
-    editencryptedfiledialog.cpp \
     loginscreen.cpp \
     main.cpp \
     mainwindow.cpp
@@ -113,9 +113,11 @@ HEADERS += \
     Operations-Features/passwordmanager/operations_passwordmanager.h \
     Operations-Features/settings/operations_settings.h \
     Operations-Features/tasklists/operations_tasklists.h \
-    Operations-Global/default_usersettings.h \
-    Operations-Global/encryptedfilemetadata.h \
-    Operations-Global/fileiconprovider.h \
+    Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.h \
+    Operations-Features/encrypteddata/encrypteddata_fileiconprovider.h \
+    Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.h \
+    Operations-Features/settings/settings_default_usersettings.h \
+    Operations-Features/settings/settings_changepassword.h \
     Operations-Global/imageviewer.h \
     Operations-Global/inputvalidation.h \
     Operations-Global/operations.h \
@@ -128,9 +130,7 @@ HEADERS += \
     Operations-Global/encryption/CryptoUtils.h \
     Operations-Global/encryption/noncechecker.h \
     Operations-Global/encryption/QT_AESGCM256/aesgcm256.h \
-    changepassword.h \
     constants.h \
-    editencryptedfiledialog.h \
     loginscreen.h \
     mainwindow.h
 
@@ -142,8 +142,8 @@ FORMS += \
     Operations-Global/passwordvalidation.ui \
     about_MMDiary.ui \
     changelog.ui \
-    changepassword.ui \
-    editencryptedfiledialog.ui \
+    Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.ui \
+    Operations-Features/settings/settings_changepassword.ui \
     loginscreen.ui \
     mainwindow.ui
 

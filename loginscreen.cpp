@@ -6,7 +6,7 @@
 #include "operations_files.h"
 #include "sqlite-database-auth.h"
 #include "constants.h"
-#include "default_usersettings.h"
+#include "settings_default_usersettings.h"
 
 loginscreen::loginscreen(QWidget *parent)
     : QDialog(parent)

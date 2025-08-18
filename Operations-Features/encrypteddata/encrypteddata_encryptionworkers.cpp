@@ -1,8 +1,8 @@
 #include "encrypteddata_encryptionworkers.h"
-#include "encryption/CryptoUtils.h"
+#include "CryptoUtils.h"
 #include "operations_files.h"
-#include "../../constants.h"
-#include "fileiconprovider.h"
+#include "constants.h"
+#include "encrypteddata_fileiconprovider.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QRandomGenerator>

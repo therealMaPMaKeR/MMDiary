@@ -1,11 +1,11 @@
 #include "operations_encrypteddata.h"
-#include "encryption/CryptoUtils.h"
+#include "CryptoUtils.h"
 #include "operations_files.h"
-#include "../../constants.h"
-#include "../../CustomWidgets/encryptedfileitemwidget.h"
-#include "fileiconprovider.h"
+#include "constants.h"
+#include "encryptedfileitemwidget.h"
+#include "encrypteddata_fileiconprovider.h"
 #include "imageviewer.h"
-#include "../../editencryptedfiledialog.h"
+#include "encrypteddata_editencryptedfiledialog.h"
 #include "ui_mainwindow.h"
 #include <QDir>
 #include <QFileInfo>

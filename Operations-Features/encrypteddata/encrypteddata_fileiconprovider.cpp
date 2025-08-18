@@ -1,4 +1,4 @@
-#include "fileiconprovider.h"
+#include "encrypteddata_fileiconprovider.h"
 #include "qdir.h"
 #include <QApplication>
 #include <QStyle>

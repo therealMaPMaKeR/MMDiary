@@ -1,4 +1,4 @@
-#include "encryptedfilemetadata.h"
+#include "encrypteddata_encryptedfilemetadata.h"
 #include "inputvalidation.h"
 #include "encryption/CryptoUtils.h"
 #include "constants.h"
