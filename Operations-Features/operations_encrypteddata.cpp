@@ -831,7 +831,6 @@ void Operations_EncryptedData::onDecryptionCancelled()
 // ============================================================================
 // Double-click to Open Functionality
 // ============================================================================
-
 void Operations_EncryptedData::onFileListDoubleClicked(QListWidgetItem* item)
 {
     if (!item) {
@@ -972,7 +971,6 @@ void Operations_EncryptedData::onFileListDoubleClicked(QListWidgetItem* item)
 // ============================================================================
 // Temp Decryption Slots
 // ============================================================================
-
 void Operations_EncryptedData::onTempDecryptionProgress(int percentage)
 {
     if (m_progressDialog) {
@@ -1083,7 +1081,6 @@ void Operations_EncryptedData::onTempDecryptionCancelled()
 // ============================================================================
 // File Opening Helper Functions
 // ============================================================================
-
 QString Operations_EncryptedData::checkDefaultApp(const QString& extension)
 {
 #ifdef Q_OS_WIN
@@ -1477,7 +1474,6 @@ QString Operations_EncryptedData::getTempDecryptDir()
 // ============================================================================
 // Temp File Monitoring and Cleanup
 // ============================================================================
-
 void Operations_EncryptedData::startTempFileMonitoring()
 {
     if (!m_tempFileCleanupTimer) {
@@ -1570,7 +1566,6 @@ bool Operations_EncryptedData::isFileInUse(const QString& filePath)
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
 QString Operations_EncryptedData::determineFileType(const QString& filePath)
 {
     QFileInfo fileInfo(filePath);
@@ -1703,7 +1698,6 @@ QString Operations_EncryptedData::createTargetPath(const QString& sourceFile, co
 // ============================================================================
 // Success and Result Dialogs
 // ============================================================================
-
 void Operations_EncryptedData::showSuccessDialog(const QString& encryptedFile, const QString& originalFile)
 {
     QMessageBox msgBox(m_mainWindow);
@@ -1856,7 +1850,6 @@ void Operations_EncryptedData::showMultiFileSuccessDialog(const QStringList& ori
 // ============================================================================
 // File List Population and Display
 // ============================================================================
-
 void Operations_EncryptedData::populateEncryptedFilesList()
 {
     qDebug() << "Starting populateEncryptedFilesList with embedded thumbnails and case-insensitive categories/tags";
@@ -2069,8 +2062,8 @@ void Operations_EncryptedData::updateFileListDisplay()
 
         const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
 
-        // Check if filename matches search criteria
-        if (matchesSearchCriteria(metadata.filename, m_currentSearchText)) {
+        // Check if filename OR tags match search criteria
+        if (matchesSearchCriteriaWithTags(metadata, m_currentSearchText)) {
             finalFilteredFiles.append(filePath);
         }
     }
@@ -2355,7 +2348,6 @@ void Operations_EncryptedData::removeFileFromCacheAndRefresh(const QString& encr
 // ============================================================================
 // Delete Operations
 // ============================================================================
-
 void Operations_EncryptedData::deleteSelectedFile()
 {
     // Get the currently selected item
@@ -2528,9 +2520,6 @@ void Operations_EncryptedData::secureDeleteExternalItems()
     m_secureDeletionWorkerThread->start();
     m_secureDeletionProgressDialog->exec();
 }
-
-
-// Delete helper functions
 
 DeletionType Operations_EncryptedData::showDeletionTypeDialog()
 {
@@ -2734,8 +2723,6 @@ void Operations_EncryptedData::showDeletionResultsDialog(const DeletionResult& r
 // ============================================================================
 // Secure Deletion Slots
 // ============================================================================
-
-
 void Operations_EncryptedData::onSecureDeletionProgress(int percentage)
 {
     if (m_secureDeletionProgressDialog) {
@@ -2793,8 +2780,6 @@ void Operations_EncryptedData::onSecureDeletionCancelled()
 // ============================================================================
 // Batch Decryption Operations
 // ============================================================================
-
-
 void Operations_EncryptedData::decryptAndExportVisibleFiles()
 {
     qDebug() << "Starting batch decrypt and export operation for visible files";
@@ -3060,7 +3045,6 @@ QList<FileExportInfo> Operations_EncryptedData::enumerateAllEncryptedFiles()
 // ============================================================================
 // Batch Decryption Slots
 // ============================================================================
-
 void Operations_EncryptedData::onBatchDecryptionOverallProgress(int percentage)
 {
     if (m_batchProgressDialog) {
@@ -3145,8 +3129,6 @@ void Operations_EncryptedData::onBatchDecryptionCancelled()
 // ============================================================================
 // Context Menu Handling
 // ============================================================================
-
-
 void Operations_EncryptedData::showContextMenu_FileList(const QPoint& pos)
 {
     // Get the item at the clicked position
@@ -3514,7 +3496,6 @@ void Operations_EncryptedData::onContextMenuDebugCorruptMetadata()
 // ============================================================================
 // Category and Tag Filtering
 // ============================================================================
-
 void Operations_EncryptedData::onSortTypeChanged(const QString& sortType)
 {
     Q_UNUSED(sortType)
@@ -3746,7 +3727,6 @@ void Operations_EncryptedData::populateTagsList()
 // ============================================================================
 // Filter Helper Functions
 // ============================================================================
-
 QStringList Operations_EncryptedData::parseHiddenItems(const QString& hiddenString)
 {
     if (hiddenString.isEmpty()) {
@@ -3908,53 +3888,87 @@ void Operations_EncryptedData::analyzeCaseInsensitiveDisplayNames()
 // ============================================================================
 // Search Functionality
 // ============================================================================
+// ============================================================================
+// Search Functionality Implementation
+// ============================================================================
 
+// Search text changed slot - triggers debounced search
 void Operations_EncryptedData::onSearchTextChanged()
 {
+    qDebug() << "Operations_EncryptedData: Search text changed";
+
     // Get the current search text
-    QString newSearchText = m_mainWindow->ui->lineEdit_DataENC_SearchBar->text();
+    m_currentSearchText = m_mainWindow->ui->lineEdit_DataENC_SearchBar->text().trimmed();
 
-    // Only update if text actually changed
-    if (newSearchText != m_currentSearchText) {
-        m_currentSearchText = newSearchText;
-        qDebug() << "Search text changed to:" << m_currentSearchText;
+    qDebug() << "Operations_EncryptedData: New search text:" << m_currentSearchText;
 
-        // Stop any existing timer and restart it
-        // This batches rapid text changes together (debouncing)
-        m_searchDebounceTimer->stop();
-        m_searchDebounceTimer->start();
-    }
+    // Reset and start the debounce timer
+    m_searchDebounceTimer->stop();
+    m_searchDebounceTimer->start();
 }
 
+// Clear search functionality
+void Operations_EncryptedData::clearSearch()
+{
+    qDebug() << "Operations_EncryptedData: Clearing search";
+
+    // Clear the search bar text
+    m_mainWindow->ui->lineEdit_DataENC_SearchBar->clear();
+
+    // Clear the stored search text
+    m_currentSearchText.clear();
+
+    // Stop any pending search timer
+    m_searchDebounceTimer->stop();
+
+    // Update the display immediately
+    updateFileListDisplay();
+}
+
+// Check if a file matches the search criteria (filename only - legacy function)
 bool Operations_EncryptedData::matchesSearchCriteria(const QString& filename, const QString& searchText)
 {
-    // If search text is empty, match everything
+    // If search text is empty, all files match
     if (searchText.isEmpty()) {
         return true;
     }
 
-    // Case-insensitive search in filename
+    // Check if the filename contains the search text (case-insensitive)
     return filename.contains(searchText, Qt::CaseInsensitive);
 }
 
-void Operations_EncryptedData::clearSearch()
+// Check if a file matches the search criteria (includes both filename and tags)
+bool Operations_EncryptedData::matchesSearchCriteriaWithTags(
+    const EncryptedFileMetadata::FileMetadata& metadata,
+    const QString& searchText)
 {
-    qDebug() << "Clearing search text";
+    // If search text is empty, all files match
+    if (searchText.isEmpty()) {
+        return true;
+    }
 
-    // Clear the search text in the UI
-    m_mainWindow->ui->lineEdit_DataENC_SearchBar->clear();
+    // Check if the filename contains the search text (case-insensitive)
+    if (metadata.filename.contains(searchText, Qt::CaseInsensitive)) {
+        qDebug() << "Operations_EncryptedData: File matches search (filename):" << metadata.filename;
+        return true;
+    }
 
-    // Clear internal search text (this will trigger onSearchTextChanged)
-    m_currentSearchText = "";
+    // Check if any tag contains the search text (case-insensitive)
+    for (const QString& tag : metadata.tags) {
+        if (tag.contains(searchText, Qt::CaseInsensitive)) {
+            qDebug() << "Operations_EncryptedData: File matches search (tag):" << metadata.filename
+                     << "matching tag:" << tag;
+            return true;
+        }
+    }
 
-    // Update display immediately
-    updateFileListDisplay();
+    // No match found in filename or tags
+    return false;
 }
 
 // ============================================================================
 // Mapping and Conversion Functions
 // ============================================================================
-
 QString Operations_EncryptedData::mapSortTypeToDirectory(const QString& sortType)
 {
     if (sortType == "Text") {
@@ -4015,7 +4029,6 @@ QString Operations_EncryptedData::formatFileSize(qint64 bytes)
 // ============================================================================
 // Unique File Path Generation
 // ============================================================================
-
 QString Operations_EncryptedData::generateUniqueFilePath(const QString& targetDirectory, const QString& originalFilename)
 {
     // Ensure target directory exists
@@ -4117,7 +4130,6 @@ QString Operations_EncryptedData::generateUniqueFilenameInDirectory(const QStrin
 // ============================================================================
 // Icon and Thumbnail Management
 // ============================================================================
-
 QPixmap Operations_EncryptedData::getIconForFileType(const QString& originalFilename, const QString& fileType)
 {
     QPixmap icon;
@@ -4151,7 +4163,6 @@ void Operations_EncryptedData::clearThumbnailCache()
 // ============================================================================
 // Image Viewer Functions
 // ============================================================================
-
 bool Operations_EncryptedData::isImageFile(const QString& filename) const
 {
     QFileInfo fileInfo(filename);
@@ -4231,8 +4242,6 @@ void Operations_EncryptedData::openWithImageViewer(const QString& encryptedFileP
 // ============================================================================
 // Metadata Repair Functions
 // ============================================================================
-
-
 void Operations_EncryptedData::repairCorruptedMetadata()
 {
     qDebug() << "Starting metadata corruption scan...";
@@ -4578,7 +4587,6 @@ bool Operations_EncryptedData::debugCorruptFileMetadata(const QString& encrypted
 // ============================================================================
 // Event Filter
 // ============================================================================
-
 bool Operations_EncryptedData::eventFilter(QObject* watched, QEvent* event)
 {
     // Check if this is a key press event on the file list
@@ -4613,8 +4621,6 @@ bool Operations_EncryptedData::eventFilter(QObject* watched, QEvent* event)
 // ============================================================================
 // Settings Bridge
 // ============================================================================
-
-
 void Operations_EncryptedData::refreshDisplayForSettingsChange()
 {
     qDebug() << "Refreshing encrypted data display for settings change (case-insensitive)";

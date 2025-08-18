@@ -263,6 +263,8 @@ private:
 
     // Helper functions - Search
     bool matchesSearchCriteria(const QString& filename, const QString& searchText);
+    bool matchesSearchCriteriaWithTags(const EncryptedFileMetadata::FileMetadata& metadata, 
+                                       const QString& searchText);
 
 #ifdef QT_DEBUG
     bool debugCorruptFileMetadata(const QString& encryptedFilePath);
