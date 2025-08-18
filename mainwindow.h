@@ -38,6 +38,7 @@ class Operations_PasswordManager;
 class Operations_TaskLists;
 class Operations_EncryptedData;
 class Operations_Settings;
+class Operations_Videoplayer;
 
 // Header's Class
 QT_BEGIN_NAMESPACE
@@ -53,6 +54,7 @@ public:
     friend class Operations_TaskLists;
     friend class Operations_EncryptedData;
     friend class Operations_Settings;
+    friend class Operations_Videoplayer;
 
     // Saved Settings
     QString user_Username;
@@ -176,6 +178,7 @@ private:
     Operations_TaskLists* Operations_TaskLists_ptr;
     Operations_Settings* Operations_Settings_ptr;
     Operations_EncryptedData* Operations_EncryptedData_ptr;
+    Operations_Videoplayer* Operations_Videoplayer_ptr;
 
     DatabasePersistentSettingsManager* m_persistentSettingsManager;
 
@@ -185,7 +188,9 @@ private:
 signals:
     void passUsername_Signal(QString username);
 private slots:
-
+    // Debug button for testing video player
+    void on_pushButton_Debug_clicked();
+    
     void on_pushButton_DataENC_Encrypt_clicked();
     
     void on_pushButton_NonceCheck_clicked();

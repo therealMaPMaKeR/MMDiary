@@ -2008,7 +2008,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
         <item>
          <widget class="QTabWidget" name="tabWidget_VideoPlayer">
           <property name="currentIndex">
-           <number>0</number>
+           <number>3</number>
           </property>
           <widget class="QWidget" name="tab_Shows">
            <attribute name="title">
@@ -2260,6 +2260,19 @@ li.checked::marker { content: &quot;\2612&quot;; }
            <attribute name="title">
             <string>Debug</string>
            </attribute>
+           <widget class="QPushButton" name="pushButton_Debug">
+            <property name="geometry">
+             <rect>
+              <x>100</x>
+              <y>560</y>
+              <width>80</width>
+              <height>24</height>
+             </rect>
+            </property>
+            <property name="text">
+             <string>PushButton</string>
+            </property>
+           </widget>
           </widget>
          </widget>
         </item>

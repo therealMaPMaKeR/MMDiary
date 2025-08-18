@@ -1,6 +1,7 @@
 QT       += core gui
 QT += core sql
 QT += network
+QT += multimedia multimediawidgets
 
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
@@ -19,6 +20,8 @@ INCLUDEPATH += $$PWD \
                $$PWD/Operations-Features/passwordmanager \
                $$PWD/Operations-Features/settings \
                $$PWD/Operations-Features/tasklists \
+               $$PWD/Operations-Features/videoplayer \
+               $$PWD/Operations-Features/videoplayer/regularplayer \
                $$PWD/Operations-Global \
                $$PWD/Operations-Global/databases \
                $$PWD/Operations-Global/encryption \
@@ -79,6 +82,8 @@ SOURCES += \
     Operations-Features/passwordmanager/operations_passwordmanager.cpp \
     Operations-Features/settings/operations_settings.cpp \
     Operations-Features/tasklists/operations_tasklists.cpp \
+    Operations-Features/videoplayer/operations_videoplayer.cpp \
+    Operations-Features/videoplayer/regularplayer/videoplayer.cpp \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.cpp \
     Operations-Features/encrypteddata/encrypteddata_fileiconprovider.cpp \
     Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.cpp \
@@ -116,6 +121,8 @@ HEADERS += \
     Operations-Features/passwordmanager/operations_passwordmanager.h \
     Operations-Features/settings/operations_settings.h \
     Operations-Features/tasklists/operations_tasklists.h \
+    Operations-Features/videoplayer/operations_videoplayer.h \
+    Operations-Features/videoplayer/regularplayer/videoplayer.h \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.h \
     Operations-Features/encrypteddata/encrypteddata_fileiconprovider.h \
     Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.h \
