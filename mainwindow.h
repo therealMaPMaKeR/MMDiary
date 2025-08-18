@@ -38,7 +38,7 @@ class Operations_PasswordManager;
 class Operations_TaskLists;
 class Operations_EncryptedData;
 class Operations_Settings;
-class Operations_Videoplayer;
+class Operations_VP_Shows;
 
 // Header's Class
 QT_BEGIN_NAMESPACE
@@ -54,7 +54,7 @@ public:
     friend class Operations_TaskLists;
     friend class Operations_EncryptedData;
     friend class Operations_Settings;
-    friend class Operations_Videoplayer;
+    friend class Operations_VP_Shows;
 
     // Saved Settings
     QString user_Username;
@@ -178,7 +178,7 @@ private:
     Operations_TaskLists* Operations_TaskLists_ptr;
     Operations_Settings* Operations_Settings_ptr;
     Operations_EncryptedData* Operations_EncryptedData_ptr;
-    Operations_Videoplayer* Operations_Videoplayer_ptr;
+    Operations_VP_Shows* Operations_VP_Shows_ptr;
 
     DatabasePersistentSettingsManager* m_persistentSettingsManager;
 

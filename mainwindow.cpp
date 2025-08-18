@@ -9,7 +9,7 @@
 #include "operations_tasklists.h"
 #include "operations_settings.h"
 #include "operations_encrypteddata.h"
-#include "operations_videoplayer.h"
+#include "operations_vp_shows.h"
 #include "passwordvalidation.h"
 #include "operations_files.h"
 #include "sqlite-database-auth.h"
@@ -249,7 +249,7 @@ void MainWindow::FinishInitialization()
     Operations_TaskLists_ptr = new Operations_TaskLists(this, Operations_Diary_ptr);
     Operations_Settings_ptr = new Operations_Settings(this);
     Operations_EncryptedData_ptr = new Operations_EncryptedData(this);
-    Operations_Videoplayer_ptr = new Operations_Videoplayer(this);
+    Operations_VP_Shows_ptr = new Operations_VP_Shows(this);
     CombinedDelegate *delegate = new CombinedDelegate(this);
 
     // Initialize persistent settings manager
@@ -1304,8 +1304,8 @@ void MainWindow::on_pushButton_DataENC_SecureDel_clicked()
 void MainWindow::on_pushButton_Debug_clicked()
 {
     qDebug() << "MainWindow: Debug button clicked - Testing video player";
-    if (Operations_Videoplayer_ptr) {
-        Operations_Videoplayer_ptr->testVideoPlayer();
+    if (Operations_VP_Shows_ptr) {
+        Operations_VP_Shows_ptr->testVideoPlayer();
     }
 }
 

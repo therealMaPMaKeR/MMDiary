@@ -1,5 +1,5 @@
-#ifndef OPERATIONS_VIDEOPLAYER_H
-#define OPERATIONS_VIDEOPLAYER_H
+#ifndef OPERATIONS_VP_SHOWS_H
+#define OPERATIONS_VP_SHOWS_H
 
 #include <QObject>
 #include <QPointer>
@@ -11,7 +11,7 @@
 class MainWindow;
 class VideoPlayer;
 
-class Operations_Videoplayer : public QObject
+class Operations_VP_Shows : public QObject
 {
     Q_OBJECT
 
@@ -24,8 +24,8 @@ private:
     bool isValidVideoFile(const QString& filePath);
 
 public:
-    explicit Operations_Videoplayer(MainWindow* mainWindow);
-    ~Operations_Videoplayer();
+    explicit Operations_VP_Shows(MainWindow* mainWindow);
+    ~Operations_VP_Shows();
     
     // Friend class declaration
     friend class MainWindow;
@@ -41,4 +41,4 @@ signals:
     void videoPlayerError(const QString& errorMessage);
 };
 
-#endif // OPERATIONS_VIDEOPLAYER_H
+#endif // OPERATIONS_VP_SHOWS_H

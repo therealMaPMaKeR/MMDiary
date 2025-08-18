@@ -82,7 +82,7 @@ SOURCES += \
     Operations-Features/passwordmanager/operations_passwordmanager.cpp \
     Operations-Features/settings/operations_settings.cpp \
     Operations-Features/tasklists/operations_tasklists.cpp \
-    Operations-Features/videoplayer/operations_videoplayer.cpp \
+    Operations-Features/videoplayer/operations_vp_shows.cpp \
     Operations-Features/videoplayer/regularplayer/videoplayer.cpp \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.cpp \
     Operations-Features/encrypteddata/encrypteddata_fileiconprovider.cpp \
@@ -121,7 +121,7 @@ HEADERS += \
     Operations-Features/passwordmanager/operations_passwordmanager.h \
     Operations-Features/settings/operations_settings.h \
     Operations-Features/tasklists/operations_tasklists.h \
-    Operations-Features/videoplayer/operations_videoplayer.h \
+    Operations-Features/videoplayer/operations_vp_shows.h \
     Operations-Features/videoplayer/regularplayer/videoplayer.h \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.h \
     Operations-Features/encrypteddata/encrypteddata_fileiconprovider.h \
