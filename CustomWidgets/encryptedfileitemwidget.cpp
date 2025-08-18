@@ -3,6 +3,7 @@
 #include <QLabel>
 #include <QFont>
 #include <QFontMetrics>
+#include <QDebug>
 
 // Initialize static member
 int EncryptedFileItemWidget::s_iconSize = 64;
@@ -50,17 +51,34 @@ void EncryptedFileItemWidget::setupUI()
 
 void EncryptedFileItemWidget::setFileInfo(const QString& originalFilename,
                                           const QString& encryptedFilePath,
-                                          const QString& fileType)
+                                          const QString& fileType,
+                                          const QStringList& tags)
 {
     m_originalFilename = originalFilename;
     m_encryptedFilePath = encryptedFilePath;
     m_fileType = fileType;
+    m_tags = tags;
 
     // Set filename with elision if too long
     QFontMetrics fm(m_filenameLabel->font());
     QString elidedText = fm.elidedText(originalFilename, Qt::ElideMiddle, 1000);
     m_filenameLabel->setText(elidedText);
-    m_filenameLabel->setToolTip(originalFilename); // Full filename in tooltip
+    
+    // Build tooltip with filename and tags
+    QString tooltip = originalFilename;
+    
+    // Add tags to tooltip if they exist
+    if (!tags.isEmpty()) {
+        tooltip += "\n\nTags: " + tags.join(", ");
+    }
+    
+    m_filenameLabel->setToolTip(tooltip);
+    
+    // Also set tooltip on the entire widget for better coverage
+    this->setToolTip(tooltip);
+    
+    qDebug() << "EncryptedFileItemWidget: Set tooltip for" << originalFilename 
+             << "with" << tags.size() << "tags";
 }
 
 void EncryptedFileItemWidget::setIcon(const QPixmap& pixmap)

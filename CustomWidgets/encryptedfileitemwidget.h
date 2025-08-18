@@ -16,7 +16,7 @@ public:
 
     // Set the file information
     void setFileInfo(const QString& originalFilename, const QString& encryptedFilePath,
-                     const QString& fileType);
+                     const QString& fileType, const QStringList& tags = QStringList());
 
     // Set the icon/thumbnail
     void setIcon(const QPixmap& pixmap);
@@ -47,6 +47,7 @@ private:
     QString m_originalFilename;
     QString m_encryptedFilePath;
     QString m_fileType;
+    QStringList m_tags;
 
     // State
     bool m_needsThumbnailLoad;

@@ -2105,7 +2105,7 @@ void Operations_EncryptedData::updateFileListDisplay()
         QString fileTypeDir = fileInfo.dir().dirName();
 
         EncryptedFileItemWidget* customWidget = new EncryptedFileItemWidget();
-        customWidget->setFileInfo(metadata.filename, encryptedFilePath, fileTypeDir);
+        customWidget->setFileInfo(metadata.filename, encryptedFilePath, fileTypeDir, metadata.tags);
 
         // Thumbnail logic with hiding settings
         QPixmap icon;
