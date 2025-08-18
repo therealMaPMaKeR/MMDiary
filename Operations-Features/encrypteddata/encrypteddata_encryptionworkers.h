@@ -1,5 +1,5 @@
-#ifndef ENCRYPTIONWORKERS_H
-#define ENCRYPTIONWORKERS_H
+#ifndef ENCRYPTEDDATA_ENCRYPTIONWORKERS_H
+#define ENCRYPTEDDATA_ENCRYPTIONWORKERS_H
 
 #include <QObject>
 #include <QThread>
@@ -8,7 +8,7 @@
 #include <QByteArray>
 #include <QPixmap>
 #include <QMap>
-#include "../Operations-Global/encryptedfilemetadata.h"
+#include "../../Operations-Global/encryptedfilemetadata.h"
 
 // Forward declarations
 class EncryptedFileMetadata;
@@ -214,4 +214,4 @@ private:
     QMutex m_cancelMutex;
 };
 
-#endif // ENCRYPTIONWORKERS_H
+#endif // ENCRYPTEDDATA_ENCRYPTIONWORKERS_H

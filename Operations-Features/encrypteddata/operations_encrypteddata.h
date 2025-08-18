@@ -11,12 +11,12 @@
 #include <QAbstractButton>
 #include <QTimer>
 #include <QProcess>
-#include "../mainwindow.h"
-#include "../Operations-Global/operations.h"
-#include "../Operations-Global/inputvalidation.h"
-#include "../CustomWidgets/encryptedfileitemwidget.h"
-#include "../Operations-Global/fileiconprovider.h"
-#include "../Operations-Global/encryptedfilemetadata.h"
+#include "../../mainwindow.h"
+#include "../../Operations-Global/operations.h"
+#include "../../Operations-Global/inputvalidation.h"
+#include "../../CustomWidgets/encryptedfileitemwidget.h"
+#include "../../Operations-Global/fileiconprovider.h"
+#include "../../Operations-Global/encryptedfilemetadata.h"
 #include <QScrollBar>
 #include <QEvent>
 #include <QKeyEvent>
@@ -31,8 +31,8 @@
 #include <QListWidgetItem>
 
 // Include the separated headers
-#include "encryptionworkers.h"
-#include "progressdialogs.h"
+#include "encrypteddata_encryptionworkers.h"
+#include "encrypteddata_progressdialogs.h"
 
 // Forward declarations
 class MainWindow;

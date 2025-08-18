@@ -1,4 +1,4 @@
-#include "progressdialogs.h"
+#include "encrypteddata_progressdialogs.h"
 #include <QApplication>
 
 // ============================================================================

@@ -1,5 +1,5 @@
-#ifndef PROGRESSDIALOGS_H
-#define PROGRESSDIALOGS_H
+#ifndef ENCRYPTEDDATA_PROGRESSDIALOGS_H
+#define ENCRYPTEDDATA_PROGRESSDIALOGS_H
 
 #include <QDialog>
 #include <QProgressBar>
@@ -113,4 +113,4 @@ signals:
     void cancelled();
 };
 
-#endif // PROGRESSDIALOGS_H
+#endif // ENCRYPTEDDATA_PROGRESSDIALOGS_H

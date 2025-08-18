@@ -2,9 +2,9 @@
 #define OPERATIONS_DIARY_H
 
 #include <QObject>
-#include "../mainwindow.h"
-#include "../Operations-Global/operations.h"
-#include "../Operations-Global/inputvalidation.h"
+#include "../../mainwindow.h"
+#include "../../Operations-Global/operations.h"
+#include "../../Operations-Global/inputvalidation.h"
 #include <QMessageBox>
 #include <QMutex>
 #include <QPointer>

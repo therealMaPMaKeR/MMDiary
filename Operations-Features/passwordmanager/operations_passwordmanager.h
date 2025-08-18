@@ -2,9 +2,9 @@
 #define OPERATIONS_PASSWORDMANAGER_H
 
 #include <QObject>
-#include "../mainwindow.h"
-#include "../Operations-Global/operations.h"
-#include "../Operations-Global/inputvalidation.h"
+#include "../../mainwindow.h"
+#include "../../Operations-Global/operations.h"
+#include "../../Operations-Global/inputvalidation.h"
 #include <QMessageBox>
 
 class MainWindow;

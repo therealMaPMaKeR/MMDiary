@@ -2,13 +2,13 @@
 #define OPERATIONS_SETTINGS_H
 
 #include <QObject>
-#include "../mainwindow.h"
-#include "../Operations-Global/operations.h"
-#include "../Operations-Global/inputvalidation.h"
+#include "../../mainwindow.h"
+#include "../../Operations-Global/operations.h"
+#include "../../Operations-Global/inputvalidation.h"
 #include "constants.h"
 #include <QMessageBox>
 #include <QMap>
-#include "../Operations-Global/passwordvalidation.h"
+#include "../../Operations-Global/passwordvalidation.h"
 
 class MainWindow;
 class Operations_Settings : public QObject

@@ -55,13 +55,13 @@ SOURCES += \
     CustomWidgets/custom_qlistwidget_task.cpp \
     CustomWidgets/custom_qtabwidget_main.cpp \
     CustomWidgets/encryptedfileitemwidget.cpp \
-    Operations-Features/operations_diary.cpp \
-    Operations-Features/operations_encrypteddata.cpp \
-    Operations-Features/encryptionworkers.cpp \
-    Operations-Features/progressdialogs.cpp \
-    Operations-Features/operations_passwordmanager.cpp \
-    Operations-Features/operations_settings.cpp \
-    Operations-Features/operations_tasklists.cpp \
+    Operations-Features/diary/operations_diary.cpp \
+    Operations-Features/encrypteddata/operations_encrypteddata.cpp \
+    Operations-Features/encrypteddata/encrypteddata_encryptionworkers.cpp \
+    Operations-Features/encrypteddata/encrypteddata_progressdialogs.cpp \
+    Operations-Features/passwordmanager/operations_passwordmanager.cpp \
+    Operations-Features/settings/operations_settings.cpp \
+    Operations-Features/tasklists/operations_tasklists.cpp \
     Operations-Global/CryptoUtils.cpp \
     Operations-Global/default_usersettings.cpp \
     Operations-Global/encryptedfilemetadata.cpp \
@@ -92,13 +92,13 @@ HEADERS += \
     CustomWidgets/custom_qlistwidget_task.h \
     CustomWidgets/custom_qtabwidget_main.h \
     CustomWidgets/encryptedfileitemwidget.h \
-    Operations-Features/operations_diary.h \
-    Operations-Features/operations_encrypteddata.h \
-    Operations-Features/encryptionworkers.h \
-    Operations-Features/progressdialogs.h \
-    Operations-Features/operations_passwordmanager.h \
-    Operations-Features/operations_settings.h \
-    Operations-Features/operations_tasklists.h \
+    Operations-Features/diary/operations_diary.h \
+    Operations-Features/encrypteddata/operations_encrypteddata.h \
+    Operations-Features/encrypteddata/encrypteddata_encryptionworkers.h \
+    Operations-Features/encrypteddata/encrypteddata_progressdialogs.h \
+    Operations-Features/passwordmanager/operations_passwordmanager.h \
+    Operations-Features/settings/operations_settings.h \
+    Operations-Features/tasklists/operations_tasklists.h \
     Operations-Global/CryptoUtils.h \
     Operations-Global/default_usersettings.h \
     Operations-Global/encryptedfilemetadata.h \
@@ -122,8 +122,8 @@ HEADERS += \
 
 FORMS += \
     HiddenItemsList.ui \
-    Operations-Features/passwordmanager_addpassword.ui \
-    Operations-Features/tasklists_addtask.ui \
+    Operations-Features/passwordmanager/passwordmanager_addpassword.ui \
+    Operations-Features/tasklists/tasklists_addtask.ui \
     Operations-Global/imageviewer.ui \
     Operations-Global/passwordvalidation.ui \
     about_MMDiary.ui \

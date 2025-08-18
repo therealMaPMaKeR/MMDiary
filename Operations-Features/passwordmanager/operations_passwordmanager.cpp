@@ -1,11 +1,11 @@
 #include "operations_passwordmanager.h"
-#include "../CustomWidgets/CombinedDelegate.h"
-#include "../Operations-Global/CryptoUtils.h"
+#include "../../CustomWidgets/CombinedDelegate.h"
+#include "../../Operations-Global/CryptoUtils.h"
 #include "Operations-Global/operations_files.h"
 #include "Operations-Global/operations.h"
 #include "ui_mainwindow.h"
 #include "ui_passwordmanager_addpassword.h"
-#include "../constants.h"
+#include "../../constants.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
