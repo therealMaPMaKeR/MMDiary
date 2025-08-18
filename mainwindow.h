@@ -22,10 +22,10 @@
 #include <QSystemTrayIcon>
 #include <QScreen>
 #include "CustomWidgets/custom_qcheckboxwidget.h"
-#include "Operations-Global/sqlite-database-handler.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
-#include "Operations-Global/sqlite-database-auth.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
-#include "Operations-Global/sqlite-database-settings.h" // same
-#include "Operations-Global/sqlite-database-persistentsettings.h" //same
+#include "Operations-Global/databases/sqlite-database-handler.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
+#include "Operations-Global/databases/sqlite-database-auth.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
+#include "Operations-Global/databases/sqlite-database-settings.h" // same
+#include "Operations-Global/databases/sqlite-database-persistentsettings.h" //same
 
 //Forward Declarations
 class PasswordValidation;
@@ -292,6 +292,8 @@ private:
     QMenu *trayMenu;
     QTimer *screenCheckTimer;
     QScreen *lastKnownScreen;
+    bool isRefreshing;
+    QTimer *refreshDebounceTimer;
     void LoadPersistentSettings();
     void SavePersistentSettings();
 };

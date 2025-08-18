@@ -1,6 +1,6 @@
 #include "noncechecker.h"
-#include "../mainwindow.h"
-#include "../constants.h"
+#include "../../mainwindow.h"
+#include "../../constants.h"
 #include "CryptoUtils.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>

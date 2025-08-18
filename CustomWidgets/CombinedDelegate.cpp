@@ -8,7 +8,7 @@
 #include "custom_QTextEditWidget.h"
 #include "../Operations-Global/inputvalidation.h"
 #include "../Operations-Global/operations_files.h"
-#include "../Operations-Global/CryptoUtils.h"
+#include "../Operations-Global/encryption/CryptoUtils.h"
 #include "../mainwindow.h"
 
 CombinedDelegate::CombinedDelegate(QObject *parent)

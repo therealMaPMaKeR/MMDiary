@@ -1,5 +1,5 @@
 #include "default_usersettings.h"
-#include "sqlite-database-settings.h"
+#include "databases/sqlite-database-settings.h"
 #include "../constants.h"
 
 namespace Default_UserSettings{

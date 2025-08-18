@@ -3,7 +3,7 @@
 #include <QFileInfo>
 #include "sqlite-database-handler.h"
 #include<QFile>
-#include "../constants.h"
+#include "../../constants.h"
 
 DatabaseManager::DatabaseManager()
 {

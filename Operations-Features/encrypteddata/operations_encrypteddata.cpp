@@ -1,5 +1,5 @@
 #include "operations_encrypteddata.h"
-#include "../../Operations-Global/CryptoUtils.h"
+#include "../../Operations-Global/encryption/CryptoUtils.h"
 #include "../../Operations-Global/operations_files.h"
 #include "../../constants.h"
 #include "../../CustomWidgets/encryptedfileitemwidget.h"

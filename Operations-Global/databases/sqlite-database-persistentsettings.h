@@ -2,11 +2,11 @@
 #define SQLITE_DATABASE_PERSISTENTSETTINGS_H
 
 #include "sqlite-database-handler.h"
-#include "CryptoUtils.h"
+#include "../encryption/CryptoUtils.h"
 #include <QString>
 #include <QByteArray>
 #include <functional>
-#include "../constants.h"
+#include "../../constants.h"
 
 class DatabasePersistentSettingsManager
 {

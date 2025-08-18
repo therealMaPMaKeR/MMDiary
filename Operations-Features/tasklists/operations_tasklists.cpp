@@ -1,7 +1,7 @@
 #include "operations_tasklists.h"
 #include "../diary/operations_diary.h"
 #include "../../CustomWidgets/CombinedDelegate.h"
-#include "../../Operations-Global/CryptoUtils.h"
+#include "../../Operations-Global/encryption/CryptoUtils.h"
 #include "../../Operations-Global/operations.h"
 #include "../../Operations-Global/inputvalidation.h"
 #include "ui_mainwindow.h"

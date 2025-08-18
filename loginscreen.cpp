@@ -1,10 +1,10 @@
 #include "loginscreen.h"
 #include "ui_loginscreen.h"
 #include "mainwindow.h"
-#include "Operations-Global/CryptoUtils.h"
+#include "Operations-Global/encryption/CryptoUtils.h"
 #include "Operations-Global/inputvalidation.h"
 #include "Operations-Global/operations_files.h"
-#include "Operations-Global/sqlite-database-auth.h"
+#include "Operations-Global/databases/sqlite-database-auth.h"
 #include "constants.h"
 #include "Operations-Global/default_usersettings.h"
 

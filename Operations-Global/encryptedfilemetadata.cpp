@@ -1,6 +1,6 @@
 #include "encryptedfilemetadata.h"
 #include "inputvalidation.h"
-#include "CryptoUtils.h"
+#include "encryption/CryptoUtils.h"
 #include "constants.h"
 #include <QFile>
 #include <QDebug>

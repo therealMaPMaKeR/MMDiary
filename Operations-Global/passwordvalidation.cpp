@@ -1,8 +1,8 @@
 #include "passwordvalidation.h"
 #include "ui_passwordvalidation.h"
-#include "CryptoUtils.h"
-#include "sqlite-database-auth.h"
-#include "sqlite-database-settings.h"
+#include "encryption/CryptoUtils.h"
+#include "databases/sqlite-database-auth.h"
+#include "databases/sqlite-database-settings.h"
 #include <QMessageBox>
 #include "../constants.h"
 

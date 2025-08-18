@@ -1,6 +1,6 @@
 #include "operations_passwordmanager.h"
 #include "../../CustomWidgets/CombinedDelegate.h"
-#include "../../Operations-Global/CryptoUtils.h"
+#include "../../Operations-Global/encryption/CryptoUtils.h"
 #include "Operations-Global/operations_files.h"
 #include "Operations-Global/operations.h"
 #include "ui_mainwindow.h"

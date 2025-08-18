@@ -1,9 +1,9 @@
 #include "changepassword.h"
 #include "qvalidator.h"
 #include "ui_changepassword.h"
-#include "Operations-Global/CryptoUtils.h"
+#include "Operations-Global/encryption/CryptoUtils.h"
 #include "Operations-Global/inputvalidation.h"
-#include "Operations-Global/sqlite-database-auth.h"
+#include "Operations-Global/databases/sqlite-database-auth.h"
 #include "constants.h"
 #include <QMessageBox>
 #include <QPushButton>

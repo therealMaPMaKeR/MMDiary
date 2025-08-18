@@ -4,7 +4,7 @@
 #include <QFile>
 #include <QByteArray>
 // Replace AES256Crypto with AESGCM256
-#include "../QT_AESGCM256/AESGCM256.h"
+#include "QT_AESGCM256/AESGCM256.h"
 
 namespace CryptoUtils {
 

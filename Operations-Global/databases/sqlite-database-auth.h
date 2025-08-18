@@ -5,7 +5,7 @@
 #include <QString>
 #include <QByteArray>
 #include <functional>
-#include "../constants.h"
+#include "../../constants.h"
 
 class DatabaseAuthManager
 {

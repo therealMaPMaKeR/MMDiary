@@ -62,21 +62,21 @@ SOURCES += \
     Operations-Features/passwordmanager/operations_passwordmanager.cpp \
     Operations-Features/settings/operations_settings.cpp \
     Operations-Features/tasklists/operations_tasklists.cpp \
-    Operations-Global/CryptoUtils.cpp \
     Operations-Global/default_usersettings.cpp \
     Operations-Global/encryptedfilemetadata.cpp \
     Operations-Global/fileiconprovider.cpp \
     Operations-Global/imageviewer.cpp \
     Operations-Global/inputvalidation.cpp \
-    Operations-Global/noncechecker.cpp \
     Operations-Global/operations.cpp \
     Operations-Global/operations_files.cpp \
     Operations-Global/passwordvalidation.cpp \
-    Operations-Global/sqlite-database-auth.cpp \
-    Operations-Global/sqlite-database-impl.cpp \
-    Operations-Global/sqlite-database-persistentsettings.cpp \
-    Operations-Global/sqlite-database-settings.cpp \
-    QT_AESGCM256/aesgcm256.cpp \
+    Operations-Global/databases/sqlite-database-auth.cpp \
+    Operations-Global/databases/sqlite-database-impl.cpp \
+    Operations-Global/databases/sqlite-database-persistentsettings.cpp \
+    Operations-Global/databases/sqlite-database-settings.cpp \
+    Operations-Global/encryption/CryptoUtils.cpp \
+    Operations-Global/encryption/noncechecker.cpp \
+    Operations-Global/encryption/QT_AESGCM256/aesgcm256.cpp \
     changepassword.cpp \
     constants.cpp \
     editencryptedfiledialog.cpp \
@@ -99,21 +99,21 @@ HEADERS += \
     Operations-Features/passwordmanager/operations_passwordmanager.h \
     Operations-Features/settings/operations_settings.h \
     Operations-Features/tasklists/operations_tasklists.h \
-    Operations-Global/CryptoUtils.h \
     Operations-Global/default_usersettings.h \
     Operations-Global/encryptedfilemetadata.h \
     Operations-Global/fileiconprovider.h \
     Operations-Global/imageviewer.h \
     Operations-Global/inputvalidation.h \
-    Operations-Global/noncechecker.h \
     Operations-Global/operations.h \
     Operations-Global/operations_files.h \
     Operations-Global/passwordvalidation.h \
-    Operations-Global/sqlite-database-auth.h \
-    Operations-Global/sqlite-database-handler.h \
-    Operations-Global/sqlite-database-persistentsettings.h \
-    Operations-Global/sqlite-database-settings.h \
-    QT_AESGCM256/aesgcm256.h \
+    Operations-Global/databases/sqlite-database-auth.h \
+    Operations-Global/databases/sqlite-database-handler.h \
+    Operations-Global/databases/sqlite-database-persistentsettings.h \
+    Operations-Global/databases/sqlite-database-settings.h \
+    Operations-Global/encryption/CryptoUtils.h \
+    Operations-Global/encryption/noncechecker.h \
+    Operations-Global/encryption/QT_AESGCM256/aesgcm256.h \
     changepassword.h \
     constants.h \
     editencryptedfiledialog.h \
