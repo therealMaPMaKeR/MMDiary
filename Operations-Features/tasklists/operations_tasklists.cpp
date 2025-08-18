@@ -1,9 +1,9 @@
 #include "operations_tasklists.h"
 #include "../diary/operations_diary.h"
 #include "../../CustomWidgets/CombinedDelegate.h"
-#include "../../Operations-Global/encryption/CryptoUtils.h"
-#include "../../Operations-Global/operations.h"
-#include "../../Operations-Global/inputvalidation.h"
+#include "encryption/CryptoUtils.h"
+#include "operations.h"
+#include "inputvalidation.h"
 #include "ui_mainwindow.h"
 #include "../../constants.h"
 #include "ui_tasklists_addtask.h"
@@ -17,7 +17,7 @@
 #include <QMessageBox>
 #include <QMap>
 #include <QPlainTextEdit>
-#include "Operations-Global/operations_files.h"
+#include "operations_files.h"
 
 Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow, Operations_Diary* diaryOps)
     : m_mainWindow(mainWindow)

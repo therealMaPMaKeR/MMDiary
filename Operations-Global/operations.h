@@ -5,7 +5,7 @@
 #include <QListWidget>
 #include <QComboBox>
 #include <QTabWidget>
-#include "../CustomWidgets/custom_QListWidget.h"
+#include "custom_QListWidget.h"
 #include <QTableWidget>
 
 namespace Operations

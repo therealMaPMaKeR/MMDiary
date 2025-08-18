@@ -4,8 +4,8 @@
 #include <QObject>
 #include <QTime>
 #include "../../mainwindow.h"
-#include "../../Operations-Global/operations.h"
-#include "../../Operations-Global/inputvalidation.h"
+#include "operations.h"
+#include "inputvalidation.h"
 #include <QMessageBox>
 #include <queue>
 

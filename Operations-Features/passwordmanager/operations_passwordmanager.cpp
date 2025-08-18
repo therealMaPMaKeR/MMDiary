@@ -1,8 +1,8 @@
 #include "operations_passwordmanager.h"
 #include "../../CustomWidgets/CombinedDelegate.h"
-#include "../../Operations-Global/encryption/CryptoUtils.h"
-#include "Operations-Global/operations_files.h"
-#include "Operations-Global/operations.h"
+#include "encryption/CryptoUtils.h"
+#include "operations_files.h"
+#include "operations.h"
 #include "ui_mainwindow.h"
 #include "ui_passwordmanager_addpassword.h"
 #include "../../constants.h"
@@ -15,7 +15,7 @@
 #include <QGuiApplication>
 #include <QDialog>
 #include <QRandomGenerator>
-#include "Operations-Global/inputvalidation.h"
+#include "inputvalidation.h"
 
 Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
     : m_mainWindow(mainWindow), m_currentLoadedValue(QString())

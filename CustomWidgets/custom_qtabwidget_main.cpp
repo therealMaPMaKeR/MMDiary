@@ -1,5 +1,5 @@
 #include "custom_qtabwidget_main.h"
-#include "../Operations-Global/operations.h"
+#include "operations.h"
 #include <QEvent>
 #include <QMouseEvent>
 #include <QContextMenuEvent>

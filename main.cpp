@@ -11,7 +11,7 @@
 #include <QFile>
 #include <QtDebug>
 #include <openssl/ssl.h>
-#include "Operations-Global/operations_files.h"
+#include "operations_files.h"
 
 // for writing debug to text file
 /*

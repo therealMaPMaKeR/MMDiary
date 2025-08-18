@@ -6,10 +6,10 @@
 #include <QPainter>
 #include <QTextDocument>
 #include "custom_QTextEditWidget.h"
-#include "../Operations-Global/inputvalidation.h"
-#include "../Operations-Global/operations_files.h"
-#include "../Operations-Global/encryption/CryptoUtils.h"
-#include "../mainwindow.h"
+#include "inputvalidation.h"
+#include "operations_files.h"
+#include "CryptoUtils.h"
+#include "mainwindow.h"
 
 CombinedDelegate::CombinedDelegate(QObject *parent)
     : QStyledItemDelegate(parent)

@@ -12,11 +12,11 @@
 #include <QTimer>
 #include <QProcess>
 #include "../../mainwindow.h"
-#include "../../Operations-Global/operations.h"
-#include "../../Operations-Global/inputvalidation.h"
+#include "operations.h"
+#include "inputvalidation.h"
 #include "../../CustomWidgets/encryptedfileitemwidget.h"
-#include "../../Operations-Global/fileiconprovider.h"
-#include "../../Operations-Global/encryptedfilemetadata.h"
+#include "fileiconprovider.h"
+#include "encryptedfilemetadata.h"
 #include <QScrollBar>
 #include <QEvent>
 #include <QKeyEvent>

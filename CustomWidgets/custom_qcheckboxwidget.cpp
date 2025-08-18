@@ -1,5 +1,5 @@
 #include "custom_qcheckboxwidget.h"
-#include "../Operations-Global/passwordvalidation.h"
+#include "passwordvalidation.h"
 #include <QDebug>
 
 custom_QCheckboxWidget::custom_QCheckboxWidget(QWidget *parent)

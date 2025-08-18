@@ -21,11 +21,11 @@
 #include <QChar>
 #include <QSystemTrayIcon>
 #include <QScreen>
-#include "CustomWidgets/custom_qcheckboxwidget.h"
-#include "Operations-Global/databases/sqlite-database-handler.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
-#include "Operations-Global/databases/sqlite-database-auth.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
-#include "Operations-Global/databases/sqlite-database-settings.h" // same
-#include "Operations-Global/databases/sqlite-database-persistentsettings.h" //same
+#include "custom_qcheckboxwidget.h"
+#include "databases/sqlite-database-handler.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
+#include "databases/sqlite-database-auth.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
+#include "databases/sqlite-database-settings.h" // same
+#include "databases/sqlite-database-persistentsettings.h" //same
 
 //Forward Declarations
 class PasswordValidation;

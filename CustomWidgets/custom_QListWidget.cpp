@@ -9,7 +9,7 @@
 #include <QListWidgetItem>
 #include <QDebug>
 #include <QTimer>
-#include "../Operations-Global/inputvalidation.h" // Add this include
+ #include "inputvalidation.h" // Add this include
 
 custom_QListWidget::custom_QListWidget(QWidget *parent)
     : QListWidget(parent), m_inSizeUpdate(false)

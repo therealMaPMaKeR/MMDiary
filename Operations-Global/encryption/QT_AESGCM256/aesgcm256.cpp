@@ -1,5 +1,5 @@
 #include "AESGCM256.h"
-#include "Operations-Global/encryption/CryptoUtils.h"
+#include "encryption/CryptoUtils.h"
 #include <QDebug>
 #include <QDateTime>
 #include <QDir>

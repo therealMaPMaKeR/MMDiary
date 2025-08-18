@@ -156,4 +156,3 @@ DISTFILES +=
 
 RESOURCES += \
     resources.qrc
-

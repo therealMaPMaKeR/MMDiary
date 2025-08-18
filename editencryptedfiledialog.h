@@ -5,7 +5,7 @@
 #include <QByteArray>
 #include <QString>
 #include <QStringList>
-#include "Operations-Global/encryptedfilemetadata.h"
+#include "encryptedfilemetadata.h"
 
 namespace Ui {
 class EditEncryptedFileDialog;

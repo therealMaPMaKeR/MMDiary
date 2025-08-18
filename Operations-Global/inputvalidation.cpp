@@ -1,5 +1,5 @@
 #include "inputvalidation.h"
-#include "Operations-Global/encryption/CryptoUtils.h"
+#include "encryption/CryptoUtils.h"
 #include "../constants.h"
 #include <QRegularExpression>
 #include <QString>

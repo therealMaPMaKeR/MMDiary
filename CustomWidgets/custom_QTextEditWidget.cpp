@@ -4,7 +4,7 @@
 #include <QScrollBar>
 #include <QKeyEvent>
 #include <QDebug>
-#include "../Operations-Global/inputvalidation.h"
+ #include "inputvalidation.h"
 #include <QMimeData>
 #include <QDragEnterEvent>
 #include <QDropEvent>

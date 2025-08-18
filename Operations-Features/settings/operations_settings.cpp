@@ -7,8 +7,8 @@
 #include <QMenu>
 #include <QClipboard>
 #include <QGuiApplication>
-#include "../../Operations-Global/default_usersettings.h"
-#include "../../Operations-Global/databases/sqlite-database-settings.h"
+#include "default_usersettings.h"
+#include "databases/sqlite-database-settings.h"
 #include <QDialog>
 #include <QInputDialog>
 #include <QMessageBox>

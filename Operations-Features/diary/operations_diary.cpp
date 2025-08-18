@@ -1,11 +1,11 @@
 #include "operations_diary.h"
-#include "../../CustomWidgets/CombinedDelegate.h"
-#include "../../Operations-Global/encryption/CryptoUtils.h"
-#include "Operations-Global/operations_files.h"
-#include "Operations-Global/imageviewer.h"
+#include "CombinedDelegate.h"
+#include "CryptoUtils.h"
+#include "operations_files.h"
+#include "imageviewer.h"
 #include "qimagereader.h"
 #include "ui_mainwindow.h"
-#include "../../constants.h"
+#include "constants.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>

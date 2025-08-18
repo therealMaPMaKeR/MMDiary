@@ -1,6 +1,6 @@
 #include "operations_files.h"
 #include "inputvalidation.h"
-#include "Operations-Global/encryption/CryptoUtils.h"
+#include "encryption/CryptoUtils.h"
 
 #include <QDateTime>
 #include <QFileInfo>
