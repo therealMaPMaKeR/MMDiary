@@ -41,6 +41,12 @@ public:
     
     // Import TV show functionality
     void importTVShow();
+    
+    // Load and display TV shows in the list
+    void loadTVShowsList();
+    
+    // Refresh the TV shows list (public version that can be called from outside)
+    void refreshTVShowsList();
 
 public slots:
     // Slot for debug button

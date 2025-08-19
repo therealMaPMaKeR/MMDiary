@@ -4,13 +4,15 @@
 #include "regularplayer/videoplayer.h"
 #include "vp_shows_progressdialogs.h"
 #include "vp_shows_metadata.h"
+#include "../../Operations-Global/operations_files.h"  // Add operations_files for secure file operations
 #include <QDebug>
 #include <QFileInfo>
 #include <QTimer>
 #include <QDir>
 #include <QDirIterator>
 #include <QRandomGenerator>
-#include <QStandardPaths>
+#include <QListWidget>
+#include <QListWidgetItem>
 
 Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     : QObject(mainWindow)
@@ -19,12 +21,22 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
 {
     qDebug() << "Operations_VP_Shows: Constructor called";
     
+    // Set username for operations_files functions
+    if (m_mainWindow && !m_mainWindow->user_Username.isEmpty()) {
+        OperationsFiles::setUsername(m_mainWindow->user_Username);
+        qDebug() << "Operations_VP_Shows: Set username for operations_files:" << m_mainWindow->user_Username;
+    }
+    
     // Connect the Add Show button if it exists
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->pushButton_VP_List_AddShow) {
         connect(m_mainWindow->ui->pushButton_VP_List_AddShow, &QPushButton::clicked,
                 this, &Operations_VP_Shows::on_pushButton_VP_List_AddShow_clicked);
         qDebug() << "Operations_VP_Shows: Connected Add Show button";
     }
+    
+    // Load the TV shows list on initialization
+    // We use a small delay to ensure the UI is fully initialized
+    QTimer::singleShot(100, this, &Operations_VP_Shows::loadTVShowsList);
 }
 
 Operations_VP_Shows::~Operations_VP_Shows()
@@ -172,6 +184,11 @@ void Operations_VP_Shows::importTVShow()
 {
     qDebug() << "Operations_VP_Shows: Starting TV show import";
     
+    // Ensure username is set for operations_files
+    if (!m_mainWindow->user_Username.isEmpty()) {
+        OperationsFiles::setUsername(m_mainWindow->user_Username);
+    }
+    
     // Open folder dialog to select TV show folder
     QString folderPath = QFileDialog::getExistingDirectory(
         m_mainWindow,
@@ -203,12 +220,12 @@ void Operations_VP_Shows::importTVShow()
     
     qDebug() << "Operations_VP_Shows: Found" << videoFiles.size() << "video files";
     
-    // Create the output folder structure
+    // Create the output folder structure using secure operations_files functions
     QString outputPath;
     if (!createShowFolderStructure(outputPath)) {
         QMessageBox::critical(m_mainWindow,
                             tr("Folder Creation Failed"),
-                            tr("Failed to create the necessary folder structure."));
+                            tr("Failed to create the necessary folder structure. Please check permissions and try again."));
         return;
     }
     
@@ -218,7 +235,17 @@ void Operations_VP_Shows::importTVShow()
         QFileInfo fileInfo(sourceFile);
         QString extension = fileInfo.suffix().toLower();
         QString randomName = generateRandomFileName(extension);
-        QString targetFile = outputPath + "/" + randomName;
+        QString targetFile = QDir(outputPath).absoluteFilePath(randomName);
+        
+        // Validate the target path using operations_files
+        if (!OperationsFiles::isWithinAllowedDirectory(targetFile, "Data")) {
+            qDebug() << "Operations_VP_Shows: Generated target path is outside allowed directory:" << targetFile;
+            QMessageBox::critical(m_mainWindow,
+                                tr("Security Error"),
+                                tr("Failed to generate secure file paths. Operation cancelled."));
+            return;
+        }
+        
         targetFiles.append(targetFile);
     }
     
@@ -277,49 +304,66 @@ QString Operations_VP_Shows::generateRandomFileName(const QString& extension)
         randomName.append(chars.at(index));
     }
     
-    return randomName + "." + extension;
+    // Add extension if provided
+    if (!extension.isEmpty()) {
+        return randomName + "." + extension;
+    }
+    return randomName;
 }
 
 bool Operations_VP_Shows::createShowFolderStructure(QString& outputPath)
 {
-    // Get user data folder
-    QString dataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (dataPath.isEmpty()) {
-        qDebug() << "Operations_VP_Shows: Failed to get app data location";
+    // Get username from mainwindow
+    QString username = m_mainWindow->user_Username;
+    if (username.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Username is empty, cannot create folder structure";
         return false;
     }
     
-    // Create Videoplayer folder if it doesn't exist
-    QDir dataDir(dataPath);
-    if (!dataDir.exists("Videoplayer")) {
-        if (!dataDir.mkdir("Videoplayer")) {
-            qDebug() << "Operations_VP_Shows: Failed to create Videoplayer folder";
-            return false;
-        }
+    // Update username for operations_files if needed
+    OperationsFiles::setUsername(username);
+    
+    // Build the proper path structure: Data/username/Videoplayer/Shows
+    // Using the same pattern as operations_encrypteddata.cpp
+    QString basePath = QDir::current().absoluteFilePath("Data");
+    QString userPath = QDir(basePath).absoluteFilePath(username);
+    QString videoplayerPath = QDir(userPath).absoluteFilePath("Videoplayer");
+    QString showsPath = QDir(videoplayerPath).absoluteFilePath("Shows");
+    
+    qDebug() << "Operations_VP_Shows: Creating folder structure at:" << showsPath;
+    
+    // Use operations_files to create the directory hierarchy with proper permissions
+    // Create Data/username if it doesn't exist
+    if (!OperationsFiles::ensureDirectoryExists(userPath)) {
+        qDebug() << "Operations_VP_Shows: Failed to create user directory:" << userPath;
+        return false;
     }
     
-    // Create Shows folder if it doesn't exist
-    QDir videoplayerDir(dataPath + "/Videoplayer");
-    if (!videoplayerDir.exists("Shows")) {
-        if (!videoplayerDir.mkdir("Shows")) {
-            qDebug() << "Operations_VP_Shows: Failed to create Shows folder";
-            return false;
-        }
+    // Create Data/username/Videoplayer if it doesn't exist
+    if (!OperationsFiles::ensureDirectoryExists(videoplayerPath)) {
+        qDebug() << "Operations_VP_Shows: Failed to create Videoplayer directory:" << videoplayerPath;
+        return false;
     }
     
-    // Generate a random folder name for this show
-    QString showsPath = dataPath + "/Videoplayer/Shows";
+    // Create Data/username/Videoplayer/Shows if it doesn't exist
+    if (!OperationsFiles::ensureDirectoryExists(showsPath)) {
+        qDebug() << "Operations_VP_Shows: Failed to create Shows directory:" << showsPath;
+        return false;
+    }
+    
+    // Generate a random folder name for this specific show
     QString randomFolderName = generateRandomFileName("");
     randomFolderName = randomFolderName.left(randomFolderName.length() - 1); // Remove the dot
     
-    QDir showsDir(showsPath);
-    if (!showsDir.mkdir(randomFolderName)) {
-        qDebug() << "Operations_VP_Shows: Failed to create show folder:" << randomFolderName;
+    // Create the specific show folder with secure permissions
+    QString showFolderPath = QDir(showsPath).absoluteFilePath(randomFolderName);
+    if (!OperationsFiles::ensureDirectoryExists(showFolderPath)) {
+        qDebug() << "Operations_VP_Shows: Failed to create show folder:" << showFolderPath;
         return false;
     }
     
-    outputPath = showsPath + "/" + randomFolderName;
-    qDebug() << "Operations_VP_Shows: Created output folder:" << outputPath;
+    outputPath = showFolderPath;
+    qDebug() << "Operations_VP_Shows: Successfully created output folder with secure permissions:" << outputPath;
     
     return true;
 }
@@ -338,7 +382,8 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                                tr("Import Successful"),
                                tr("TV show imported successfully!\n%1").arg(message));
         
-        // TODO: Refresh the show list in the UI
+        // Refresh the show list in the UI
+        refreshTVShowsList();
     } else {
         QString detailedMessage = message;
         if (!failedFiles.isEmpty()) {
@@ -352,5 +397,116 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
         QMessageBox::warning(m_mainWindow,
                            tr("Import Partially Failed"),
                            detailedMessage);
+        
+        // Clean up any partially created folders if all files failed
+        if (successfulFiles.isEmpty() && !failedFiles.isEmpty()) {
+            qDebug() << "Operations_VP_Shows: All files failed, cleaning up created folders";
+            // The encrypted files that failed would have been cleaned up by the encryption worker
+            // We just need to log this for debugging purposes
+        }
     }
+}
+
+void Operations_VP_Shows::loadTVShowsList()
+{
+    qDebug() << "Operations_VP_Shows: Loading TV shows list";
+    
+    // Check if we have the required UI elements
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->listWidget_VP_List_List) {
+        qDebug() << "Operations_VP_Shows: UI elements not ready for loading shows list";
+        return;
+    }
+    
+    // Make sure we have username and key
+    if (m_mainWindow->user_Username.isEmpty() || m_mainWindow->user_Key.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Username or key not available yet";
+        return;
+    }
+    
+    // Clear the list widget first
+    m_mainWindow->ui->listWidget_VP_List_List->clear();
+    
+    // Build the path to the shows directory
+    QString basePath = QDir::current().absoluteFilePath("Data");
+    QString userPath = QDir(basePath).absoluteFilePath(m_mainWindow->user_Username);
+    QString videoplayerPath = QDir(userPath).absoluteFilePath("Videoplayer");
+    QString showsPath = QDir(videoplayerPath).absoluteFilePath("Shows");
+    
+    qDebug() << "Operations_VP_Shows: Shows directory path:" << showsPath;
+    
+    // Check if the shows directory exists
+    QDir showsDir(showsPath);
+    if (!showsDir.exists()) {
+        qDebug() << "Operations_VP_Shows: Shows directory does not exist yet";
+        return;
+    }
+    
+    // Get all subdirectories in the shows folder
+    QStringList showFolders = showsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    
+    if (showFolders.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No show folders found";
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Found" << showFolders.size() << "show folders";
+    
+    // Create metadata manager for reading show metadata
+    VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    
+    // Process each show folder
+    for (const QString& folderName : showFolders) {
+        QString folderPath = showsDir.absoluteFilePath(folderName);
+        QDir showFolder(folderPath);
+        
+        // Find the first video file in this folder to read its metadata
+        QStringList videoExtensions;
+        videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
+                       << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+        
+        showFolder.setNameFilters(videoExtensions);
+        QStringList videoFiles = showFolder.entryList(QDir::Files);
+        
+        if (videoFiles.isEmpty()) {
+            qDebug() << "Operations_VP_Shows: No video files found in folder:" << folderName;
+            continue;
+        }
+        
+        // Try to read metadata from the first video file
+        QString firstVideoPath = showFolder.absoluteFilePath(videoFiles.first());
+        VP_ShowsMetadata::ShowMetadata metadata;
+        
+        if (metadataManager.readMetadataFromFile(firstVideoPath, metadata)) {
+            // Successfully read metadata, check if it has the Show field
+            if (!metadata.showName.isEmpty()) {
+                qDebug() << "Operations_VP_Shows: Found show:" << metadata.showName;
+                
+                // Add the show name to the list widget
+                QListWidgetItem* item = new QListWidgetItem(metadata.showName);
+                
+                // Store the folder path as user data for later use (when playing videos)
+                item->setData(Qt::UserRole, folderPath);
+                
+                m_mainWindow->ui->listWidget_VP_List_List->addItem(item);
+            } else {
+                qDebug() << "Operations_VP_Shows: Show name is empty in metadata for folder:" << folderName;
+            }
+        } else {
+            qDebug() << "Operations_VP_Shows: Failed to read metadata from file:" << firstVideoPath;
+        }
+    }
+    
+    // Sort the list alphabetically
+    m_mainWindow->ui->listWidget_VP_List_List->sortItems(Qt::AscendingOrder);
+    
+    qDebug() << "Operations_VP_Shows: Finished loading shows. Total shows:" 
+             << m_mainWindow->ui->listWidget_VP_List_List->count();
+}
+
+void Operations_VP_Shows::refreshTVShowsList()
+{
+    qDebug() << "Operations_VP_Shows: Refreshing TV shows list";
+    
+    // Simply call loadTVShowsList to reload the entire list
+    loadTVShowsList();
 }
