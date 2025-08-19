@@ -98,6 +98,9 @@ public:
     
     // Clean up temporary decrypted file
     void cleanupTempFile();
+    
+    // Decrypt video file with metadata handling
+    bool decryptVideoWithMetadata(const QString& sourceFile, const QString& targetFile);
 
 public slots:
     // Slot for debug button

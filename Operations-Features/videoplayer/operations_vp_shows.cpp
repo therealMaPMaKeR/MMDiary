@@ -8,6 +8,7 @@
 #include "vp_shows_tmdb.h"
 #include "operations_files.h"  // Add operations_files for secure file operations
 #include "CryptoUtils.h"
+#include <QDataStream>
 #include <QDebug>
 #include <QFileInfo>
 #include <QTimer>
@@ -1032,12 +1033,8 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     
     qDebug() << "Operations_VP_Shows: Decrypting to:" << decryptedFilePath;
     
-    // Decrypt the file using CryptoUtils
-    bool decryptSuccess = CryptoUtils::Encryption_DecryptFile(
-        m_mainWindow->user_Key,
-        encryptedFilePath,
-        decryptedFilePath
-    );
+    // Decrypt the file with metadata handling
+    bool decryptSuccess = decryptVideoWithMetadata(encryptedFilePath, decryptedFilePath);
     
     if (!decryptSuccess) {
         qDebug() << "Operations_VP_Shows: Failed to decrypt video file";
@@ -1117,6 +1114,96 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         // Clean up temp file if loading failed
         cleanupTempFile();
     }
+}
+
+bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, const QString& targetFile)
+{
+    qDebug() << "Operations_VP_Shows: Decrypting video with metadata from:" << sourceFile;
+    
+    QFile source(sourceFile);
+    if (!source.open(QIODevice::ReadOnly)) {
+        qDebug() << "Operations_VP_Shows: Failed to open source file:" << source.errorString();
+        return false;
+    }
+    
+    QFile target(targetFile);
+    if (!target.open(QIODevice::WriteOnly)) {
+        qDebug() << "Operations_VP_Shows: Failed to open target file:" << target.errorString();
+        source.close();
+        return false;
+    }
+    
+    // Create metadata manager to read the metadata
+    VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    
+    // Read and verify metadata (but don't write it to target)
+    VP_ShowsMetadata::ShowMetadata metadata;
+    if (!metadataManager.readFixedSizeEncryptedMetadata(&source, metadata)) {
+        qDebug() << "Operations_VP_Shows: Failed to read metadata from encrypted file";
+        source.close();
+        target.close();
+        target.remove();
+        return false;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Read metadata - Show:" << metadata.showName 
+             << "Episode:" << metadata.EPName;
+    
+    // Skip past metadata (already read) - the metadata is METADATA_RESERVED_SIZE bytes
+    source.seek(VP_ShowsMetadata::METADATA_RESERVED_SIZE);
+    
+    // Decrypt file content in chunks
+    QDataStream stream(&source);
+    
+    while (!source.atEnd()) {
+        // Read chunk size
+        qint32 chunkSize;
+        stream >> chunkSize;
+        
+        if (chunkSize <= 0 || chunkSize > 10 * 1024 * 1024) { // Max 10MB per chunk
+            qDebug() << "Operations_VP_Shows: Invalid chunk size:" << chunkSize;
+            source.close();
+            target.close();
+            target.remove();
+            return false;
+        }
+        
+        // Read encrypted chunk
+        QByteArray encryptedChunk = source.read(chunkSize);
+        if (encryptedChunk.size() != chunkSize) {
+            qDebug() << "Operations_VP_Shows: Failed to read complete chunk";
+            source.close();
+            target.close();
+            target.remove();
+            return false;
+        }
+        
+        // Decrypt chunk
+        QByteArray decryptedChunk = CryptoUtils::Encryption_DecryptBArray(m_mainWindow->user_Key, encryptedChunk);
+        if (decryptedChunk.isEmpty()) {
+            qDebug() << "Operations_VP_Shows: Failed to decrypt chunk";
+            source.close();
+            target.close();
+            target.remove();
+            return false;
+        }
+        
+        // Write decrypted chunk
+        qint64 written = target.write(decryptedChunk);
+        if (written != decryptedChunk.size()) {
+            qDebug() << "Operations_VP_Shows: Failed to write decrypted chunk";
+            source.close();
+            target.close();
+            target.remove();
+            return false;
+        }
+    }
+    
+    source.close();
+    target.close();
+    
+    qDebug() << "Operations_VP_Shows: Successfully decrypted video to:" << targetFile;
+    return true;
 }
 
 void Operations_VP_Shows::cleanupTempFile()
