@@ -10,6 +10,7 @@
 #include <QMap>
 #include <QPixmap>
 #include <QListWidgetItem>
+#include <QTreeWidgetItem>
 
 // Forward declarations
 class MainWindow;
@@ -27,6 +28,13 @@ private:
     
     // Store mapping between show names and their folder paths
     QMap<QString, QString> m_showFolderMapping;
+    
+    // Store mapping between episode display names and their file paths
+    // Key format: "ShowName_Season_Episode" -> filepath
+    QMap<QString, QString> m_episodeFileMapping;
+    
+    // Current displayed show folder path
+    QString m_currentShowFolder;
     
     // Helper functions
     QString selectVideoFile();
@@ -74,6 +82,12 @@ public:
     
     // Handle show list double-click
     void onShowListItemDoubleClicked(QListWidgetItem* item);
+    
+    // Load episodes for a show and populate tree widget
+    void loadShowEpisodes(const QString& showFolderPath);
+    
+    // Handle episode double-click in tree widget
+    void onEpisodeDoubleClicked(QTreeWidgetItem* item, int column);
 
 public slots:
     // Slot for debug button

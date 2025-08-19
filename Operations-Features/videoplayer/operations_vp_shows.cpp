@@ -5,8 +5,9 @@
 #include "vp_shows_progressdialogs.h"
 #include "vp_shows_metadata.h"
 #include "vp_shows_settings_dialog.h"
-#include "../../Operations-Global/operations_files.h"  // Add operations_files for secure file operations
-#include "../../Operations-Global/encryption/CryptoUtils.h"
+#include "vp_shows_tmdb.h"
+#include "operations_files.h"  // Add operations_files for secure file operations
+#include "CryptoUtils.h"
 #include <QDebug>
 #include <QFileInfo>
 #include <QTimer>
@@ -19,6 +20,9 @@
 #include <QLabel>
 #include <QStackedWidget>
 #include <QBuffer>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <algorithm>
 
 Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     : QObject(mainWindow)
@@ -57,6 +61,13 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
                     }
                 });
         qDebug() << "Operations_VP_Shows: Connected return to list button";
+    }
+    
+    // Connect episode tree widget double-click
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+        connect(m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList, &QTreeWidget::itemDoubleClicked,
+                this, &Operations_VP_Shows::onEpisodeDoubleClicked);
+        qDebug() << "Operations_VP_Shows: Connected episode tree widget double-click handler";
     }
     
     // Load the TV shows list on initialization
@@ -733,6 +744,9 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName)
     QString showFolderPath = m_showFolderMapping[showName];
     qDebug() << "Operations_VP_Shows: Show folder path:" << showFolderPath;
     
+    // Store current show folder for later use
+    m_currentShowFolder = showFolderPath;
+    
     // Update the show name label
     if (m_mainWindow->ui->label_VP_Shows_Display_Name) {
         m_mainWindow->ui->label_VP_Shows_Display_Name->setText(showName);
@@ -763,8 +777,8 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName)
         }
     }
     
-    // TODO: Load and display the episode list
-    // This will require parsing all video files in the folder and organizing them by season/episode
+    // Load and display the episode list
+    loadShowEpisodes(showFolderPath);
     
     // Switch to the display page
     if (m_mainWindow->ui->stackedWidget_VP_Shows) {
@@ -785,4 +799,172 @@ void Operations_VP_Shows::onShowListItemDoubleClicked(QListWidgetItem* item)
     
     // Display the show details
     displayShowDetails(showName);
+}
+
+void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
+{
+    qDebug() << "Operations_VP_Shows: Loading episodes from folder:" << showFolderPath;
+    
+    // Check if we have the tree widget
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+        qDebug() << "Operations_VP_Shows: Tree widget not available";
+        return;
+    }
+    
+    // Clear the tree widget and episode mapping
+    m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->clear();
+    m_episodeFileMapping.clear();
+    
+    // Set header for the tree widget
+    m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->setHeaderLabel(tr("Episodes"));
+    
+    // Get all video files in the folder
+    QDir showDir(showFolderPath);
+    QStringList videoExtensions;
+    videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
+                   << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+    showDir.setNameFilters(videoExtensions);
+    QStringList videoFiles = showDir.entryList(QDir::Files, QDir::Name);
+    
+    if (videoFiles.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No video files found in folder";
+        QTreeWidgetItem* noEpisodesItem = new QTreeWidgetItem();
+        noEpisodesItem->setText(0, tr("No episodes found"));
+        noEpisodesItem->setFlags(noEpisodesItem->flags() & ~Qt::ItemIsSelectable);
+        m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->addTopLevelItem(noEpisodesItem);
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Found" << videoFiles.size() << "video files";
+    
+    // Create metadata manager
+    VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    
+    // Map to organize episodes by season
+    // Key: season number, Value: list of episode items
+    QMap<int, QList<QPair<int, QTreeWidgetItem*>>> seasonEpisodes;
+    
+    // Process each video file
+    for (const QString& videoFile : videoFiles) {
+        QString videoPath = showDir.absoluteFilePath(videoFile);
+        
+        // Read metadata from the file
+        VP_ShowsMetadata::ShowMetadata metadata;
+        if (!metadataManager.readMetadataFromFile(videoPath, metadata)) {
+            qDebug() << "Operations_VP_Shows: Failed to read metadata from:" << videoFile;
+            continue;
+        }
+        
+        // Parse season and episode numbers
+        int seasonNum = metadata.season.toInt();
+        int episodeNum = metadata.episode.toInt();
+        
+        // If season/episode numbers are invalid, try to parse from filename
+        if (seasonNum == 0 || episodeNum == 0) {
+            VP_ShowsTMDB::parseEpisodeFromFilename(metadata.filename, seasonNum, episodeNum);
+        }
+        
+        // Default to season 1 if still no season number
+        if (seasonNum == 0) {
+            seasonNum = 1;
+        }
+        
+        // Create episode item
+        QTreeWidgetItem* episodeItem = new QTreeWidgetItem();
+        
+        // Format the episode name
+        QString episodeName;
+        if (!metadata.EPName.isEmpty()) {
+            // Use TMDB episode name if available
+            episodeName = QString("%1 - %2").arg(episodeNum).arg(metadata.EPName);
+        } else {
+            // Use original filename without extension as fallback
+            QFileInfo fileInfo(metadata.filename);
+            QString baseName = fileInfo.completeBaseName();
+            episodeName = QString("%1 - %2").arg(episodeNum).arg(baseName);
+        }
+        
+        episodeItem->setText(0, episodeName);
+        
+        // Store the file path in the item's data
+        episodeItem->setData(0, Qt::UserRole, videoPath);
+        
+        // Create mapping key and store the mapping
+        QString mappingKey = QString("%1_S%2E%3")
+            .arg(metadata.showName)
+            .arg(seasonNum, 2, 10, QChar('0'))
+            .arg(episodeNum, 2, 10, QChar('0'));
+        m_episodeFileMapping[mappingKey] = videoPath;
+        
+        // Add to season map
+        seasonEpisodes[seasonNum].append(QPair<int, QTreeWidgetItem*>(episodeNum, episodeItem));
+        
+        qDebug() << "Operations_VP_Shows: Added episode S" << seasonNum << "E" << episodeNum 
+                 << "-" << episodeName;
+    }
+    
+    // Create season items and add episodes
+    QList<int> seasons = seasonEpisodes.keys();
+    std::sort(seasons.begin(), seasons.end());
+    
+    for (int season : seasons) {
+        // Create season item
+        QTreeWidgetItem* seasonItem = new QTreeWidgetItem();
+        seasonItem->setText(0, tr("Season %1").arg(season));
+        
+        // Sort episodes by episode number
+        QList<QPair<int, QTreeWidgetItem*>>& episodes = seasonEpisodes[season];
+        std::sort(episodes.begin(), episodes.end(), 
+                  [](const QPair<int, QTreeWidgetItem*>& a, const QPair<int, QTreeWidgetItem*>& b) {
+                      return a.first < b.first;
+                  });
+        
+        // Add episodes to season
+        for (const auto& episode : episodes) {
+            seasonItem->addChild(episode.second);
+        }
+        
+        // Add season to tree widget
+        m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->addTopLevelItem(seasonItem);
+        
+        // Expand the season by default
+        seasonItem->setExpanded(true);
+    }
+    
+    qDebug() << "Operations_VP_Shows: Finished loading episodes. Total seasons:" << seasons.size();
+}
+
+void Operations_VP_Shows::onEpisodeDoubleClicked(QTreeWidgetItem* item, int column)
+{
+    Q_UNUSED(column);
+    
+    if (!item) {
+        qDebug() << "Operations_VP_Shows: Double-clicked item is null";
+        return;
+    }
+    
+    // Check if this is an episode item (not a season item)
+    if (item->childCount() > 0) {
+        // This is a season item, not an episode
+        qDebug() << "Operations_VP_Shows: Clicked on season item, not an episode";
+        return;
+    }
+    
+    // Get the file path from the item's data
+    QString videoPath = item->data(0, Qt::UserRole).toString();
+    
+    if (videoPath.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No video path stored for this episode";
+        return;
+    }
+    
+    QString episodeName = item->text(0);
+    qDebug() << "Operations_VP_Shows: Double-clicked on episode:" << episodeName;
+    qDebug() << "Operations_VP_Shows: Video path:" << videoPath;
+    
+    // TODO: Implement video playback
+    // For now, just show a message
+    QMessageBox::information(m_mainWindow, 
+                           tr("Play Episode"),
+                           tr("Playing episode: %1\n\nVideo playback will be implemented soon.").arg(episodeName));
 }
