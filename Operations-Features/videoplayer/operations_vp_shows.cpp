@@ -24,6 +24,7 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QMediaPlayer>
+#include <QCoreApplication>
 #include <algorithm>
 
 Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
@@ -87,6 +88,14 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
 Operations_VP_Shows::~Operations_VP_Shows()
 {
     qDebug() << "Operations_VP_Shows: Destructor called";
+    
+    // Force release and cleanup any playing video
+    if (m_episodePlayer) {
+        forceReleaseVideoFile();
+        // Reset the player to ensure it's properly closed
+        m_episodePlayer.reset();
+    }
+    
     if (m_encryptionDialog) {
         delete m_encryptionDialog;
     }
@@ -1070,17 +1079,15 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 this, [this](QMediaPlayer::PlaybackState state) {
             if (state == QMediaPlayer::StoppedState) {
                 qDebug() << "Operations_VP_Shows: Playback stopped, scheduling cleanup";
-                // Use a timer to delay cleanup slightly to ensure player has released the file
-                QTimer::singleShot(500, this, &Operations_VP_Shows::cleanupTempFile);
+                // Force the media player to release the file
+                forceReleaseVideoFile();
+                // Use a timer to delay cleanup to ensure file handle is fully released
+                QTimer::singleShot(1000, this, &Operations_VP_Shows::cleanupTempFile);
             }
         });
         
-        // Connect to destroyed signal to clean up temp file when window is closed
-        connect(m_episodePlayer.get(), &QObject::destroyed,
-                this, [this]() {
-            qDebug() << "Operations_VP_Shows: Video player window closed, cleaning up temp file";
-            cleanupTempFile();
-        });
+        // Note: We can't connect to destroyed signal directly since unique_ptr manages the object
+        // The cleanup will happen through playback state changes or when closing the window
     }
     
     // Load and play the video
@@ -1216,19 +1223,51 @@ void Operations_VP_Shows::cleanupTempFile()
     
     // Check if file exists
     if (QFile::exists(m_currentTempFile)) {
-        // Use operations_files secure delete for the temp file
-        bool deleted = OperationsFiles::secureDelete(m_currentTempFile, 1, true);
+        // Ensure file permissions allow deletion (Windows fix)
+#ifdef Q_OS_WIN
+        QFile::setPermissions(m_currentTempFile, 
+                            QFile::ReadOwner | QFile::WriteOwner | 
+                            QFile::ReadUser | QFile::WriteUser);
+#endif
+        
+        // Use operations_files secure delete for the temp file with 3 passes
+        // Set allowExternalFiles to true since this is a temp file
+        bool deleted = OperationsFiles::secureDelete(m_currentTempFile, 3, true);
         
         if (deleted) {
             qDebug() << "Operations_VP_Shows: Successfully deleted temp file";
         } else {
-            qDebug() << "Operations_VP_Shows: Failed to delete temp file, trying regular delete";
+            qDebug() << "Operations_VP_Shows: Failed to secure delete temp file, trying regular delete";
             // Try regular delete as fallback
-            QFile::remove(m_currentTempFile);
+            if (QFile::remove(m_currentTempFile)) {
+                qDebug() << "Operations_VP_Shows: Regular delete succeeded";
+            } else {
+                qDebug() << "Operations_VP_Shows: Regular delete also failed";
+                // Schedule another attempt later
+                QTimer::singleShot(2000, this, [this]() {
+                    if (!m_currentTempFile.isEmpty() && QFile::exists(m_currentTempFile)) {
+                        qDebug() << "Operations_VP_Shows: Retry deleting temp file";
+                        QFile::remove(m_currentTempFile);
+                    }
+                });
+            }
         }
     }
     
     m_currentTempFile.clear();
+}
+
+void Operations_VP_Shows::forceReleaseVideoFile()
+{
+    if (m_episodePlayer) {
+        qDebug() << "Operations_VP_Shows: Forcing media player to release file";
+        // Stop playback
+        m_episodePlayer->stop();
+        // Clear the media by loading an empty path
+        m_episodePlayer->loadVideo("");
+        // Process events to ensure the release takes effect
+        QCoreApplication::processEvents();
+    }
 }
 
 void Operations_VP_Shows::onPlayContinueClicked()

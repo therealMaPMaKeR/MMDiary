@@ -51,8 +51,14 @@ VP_ShowsEncryptionWorker::~VP_ShowsEncryptionWorker()
     // Clean up temp directory
     VP_ShowsConfig::cleanupTempDirectory(m_username);
     
-    delete m_metadataManager;
-    delete m_tmdbManager;
+    if (m_metadataManager) {
+        delete m_metadataManager;
+        m_metadataManager = nullptr;
+    }
+    if (m_tmdbManager) {
+        delete m_tmdbManager;
+        m_tmdbManager = nullptr;
+    }
 }
 
 void VP_ShowsEncryptionWorker::cancel()
@@ -227,7 +233,15 @@ bool VP_ShowsEncryptionWorker::encryptSingleFile(const QString& sourceFile,
         // Write size of encrypted chunk followed by the chunk
         QDataStream stream(&target);
         stream << qint32(encryptedChunk.size());
-        target.write(encryptedChunk);
+        qint64 bytesWritten = target.write(encryptedChunk);
+        
+        if (bytesWritten != encryptedChunk.size()) {
+            qDebug() << "VP_ShowsEncryptionWorker: Failed to write complete encrypted chunk";
+            source.close();
+            target.close();
+            target.remove();
+            return false;
+        }
         
         // Update progress
         fileProcessed += buffer.size();
@@ -250,7 +264,15 @@ bool VP_ShowsEncryptionWorker::encryptSingleFile(const QString& sourceFile,
     }
     
     source.close();
+    
+    // Ensure all data is written to disk before closing
+    target.flush();
     target.close();
+    
+#ifdef Q_OS_WIN
+    // On Windows, ensure proper file permissions
+    QFile::setPermissions(targetFile, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadUser | QFile::WriteUser);
+#endif
     
     qDebug() << "VP_ShowsEncryptionWorker: Successfully encrypted file:" << sourceFile;
     return true;
@@ -362,8 +384,8 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
     encryptedFile.write(encryptedImage);
     encryptedFile.close();
     
-    // Securely delete the temp file
-    OperationsFiles::secureDelete(tempImagePath, 3);
+    // Securely delete the temp file (set allowExternalFiles to true for temp files)
+    OperationsFiles::secureDelete(tempImagePath, 3, true);
     
     m_showImagePath = encryptedImagePath;
     qDebug() << "VP_ShowsEncryptionWorker: Successfully encrypted show image to:" << encryptedImagePath;
@@ -451,7 +473,10 @@ VP_ShowsDecryptionWorker::VP_ShowsDecryptionWorker(const QString& sourceFile,
 VP_ShowsDecryptionWorker::~VP_ShowsDecryptionWorker()
 {
     qDebug() << "VP_ShowsDecryptionWorker: Destructor called";
-    delete m_metadataManager;
+    if (m_metadataManager) {
+        delete m_metadataManager;
+        m_metadataManager = nullptr;
+    }
 }
 
 void VP_ShowsDecryptionWorker::cancel()
@@ -565,7 +590,15 @@ void VP_ShowsDecryptionWorker::doDecryption()
     }
     
     source.close();
+    
+    // Ensure all data is written to disk before closing
+    target.flush();
     target.close();
+    
+#ifdef Q_OS_WIN
+    // On Windows, ensure the file is not marked as read-only
+    QFile::setPermissions(m_targetFile, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadUser | QFile::WriteUser);
+#endif
     
     qDebug() << "VP_ShowsDecryptionWorker: Successfully decrypted file to" << m_targetFile;
     emit decryptionFinished(true, "Decryption completed successfully");

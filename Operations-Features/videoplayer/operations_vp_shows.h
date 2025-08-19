@@ -99,6 +99,9 @@ public:
     // Clean up temporary decrypted file
     void cleanupTempFile();
     
+    // Force media player to release video file
+    void forceReleaseVideoFile();
+    
     // Decrypt video file with metadata handling
     bool decryptVideoWithMetadata(const QString& sourceFile, const QString& targetFile);
 

@@ -258,6 +258,16 @@ bool VideoPlayer::loadVideo(const QString& filePath)
 {
     qDebug() << "VideoPlayer: Loading video:" << filePath;
     
+    // Handle empty path to clear the player
+    if (filePath.isEmpty()) {
+        qDebug() << "VideoPlayer: Clearing media player";
+        m_mediaPlayer->stop();
+        m_mediaPlayer->setSource(QUrl());
+        m_mediaPlayer->setVideoOutput(nullptr);
+        m_currentVideoPath.clear();
+        return true;
+    }
+    
     // Check if file exists
     QFileInfo fileInfo(filePath);
     if (!fileInfo.exists()) {
@@ -509,10 +519,17 @@ void VideoPlayer::closeEvent(QCloseEvent *event)
 {
     qDebug() << "VideoPlayer: Window closing, stopping playback";
     
-    // Stop playback before closing
+    // Stop playback and clear media source to release file handle
     if (m_mediaPlayer) {
         m_mediaPlayer->stop();
+        // Clear the source to release file handle
+        m_mediaPlayer->setSource(QUrl());
+        // Clear video output as well
+        m_mediaPlayer->setVideoOutput(nullptr);
     }
+    
+    // Clear current video path
+    m_currentVideoPath.clear();
     
     // Exit fullscreen if active
     if (m_isFullScreen) {
