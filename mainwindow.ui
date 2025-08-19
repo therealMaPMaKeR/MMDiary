@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>960</width>
-    <height>540</height>
+    <width>1392</width>
+    <height>884</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -2008,7 +2008,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
         <item>
          <widget class="QTabWidget" name="tabWidget_VideoPlayer">
           <property name="currentIndex">
-           <number>3</number>
+           <number>0</number>
           </property>
           <widget class="QWidget" name="tab_Shows">
            <attribute name="title">
@@ -2032,17 +2032,59 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <property name="currentIndex">
                    <number>0</number>
                   </property>
+                  <widget class="QWidget" name="tab_ShowsList_List">
+                   <attribute name="title">
+                    <string>List</string>
+                   </attribute>
+                   <layout class="QVBoxLayout" name="verticalLayout_28">
+                    <item>
+                     <widget class="QListWidget" name="listWidget_VP_List_List"/>
+                    </item>
+                   </layout>
+                  </widget>
                   <widget class="QWidget" name="tab_ShowsList_Icons">
                    <attribute name="title">
                     <string>Icons</string>
                    </attribute>
                   </widget>
-                  <widget class="QWidget" name="tab_ShowsList_List">
-                   <attribute name="title">
-                    <string>List</string>
-                   </attribute>
-                  </widget>
                  </widget>
+                </item>
+                <item>
+                 <layout class="QHBoxLayout" name="horizontalLayout_22">
+                  <item>
+                   <spacer name="horizontalSpacer_2">
+                    <property name="orientation">
+                     <enum>Qt::Horizontal</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                     <size>
+                      <width>40</width>
+                      <height>20</height>
+                     </size>
+                    </property>
+                   </spacer>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="pushButton_VP_List_AddShow">
+                    <property name="text">
+                     <string>Add Show</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <spacer name="horizontalSpacer_6">
+                    <property name="orientation">
+                     <enum>Qt::Horizontal</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                     <size>
+                      <width>40</width>
+                      <height>20</height>
+                     </size>
+                    </property>
+                   </spacer>
+                  </item>
+                 </layout>
                 </item>
                </layout>
               </widget>
@@ -2287,7 +2329,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>960</width>
+     <width>1392</width>
      <height>21</height>
     </rect>
    </property>
