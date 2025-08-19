@@ -64,6 +64,10 @@ public:
     
     // Scale image to specified dimensions (for EPImage thumbnail)
     static QByteArray scaleImageToSize(const QByteArray& imageData, int width, int height);
+    
+    // Generate a proper temp file path in the app user temp directory
+    // This ensures we use Data/username/temp instead of system temp
+    static QString generateTempFilePath(const QString& prefix = "tmdb", const QString& extension = ".tmp");
 
 private:
     std::unique_ptr<QNetworkAccessManager> m_networkManager;

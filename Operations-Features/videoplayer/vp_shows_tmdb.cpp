@@ -1,5 +1,5 @@
 #include "vp_shows_tmdb.h"
-#include "operations_files.h"
+#include "../../Operations-Global/operations_files.h"
 #include "inputvalidation.h"
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -12,6 +12,8 @@
 #include <QBuffer>
 #include <QPainter>
 #include <QRegularExpression>
+#include <QTemporaryFile>
+#include <QDir>
 
 VP_ShowsTMDB::VP_ShowsTMDB(QObject *parent)
     : QObject(parent)
@@ -297,9 +299,33 @@ bool VP_ShowsTMDB::getEpisodeInfo(int tmdbId, int season, int episode, EpisodeIn
 
 bool VP_ShowsTMDB::downloadImage(const QString& imagePath, const QString& tempFilePath, bool isPoster)
 {
-    if (imagePath.isEmpty() || tempFilePath.isEmpty()) {
-        qDebug() << "VP_ShowsTMDB: Empty image path or temp file path";
+    if (imagePath.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Empty image path";
         return false;
+    }
+    
+    // Create a temporary file in the app user temp directory if no path provided
+    QString actualTempPath = tempFilePath;
+    std::unique_ptr<QTemporaryFile> tempFilePtr;
+    
+    if (actualTempPath.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Creating temp file in app user directory";
+        QString templateStr = "tmdb_image_XXXXXX";
+        if (isPoster) {
+            templateStr = "tmdb_poster_XXXXXX";
+        } else {
+            templateStr = "tmdb_still_XXXXXX";
+        }
+        
+        tempFilePtr = OperationsFiles::createTempFile(templateStr, false);
+        if (!tempFilePtr) {
+            qDebug() << "VP_ShowsTMDB: Failed to create temp file";
+            return false;
+        }
+        
+        actualTempPath = tempFilePtr->fileName();
+        tempFilePtr->close();  // Close but keep the file
+        qDebug() << "VP_ShowsTMDB: Created temp file at:" << actualTempPath;
     }
     
     // Determine size based on image type
@@ -332,9 +358,13 @@ bool VP_ShowsTMDB::downloadImage(const QString& imagePath, const QString& tempFi
     }
     
     // Write to temp file using secure file operations
-    QFile tempFile(tempFilePath);
+    QFile tempFile(actualTempPath);
     if (!tempFile.open(QIODevice::WriteOnly)) {
         qDebug() << "VP_ShowsTMDB: Failed to open temp file for writing";
+        if (!tempFilePath.isEmpty() && tempFilePtr) {
+            // If we created the temp file, clean it up
+            OperationsFiles::secureDelete(actualTempPath, 1, false);
+        }
         return false;
     }
     
@@ -343,11 +373,27 @@ bool VP_ShowsTMDB::downloadImage(const QString& imagePath, const QString& tempFi
     
     if (written != imageData.size()) {
         qDebug() << "VP_ShowsTMDB: Failed to write complete image data";
-        OperationsFiles::secureDelete(tempFilePath, 3);
+        if (!tempFilePath.isEmpty() && tempFilePtr) {
+            // If we created the temp file, clean it up
+            OperationsFiles::secureDelete(actualTempPath, 1, false);
+        }
         return false;
     }
     
-    qDebug() << "VP_ShowsTMDB: Successfully downloaded image to:" << tempFilePath;
+    // If a specific temp path was requested and we created our own temp file,
+    // move the file to the requested location
+    if (!tempFilePath.isEmpty() && tempFilePtr) {
+        QFile::remove(tempFilePath);  // Remove target if it exists
+        if (!QFile::rename(actualTempPath, tempFilePath)) {
+            qDebug() << "VP_ShowsTMDB: Failed to move temp file to requested location";
+            OperationsFiles::secureDelete(actualTempPath, 1, false);
+            return false;
+        }
+        qDebug() << "VP_ShowsTMDB: Successfully downloaded image to:" << tempFilePath;
+    } else {
+        qDebug() << "VP_ShowsTMDB: Successfully downloaded image to:" << actualTempPath;
+    }
+    
     return true;
 }
 
@@ -448,4 +494,28 @@ QByteArray VP_ShowsTMDB::scaleImageToSize(const QByteArray& imageData, int width
             << "bytes to" << scaledData.size() << "bytes";
     
     return scaledData;
+}
+
+QString VP_ShowsTMDB::generateTempFilePath(const QString& prefix, const QString& extension)
+{
+    // Create a temp file using the operations_files secure temp file creation
+    // This ensures we use Data/username/temp instead of system temp
+    QString templateStr = prefix + "_XXXXXX";
+    if (!extension.isEmpty() && !extension.startsWith('.')) {
+        templateStr += "." + extension;
+    } else if (!extension.isEmpty()) {
+        templateStr += extension;
+    }
+    
+    auto tempFile = OperationsFiles::createTempFile(templateStr, false);
+    if (!tempFile) {
+        qDebug() << "VP_ShowsTMDB: Failed to create temp file with template:" << templateStr;
+        return QString();
+    }
+    
+    QString tempPath = tempFile->fileName();
+    tempFile->close();  // Close but keep the file on disk
+    
+    qDebug() << "VP_ShowsTMDB: Generated temp file path:" << tempPath;
+    return tempPath;
 }

@@ -289,7 +289,8 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
         return false;
     }
     
-    QString tempImagePath = tempDir + "/temp_show_poster.jpg";
+    // Use consistent naming pattern for cleanup
+    QString tempImagePath = tempDir + "/temp_show_poster_" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".jpg";
     
     // Download the poster
     if (!m_tmdbManager->downloadImage(m_showInfo.posterPath, tempImagePath, true)) {
@@ -368,7 +369,8 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 // Download and scale episode thumbnail if available
                 if (!episodeInfo.stillPath.isEmpty()) {
                     QString tempDir = VP_ShowsConfig::getTempDirectory(m_username);
-                    QString tempThumbPath = tempDir + "/temp_episode_thumb.jpg";
+                    // Use consistent naming pattern with unique identifier for cleanup
+                    QString tempThumbPath = tempDir + "/temp_episode_thumb_" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".jpg";
                     
                     if (m_tmdbManager->downloadImage(episodeInfo.stillPath, tempThumbPath, false)) {
                         QFile thumbFile(tempThumbPath);

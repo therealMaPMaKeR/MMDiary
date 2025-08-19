@@ -19,10 +19,12 @@ public:
     // Enable/disable TMDB integration
     static void setTMDBEnabled(bool enabled);
     
-    // Get temp directory for TV shows
+    // Get temp directory for TV shows (uses Data/username/temp, NOT system temp)
+    // Returns empty string if directory creation fails
     static QString getTempDirectory(const QString& username);
     
-    // Clean up temp directory
+    // Clean up TMDB temp files (removes only TMDB-related files in Data/username/temp)
+    // Only cleans files matching patterns: tmdb_*, temp_show_*, temp_episode_*
     static void cleanupTempDirectory(const QString& username);
     
 private:
