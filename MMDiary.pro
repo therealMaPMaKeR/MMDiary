@@ -87,6 +87,9 @@ SOURCES += \
     Operations-Features/videoplayer/vp_shows_metadata.cpp \
     Operations-Features/videoplayer/vp_shows_encryptionworkers.cpp \
     Operations-Features/videoplayer/vp_shows_progressdialogs.cpp \
+    Operations-Features/videoplayer/vp_shows_tmdb.cpp \
+    Operations-Features/videoplayer/vp_shows_config.cpp \
+    Operations-Features/videoplayer/vp_shows_settings_dialog.cpp \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.cpp \
     Operations-Features/encrypteddata/encrypteddata_fileiconprovider.cpp \
     Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.cpp \
@@ -129,6 +132,9 @@ HEADERS += \
     Operations-Features/videoplayer/vp_shows_metadata.h \
     Operations-Features/videoplayer/vp_shows_encryptionworkers.h \
     Operations-Features/videoplayer/vp_shows_progressdialogs.h \
+    Operations-Features/videoplayer/vp_shows_tmdb.h \
+    Operations-Features/videoplayer/vp_shows_config.h \
+    Operations-Features/videoplayer/vp_shows_settings_dialog.h \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.h \
     Operations-Features/encrypteddata/encrypteddata_fileiconprovider.h \
     Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.h \

@@ -4,6 +4,7 @@
 #include "regularplayer/videoplayer.h"
 #include "vp_shows_progressdialogs.h"
 #include "vp_shows_metadata.h"
+#include "vp_shows_settings_dialog.h"
 #include "../../Operations-Global/operations_files.h"  // Add operations_files for secure file operations
 #include <QDebug>
 #include <QFileInfo>
@@ -509,4 +510,22 @@ void Operations_VP_Shows::refreshTVShowsList()
     
     // Simply call loadTVShowsList to reload the entire list
     loadTVShowsList();
+}
+
+void Operations_VP_Shows::openSettings()
+{
+    qDebug() << "Operations_VP_Shows: Opening TV shows settings dialog";
+    
+    VP_ShowsSettingsDialog settingsDialog(m_mainWindow);
+    
+    // Show the dialog modally
+    if (settingsDialog.exec() == QDialog::Accepted) {
+        qDebug() << "Operations_VP_Shows: Settings saved";
+        
+        // Optionally refresh the shows list in case TMDB settings changed
+        // This would be relevant if we display TMDB-sourced data in the list
+        // For now, we just log that settings were saved
+    } else {
+        qDebug() << "Operations_VP_Shows: Settings dialog cancelled";
+    }
 }

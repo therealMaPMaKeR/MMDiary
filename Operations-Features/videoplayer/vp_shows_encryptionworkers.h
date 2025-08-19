@@ -7,6 +7,7 @@
 #include <QStringList>
 #include <QByteArray>
 #include "vp_shows_metadata.h"
+#include "vp_shows_tmdb.h"
 
 // Forward declarations
 class VP_ShowsMetadata;
@@ -56,11 +57,22 @@ private:
     bool m_cancelled;
     QMutex m_cancelMutex;
     VP_ShowsMetadata* m_metadataManager;
+    VP_ShowsTMDB* m_tmdbManager;
+    
+    // TMDB data cache
+    VP_ShowsTMDB::ShowInfo m_showInfo;
+    bool m_tmdbDataAvailable;
+    QString m_showImagePath;  // Path to encrypted show image
     
     bool encryptSingleFile(const QString& sourceFile, 
                           const QString& targetFile,
                           qint64 currentTotalProcessed, 
                           qint64 totalSize);
+    
+    // New helper methods
+    bool fetchTMDBShowData();
+    bool downloadAndEncryptShowImage(const QString& targetFolder);
+    VP_ShowsMetadata::ShowMetadata createMetadataWithTMDB(const QString& filename);
 };
 
 // Worker class for decrypting TV show video files (for playback)

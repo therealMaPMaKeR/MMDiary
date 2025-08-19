@@ -47,6 +47,9 @@ public:
     
     // Refresh the TV shows list (public version that can be called from outside)
     void refreshTVShowsList();
+    
+    // Open TV shows settings dialog
+    void openSettings();
 
 public slots:
     // Slot for debug button

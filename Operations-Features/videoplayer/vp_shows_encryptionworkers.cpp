@@ -1,9 +1,15 @@
 #include "vp_shows_encryptionworkers.h"
+#include "vp_shows_config.h"
 #include "CryptoUtils.h"
+#include "operations_files.h"
 #include <QFile>
 #include <QFileInfo>
+#include <QDir>
 #include <QDebug>
 #include <QThread>
+#include <QUuid>
+#include <QImage>
+#include <QBuffer>
 
 //---------------- VP_ShowsEncryptionWorker ----------------//
 
@@ -18,15 +24,35 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
     , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(false)
+    , m_tmdbDataAvailable(false)
 {
     qDebug() << "VP_ShowsEncryptionWorker: Constructor called for" << sourceFiles.size() << "files";
     m_metadataManager = new VP_ShowsMetadata(encryptionKey, username);
+    m_tmdbManager = new VP_ShowsTMDB(this);
+    
+    // Set TMDB API key from configuration
+    if (VP_ShowsConfig::isTMDBEnabled()) {
+        QString apiKey = VP_ShowsConfig::getTMDBApiKey();
+        if (!apiKey.isEmpty()) {
+            m_tmdbManager->setApiKey(apiKey);
+            qDebug() << "VP_ShowsEncryptionWorker: TMDB API key configured";
+        } else {
+            qDebug() << "VP_ShowsEncryptionWorker: No TMDB API key available";
+        }
+    } else {
+        qDebug() << "VP_ShowsEncryptionWorker: TMDB integration disabled";
+    }
 }
 
 VP_ShowsEncryptionWorker::~VP_ShowsEncryptionWorker()
 {
     qDebug() << "VP_ShowsEncryptionWorker: Destructor called";
+    
+    // Clean up temp directory
+    VP_ShowsConfig::cleanupTempDirectory(m_username);
+    
     delete m_metadataManager;
+    delete m_tmdbManager;
 }
 
 void VP_ShowsEncryptionWorker::cancel()
@@ -49,6 +75,16 @@ void VP_ShowsEncryptionWorker::doEncryption()
         emit encryptionFinished(false, "Source and target file lists size mismatch", 
                                QStringList(), QStringList());
         return;
+    }
+    
+    // Try to fetch TMDB data for the show
+    m_tmdbDataAvailable = fetchTMDBShowData();
+    
+    // If we have TMDB data, download and encrypt the show image
+    if (m_tmdbDataAvailable && !m_targetFiles.isEmpty()) {
+        QFileInfo firstTargetInfo(m_targetFiles.first());
+        QString targetFolder = firstTargetInfo.absolutePath();
+        downloadAndEncryptShowImage(targetFolder);
     }
     
     // Calculate total size for progress tracking
@@ -141,14 +177,9 @@ bool VP_ShowsEncryptionWorker::encryptSingleFile(const QString& sourceFile,
         return false;
     }
     
-    // Create metadata for this file
+    // Create metadata for this file with TMDB data if available
     QFileInfo fileInfo(sourceFile);
-    VP_ShowsMetadata::ShowMetadata metadata(
-        fileInfo.fileName(),  // Original filename
-        m_showName,          // Show name from folder
-        QString(),           // Season (empty for now)
-        QString()            // Episode (empty for now)
-    );
+    VP_ShowsMetadata::ShowMetadata metadata = createMetadataWithTMDB(fileInfo.fileName());
     
     // Write metadata header (fixed size)
     if (!m_metadataManager->writeFixedSizeEncryptedMetadata(&target, metadata)) {
@@ -223,6 +254,151 @@ bool VP_ShowsEncryptionWorker::encryptSingleFile(const QString& sourceFile,
     
     qDebug() << "VP_ShowsEncryptionWorker: Successfully encrypted file:" << sourceFile;
     return true;
+}
+
+bool VP_ShowsEncryptionWorker::fetchTMDBShowData()
+{
+    if (m_showName.isEmpty()) {
+        qDebug() << "VP_ShowsEncryptionWorker: Cannot fetch TMDB data without show name";
+        return false;
+    }
+    
+    // Search for the show on TMDB
+    bool success = m_tmdbManager->searchTVShow(m_showName, m_showInfo);
+    
+    if (success) {
+        qDebug() << "VP_ShowsEncryptionWorker: Found TMDB data for show:" << m_showInfo.showName;
+    } else {
+        qDebug() << "VP_ShowsEncryptionWorker: No TMDB data found for show:" << m_showName;
+    }
+    
+    return success;
+}
+
+bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& targetFolder)
+{
+    if (!m_tmdbDataAvailable || m_showInfo.posterPath.isEmpty()) {
+        qDebug() << "VP_ShowsEncryptionWorker: No show poster available";
+        return false;
+    }
+    
+    // Create temp file for downloading the image
+    QString tempDir = VP_ShowsConfig::getTempDirectory(m_username);
+    if (tempDir.isEmpty()) {
+        qDebug() << "VP_ShowsEncryptionWorker: Failed to get temp directory";
+        return false;
+    }
+    
+    QString tempImagePath = tempDir + "/temp_show_poster.jpg";
+    
+    // Download the poster
+    if (!m_tmdbManager->downloadImage(m_showInfo.posterPath, tempImagePath, true)) {
+        qDebug() << "VP_ShowsEncryptionWorker: Failed to download show poster";
+        return false;
+    }
+    
+    // Read the downloaded image
+    QFile tempFile(tempImagePath);
+    if (!tempFile.open(QIODevice::ReadOnly)) {
+        qDebug() << "VP_ShowsEncryptionWorker: Failed to open downloaded poster";
+        OperationsFiles::secureDelete(tempImagePath, 3);
+        return false;
+    }
+    
+    QByteArray imageData = tempFile.readAll();
+    tempFile.close();
+    
+    // Generate obfuscated filename
+    QString obfuscatedName = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QString encryptedImagePath = targetFolder + "/showimage_" + obfuscatedName + ".enc";
+    
+    // Encrypt the image data
+    QByteArray encryptedImage = CryptoUtils::Encryption_EncryptBArray(m_encryptionKey, imageData, m_username);
+    
+    if (encryptedImage.isEmpty()) {
+        qDebug() << "VP_ShowsEncryptionWorker: Failed to encrypt show image";
+        OperationsFiles::secureDelete(tempImagePath, 3);
+        return false;
+    }
+    
+    // Write encrypted image to file
+    QFile encryptedFile(encryptedImagePath);
+    if (!encryptedFile.open(QIODevice::WriteOnly)) {
+        qDebug() << "VP_ShowsEncryptionWorker: Failed to create encrypted image file";
+        OperationsFiles::secureDelete(tempImagePath, 3);
+        return false;
+    }
+    
+    encryptedFile.write(encryptedImage);
+    encryptedFile.close();
+    
+    // Securely delete the temp file
+    OperationsFiles::secureDelete(tempImagePath, 3);
+    
+    m_showImagePath = encryptedImagePath;
+    qDebug() << "VP_ShowsEncryptionWorker: Successfully encrypted show image to:" << encryptedImagePath;
+    
+    return true;
+}
+
+VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(const QString& filename)
+{
+    VP_ShowsMetadata::ShowMetadata metadata;
+    metadata.filename = filename;
+    metadata.showName = m_showName;
+    
+    // Try to parse season and episode from filename
+    int season = 0, episode = 0;
+    if (VP_ShowsTMDB::parseEpisodeFromFilename(filename, season, episode)) {
+        metadata.season = QString::number(season);
+        metadata.episode = QString::number(episode);
+        
+        qDebug() << "VP_ShowsEncryptionWorker: Parsed episode info - S" << season << "E" << episode;
+        
+        // If we have TMDB data and valid episode info, try to get episode details
+        if (m_tmdbDataAvailable && m_showInfo.tmdbId > 0) {
+            VP_ShowsTMDB::EpisodeInfo episodeInfo;
+            
+            // Add small delay to avoid rate limiting (TMDB allows 40 requests/10 seconds)
+            QThread::msleep(250); // 250ms delay between API calls
+            
+            if (m_tmdbManager->getEpisodeInfo(m_showInfo.tmdbId, season, episode, episodeInfo)) {
+                metadata.EPName = episodeInfo.episodeName;
+                
+                // Download and scale episode thumbnail if available
+                if (!episodeInfo.stillPath.isEmpty()) {
+                    QString tempDir = VP_ShowsConfig::getTempDirectory(m_username);
+                    QString tempThumbPath = tempDir + "/temp_episode_thumb.jpg";
+                    
+                    if (m_tmdbManager->downloadImage(episodeInfo.stillPath, tempThumbPath, false)) {
+                        QFile thumbFile(tempThumbPath);
+                        if (thumbFile.open(QIODevice::ReadOnly)) {
+                            QByteArray thumbData = thumbFile.readAll();
+                            thumbFile.close();
+                            
+                            // Scale to 128x128
+                            QByteArray scaledThumb = VP_ShowsTMDB::scaleImageToSize(thumbData, 128, 128);
+                            
+                            if (!scaledThumb.isEmpty() && scaledThumb.size() <= VP_ShowsMetadata::MAX_EP_IMAGE_SIZE) {
+                                metadata.EPImage = scaledThumb;
+                                qDebug() << "VP_ShowsEncryptionWorker: Added episode thumbnail (" 
+                                        << scaledThumb.size() << "bytes)";
+                            }
+                            
+                            // Securely delete temp file
+                            OperationsFiles::secureDelete(tempThumbPath, 3);
+                        }
+                    }
+                }
+                
+                qDebug() << "VP_ShowsEncryptionWorker: Added TMDB episode data:" << metadata.EPName;
+            }
+        }
+    } else {
+        qDebug() << "VP_ShowsEncryptionWorker: Could not parse episode info from filename:" << filename;
+    }
+    
+    return metadata;
 }
 
 //---------------- VP_ShowsDecryptionWorker ----------------//

@@ -121,6 +121,8 @@ QByteArray VP_ShowsMetadata::createMetadataChunk(const ShowMetadata& metadata)
     stream << metadata.showName;
     stream << metadata.season;
     stream << metadata.episode;
+    stream << metadata.EPName;      // New field
+    stream << metadata.EPImage;     // New field
     stream << metadata.encryptionDateTime;
     
     return chunk;
@@ -141,6 +143,8 @@ bool VP_ShowsMetadata::parseMetadataChunk(const QByteArray& chunk, ShowMetadata&
     stream >> metadata.showName;
     stream >> metadata.season;
     stream >> metadata.episode;
+    stream >> metadata.EPName;      // New field
+    stream >> metadata.EPImage;     // New field
     stream >> metadata.encryptionDateTime;
     
     if (stream.status() != QDataStream::Ok) {

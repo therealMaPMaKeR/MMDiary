@@ -1,0 +1,451 @@
+#include "vp_shows_tmdb.h"
+#include "operations_files.h"
+#include "inputvalidation.h"
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QNetworkRequest>
+#include <QUrl>
+#include <QUrlQuery>
+#include <QDebug>
+#include <QFile>
+#include <QImage>
+#include <QBuffer>
+#include <QPainter>
+#include <QRegularExpression>
+
+VP_ShowsTMDB::VP_ShowsTMDB(QObject *parent)
+    : QObject(parent)
+    , m_networkManager(std::make_unique<QNetworkAccessManager>(this))
+    , m_baseUrl("https://api.themoviedb.org/3")
+    , m_imageBaseUrl("https://image.tmdb.org/t/p")
+{
+    qDebug() << "VP_ShowsTMDB: Constructor called";
+}
+
+VP_ShowsTMDB::~VP_ShowsTMDB()
+{
+    qDebug() << "VP_ShowsTMDB: Destructor called";
+}
+
+void VP_ShowsTMDB::setApiKey(const QString& apiKey)
+{
+    m_apiKey = apiKey;
+    qDebug() << "VP_ShowsTMDB: API key set";
+    
+    // Initialize configuration when API key is set
+    if (!m_apiKey.isEmpty()) {
+        initializeConfiguration();
+    }
+}
+
+bool VP_ShowsTMDB::initializeConfiguration()
+{
+    if (m_apiKey.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Cannot initialize configuration without API key";
+        return false;
+    }
+    
+    QString endpoint = "/configuration";
+    QJsonObject response = makeApiRequest(endpoint);
+    
+    if (response.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Failed to get configuration";
+        return false;
+    }
+    
+    QJsonObject images = response["images"].toObject();
+    QString secureBaseUrl = images["secure_base_url"].toString();
+    QString baseUrl = images["base_url"].toString();
+    
+    // Prefer secure URL if available, fallback to regular base URL
+    if (!secureBaseUrl.isEmpty()) {
+        m_imageBaseUrl = secureBaseUrl;
+        qDebug() << "VP_ShowsTMDB: Using secure image base URL:" << m_imageBaseUrl;
+    } else if (!baseUrl.isEmpty()) {
+        m_imageBaseUrl = baseUrl;
+        qDebug() << "VP_ShowsTMDB: Using regular image base URL:" << m_imageBaseUrl;
+    } else {
+        // Fallback to default if configuration fails
+        m_imageBaseUrl = "https://image.tmdb.org/t/p";
+        qDebug() << "VP_ShowsTMDB: Using default image base URL:" << m_imageBaseUrl;
+    }
+    
+    return true;
+}
+
+QString VP_ShowsTMDB::sanitizeShowName(const QString& showName)
+{
+    // Remove common patterns that might interfere with search
+    QString sanitized = showName;
+    
+    // Remove year patterns like (2023) or [2023]
+    sanitized.remove(QRegularExpression("\\s*[\\(\\[]\\d{4}[\\)\\]]\\s*"));
+    
+    // Remove quality indicators
+    sanitized.remove(QRegularExpression("\\s*(1080p|720p|480p|2160p|4K|HD|SD)", QRegularExpression::CaseInsensitiveOption));
+    
+    // Remove file extensions if present
+    sanitized.remove(QRegularExpression("\\.(mkv|mp4|avi|mov|wmv|flv|webm)$", QRegularExpression::CaseInsensitiveOption));
+    
+    // Trim whitespace
+    sanitized = sanitized.trimmed();
+    
+    qDebug() << "VP_ShowsTMDB: Sanitized show name from" << showName << "to" << sanitized;
+    return sanitized;
+}
+
+QJsonObject VP_ShowsTMDB::makeApiRequest(const QString& endpoint)
+{
+    if (m_apiKey.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: API key not set";
+        return QJsonObject();
+    }
+    
+    QUrl url(m_baseUrl + endpoint);
+    
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setRawHeader("Accept", "application/json");
+    
+    // Support both API key and Bearer token authentication
+    if (m_apiKey.startsWith("Bearer ") || m_apiKey.length() > 100) {
+        // If it looks like a Bearer token (long string), use Authorization header
+        QString bearerToken = m_apiKey.startsWith("Bearer ") ? m_apiKey : "Bearer " + m_apiKey;
+        request.setRawHeader("Authorization", bearerToken.toUtf8());
+    } else {
+        // Use traditional API key as query parameter
+        QUrlQuery query(url.query());
+        query.addQueryItem("api_key", m_apiKey);
+        url.setQuery(query);
+    }
+    
+    QEventLoop loop;
+    QNetworkReply* reply = m_networkManager->get(request);
+    
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    
+    if (reply->error() != QNetworkReply::NoError) {
+        int httpStatusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        
+        if (httpStatusCode == 429) {
+            // Rate limit exceeded
+            qDebug() << "VP_ShowsTMDB: Rate limit exceeded. Please wait before making more requests.";
+        } else if (httpStatusCode == 401) {
+            qDebug() << "VP_ShowsTMDB: Authentication failed. Please check your API key.";
+        } else {
+            qDebug() << "VP_ShowsTMDB: Network error (" << httpStatusCode << "):" << reply->errorString();
+        }
+        
+        reply->deleteLater();
+        return QJsonObject();
+    }
+    
+    QByteArray data = reply->readAll();
+    reply->deleteLater();
+    
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (doc.isNull() || !doc.isObject()) {
+        qDebug() << "VP_ShowsTMDB: Invalid JSON response";
+        return QJsonObject();
+    }
+    
+    return doc.object();
+}
+
+bool VP_ShowsTMDB::searchTVShow(const QString& showName, ShowInfo& showInfo)
+{
+    if (showName.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Empty show name provided";
+        return false;
+    }
+    
+    QString sanitizedName = sanitizeShowName(showName);
+    
+    // Validate input
+    InputValidation::ValidationResult validationResult = 
+        InputValidation::validateInput(sanitizedName, InputValidation::InputType::PlainText, 100);
+    
+    if (!validationResult.isValid) {
+        qDebug() << "VP_ShowsTMDB: Invalid show name after sanitization:" << validationResult.errorMessage;
+        return false;
+    }
+    
+    QString endpoint = "/search/tv";
+    QUrl url(m_baseUrl + endpoint);
+    QUrlQuery query;
+    query.addQueryItem("query", sanitizedName);
+    
+    // Support both API key and Bearer token authentication
+    if (m_apiKey.startsWith("Bearer ") || m_apiKey.length() > 100) {
+        // Use Bearer token in header, don't add API key to query
+        url.setQuery(query);
+    } else {
+        // Add API key to query parameters
+        query.addQueryItem("api_key", m_apiKey);
+        url.setQuery(query);
+    }
+    
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    
+    // Add Bearer token to header if applicable
+    if (m_apiKey.startsWith("Bearer ") || m_apiKey.length() > 100) {
+        QString bearerToken = m_apiKey.startsWith("Bearer ") ? m_apiKey : "Bearer " + m_apiKey;
+        request.setRawHeader("Authorization", bearerToken.toUtf8());
+    }
+    
+    QEventLoop loop;
+    QNetworkReply* reply = m_networkManager->get(request);
+    
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    
+    if (reply->error() != QNetworkReply::NoError) {
+        int httpStatusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        
+        if (httpStatusCode == 429) {
+            qDebug() << "VP_ShowsTMDB: Rate limit exceeded. Please wait before searching again.";
+        } else if (httpStatusCode == 401) {
+            qDebug() << "VP_ShowsTMDB: Authentication failed. Please check your API key.";
+        } else {
+            qDebug() << "VP_ShowsTMDB: Search request failed (" << httpStatusCode << "):" << reply->errorString();
+        }
+        
+        reply->deleteLater();
+        return false;
+    }
+    
+    QByteArray data = reply->readAll();
+    reply->deleteLater();
+    
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (doc.isNull() || !doc.isObject()) {
+        qDebug() << "VP_ShowsTMDB: Invalid search response";
+        return false;
+    }
+    
+    QJsonObject response = doc.object();
+    QJsonArray results = response["results"].toArray();
+    
+    if (results.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: No results found for" << sanitizedName;
+        return false;
+    }
+    
+    // Get the first result (most relevant)
+    QJsonObject firstResult = results[0].toObject();
+    
+    showInfo.tmdbId = firstResult["id"].toInt();
+    showInfo.showName = firstResult["name"].toString();
+    showInfo.overview = firstResult["overview"].toString();
+    showInfo.posterPath = firstResult["poster_path"].toString();
+    showInfo.backdropPath = firstResult["backdrop_path"].toString();
+    showInfo.firstAirDate = firstResult["first_air_date"].toString();
+    
+    qDebug() << "VP_ShowsTMDB: Found show:" << showInfo.showName << "ID:" << showInfo.tmdbId;
+    
+    // Get season information
+    QString seasonsEndpoint = QString("/tv/%1").arg(showInfo.tmdbId);
+    QJsonObject showDetails = makeApiRequest(seasonsEndpoint);
+    
+    if (!showDetails.isEmpty()) {
+        QJsonArray seasons = showDetails["seasons"].toArray();
+        for (const QJsonValue& season : seasons) {
+            QJsonObject seasonObj = season.toObject();
+            int seasonNumber = seasonObj["season_number"].toInt();
+            if (seasonNumber > 0) {  // Skip season 0 (specials)
+                showInfo.seasonNumbers.append(seasonNumber);
+            }
+        }
+        qDebug() << "VP_ShowsTMDB: Found" << showInfo.seasonNumbers.size() << "seasons";
+    }
+    
+    return true;
+}
+
+bool VP_ShowsTMDB::getEpisodeInfo(int tmdbId, int season, int episode, EpisodeInfo& episodeInfo)
+{
+    if (tmdbId <= 0 || season <= 0 || episode <= 0) {
+        qDebug() << "VP_ShowsTMDB: Invalid parameters for episode info";
+        return false;
+    }
+    
+    QString endpoint = QString("/tv/%1/season/%2/episode/%3")
+                      .arg(tmdbId)
+                      .arg(season)
+                      .arg(episode);
+    
+    QJsonObject response = makeApiRequest(endpoint);
+    
+    if (response.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Failed to get episode info for S" << season << "E" << episode;
+        return false;
+    }
+    
+    episodeInfo.episodeName = response["name"].toString();
+    episodeInfo.overview = response["overview"].toString();
+    episodeInfo.stillPath = response["still_path"].toString();
+    episodeInfo.seasonNumber = response["season_number"].toInt();
+    episodeInfo.episodeNumber = response["episode_number"].toInt();
+    episodeInfo.airDate = response["air_date"].toString();
+    
+    qDebug() << "VP_ShowsTMDB: Got episode info:" << episodeInfo.episodeName;
+    
+    return true;
+}
+
+bool VP_ShowsTMDB::downloadImage(const QString& imagePath, const QString& tempFilePath, bool isPoster)
+{
+    if (imagePath.isEmpty() || tempFilePath.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Empty image path or temp file path";
+        return false;
+    }
+    
+    // Determine size based on image type
+    QString size = isPoster ? "w500" : "w300";  // w500 for posters, w300 for episode stills
+    
+    QString fullUrl = m_imageBaseUrl + "/" + size + imagePath;
+    qDebug() << "VP_ShowsTMDB: Downloading image from:" << fullUrl;
+    
+    QNetworkRequest request((QUrl(fullUrl)));
+    
+    QEventLoop loop;
+    QNetworkReply* reply = m_networkManager->get(request);
+    
+    connect(reply, &QNetworkReply::downloadProgress, this, &VP_ShowsTMDB::downloadProgress);
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    
+    if (reply->error() != QNetworkReply::NoError) {
+        qDebug() << "VP_ShowsTMDB: Image download failed:" << reply->errorString();
+        reply->deleteLater();
+        return false;
+    }
+    
+    QByteArray imageData = reply->readAll();
+    reply->deleteLater();
+    
+    if (imageData.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Downloaded image data is empty";
+        return false;
+    }
+    
+    // Write to temp file using secure file operations
+    QFile tempFile(tempFilePath);
+    if (!tempFile.open(QIODevice::WriteOnly)) {
+        qDebug() << "VP_ShowsTMDB: Failed to open temp file for writing";
+        return false;
+    }
+    
+    qint64 written = tempFile.write(imageData);
+    tempFile.close();
+    
+    if (written != imageData.size()) {
+        qDebug() << "VP_ShowsTMDB: Failed to write complete image data";
+        OperationsFiles::secureDelete(tempFilePath, 3);
+        return false;
+    }
+    
+    qDebug() << "VP_ShowsTMDB: Successfully downloaded image to:" << tempFilePath;
+    return true;
+}
+
+bool VP_ShowsTMDB::parseEpisodeFromFilename(const QString& filename, int& season, int& episode)
+{
+    season = 0;
+    episode = 0;
+    
+    if (filename.isEmpty()) {
+        return false;
+    }
+    
+    // List of regex patterns to try, in order of preference
+    QList<QRegularExpression> patterns = {
+        // S##E## or s##e## (most common)
+        QRegularExpression("S(\\d{1,2})E(\\d{1,3})", QRegularExpression::CaseInsensitiveOption),
+        
+        // ##x## format
+        QRegularExpression("(\\d{1,2})x(\\d{1,3})", QRegularExpression::CaseInsensitiveOption),
+        
+        // S## E## with space
+        QRegularExpression("S(\\d{1,2})\\s+E(\\d{1,3})", QRegularExpression::CaseInsensitiveOption),
+        
+        // Season # Episode #
+        QRegularExpression("Season\\s+(\\d{1,2})\\s+Episode\\s+(\\d{1,3})", QRegularExpression::CaseInsensitiveOption),
+        
+        // [#x##] format
+        QRegularExpression("\\[(\\d{1,2})x(\\d{1,3})\\]", QRegularExpression::CaseInsensitiveOption),
+        
+        // S##.E## with dot
+        QRegularExpression("S(\\d{1,2})\\.E(\\d{1,3})", QRegularExpression::CaseInsensitiveOption),
+        
+        // ### format (1st digit = season, last 2 = episode, e.g., 101 = S01E01)
+        QRegularExpression("(?:^|[^\\d])(\\d)(\\d{2})(?:[^\\d]|$)"),
+        
+        // #### format (first 2 digits = season, last 2 = episode, e.g., 0101 = S01E01)
+        QRegularExpression("(?:^|[^\\d])(\\d{2})(\\d{2})(?:[^\\d]|$)")
+    };
+    
+    for (const auto& pattern : patterns) {
+        QRegularExpressionMatch match = pattern.match(filename);
+        if (match.hasMatch()) {
+            season = match.captured(1).toInt();
+            episode = match.captured(2).toInt();
+            
+            // Validate the extracted values
+            if (season > 0 && season <= 99 && episode > 0 && episode <= 999) {
+                qDebug() << "VP_ShowsTMDB: Parsed from filename:" << filename 
+                        << "-> S" << season << "E" << episode;
+                return true;
+            }
+        }
+    }
+    
+    qDebug() << "VP_ShowsTMDB: Could not parse episode info from filename:" << filename;
+    return false;
+}
+
+QByteArray VP_ShowsTMDB::scaleImageToSize(const QByteArray& imageData, int width, int height)
+{
+    if (imageData.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Empty image data provided for scaling";
+        return QByteArray();
+    }
+    
+    QImage image;
+    if (!image.loadFromData(imageData)) {
+        qDebug() << "VP_ShowsTMDB: Failed to load image from data";
+        return QByteArray();
+    }
+    
+    // Scale the image while maintaining aspect ratio
+    QImage scaledImage = image.scaled(width, height, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    
+    // Create a square image with padding if needed
+    if (scaledImage.width() != width || scaledImage.height() != height) {
+        QImage finalImage(width, height, QImage::Format_ARGB32);
+        finalImage.fill(Qt::black);  // Black background for padding
+        
+        // Center the scaled image
+        int x = (width - scaledImage.width()) / 2;
+        int y = (height - scaledImage.height()) / 2;
+        
+        QPainter painter(&finalImage);
+        painter.drawImage(x, y, scaledImage);
+        painter.end();
+        
+        scaledImage = finalImage;
+    }
+    
+    // Convert back to byte array (JPEG format for smaller size)
+    QByteArray scaledData;
+    QBuffer buffer(&scaledData);
+    buffer.open(QIODevice::WriteOnly);
+    scaledImage.save(&buffer, "JPEG", 85);  // 85% quality
+    
+    qDebug() << "VP_ShowsTMDB: Scaled image from" << imageData.size() 
+            << "bytes to" << scaledData.size() << "bytes";
+    
+    return scaledData;
+}
