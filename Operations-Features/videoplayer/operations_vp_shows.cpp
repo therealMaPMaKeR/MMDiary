@@ -22,6 +22,7 @@
 #include <QBuffer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
+#include <QMediaPlayer>
 #include <algorithm>
 
 Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
@@ -63,6 +64,13 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
         qDebug() << "Operations_VP_Shows: Connected return to list button";
     }
     
+    // Connect Play/Continue button on display page
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->pushButton_VP_Shows_Display_Play) {
+        connect(m_mainWindow->ui->pushButton_VP_Shows_Display_Play, &QPushButton::clicked,
+                this, &Operations_VP_Shows::onPlayContinueClicked);
+        qDebug() << "Operations_VP_Shows: Connected play/continue button";
+    }
+    
     // Connect episode tree widget double-click
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
         connect(m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList, &QTreeWidget::itemDoubleClicked,
@@ -81,6 +89,9 @@ Operations_VP_Shows::~Operations_VP_Shows()
     if (m_encryptionDialog) {
         delete m_encryptionDialog;
     }
+    
+    // Clean up temp file if it exists
+    cleanupTempFile();
 }
 
 QString Operations_VP_Shows::selectVideoFile()
@@ -962,9 +973,215 @@ void Operations_VP_Shows::onEpisodeDoubleClicked(QTreeWidgetItem* item, int colu
     qDebug() << "Operations_VP_Shows: Double-clicked on episode:" << episodeName;
     qDebug() << "Operations_VP_Shows: Video path:" << videoPath;
     
-    // TODO: Implement video playback
-    // For now, just show a message
-    QMessageBox::information(m_mainWindow, 
-                           tr("Play Episode"),
-                           tr("Playing episode: %1\n\nVideo playback will be implemented soon.").arg(episodeName));
+    // Decrypt and play the episode
+    decryptAndPlayEpisode(videoPath, episodeName);
+}
+
+void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath, const QString& episodeName)
+{
+    qDebug() << "Operations_VP_Shows: Starting decryption and playback for:" << episodeName;
+    
+    // Clean up any existing temp file first
+    cleanupTempFile();
+    
+    // Ensure username is set for operations_files
+    if (!m_mainWindow->user_Username.isEmpty()) {
+        OperationsFiles::setUsername(m_mainWindow->user_Username);
+    }
+    
+    // Build the temp folder path: Data/username/temp/tempdecrypt
+    QString basePath = QDir::current().absoluteFilePath("Data");
+    QString userPath = QDir(basePath).absoluteFilePath(m_mainWindow->user_Username);
+    QString tempPath = QDir(userPath).absoluteFilePath("temp");
+    QString tempDecryptPath = QDir(tempPath).absoluteFilePath("tempdecrypt");
+    
+    qDebug() << "Operations_VP_Shows: Temp decrypt path:" << tempDecryptPath;
+    
+    // Ensure the temp folders exist using operations_files functions
+    if (!OperationsFiles::ensureDirectoryExists(userPath)) {
+        qDebug() << "Operations_VP_Shows: Failed to create user directory";
+        QMessageBox::critical(m_mainWindow, 
+                            tr("Playback Error"),
+                            tr("Failed to create user directory."));
+        return;
+    }
+    
+    if (!OperationsFiles::ensureDirectoryExists(tempPath)) {
+        qDebug() << "Operations_VP_Shows: Failed to create temp directory";
+        QMessageBox::critical(m_mainWindow, 
+                            tr("Playback Error"),
+                            tr("Failed to create temporary directory."));
+        return;
+    }
+    
+    if (!OperationsFiles::ensureDirectoryExists(tempDecryptPath)) {
+        qDebug() << "Operations_VP_Shows: Failed to create tempdecrypt directory";
+        QMessageBox::critical(m_mainWindow, 
+                            tr("Playback Error"),
+                            tr("Failed to create temporary decryption directory."));
+        return;
+    }
+    
+    // Get the file extension from the encrypted file
+    QFileInfo fileInfo(encryptedFilePath);
+    QString extension = fileInfo.suffix().toLower();
+    
+    // Generate a random filename for the decrypted file
+    QString randomName = generateRandomFileName(extension);
+    QString decryptedFilePath = QDir(tempDecryptPath).absoluteFilePath(randomName);
+    
+    qDebug() << "Operations_VP_Shows: Decrypting to:" << decryptedFilePath;
+    
+    // Decrypt the file using CryptoUtils
+    bool decryptSuccess = CryptoUtils::Encryption_DecryptFile(
+        m_mainWindow->user_Key,
+        encryptedFilePath,
+        decryptedFilePath
+    );
+    
+    if (!decryptSuccess) {
+        qDebug() << "Operations_VP_Shows: Failed to decrypt video file";
+        QMessageBox::critical(m_mainWindow, 
+                            tr("Decryption Error"),
+                            tr("Failed to decrypt the video file. The file may be corrupted or the encryption key may be incorrect."));
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Decryption successful, starting playback";
+    
+    // Store the temp file path for cleanup later
+    m_currentTempFile = decryptedFilePath;
+    
+    // Create video player if not exists
+    if (!m_episodePlayer) {
+        qDebug() << "Operations_VP_Shows: Creating new VideoPlayer instance for episode playback";
+        m_episodePlayer = std::make_unique<VideoPlayer>();
+        
+        // Connect error signal
+        connect(m_episodePlayer.get(), &VideoPlayer::errorOccurred,
+                this, [this](const QString& error) {
+            qDebug() << "Operations_VP_Shows: VideoPlayer error:" << error;
+            QMessageBox::critical(m_mainWindow, 
+                                tr("Video Player Error"),
+                                error);
+            // Clean up temp file on error
+            cleanupTempFile();
+        });
+        
+        // Connect playback state changed to clean up when stopped
+        connect(m_episodePlayer.get(), &VideoPlayer::playbackStateChanged,
+                this, [this](QMediaPlayer::PlaybackState state) {
+            if (state == QMediaPlayer::StoppedState) {
+                qDebug() << "Operations_VP_Shows: Playback stopped, scheduling cleanup";
+                // Use a timer to delay cleanup slightly to ensure player has released the file
+                QTimer::singleShot(500, this, &Operations_VP_Shows::cleanupTempFile);
+            }
+        });
+        
+        // Connect to destroyed signal to clean up temp file when window is closed
+        connect(m_episodePlayer.get(), &QObject::destroyed,
+                this, [this]() {
+            qDebug() << "Operations_VP_Shows: Video player window closed, cleaning up temp file";
+            cleanupTempFile();
+        });
+    }
+    
+    // Load and play the video
+    qDebug() << "Operations_VP_Shows: Loading decrypted video:" << decryptedFilePath;
+    if (m_episodePlayer->loadVideo(decryptedFilePath)) {
+        // Show the window first
+        m_episodePlayer->show();
+        
+        // Set window title to episode name
+        m_episodePlayer->setWindowTitle(tr("Playing: %1").arg(episodeName));
+        
+        // Raise and activate to ensure it's on top
+        m_episodePlayer->raise();
+        m_episodePlayer->activateWindow();
+        
+        // Start in fullscreen mode
+        m_episodePlayer->startInFullScreen();
+        
+        // Add a small delay to ensure video widget is properly initialized
+        QTimer::singleShot(100, [this]() {
+            if (m_episodePlayer) {
+                m_episodePlayer->play();
+                qDebug() << "Operations_VP_Shows: Episode playing in fullscreen";
+            }
+        });
+    } else {
+        qDebug() << "Operations_VP_Shows: Failed to load decrypted video";
+        QMessageBox::warning(m_mainWindow,
+                           tr("Load Failed"),
+                           tr("Failed to load the decrypted video file."));
+        // Clean up temp file if loading failed
+        cleanupTempFile();
+    }
+}
+
+void Operations_VP_Shows::cleanupTempFile()
+{
+    if (m_currentTempFile.isEmpty()) {
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Cleaning up temp file:" << m_currentTempFile;
+    
+    // Check if file exists
+    if (QFile::exists(m_currentTempFile)) {
+        // Use operations_files secure delete for the temp file
+        bool deleted = OperationsFiles::secureDelete(m_currentTempFile, 1, true);
+        
+        if (deleted) {
+            qDebug() << "Operations_VP_Shows: Successfully deleted temp file";
+        } else {
+            qDebug() << "Operations_VP_Shows: Failed to delete temp file, trying regular delete";
+            // Try regular delete as fallback
+            QFile::remove(m_currentTempFile);
+        }
+    }
+    
+    m_currentTempFile.clear();
+}
+
+void Operations_VP_Shows::onPlayContinueClicked()
+{
+    qDebug() << "Operations_VP_Shows: Play/Continue button clicked";
+    
+    // Check if we have the tree widget and a current show folder
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+        qDebug() << "Operations_VP_Shows: Tree widget not available";
+        return;
+    }
+    
+    if (m_currentShowFolder.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No current show folder set";
+        return;
+    }
+    
+    // TODO: In the future, we can implement watch history to resume from the last watched episode
+    // For now, we'll just play the first episode of the first season
+    
+    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+    
+    // Find the first episode
+    if (treeWidget->topLevelItemCount() > 0) {
+        QTreeWidgetItem* firstSeason = treeWidget->topLevelItem(0);
+        if (firstSeason && firstSeason->childCount() > 0) {
+            QTreeWidgetItem* firstEpisode = firstSeason->child(0);
+            if (firstEpisode) {
+                // Simulate double-click on the first episode
+                onEpisodeDoubleClicked(firstEpisode, 0);
+            } else {
+                qDebug() << "Operations_VP_Shows: No episodes found in first season";
+            }
+        } else {
+            qDebug() << "Operations_VP_Shows: First season has no episodes";
+        }
+    } else {
+        qDebug() << "Operations_VP_Shows: No seasons found in tree widget";
+        QMessageBox::information(m_mainWindow,
+                               tr("No Episodes"),
+                               tr("This show has no episodes to play."));
+    }
 }

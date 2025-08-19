@@ -24,6 +24,7 @@ class Operations_VP_Shows : public QObject
 private:
     MainWindow* m_mainWindow;
     std::unique_ptr<VideoPlayer> m_testVideoPlayer;  // For testing purposes
+    std::unique_ptr<VideoPlayer> m_episodePlayer;    // For episode playback
     VP_ShowsEncryptionProgressDialog* m_encryptionDialog;
     
     // Store mapping between show names and their folder paths
@@ -35,6 +36,9 @@ private:
     
     // Current displayed show folder path
     QString m_currentShowFolder;
+    
+    // Current decrypted temp file path (for cleanup)
+    QString m_currentTempFile;
     
     // Helper functions
     QString selectVideoFile();
@@ -88,6 +92,12 @@ public:
     
     // Handle episode double-click in tree widget
     void onEpisodeDoubleClicked(QTreeWidgetItem* item, int column);
+    
+    // Decrypt and play episode
+    void decryptAndPlayEpisode(const QString& encryptedFilePath, const QString& episodeName);
+    
+    // Clean up temporary decrypted file
+    void cleanupTempFile();
 
 public slots:
     // Slot for debug button
@@ -95,6 +105,9 @@ public slots:
     
     // Slot for add show button
     void on_pushButton_VP_List_AddShow_clicked();
+    
+    // Slot for play/continue button
+    void onPlayContinueClicked();
     
     // Slot for encryption completion
     void onEncryptionComplete(bool success, const QString& message,
