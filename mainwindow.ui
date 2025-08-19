@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1392</width>
-    <height>884</height>
+    <width>1319</width>
+    <height>899</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -2025,7 +2025,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
               <property name="currentIndex">
                <number>0</number>
               </property>
-              <widget class="QWidget" name="page">
+              <widget class="QWidget" name="page_List">
                <layout class="QVBoxLayout" name="verticalLayout_25">
                 <item>
                  <widget class="QTabWidget" name="tabWidget_VP_ShowsList">
@@ -2088,7 +2088,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 </item>
                </layout>
               </widget>
-              <widget class="QWidget" name="page_2">
+              <widget class="QWidget" name="page_display">
                <layout class="QHBoxLayout" name="horizontalLayout_21">
                 <item>
                  <widget class="QGroupBox" name="verticalGroupBox_2">
@@ -2329,7 +2329,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1392</width>
+     <width>1319</width>
      <height>21</height>
     </rect>
    </property>

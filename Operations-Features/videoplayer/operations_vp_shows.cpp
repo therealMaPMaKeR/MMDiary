@@ -6,6 +6,7 @@
 #include "vp_shows_metadata.h"
 #include "vp_shows_settings_dialog.h"
 #include "../../Operations-Global/operations_files.h"  // Add operations_files for secure file operations
+#include "../../Operations-Global/encryption/CryptoUtils.h"
 #include <QDebug>
 #include <QFileInfo>
 #include <QTimer>
@@ -14,6 +15,10 @@
 #include <QRandomGenerator>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QTextBrowser>
+#include <QLabel>
+#include <QStackedWidget>
+#include <QBuffer>
 
 Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     : QObject(mainWindow)
@@ -33,6 +38,25 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
         connect(m_mainWindow->ui->pushButton_VP_List_AddShow, &QPushButton::clicked,
                 this, &Operations_VP_Shows::on_pushButton_VP_List_AddShow_clicked);
         qDebug() << "Operations_VP_Shows: Connected Add Show button";
+    }
+    
+    // Connect double-click on shows list to display show details
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->listWidget_VP_List_List) {
+        connect(m_mainWindow->ui->listWidget_VP_List_List, &QListWidget::itemDoubleClicked,
+                this, &Operations_VP_Shows::onShowListItemDoubleClicked);
+        qDebug() << "Operations_VP_Shows: Connected show list double-click handler";
+    }
+    
+    // Connect back to list button on display page
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->pushButton_VP_Shows_Display_ReturnToList) {
+        connect(m_mainWindow->ui->pushButton_VP_Shows_Display_ReturnToList, &QPushButton::clicked,
+                this, [this]() {
+                    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->stackedWidget_VP_Shows) {
+                        m_mainWindow->ui->stackedWidget_VP_Shows->setCurrentIndex(0); // Go back to list page
+                        qDebug() << "Operations_VP_Shows: Returned to shows list";
+                    }
+                });
+        qDebug() << "Operations_VP_Shows: Connected return to list button";
     }
     
     // Load the TV shows list on initialization
@@ -378,14 +402,23 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
     qDebug() << "Operations_VP_Shows: Successful files:" << successfulFiles.size();
     qDebug() << "Operations_VP_Shows: Failed files:" << failedFiles.size();
     
-    if (success) {
+    if (success && !successfulFiles.isEmpty()) {
+        // After successful encryption, check if we have TMDB data and save show description/image
+        // The show folder path should be the directory of the first target file
+        if (m_encryptionDialog) {
+            // Get the target folder from the first successful encrypted file
+            // Note: We need to get this info from somewhere - let's check if we can extract it
+            // For now, we'll save the description after refreshing the list
+            qDebug() << "Operations_VP_Shows: Import successful, TMDB data may have been saved";
+        }
+        
         QMessageBox::information(m_mainWindow,
                                tr("Import Successful"),
                                tr("TV show imported successfully!\n%1").arg(message));
         
         // Refresh the show list in the UI
         refreshTVShowsList();
-    } else {
+    } else if (!success) {
         QString detailedMessage = message;
         if (!failedFiles.isEmpty()) {
             detailedMessage += "\n\nFailed files:\n";
@@ -424,8 +457,9 @@ void Operations_VP_Shows::loadTVShowsList()
         return;
     }
     
-    // Clear the list widget first
+    // Clear the list widget and the mapping first
     m_mainWindow->ui->listWidget_VP_List_List->clear();
+    m_showFolderMapping.clear();
     
     // Build the path to the shows directory
     QString basePath = QDir::current().absoluteFilePath("Data");
@@ -488,6 +522,9 @@ void Operations_VP_Shows::loadTVShowsList()
                 // Store the folder path as user data for later use (when playing videos)
                 item->setData(Qt::UserRole, folderPath);
                 
+                // Store the mapping in RAM for quick access
+                m_showFolderMapping[metadata.showName] = folderPath;
+                
                 m_mainWindow->ui->listWidget_VP_List_List->addItem(item);
             } else {
                 qDebug() << "Operations_VP_Shows: Show name is empty in metadata for folder:" << folderName;
@@ -528,4 +565,224 @@ void Operations_VP_Shows::openSettings()
     } else {
         qDebug() << "Operations_VP_Shows: Settings dialog cancelled";
     }
+}
+
+bool Operations_VP_Shows::saveShowDescription(const QString& showFolderPath, const QString& description)
+{
+    qDebug() << "Operations_VP_Shows: Saving show description to folder:" << showFolderPath;
+    
+    if (description.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Description is empty, skipping save";
+        return true; // Not an error, just nothing to save
+    }
+    
+    // Generate the obfuscated folder name
+    QDir showDir(showFolderPath);
+    QString obfuscatedName = showDir.dirName();
+    
+    // Create the filename with prefix showdesc_
+    QString descFileName = QString("showdesc_%1").arg(obfuscatedName);
+    QString descFilePath = showDir.absoluteFilePath(descFileName);
+    
+    // Encrypt and save the description
+    return OperationsFiles::writeEncryptedFile(descFilePath, m_mainWindow->user_Key, description);
+}
+
+QString Operations_VP_Shows::loadShowDescription(const QString& showFolderPath)
+{
+    qDebug() << "Operations_VP_Shows: Loading show description from folder:" << showFolderPath;
+    
+    // Generate the obfuscated folder name
+    QDir showDir(showFolderPath);
+    QString obfuscatedName = showDir.dirName();
+    
+    // Create the filename with prefix showdesc_
+    QString descFileName = QString("showdesc_%1").arg(obfuscatedName);
+    QString descFilePath = showDir.absoluteFilePath(descFileName);
+    
+    // Check if the file exists
+    if (!QFile::exists(descFilePath)) {
+        qDebug() << "Operations_VP_Shows: Description file does not exist:" << descFilePath;
+        return QString();
+    }
+    
+    // Read and decrypt the description
+    QString description;
+    if (OperationsFiles::readEncryptedFile(descFilePath, m_mainWindow->user_Key, description)) {
+        return description;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Failed to read description file";
+    return QString();
+}
+
+bool Operations_VP_Shows::saveShowImage(const QString& showFolderPath, const QByteArray& imageData)
+{
+    qDebug() << "Operations_VP_Shows: Saving show image to folder:" << showFolderPath;
+    
+    if (imageData.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Image data is empty, skipping save";
+        return true; // Not an error, just nothing to save
+    }
+    
+    // Generate the obfuscated folder name
+    QDir showDir(showFolderPath);
+    QString obfuscatedName = showDir.dirName();
+    
+    // Create the filename with prefix showimage_
+    QString imageFileName = QString("showimage_%1").arg(obfuscatedName);
+    QString imageFilePath = showDir.absoluteFilePath(imageFileName);
+    
+    // Encrypt the image data
+    QByteArray encryptedData = CryptoUtils::Encryption_EncryptBArray(m_mainWindow->user_Key, imageData, m_mainWindow->user_Username);
+    
+    if (encryptedData.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Failed to encrypt image data";
+        return false;
+    }
+    
+    // Save the encrypted image data to file
+    QFile file(imageFilePath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        qDebug() << "Operations_VP_Shows: Failed to open image file for writing:" << file.errorString();
+        return false;
+    }
+    
+    qint64 written = file.write(encryptedData);
+    file.close();
+    
+    if (written != encryptedData.size()) {
+        qDebug() << "Operations_VP_Shows: Failed to write complete image data";
+        return false;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Successfully saved show image";
+    return true;
+}
+
+QPixmap Operations_VP_Shows::loadShowImage(const QString& showFolderPath)
+{
+    qDebug() << "Operations_VP_Shows: Loading show image from folder:" << showFolderPath;
+    
+    // Generate the obfuscated folder name
+    QDir showDir(showFolderPath);
+    QString obfuscatedName = showDir.dirName();
+    
+    // Create the filename with prefix showimage_
+    QString imageFileName = QString("showimage_%1").arg(obfuscatedName);
+    QString imageFilePath = showDir.absoluteFilePath(imageFileName);
+    
+    // Check if the file exists
+    if (!QFile::exists(imageFilePath)) {
+        qDebug() << "Operations_VP_Shows: Image file does not exist:" << imageFilePath;
+        return QPixmap();
+    }
+    
+    // Read the encrypted image data
+    QFile file(imageFilePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qDebug() << "Operations_VP_Shows: Failed to open image file for reading:" << file.errorString();
+        return QPixmap();
+    }
+    
+    QByteArray encryptedData = file.readAll();
+    file.close();
+    
+    if (encryptedData.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Image file is empty";
+        return QPixmap();
+    }
+    
+    // Decrypt the image data
+    QByteArray decryptedData = CryptoUtils::Encryption_DecryptBArray(m_mainWindow->user_Key, encryptedData);
+    
+    if (decryptedData.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Failed to decrypt image data";
+        return QPixmap();
+    }
+    
+    // Convert to QPixmap
+    QPixmap pixmap;
+    if (!pixmap.loadFromData(decryptedData)) {
+        qDebug() << "Operations_VP_Shows: Failed to load pixmap from decrypted data";
+        return QPixmap();
+    }
+    
+    qDebug() << "Operations_VP_Shows: Successfully loaded show image";
+    return pixmap;
+}
+
+void Operations_VP_Shows::displayShowDetails(const QString& showName)
+{
+    qDebug() << "Operations_VP_Shows: Displaying details for show:" << showName;
+    
+    // Check if we have the required UI elements
+    if (!m_mainWindow || !m_mainWindow->ui) {
+        qDebug() << "Operations_VP_Shows: UI elements not available";
+        return;
+    }
+    
+    // Get the folder path for this show
+    if (!m_showFolderMapping.contains(showName)) {
+        qDebug() << "Operations_VP_Shows: Show not found in mapping:" << showName;
+        QMessageBox::warning(m_mainWindow, tr("Show Not Found"), 
+                           tr("Could not find the folder for this show. Please refresh the list."));
+        return;
+    }
+    
+    QString showFolderPath = m_showFolderMapping[showName];
+    qDebug() << "Operations_VP_Shows: Show folder path:" << showFolderPath;
+    
+    // Update the show name label
+    if (m_mainWindow->ui->label_VP_Shows_Display_Name) {
+        m_mainWindow->ui->label_VP_Shows_Display_Name->setText(showName);
+    }
+    
+    // Load and display the show image
+    if (m_mainWindow->ui->label_VP_Shows_Display_Image) {
+        QPixmap showImage = loadShowImage(showFolderPath);
+        
+        if (!showImage.isNull()) {
+            // Scale the image to fit the label (256x256)
+            QPixmap scaledImage = showImage.scaled(256, 256, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            m_mainWindow->ui->label_VP_Shows_Display_Image->setPixmap(scaledImage);
+        } else {
+            // Set a placeholder text if no image is available
+            m_mainWindow->ui->label_VP_Shows_Display_Image->setText(tr("No Image Available"));
+        }
+    }
+    
+    // Load and display the show description
+    if (m_mainWindow->ui->textBrowser_VP_Shows_Display_Description) {
+        QString description = loadShowDescription(showFolderPath);
+        
+        if (!description.isEmpty()) {
+            m_mainWindow->ui->textBrowser_VP_Shows_Display_Description->setPlainText(description);
+        } else {
+            m_mainWindow->ui->textBrowser_VP_Shows_Display_Description->setPlainText(tr("No description available."));
+        }
+    }
+    
+    // TODO: Load and display the episode list
+    // This will require parsing all video files in the folder and organizing them by season/episode
+    
+    // Switch to the display page
+    if (m_mainWindow->ui->stackedWidget_VP_Shows) {
+        m_mainWindow->ui->stackedWidget_VP_Shows->setCurrentIndex(1); // Switch to page_2 (display page)
+        qDebug() << "Operations_VP_Shows: Switched to display page";
+    }
+}
+
+void Operations_VP_Shows::onShowListItemDoubleClicked(QListWidgetItem* item)
+{
+    if (!item) {
+        qDebug() << "Operations_VP_Shows: Double-clicked item is null";
+        return;
+    }
+    
+    QString showName = item->text();
+    qDebug() << "Operations_VP_Shows: Double-clicked on show:" << showName;
+    
+    // Display the show details
+    displayShowDetails(showName);
 }

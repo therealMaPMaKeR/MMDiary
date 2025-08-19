@@ -7,6 +7,9 @@
 #include <QMessageBox>
 #include <memory>
 #include <QStringList>
+#include <QMap>
+#include <QPixmap>
+#include <QListWidgetItem>
 
 // Forward declarations
 class MainWindow;
@@ -21,6 +24,9 @@ private:
     MainWindow* m_mainWindow;
     std::unique_ptr<VideoPlayer> m_testVideoPlayer;  // For testing purposes
     VP_ShowsEncryptionProgressDialog* m_encryptionDialog;
+    
+    // Store mapping between show names and their folder paths
+    QMap<QString, QString> m_showFolderMapping;
     
     // Helper functions
     QString selectVideoFile();
@@ -50,6 +56,24 @@ public:
     
     // Open TV shows settings dialog
     void openSettings();
+    
+    // Save show description to encrypted file
+    bool saveShowDescription(const QString& showFolderPath, const QString& description);
+    
+    // Load show description from encrypted file
+    QString loadShowDescription(const QString& showFolderPath);
+    
+    // Save show image to encrypted file
+    bool saveShowImage(const QString& showFolderPath, const QByteArray& imageData);
+    
+    // Load show image from encrypted file
+    QPixmap loadShowImage(const QString& showFolderPath);
+    
+    // Display show details page
+    void displayShowDetails(const QString& showName);
+    
+    // Handle show list double-click
+    void onShowListItemDoubleClicked(QListWidgetItem* item);
 
 public slots:
     // Slot for debug button

@@ -277,9 +277,35 @@ bool VP_ShowsEncryptionWorker::fetchTMDBShowData()
 
 bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& targetFolder)
 {
-    if (!m_tmdbDataAvailable || m_showInfo.posterPath.isEmpty()) {
-        qDebug() << "VP_ShowsEncryptionWorker: No show poster available";
+    if (!m_tmdbDataAvailable) {
+        qDebug() << "VP_ShowsEncryptionWorker: No TMDB data available";
         return false;
+    }
+    
+    // Save show description if available
+    if (!m_showInfo.overview.isEmpty()) {
+        // Generate the obfuscated folder name
+        QDir showDir(targetFolder);
+        QString obfuscatedName = showDir.dirName();
+        
+        // Create the filename with prefix showdesc_
+        QString descFileName = QString("showdesc_%1").arg(obfuscatedName);
+        QString descFilePath = showDir.absoluteFilePath(descFileName);
+        
+        // Encrypt and save the description
+        bool descSaved = OperationsFiles::writeEncryptedFile(descFilePath, m_encryptionKey, m_showInfo.overview);
+        
+        if (descSaved) {
+            qDebug() << "VP_ShowsEncryptionWorker: Successfully saved show description";
+        } else {
+            qDebug() << "VP_ShowsEncryptionWorker: Failed to save show description";
+        }
+    }
+    
+    // Save show image if available
+    if (m_showInfo.posterPath.isEmpty()) {
+        qDebug() << "VP_ShowsEncryptionWorker: No show poster available";
+        return true; // Not an error, description might have been saved
     }
     
     // Create temp file for downloading the image
@@ -309,9 +335,12 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
     QByteArray imageData = tempFile.readAll();
     tempFile.close();
     
-    // Generate obfuscated filename
-    QString obfuscatedName = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    QString encryptedImagePath = targetFolder + "/showimage_" + obfuscatedName + ".enc";
+    // Generate the obfuscated folder name for the image
+    QDir showDir(targetFolder);
+    QString obfuscatedName = showDir.dirName();
+    
+    // Create the filename with prefix showimage_
+    QString encryptedImagePath = targetFolder + "/showimage_" + obfuscatedName;
     
     // Encrypt the image data
     QByteArray encryptedImage = CryptoUtils::Encryption_EncryptBArray(m_encryptionKey, imageData, m_username);
