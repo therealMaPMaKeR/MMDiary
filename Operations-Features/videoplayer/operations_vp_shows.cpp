@@ -2090,7 +2090,7 @@ bool Operations_VP_Shows::exportShowEpisodes(const QString& showFolderPath, cons
             continue;
         }
         
-        // Create season folder if needed
+        // Parse season and episode numbers
         int seasonNum = metadata.season.toInt();
         int episodeNum = metadata.episode.toInt();
         if (seasonNum <= 0 || episodeNum <= 0) {
@@ -2100,9 +2100,28 @@ bool Operations_VP_Shows::exportShowEpisodes(const QString& showFolderPath, cons
             // episodeNum remains as parsed or 0 if parsing failed
         }
         
-        QString seasonFolderName = QString("Season %1").arg(seasonNum);
-        if (!showExportDir.exists(seasonFolderName)) {
-            if (!showExportDir.mkdir(seasonFolderName)) {
+        // Create language/translation folder first
+        QString languageFolderName = QString("%1 %2").arg(metadata.language).arg(metadata.translation);
+        // Sanitize the language folder name
+        languageFolderName.replace(QRegularExpression("[<>:\"|?*]"), "_");
+        
+        if (!showExportDir.exists(languageFolderName)) {
+            if (!showExportDir.mkdir(languageFolderName)) {
+                qDebug() << "Operations_VP_Shows: Failed to create language folder:" << languageFolderName;
+                allSuccess = false;
+                processed++;
+                progress.setValue(processed);
+                continue;
+            }
+        }
+        
+        QString languagePath = showExportDir.absoluteFilePath(languageFolderName);
+        QDir languageDir(languagePath);
+        
+        // Create season folder with zero-padded number
+        QString seasonFolderName = QString("Season %1").arg(seasonNum, 2, 10, QChar('0'));
+        if (!languageDir.exists(seasonFolderName)) {
+            if (!languageDir.mkdir(seasonFolderName)) {
                 qDebug() << "Operations_VP_Shows: Failed to create season folder:" << seasonFolderName;
                 allSuccess = false;
                 processed++;
@@ -2111,7 +2130,7 @@ bool Operations_VP_Shows::exportShowEpisodes(const QString& showFolderPath, cons
             }
         }
         
-        QString seasonPath = showExportDir.absoluteFilePath(seasonFolderName);
+        QString seasonPath = languageDir.absoluteFilePath(seasonFolderName);
         
         // Generate output filename
         // episodeNum was already extracted above
@@ -2213,7 +2232,7 @@ void Operations_VP_Shows::performExportWithWorker(const QString& showFolderPath,
             continue;
         }
         
-        // Create season folder path
+        // Parse season and episode numbers
         int seasonNum = metadata.season.toInt();
         int episodeNum = metadata.episode.toInt();
         if (seasonNum <= 0 || episodeNum <= 0) {
@@ -2222,15 +2241,31 @@ void Operations_VP_Shows::performExportWithWorker(const QString& showFolderPath,
             if (seasonNum <= 0) seasonNum = 1;
         }
         
-        QString seasonFolderName = QString("Season %1").arg(seasonNum);
-        if (!showExportDir.exists(seasonFolderName)) {
-            if (!showExportDir.mkdir(seasonFolderName)) {
+        // Create language/translation folder path
+        QString languageFolderName = QString("%1 %2").arg(metadata.language).arg(metadata.translation);
+        // Sanitize the language folder name
+        languageFolderName.replace(QRegularExpression("[<>:\"|?*]"), "_");
+        
+        if (!showExportDir.exists(languageFolderName)) {
+            if (!showExportDir.mkdir(languageFolderName)) {
+                qDebug() << "Operations_VP_Shows: Failed to create language folder:" << languageFolderName;
+                continue;
+            }
+        }
+        
+        QString languagePath = showExportDir.absoluteFilePath(languageFolderName);
+        QDir languageDir(languagePath);
+        
+        // Create season folder path with zero-padded number
+        QString seasonFolderName = QString("Season %1").arg(seasonNum, 2, 10, QChar('0'));
+        if (!languageDir.exists(seasonFolderName)) {
+            if (!languageDir.mkdir(seasonFolderName)) {
                 qDebug() << "Operations_VP_Shows: Failed to create season folder:" << seasonFolderName;
                 continue;
             }
         }
         
-        QString seasonPath = showExportDir.absoluteFilePath(seasonFolderName);
+        QString seasonPath = languageDir.absoluteFilePath(seasonFolderName);
         
         // Generate output filename
         QString outputFileName;
