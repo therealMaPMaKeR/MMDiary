@@ -57,7 +57,7 @@
        </size>
       </property>
       <property name="currentIndex">
-       <number>5</number>
+       <number>4</number>
       </property>
       <property name="movable">
        <bool>true</bool>
@@ -2291,11 +2291,6 @@ li.checked::marker { content: &quot;\2612&quot;; }
           <widget class="QWidget" name="tab_Movies">
            <attribute name="title">
             <string>Movies</string>
-           </attribute>
-          </widget>
-          <widget class="QWidget" name="tab_Porn">
-           <attribute name="title">
-            <string>Porn</string>
            </attribute>
           </widget>
           <widget class="QWidget" name="tab_debug">
