@@ -1225,6 +1225,9 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     // Key: "Language Translation" (e.g., "English Dubbed"), Value: map of seasons
     QMap<QString, QMap<int, QList<QPair<int, QTreeWidgetItem*>>>> languageVersions;
     
+    // List to hold error episodes (duplicates or parsing failures)
+    QList<QTreeWidgetItem*> errorEpisodes;
+    
     // Process each video file
     for (const QString& videoFile : videoFiles) {
         QString videoPath = showDir.absoluteFilePath(videoFile);
@@ -1233,6 +1236,29 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         VP_ShowsMetadata::ShowMetadata metadata;
         if (!metadataManager.readMetadataFromFile(videoPath, metadata)) {
             qDebug() << "Operations_VP_Shows: Failed to read metadata from:" << videoFile;
+            continue;
+        }
+        
+        // Check if this is an error episode (duplicate detected during import)
+        if (metadata.season == "error" || metadata.episode == "error") {
+            qDebug() << "Operations_VP_Shows: Found error episode:" << metadata.filename;
+            
+            // Create error episode item
+            QTreeWidgetItem* errorItem = new QTreeWidgetItem();
+            
+            // Format the error episode name
+            QFileInfo fileInfo(metadata.filename);
+            QString baseName = fileInfo.completeBaseName();
+            QString errorName = QString("[ERROR] %1").arg(baseName);
+            
+            errorItem->setText(0, errorName);
+            errorItem->setData(0, Qt::UserRole, videoPath);
+            
+            // Set a red color to indicate error
+            errorItem->setForeground(0, QBrush(Qt::red));
+            
+            // Add to error list
+            errorEpisodes.append(errorItem);
             continue;
         }
         
@@ -1286,6 +1312,26 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         
         qDebug() << "Operations_VP_Shows: Added episode" << languageKey 
                  << "S" << seasonNum << "E" << episodeNum << "-" << episodeName;
+    }
+    
+    // Add error episodes category if there are any
+    if (!errorEpisodes.isEmpty()) {
+        QTreeWidgetItem* errorCategory = new QTreeWidgetItem();
+        errorCategory->setText(0, tr("Error - Duplicate or Invalid Episodes (%1)").arg(errorEpisodes.size()));
+        errorCategory->setForeground(0, QBrush(Qt::darkRed));
+        
+        // Add all error episodes under this category
+        for (QTreeWidgetItem* errorItem : errorEpisodes) {
+            errorCategory->addChild(errorItem);
+        }
+        
+        // Add error category to tree widget at the top
+        m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->addTopLevelItem(errorCategory);
+        
+        // Expand the error category so users can see the problematic episodes
+        errorCategory->setExpanded(true);
+        
+        qDebug() << "Operations_VP_Shows: Added" << errorEpisodes.size() << "error episodes to display";
     }
     
     // Create language/translation items, then season items, then add episodes

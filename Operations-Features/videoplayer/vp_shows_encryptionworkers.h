@@ -68,6 +68,10 @@ private:
     bool m_tmdbDataAvailable;
     QString m_showImagePath;  // Path to encrypted show image
     
+    // Track existing episodes to detect duplicates
+    QSet<QString> m_existingEpisodes;  // Set of "S##E##" strings from existing files
+    QSet<QString> m_processedEpisodes; // Episodes processed in current batch
+    
     bool encryptSingleFile(const QString& sourceFile, 
                           const QString& targetFile,
                           qint64 currentTotalProcessed, 
@@ -77,6 +81,8 @@ private:
     bool fetchTMDBShowData();
     bool downloadAndEncryptShowImage(const QString& targetFolder);
     VP_ShowsMetadata::ShowMetadata createMetadataWithTMDB(const QString& filename);
+    bool checkForDuplicateEpisode(int season, int episode, const QString& language, const QString& translation);
+    void loadExistingEpisodes();
 };
 
 // Worker class for decrypting TV show video files (for playback)

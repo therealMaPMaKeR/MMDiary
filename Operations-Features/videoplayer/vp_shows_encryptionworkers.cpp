@@ -11,6 +11,7 @@
 #include <QUuid>
 #include <QImage>
 #include <QBuffer>
+#include <QSet>
 
 //---------------- VP_ShowsEncryptionWorker ----------------//
 
@@ -87,6 +88,9 @@ void VP_ShowsEncryptionWorker::doEncryption()
                                QStringList(), QStringList());
         return;
     }
+    
+    // Load existing episodes from the target folder to detect duplicates
+    loadExistingEpisodes();
     
     // Try to fetch TMDB data for the show
     m_tmdbDataAvailable = fetchTMDBShowData();
@@ -408,7 +412,30 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     
     // Try to parse season and episode from filename
     int season = 0, episode = 0;
-    if (VP_ShowsTMDB::parseEpisodeFromFilename(filename, season, episode)) {
+    bool parsedSuccessfully = VP_ShowsTMDB::parseEpisodeFromFilename(filename, season, episode);
+    
+    if (parsedSuccessfully && season > 0 && episode > 0) {
+        // Check if this episode is a duplicate
+        if (checkForDuplicateEpisode(season, episode, m_language, m_translation)) {
+            qDebug() << "VP_ShowsEncryptionWorker: Duplicate episode detected - S" << season << "E" << episode
+                     << "for" << m_language << m_translation;
+            qDebug() << "VP_ShowsEncryptionWorker: Marking as error:" << filename;
+            
+            // Mark this episode as an error
+            metadata.season = "error";
+            metadata.episode = "error";
+            // Don't fetch TMDB data for error episodes
+            return metadata;
+        }
+        
+        // Not a duplicate, add to processed set
+        QString episodeKey = QString("S%1E%2_%3_%4")
+            .arg(season, 2, 10, QChar('0'))
+            .arg(episode, 2, 10, QChar('0'))
+            .arg(m_language)
+            .arg(m_translation);
+        m_processedEpisodes.insert(episodeKey);
+        
         metadata.season = QString::number(season);
         metadata.episode = QString::number(episode);
         
@@ -459,6 +486,88 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     }
     
     return metadata;
+}
+
+bool VP_ShowsEncryptionWorker::checkForDuplicateEpisode(int season, int episode, const QString& language, const QString& translation)
+{
+    // Create the episode key with language and translation
+    QString episodeKey = QString("S%1E%2_%3_%4")
+        .arg(season, 2, 10, QChar('0'))
+        .arg(episode, 2, 10, QChar('0'))
+        .arg(language)
+        .arg(translation);
+    
+    // Check if this episode already exists in the target folder or was already processed in this batch
+    return m_existingEpisodes.contains(episodeKey) || m_processedEpisodes.contains(episodeKey);
+}
+
+void VP_ShowsEncryptionWorker::loadExistingEpisodes()
+{
+    qDebug() << "VP_ShowsEncryptionWorker: Loading existing episodes to detect duplicates";
+    
+    m_existingEpisodes.clear();
+    m_processedEpisodes.clear();
+    
+    // Get the target folder from the first target file
+    if (m_targetFiles.isEmpty()) {
+        return;
+    }
+    
+    QFileInfo firstTargetInfo(m_targetFiles.first());
+    QString targetFolder = firstTargetInfo.absolutePath();
+    
+    qDebug() << "VP_ShowsEncryptionWorker: Checking for existing episodes in:" << targetFolder;
+    
+    // List all existing video files in the target folder
+    QDir targetDir(targetFolder);
+    if (!targetDir.exists()) {
+        qDebug() << "VP_ShowsEncryptionWorker: Target folder doesn't exist yet";
+        return;
+    }
+    
+    QStringList videoExtensions;
+    videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
+                   << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+    targetDir.setNameFilters(videoExtensions);
+    QStringList existingFiles = targetDir.entryList(QDir::Files);
+    
+    qDebug() << "VP_ShowsEncryptionWorker: Found" << existingFiles.size() << "existing video files";
+    
+    // Read metadata from each existing file to get season/episode info
+    for (const QString& existingFile : existingFiles) {
+        QString filePath = targetDir.absoluteFilePath(existingFile);
+        VP_ShowsMetadata::ShowMetadata existingMetadata;
+        
+        if (m_metadataManager->readMetadataFromFile(filePath, existingMetadata)) {
+            // Skip files marked as errors
+            if (existingMetadata.season == "error" || existingMetadata.episode == "error") {
+                qDebug() << "VP_ShowsEncryptionWorker: Skipping error episode:" << existingFile;
+                continue;
+            }
+            
+            int seasonNum = existingMetadata.season.toInt();
+            int episodeNum = existingMetadata.episode.toInt();
+            
+            // If metadata doesn't have valid numbers, try parsing from filename
+            if (seasonNum == 0 || episodeNum == 0) {
+                VP_ShowsTMDB::parseEpisodeFromFilename(existingMetadata.filename, seasonNum, episodeNum);
+            }
+            
+            if (seasonNum > 0 && episodeNum > 0) {
+                // Create episode key with language and translation
+                QString episodeKey = QString("S%1E%2_%3_%4")
+                    .arg(seasonNum, 2, 10, QChar('0'))
+                    .arg(episodeNum, 2, 10, QChar('0'))
+                    .arg(existingMetadata.language)
+                    .arg(existingMetadata.translation);
+                    
+                m_existingEpisodes.insert(episodeKey);
+                qDebug() << "VP_ShowsEncryptionWorker: Found existing episode:" << episodeKey;
+            }
+        }
+    }
+    
+    qDebug() << "VP_ShowsEncryptionWorker: Loaded" << m_existingEpisodes.size() << "existing episode identifiers";
 }
 
 //---------------- VP_ShowsDecryptionWorker ----------------//
