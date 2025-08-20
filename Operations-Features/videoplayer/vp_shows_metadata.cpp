@@ -121,8 +121,10 @@ QByteArray VP_ShowsMetadata::createMetadataChunk(const ShowMetadata& metadata)
     stream << metadata.showName;
     stream << metadata.season;
     stream << metadata.episode;
-    stream << metadata.EPName;      // New field
-    stream << metadata.EPImage;     // New field
+    stream << metadata.EPName;      // TMDB episode name
+    stream << metadata.EPImage;     // TMDB episode image
+    stream << metadata.language;    // Language field
+    stream << metadata.translation; // Translation mode field
     stream << metadata.encryptionDateTime;
     
     return chunk;
@@ -143,8 +145,24 @@ bool VP_ShowsMetadata::parseMetadataChunk(const QByteArray& chunk, ShowMetadata&
     stream >> metadata.showName;
     stream >> metadata.season;
     stream >> metadata.episode;
-    stream >> metadata.EPName;      // New field
-    stream >> metadata.EPImage;     // New field
+    stream >> metadata.EPName;      // TMDB episode name
+    stream >> metadata.EPImage;     // TMDB episode image
+    
+    // Try to read new fields (language and translation)
+    // For backwards compatibility, check if we have more data
+    if (!stream.atEnd()) {
+        stream >> metadata.language;
+        if (!stream.atEnd()) {
+            stream >> metadata.translation;
+        } else {
+            metadata.translation = "Dubbed"; // Default value
+        }
+    } else {
+        // Old format without language/translation fields
+        metadata.language = "English";
+        metadata.translation = "Dubbed";
+    }
+    
     stream >> metadata.encryptionDateTime;
     
     if (stream.status() != QDataStream::Ok) {

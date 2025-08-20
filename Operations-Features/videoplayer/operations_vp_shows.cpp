@@ -5,6 +5,7 @@
 #include "vp_shows_progressdialogs.h"
 #include "vp_shows_metadata.h"
 #include "vp_shows_settings_dialog.h"
+#include "vp_shows_add_dialog.h"
 #include "vp_shows_tmdb.h"
 #include "operations_files.h"  // Add operations_files for secure file operations
 #include "CryptoUtils.h"
@@ -261,9 +262,24 @@ void Operations_VP_Shows::importTVShow()
     
     qDebug() << "Operations_VP_Shows: Selected folder:" << folderPath;
     
-    // Get the show name from the folder name
+    // Get the folder name to pre-populate the dialog
     QDir selectedDir(folderPath);
-    QString showName = selectedDir.dirName();
+    QString folderName = selectedDir.dirName();
+    
+    // Show the add show dialog
+    VP_ShowsAddDialog addDialog(folderName, m_mainWindow);
+    if (addDialog.exec() != QDialog::Accepted) {
+        qDebug() << "Operations_VP_Shows: Add show dialog cancelled";
+        return;
+    }
+    
+    // Get the show details from the dialog
+    QString showName = addDialog.getShowName();
+    QString language = addDialog.getLanguage();
+    QString translationMode = addDialog.getTranslationMode();
+    
+    qDebug() << "Operations_VP_Shows: Show details - Name:" << showName 
+             << "Language:" << language << "Translation:" << translationMode;
     
     // Find all video files in the folder and subfolders
     QStringList videoFiles = findVideoFiles(folderPath);
@@ -317,8 +333,9 @@ void Operations_VP_Shows::importTVShow()
                 this, &Operations_VP_Shows::onEncryptionComplete);
     }
     
-    // Start encryption
-    m_encryptionDialog->startEncryption(videoFiles, targetFiles, showName, encryptionKey, username);
+    // Start encryption with language and translation info
+    m_encryptionDialog->startEncryption(videoFiles, targetFiles, showName, encryptionKey, username, 
+                                       language, translationMode);
 }
 
 QStringList Operations_VP_Shows::findVideoFiles(const QString& folderPath, bool recursive)
@@ -861,9 +878,9 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     // Create metadata manager
     VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
     
-    // Map to organize episodes by season
-    // Key: season number, Value: list of episode items
-    QMap<int, QList<QPair<int, QTreeWidgetItem*>>> seasonEpisodes;
+    // Map to organize episodes by language/translation, then season
+    // Key: "Language Translation" (e.g., "English Dubbed"), Value: map of seasons
+    QMap<QString, QMap<int, QList<QPair<int, QTreeWidgetItem*>>>> languageVersions;
     
     // Process each video file
     for (const QString& videoFile : videoFiles) {
@@ -890,6 +907,9 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             seasonNum = 1;
         }
         
+        // Create language/translation key (e.g., "English Dubbed")
+        QString languageKey = QString("%1 %2").arg(metadata.language).arg(metadata.translation);
+        
         // Create episode item
         QTreeWidgetItem* episodeItem = new QTreeWidgetItem();
         
@@ -911,48 +931,66 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         episodeItem->setData(0, Qt::UserRole, videoPath);
         
         // Create mapping key and store the mapping
-        QString mappingKey = QString("%1_S%2E%3")
+        QString mappingKey = QString("%1_%2_S%3E%4")
             .arg(metadata.showName)
+            .arg(languageKey)
             .arg(seasonNum, 2, 10, QChar('0'))
             .arg(episodeNum, 2, 10, QChar('0'));
         m_episodeFileMapping[mappingKey] = videoPath;
         
-        // Add to season map
-        seasonEpisodes[seasonNum].append(QPair<int, QTreeWidgetItem*>(episodeNum, episodeItem));
+        // Add to language/season map
+        languageVersions[languageKey][seasonNum].append(QPair<int, QTreeWidgetItem*>(episodeNum, episodeItem));
         
-        qDebug() << "Operations_VP_Shows: Added episode S" << seasonNum << "E" << episodeNum 
-                 << "-" << episodeName;
+        qDebug() << "Operations_VP_Shows: Added episode" << languageKey 
+                 << "S" << seasonNum << "E" << episodeNum << "-" << episodeName;
     }
     
-    // Create season items and add episodes
-    QList<int> seasons = seasonEpisodes.keys();
-    std::sort(seasons.begin(), seasons.end());
+    // Create language/translation items, then season items, then add episodes
+    QList<QString> languageKeys = languageVersions.keys();
+    std::sort(languageKeys.begin(), languageKeys.end());
     
-    for (int season : seasons) {
-        // Create season item
-        QTreeWidgetItem* seasonItem = new QTreeWidgetItem();
-        seasonItem->setText(0, tr("Season %1").arg(season));
+    for (const QString& languageKey : languageKeys) {
+        // Create language/translation item
+        QTreeWidgetItem* languageItem = new QTreeWidgetItem();
+        languageItem->setText(0, languageKey);
         
-        // Sort episodes by episode number
-        QList<QPair<int, QTreeWidgetItem*>>& episodes = seasonEpisodes[season];
-        std::sort(episodes.begin(), episodes.end(), 
-                  [](const QPair<int, QTreeWidgetItem*>& a, const QPair<int, QTreeWidgetItem*>& b) {
-                      return a.first < b.first;
-                  });
+        // Get seasons for this language/translation
+        QMap<int, QList<QPair<int, QTreeWidgetItem*>>>& seasons = languageVersions[languageKey];
+        QList<int> seasonNumbers = seasons.keys();
+        std::sort(seasonNumbers.begin(), seasonNumbers.end());
         
-        // Add episodes to season
-        for (const auto& episode : episodes) {
-            seasonItem->addChild(episode.second);
+        for (int seasonNum : seasonNumbers) {
+            // Create season item
+            QTreeWidgetItem* seasonItem = new QTreeWidgetItem();
+            seasonItem->setText(0, tr("Season %1").arg(seasonNum));
+            
+            // Sort episodes by episode number
+            QList<QPair<int, QTreeWidgetItem*>>& episodes = seasons[seasonNum];
+            std::sort(episodes.begin(), episodes.end(), 
+                      [](const QPair<int, QTreeWidgetItem*>& a, const QPair<int, QTreeWidgetItem*>& b) {
+                          return a.first < b.first;
+                      });
+            
+            // Add episodes to season
+            for (const auto& episode : episodes) {
+                seasonItem->addChild(episode.second);
+            }
+            
+            // Add season to language item
+            languageItem->addChild(seasonItem);
+            
+            // Expand the season by default
+            seasonItem->setExpanded(true);
         }
         
-        // Add season to tree widget
-        m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->addTopLevelItem(seasonItem);
+        // Add language item to tree widget
+        m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->addTopLevelItem(languageItem);
         
-        // Expand the season by default
-        seasonItem->setExpanded(true);
+        // Expand the language item by default
+        languageItem->setExpanded(true);
     }
     
-    qDebug() << "Operations_VP_Shows: Finished loading episodes. Total seasons:" << seasons.size();
+    qDebug() << "Operations_VP_Shows: Finished loading episodes. Total language versions:" << languageKeys.size();
 }
 
 void Operations_VP_Shows::onEpisodeDoubleClicked(QTreeWidgetItem* item, int column)
@@ -964,10 +1002,10 @@ void Operations_VP_Shows::onEpisodeDoubleClicked(QTreeWidgetItem* item, int colu
         return;
     }
     
-    // Check if this is an episode item (not a season item)
+    // Check if this is an episode item (not a language or season item)
     if (item->childCount() > 0) {
-        // This is a season item, not an episode
-        qDebug() << "Operations_VP_Shows: Clicked on season item, not an episode";
+        // This is a language or season item, not an episode
+        qDebug() << "Operations_VP_Shows: Clicked on language/season item, not an episode";
         return;
     }
     
@@ -1286,26 +1324,31 @@ void Operations_VP_Shows::onPlayContinueClicked()
     }
     
     // TODO: In the future, we can implement watch history to resume from the last watched episode
-    // For now, we'll just play the first episode of the first season
+    // For now, we'll just play the first episode of the first season of the first language version
     
     QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
     
-    // Find the first episode
+    // Find the first episode (now it's Language->Season->Episode)
     if (treeWidget->topLevelItemCount() > 0) {
-        QTreeWidgetItem* firstSeason = treeWidget->topLevelItem(0);
-        if (firstSeason && firstSeason->childCount() > 0) {
-            QTreeWidgetItem* firstEpisode = firstSeason->child(0);
-            if (firstEpisode) {
-                // Simulate double-click on the first episode
-                onEpisodeDoubleClicked(firstEpisode, 0);
+        QTreeWidgetItem* firstLanguage = treeWidget->topLevelItem(0);
+        if (firstLanguage && firstLanguage->childCount() > 0) {
+            QTreeWidgetItem* firstSeason = firstLanguage->child(0);
+            if (firstSeason && firstSeason->childCount() > 0) {
+                QTreeWidgetItem* firstEpisode = firstSeason->child(0);
+                if (firstEpisode) {
+                    // Simulate double-click on the first episode
+                    onEpisodeDoubleClicked(firstEpisode, 0);
+                } else {
+                    qDebug() << "Operations_VP_Shows: No episodes found in first season";
+                }
             } else {
-                qDebug() << "Operations_VP_Shows: No episodes found in first season";
+                qDebug() << "Operations_VP_Shows: First season has no episodes";
             }
         } else {
-            qDebug() << "Operations_VP_Shows: First season has no episodes";
+            qDebug() << "Operations_VP_Shows: First language version has no seasons";
         }
     } else {
-        qDebug() << "Operations_VP_Shows: No seasons found in tree widget";
+        qDebug() << "Operations_VP_Shows: No language versions found in tree widget";
         QMessageBox::information(m_mainWindow,
                                tr("No Episodes"),
                                tr("This show has no episodes to play."));

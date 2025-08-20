@@ -17,10 +17,14 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
                                                    const QStringList& targetFiles,
                                                    const QString& showName,
                                                    const QByteArray& encryptionKey, 
-                                                   const QString& username)
+                                                   const QString& username,
+                                                   const QString& language,
+                                                   const QString& translation)
     : m_sourceFiles(sourceFiles)
     , m_targetFiles(targetFiles)
     , m_showName(showName)
+    , m_language(language)
+    , m_translation(translation)
     , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(false)
@@ -398,6 +402,8 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     VP_ShowsMetadata::ShowMetadata metadata;
     metadata.filename = filename;
     metadata.showName = m_showName;
+    metadata.language = m_language;
+    metadata.translation = m_translation;
     
     // Try to parse season and episode from filename
     int season = 0, episode = 0;

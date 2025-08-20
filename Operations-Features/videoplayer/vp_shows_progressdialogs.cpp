@@ -75,7 +75,9 @@ void VP_ShowsEncryptionProgressDialog::startEncryption(const QStringList& source
                                                        const QStringList& targetFiles,
                                                        const QString& showName,
                                                        const QByteArray& encryptionKey,
-                                                       const QString& username)
+                                                       const QString& username,
+                                                       const QString& language,
+                                                       const QString& translation)
 {
     qDebug() << "VP_ShowsEncryptionProgressDialog: Starting encryption for" << sourceFiles.size() << "files";
     
@@ -91,7 +93,7 @@ void VP_ShowsEncryptionProgressDialog::startEncryption(const QStringList& source
     
     // Create worker and thread
     m_workerThread = new QThread();
-    m_worker = new VP_ShowsEncryptionWorker(sourceFiles, targetFiles, showName, encryptionKey, username);
+    m_worker = new VP_ShowsEncryptionWorker(sourceFiles, targetFiles, showName, encryptionKey, username, language, translation);
     
     // Move worker to thread
     m_worker->moveToThread(m_workerThread);

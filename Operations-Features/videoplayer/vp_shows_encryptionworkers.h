@@ -23,7 +23,9 @@ public:
                             const QStringList& targetFiles,
                             const QString& showName,
                             const QByteArray& encryptionKey, 
-                            const QString& username);
+                            const QString& username,
+                            const QString& language = "English",
+                            const QString& translation = "Dubbed");
     
     ~VP_ShowsEncryptionWorker();
     
@@ -31,6 +33,8 @@ public:
     QStringList m_sourceFiles;
     QStringList m_targetFiles;
     QString m_showName;
+    QString m_language;
+    QString m_translation;
     
     void cancel();
 

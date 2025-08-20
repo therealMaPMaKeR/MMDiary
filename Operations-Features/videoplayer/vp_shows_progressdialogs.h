@@ -24,7 +24,9 @@ public:
                          const QStringList& targetFiles,
                          const QString& showName,
                          const QByteArray& encryptionKey,
-                         const QString& username);
+                         const QString& username,
+                         const QString& language = "English",
+                         const QString& translation = "Dubbed");
 
 signals:
     void encryptionComplete(bool success, const QString& message,

@@ -90,6 +90,7 @@ SOURCES += \
     Operations-Features/videoplayer/vp_shows_tmdb.cpp \
     Operations-Features/videoplayer/vp_shows_config.cpp \
     Operations-Features/videoplayer/vp_shows_settings_dialog.cpp \
+    Operations-Features/videoplayer/vp_shows_add_dialog.cpp \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.cpp \
     Operations-Features/encrypteddata/encrypteddata_fileiconprovider.cpp \
     Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.cpp \
@@ -135,6 +136,7 @@ HEADERS += \
     Operations-Features/videoplayer/vp_shows_tmdb.h \
     Operations-Features/videoplayer/vp_shows_config.h \
     Operations-Features/videoplayer/vp_shows_settings_dialog.h \
+    Operations-Features/videoplayer/vp_shows_add_dialog.h \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.h \
     Operations-Features/encrypteddata/encrypteddata_fileiconprovider.h \
     Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.h \
@@ -159,6 +161,7 @@ HEADERS += \
 FORMS += \
     HiddenItemsList.ui \
     Operations-Features/passwordmanager/passwordmanager_addpassword.ui \
+    Operations-Features/videoplayer/vp_shows_add_dialog.ui \
     Operations-Features/tasklists/tasklists_addtask.ui \
     Operations-Global/imageviewer.ui \
     Operations-Global/passwordvalidation.ui \
