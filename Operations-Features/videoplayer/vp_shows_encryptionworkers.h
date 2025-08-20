@@ -6,6 +6,7 @@
 #include <QMutex>
 #include <QStringList>
 #include <QByteArray>
+#include <QMap>
 #include "vp_shows_metadata.h"
 #include "vp_shows_tmdb.h"
 
@@ -67,6 +68,7 @@ private:
     VP_ShowsTMDB::ShowInfo m_showInfo;
     bool m_tmdbDataAvailable;
     QString m_showImagePath;  // Path to encrypted show image
+    QMap<int, VP_ShowsTMDB::EpisodeMapping> m_episodeMap;  // Absolute number -> season/episode mapping
     
     // Track existing episodes to detect duplicates
     QSet<QString> m_existingEpisodes;  // Set of "S##E##" strings from existing files

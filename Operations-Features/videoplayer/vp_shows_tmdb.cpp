@@ -14,6 +14,7 @@
 #include <QRegularExpression>
 #include <QTemporaryFile>
 #include <QDir>
+#include <QThread>
 
 VP_ShowsTMDB::VP_ShowsTMDB(QObject *parent)
     : QObject(parent)
@@ -552,4 +553,107 @@ QString VP_ShowsTMDB::generateTempFilePath(const QString& prefix, const QString&
     
     qDebug() << "VP_ShowsTMDB: Generated temp file path:" << tempPath;
     return tempPath;
+}
+
+QList<VP_ShowsTMDB::EpisodeInfo> VP_ShowsTMDB::getSeasonEpisodes(int tmdbId, int seasonNumber)
+{
+    QList<EpisodeInfo> episodes;
+    
+    if (tmdbId <= 0 || seasonNumber < 0) {
+        qDebug() << "VP_ShowsTMDB: Invalid parameters for getting season episodes";
+        return episodes;
+    }
+    
+    QString endpoint = QString("/tv/%1/season/%2").arg(tmdbId).arg(seasonNumber);
+    QJsonObject response = makeApiRequest(endpoint);
+    
+    if (response.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Failed to get season" << seasonNumber << "episodes for show ID" << tmdbId;
+        return episodes;
+    }
+    
+    QJsonArray episodesArray = response["episodes"].toArray();
+    
+    for (const QJsonValue& value : episodesArray) {
+        QJsonObject episodeObj = value.toObject();
+        
+        EpisodeInfo episode;
+        episode.episodeName = episodeObj["name"].toString();
+        episode.overview = episodeObj["overview"].toString();
+        episode.stillPath = episodeObj["still_path"].toString();
+        episode.seasonNumber = episodeObj["season_number"].toInt();
+        episode.episodeNumber = episodeObj["episode_number"].toInt();
+        episode.airDate = episodeObj["air_date"].toString();
+        
+        episodes.append(episode);
+    }
+    
+    qDebug() << "VP_ShowsTMDB: Retrieved" << episodes.size() << "episodes for season" << seasonNumber;
+    return episodes;
+}
+
+QMap<int, VP_ShowsTMDB::EpisodeMapping> VP_ShowsTMDB::buildEpisodeMap(int tmdbId)
+{
+    QMap<int, EpisodeMapping> episodeMap;
+    
+    if (tmdbId <= 0) {
+        qDebug() << "VP_ShowsTMDB: Invalid TMDB ID for building episode map";
+        return episodeMap;
+    }
+    
+    // First, get show details to get list of seasons
+    QString showEndpoint = QString("/tv/%1").arg(tmdbId);
+    QJsonObject showDetails = makeApiRequest(showEndpoint);
+    
+    if (showDetails.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Failed to get show details for building episode map";
+        return episodeMap;
+    }
+    
+    QJsonArray seasons = showDetails["seasons"].toArray();
+    int absoluteNumber = 1;
+    
+    // Process each season
+    for (const QJsonValue& seasonValue : seasons) {
+        QJsonObject seasonObj = seasonValue.toObject();
+        int seasonNumber = seasonObj["season_number"].toInt();
+        
+        // Skip season 0 (specials) for absolute numbering
+        if (seasonNumber == 0) {
+            qDebug() << "VP_ShowsTMDB: Skipping season 0 (specials) for absolute numbering";
+            continue;
+        }
+        
+        // Get all episodes for this season
+        // Add a small delay to avoid rate limiting (TMDB allows 40 requests/10 seconds)
+        if (seasonNumber > 1) {
+            QThread::msleep(250);  // 250ms delay between season fetches
+        }
+        QList<EpisodeInfo> seasonEpisodes = getSeasonEpisodes(tmdbId, seasonNumber);
+        
+        // Add each episode to the map with its absolute number
+        for (const EpisodeInfo& episode : seasonEpisodes) {
+            EpisodeMapping mapping(absoluteNumber, 
+                                  episode.seasonNumber, 
+                                  episode.episodeNumber, 
+                                  episode.episodeName);
+            episodeMap[absoluteNumber] = mapping;
+            absoluteNumber++;
+        }
+    }
+    
+    qDebug() << "VP_ShowsTMDB: Built episode map with" << episodeMap.size() << "episodes for show ID" << tmdbId;
+    
+    // Log the first few mappings for debugging
+    if (!episodeMap.isEmpty()) {
+        auto it = episodeMap.begin();
+        for (int i = 0; i < 5 && it != episodeMap.end(); ++i, ++it) {
+            qDebug() << "VP_ShowsTMDB: Episode" << it.key() 
+                     << "-> S" << it.value().season 
+                     << "E" << it.value().episode 
+                     << ":" << it.value().episodeName;
+        }
+    }
+    
+    return episodeMap;
 }

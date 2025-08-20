@@ -8,6 +8,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QEventLoop>
+#include <QMap>
 #include <memory>
 
 class VP_ShowsTMDB : public QObject
@@ -51,6 +52,25 @@ public:
     
     // Get specific episode information
     bool getEpisodeInfo(int tmdbId, int season, int episode, EpisodeInfo& episodeInfo);
+    
+    // Structure to hold episode mapping for absolute numbering
+    struct EpisodeMapping {
+        int absoluteNumber;  // The absolute episode number (1, 2, 3, ...)
+        int season;
+        int episode;
+        QString episodeName;
+        
+        EpisodeMapping() : absoluteNumber(0), season(0), episode(0) {}
+        EpisodeMapping(int abs, int s, int e, const QString& name = QString())
+            : absoluteNumber(abs), season(s), episode(e), episodeName(name) {}
+    };
+    
+    // Fetch all episodes for a show and build absolute numbering map
+    // Returns a map of absolute episode number -> season/episode info
+    QMap<int, EpisodeMapping> buildEpisodeMap(int tmdbId);
+    
+    // Get all episodes for a specific season
+    QList<EpisodeInfo> getSeasonEpisodes(int tmdbId, int seasonNumber);
     
     // Download image from TMDB to temporary file
     // Available sizes:

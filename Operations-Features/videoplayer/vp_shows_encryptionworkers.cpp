@@ -299,6 +299,13 @@ bool VP_ShowsEncryptionWorker::fetchTMDBShowData()
     
     if (success) {
         qDebug() << "VP_ShowsEncryptionWorker: Found TMDB data for show:" << m_showInfo.showName;
+        
+        // Build the episode map for absolute numbering support
+        if (m_showInfo.tmdbId > 0) {
+            qDebug() << "VP_ShowsEncryptionWorker: Building episode map for absolute numbering...";
+            m_episodeMap = m_tmdbManager->buildEpisodeMap(m_showInfo.tmdbId);
+            qDebug() << "VP_ShowsEncryptionWorker: Episode map built with" << m_episodeMap.size() << "episodes";
+        }
     } else {
         qDebug() << "VP_ShowsEncryptionWorker: No TMDB data found for show:" << m_showName;
     }
@@ -414,7 +421,10 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     int season = 0, episode = 0;
     bool parsedSuccessfully = VP_ShowsTMDB::parseEpisodeFromFilename(filename, season, episode);
     
-    if (parsedSuccessfully && season > 0 && episode > 0) {
+    if (parsedSuccessfully && episode > 0) {  // Note: season can be 0 for absolute numbering
+        qDebug() << "VP_ShowsEncryptionWorker: Parsed episode from filename:" << filename
+                 << "-> Season:" << season << "Episode:" << episode;
+        
         // Check if this episode is a duplicate
         if (checkForDuplicateEpisode(season, episode, m_language, m_translation)) {
             qDebug() << "VP_ShowsEncryptionWorker: Duplicate episode detected - S" << season << "E" << episode
@@ -429,11 +439,22 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
         }
         
         // Not a duplicate, add to processed set
-        QString episodeKey = QString("S%1E%2_%3_%4")
-            .arg(season, 2, 10, QChar('0'))
-            .arg(episode, 2, 10, QChar('0'))
-            .arg(m_language)
-            .arg(m_translation);
+        QString episodeKey;
+        if (season == 0 && m_episodeMap.contains(episode)) {
+            // For absolute numbering, use the actual season/episode from the map
+            const VP_ShowsTMDB::EpisodeMapping& mapping = m_episodeMap[episode];
+            episodeKey = QString("S%1E%2_%3_%4")
+                .arg(mapping.season, 2, 10, QChar('0'))
+                .arg(mapping.episode, 2, 10, QChar('0'))
+                .arg(m_language)
+                .arg(m_translation);
+        } else {
+            episodeKey = QString("S%1E%2_%3_%4")
+                .arg(season, 2, 10, QChar('0'))
+                .arg(episode, 2, 10, QChar('0'))
+                .arg(m_language)
+                .arg(m_translation);
+        }
         m_processedEpisodes.insert(episodeKey);
         
         // If we couldn't parse a season number, use absolute numbering
@@ -457,7 +478,45 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
             // Add small delay to avoid rate limiting (TMDB allows 40 requests/10 seconds)
             QThread::msleep(250); // 250ms delay between API calls
             
-            if (m_tmdbManager->getEpisodeInfo(m_showInfo.tmdbId, season, episode, episodeInfo)) {
+            // For absolute numbering, we need to try to map to season/episode for TMDB
+            int tmdbSeason = season;
+            int tmdbEpisode = episode;
+            
+            if (season == 0 && episode > 0) {
+                // This is absolute numbering - use our episode map to convert
+                if (m_episodeMap.contains(episode)) {
+                    // We have a mapping for this episode!
+                    const VP_ShowsTMDB::EpisodeMapping& mapping = m_episodeMap[episode];
+                    tmdbSeason = mapping.season;
+                    tmdbEpisode = mapping.episode;
+                    
+                    qDebug() << "VP_ShowsEncryptionWorker: Using episode map - absolute episode" << episode 
+                             << "-> S" << tmdbSeason << "E" << tmdbEpisode;
+                    
+                    // We can even use the episode name from the map if available
+                    if (!mapping.episodeName.isEmpty() && metadata.EPName.isEmpty()) {
+                        metadata.EPName = mapping.episodeName;
+                        qDebug() << "VP_ShowsEncryptionWorker: Got episode name from map:" << metadata.EPName;
+                    }
+                } else {
+                    // No mapping found - use a fallback calculation
+                    qDebug() << "VP_ShowsEncryptionWorker: No mapping for absolute episode" << episode 
+                             << "in map of" << m_episodeMap.size() << "episodes";
+                    
+                    // Fallback: estimate based on common patterns
+                    const int episodesPerSeason = 26;
+                    tmdbSeason = ((episode - 1) / episodesPerSeason) + 1;
+                    tmdbEpisode = ((episode - 1) % episodesPerSeason) + 1;
+                    
+                    qDebug() << "VP_ShowsEncryptionWorker: Fallback conversion - episode" << episode 
+                             << "-> S" << tmdbSeason << "E" << tmdbEpisode;
+                }
+            }
+            
+            // Only fetch episode info if we don't already have the name from the map
+            bool needToFetchEpisodeInfo = metadata.EPName.isEmpty();
+            
+            if (needToFetchEpisodeInfo && m_tmdbManager->getEpisodeInfo(m_showInfo.tmdbId, tmdbSeason, tmdbEpisode, episodeInfo)) {
                 metadata.EPName = episodeInfo.episodeName;
                 
                 // Download and scale episode thumbnail if available
@@ -488,7 +547,12 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 }
                 
                 qDebug() << "VP_ShowsEncryptionWorker: Added TMDB episode data:" << metadata.EPName;
+            } else {
+                qDebug() << "VP_ShowsEncryptionWorker: Failed to get TMDB episode info for S" << tmdbSeason << "E" << tmdbEpisode;
+                qDebug() << "VP_ShowsEncryptionWorker: TMDB ID:" << m_showInfo.tmdbId << "Original absolute episode:" << episode;
             }
+        } else {
+            qDebug() << "VP_ShowsEncryptionWorker: TMDB data not available or invalid show ID";
         }
     } else {
         qDebug() << "VP_ShowsEncryptionWorker: Could not parse episode info from filename:" << filename;
@@ -499,12 +563,25 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
 
 bool VP_ShowsEncryptionWorker::checkForDuplicateEpisode(int season, int episode, const QString& language, const QString& translation)
 {
-    // Create the episode key with language and translation
-    QString episodeKey = QString("S%1E%2_%3_%4")
-        .arg(season, 2, 10, QChar('0'))
-        .arg(episode, 2, 10, QChar('0'))
-        .arg(language)
-        .arg(translation);
+    QString episodeKey;
+    
+    // For absolute numbering (season == 0), we need to check against the actual season/episode mapping
+    if (season == 0 && m_episodeMap.contains(episode)) {
+        // Use the actual season/episode from the map for the key
+        const VP_ShowsTMDB::EpisodeMapping& mapping = m_episodeMap[episode];
+        episodeKey = QString("S%1E%2_%3_%4")
+            .arg(mapping.season, 2, 10, QChar('0'))
+            .arg(mapping.episode, 2, 10, QChar('0'))
+            .arg(language)
+            .arg(translation);
+    } else {
+        // Create the episode key with language and translation
+        episodeKey = QString("S%1E%2_%3_%4")
+            .arg(season, 2, 10, QChar('0'))
+            .arg(episode, 2, 10, QChar('0'))
+            .arg(language)
+            .arg(translation);
+    }
     
     // Check if this episode already exists in the target folder or was already processed in this batch
     return m_existingEpisodes.contains(episodeKey) || m_processedEpisodes.contains(episodeKey);
