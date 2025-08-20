@@ -609,3 +609,228 @@ void VP_ShowsDecryptionWorker::doDecryption()
     qDebug() << "VP_ShowsDecryptionWorker: Successfully decrypted file to" << m_targetFile;
     emit decryptionFinished(true, "Decryption completed successfully");
 }
+
+//---------------- VP_ShowsExportWorker ----------------//
+
+VP_ShowsExportWorker::VP_ShowsExportWorker(const QList<ExportFileInfo>& files,
+                                           const QByteArray& encryptionKey,
+                                           const QString& username)
+    : m_files(files)
+    , m_encryptionKey(encryptionKey)
+    , m_username(username)
+    , m_cancelled(false)
+{
+    qDebug() << "VP_ShowsExportWorker: Constructor called for" << files.size() << "files";
+    m_metadataManager = new VP_ShowsMetadata(encryptionKey, username);
+}
+
+VP_ShowsExportWorker::~VP_ShowsExportWorker()
+{
+    qDebug() << "VP_ShowsExportWorker: Destructor called";
+    if (m_metadataManager) {
+        delete m_metadataManager;
+        m_metadataManager = nullptr;
+    }
+}
+
+void VP_ShowsExportWorker::cancel()
+{
+    QMutexLocker locker(&m_cancelMutex);
+    m_cancelled = true;
+    qDebug() << "VP_ShowsExportWorker: Cancellation requested";
+}
+
+void VP_ShowsExportWorker::doExport()
+{
+    qDebug() << "VP_ShowsExportWorker: Starting export of" << m_files.size() << "files";
+    
+    if (m_files.isEmpty()) {
+        emit exportFinished(false, "No files to export", QStringList(), QStringList());
+        return;
+    }
+    
+    // Calculate total size for overall progress
+    qint64 totalSize = 0;
+    for (const ExportFileInfo& fileInfo : m_files) {
+        totalSize += fileInfo.fileSize;
+    }
+    
+    QStringList successfulFiles;
+    QStringList failedFiles;
+    qint64 totalProcessed = 0;
+    
+    // Process each file
+    for (int i = 0; i < m_files.size(); ++i) {
+        // Check for cancellation
+        {
+            QMutexLocker locker(&m_cancelMutex);
+            if (m_cancelled) {
+                qDebug() << "VP_ShowsExportWorker: Export cancelled by user";
+                emit exportFinished(false, "Export cancelled by user", 
+                                   successfulFiles, failedFiles);
+                return;
+            }
+        }
+        
+        const ExportFileInfo& fileInfo = m_files[i];
+        
+        // Emit file progress update
+        emit fileProgressUpdate(i + 1, m_files.size(), fileInfo.displayName);
+        
+        // Export the file
+        int currentFileProgress = 0;
+        bool success = exportSingleFile(fileInfo, currentFileProgress);
+        
+        if (success) {
+            successfulFiles.append(fileInfo.targetFile);
+            totalProcessed += fileInfo.fileSize;
+        } else {
+            failedFiles.append(fileInfo.sourceFile);
+        }
+        
+        // Update overall progress
+        if (totalSize > 0) {
+            int overallProgress = static_cast<int>((totalProcessed * 100) / totalSize);
+            emit overallProgressUpdated(overallProgress);
+        }
+    }
+    
+    // Determine overall success
+    bool overallSuccess = !successfulFiles.isEmpty();
+    QString errorMessage;
+    
+    if (failedFiles.isEmpty()) {
+        errorMessage = QString("Successfully exported %1 files").arg(successfulFiles.size());
+    } else if (successfulFiles.isEmpty()) {
+        errorMessage = QString("Failed to export all %1 files").arg(failedFiles.size());
+    } else {
+        errorMessage = QString("Exported %1 files, failed %2 files")
+                      .arg(successfulFiles.size())
+                      .arg(failedFiles.size());
+    }
+    
+    qDebug() << "VP_ShowsExportWorker:" << errorMessage;
+    emit exportFinished(overallSuccess, errorMessage, successfulFiles, failedFiles);
+}
+
+bool VP_ShowsExportWorker::exportSingleFile(const ExportFileInfo& fileInfo, int& currentFileProgress)
+{
+    qDebug() << "VP_ShowsExportWorker: Exporting" << fileInfo.sourceFile << "to" << fileInfo.targetFile;
+    
+    QFile source(fileInfo.sourceFile);
+    if (!source.open(QIODevice::ReadOnly)) {
+        qDebug() << "VP_ShowsExportWorker: Failed to open source file:" << source.errorString();
+        return false;
+    }
+    
+    QFile target(fileInfo.targetFile);
+    if (!target.open(QIODevice::WriteOnly)) {
+        qDebug() << "VP_ShowsExportWorker: Failed to open target file:" << target.errorString();
+        source.close();
+        return false;
+    }
+    
+    // Read and verify metadata (but don't write it to target)
+    VP_ShowsMetadata::ShowMetadata metadata;
+    if (!m_metadataManager->readFixedSizeEncryptedMetadata(&source, metadata)) {
+        qDebug() << "VP_ShowsExportWorker: Failed to read metadata";
+        source.close();
+        target.close();
+        target.remove();
+        return false;
+    }
+    
+    qDebug() << "VP_ShowsExportWorker: Exporting episode:" << metadata.EPName 
+             << "from show:" << metadata.showName;
+    
+    // Skip past metadata (already read)
+    source.seek(VP_ShowsMetadata::METADATA_RESERVED_SIZE);
+    
+    // Calculate file size for progress
+    qint64 encryptedContentSize = source.size() - VP_ShowsMetadata::METADATA_RESERVED_SIZE;
+    qint64 processedSize = 0;
+    
+    // Decrypt file content in chunks
+    QDataStream stream(&source);
+    
+    while (!source.atEnd()) {
+        // Check for cancellation
+        {
+            QMutexLocker locker(&m_cancelMutex);
+            if (m_cancelled) {
+                source.close();
+                target.close();
+                target.remove();
+                return false;
+            }
+        }
+        
+        // Read chunk size
+        qint32 chunkSize;
+        stream >> chunkSize;
+        
+        if (chunkSize <= 0 || chunkSize > 10 * 1024 * 1024) { // Max 10MB per chunk
+            qDebug() << "VP_ShowsExportWorker: Invalid chunk size:" << chunkSize;
+            source.close();
+            target.close();
+            target.remove();
+            return false;
+        }
+        
+        // Read encrypted chunk
+        QByteArray encryptedChunk = source.read(chunkSize);
+        if (encryptedChunk.size() != chunkSize) {
+            qDebug() << "VP_ShowsExportWorker: Failed to read complete chunk";
+            source.close();
+            target.close();
+            target.remove();
+            return false;
+        }
+        
+        // Decrypt chunk
+        QByteArray decryptedChunk = CryptoUtils::Encryption_DecryptBArray(m_encryptionKey, encryptedChunk);
+        if (decryptedChunk.isEmpty()) {
+            qDebug() << "VP_ShowsExportWorker: Failed to decrypt chunk";
+            source.close();
+            target.close();
+            target.remove();
+            return false;
+        }
+        
+        // Write decrypted chunk
+        qint64 written = target.write(decryptedChunk);
+        if (written != decryptedChunk.size()) {
+            qDebug() << "VP_ShowsExportWorker: Failed to write decrypted chunk";
+            source.close();
+            target.close();
+            target.remove();
+            return false;
+        }
+        
+        // Update progress
+        processedSize += sizeof(qint32) + chunkSize;
+        if (encryptedContentSize > 0) {
+            currentFileProgress = static_cast<int>((processedSize * 100) / encryptedContentSize);
+            emit currentFileProgressUpdated(currentFileProgress);
+        }
+        
+        // Allow other threads to run
+        QThread::msleep(1);
+    }
+    
+    source.close();
+    
+    // Ensure all data is written to disk
+    target.flush();
+    target.close();
+    
+#ifdef Q_OS_WIN
+    // On Windows, ensure proper file permissions
+    QFile::setPermissions(fileInfo.targetFile, 
+                         QFile::ReadOwner | QFile::WriteOwner | 
+                         QFile::ReadUser | QFile::WriteUser);
+#endif
+    
+    qDebug() << "VP_ShowsExportWorker: Successfully exported file to" << fileInfo.targetFile;
+    return true;
+}

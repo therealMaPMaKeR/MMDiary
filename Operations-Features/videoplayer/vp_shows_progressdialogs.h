@@ -6,10 +6,12 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QThread>
+#include "vp_shows_encryptionworkers.h"
 
 // Forward declarations
 class VP_ShowsEncryptionWorker;
 class VP_ShowsDecryptionWorker;
+class VP_ShowsExportWorker;
 
 // Progress dialog for encrypting TV show files
 class VP_ShowsEncryptionProgressDialog : public QDialog
@@ -89,6 +91,50 @@ private:
     QThread* m_workerThread;
     VP_ShowsDecryptionWorker* m_worker;
     QString m_targetFile;
+};
+
+// Progress dialog for exporting entire TV shows
+class VP_ShowsExportProgressDialog : public QDialog
+{
+    Q_OBJECT
+
+public:
+    explicit VP_ShowsExportProgressDialog(QWidget* parent = nullptr);
+    ~VP_ShowsExportProgressDialog();
+    
+    void startExport(const QList<VP_ShowsExportWorker::ExportFileInfo>& files,
+                     const QByteArray& encryptionKey,
+                     const QString& username,
+                     const QString& showName);
+
+signals:
+    void exportComplete(bool success, const QString& message,
+                       const QStringList& successfulFiles,
+                       const QStringList& failedFiles);
+
+private slots:
+    void onOverallProgressUpdated(int percentage);
+    void onCurrentFileProgressUpdated(int percentage);
+    void onFileProgressUpdate(int currentFile, int totalFiles, const QString& fileName);
+    void onExportFinished(bool success, const QString& errorMessage,
+                         const QStringList& successfulFiles,
+                         const QStringList& failedFiles);
+    void onCancelClicked();
+
+private:
+    void setupUI();
+    void cleanup();
+    
+    QProgressBar* m_overallProgressBar;
+    QProgressBar* m_currentFileProgressBar;
+    QLabel* m_statusLabel;
+    QLabel* m_fileLabel;
+    QLabel* m_overallLabel;
+    QPushButton* m_cancelButton;
+    
+    QThread* m_workerThread;
+    VP_ShowsExportWorker* m_worker;
+    QString m_showName;
 };
 
 #endif // VP_SHOWS_PROGRESSDIALOGS_H

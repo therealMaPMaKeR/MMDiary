@@ -23,6 +23,9 @@ public:
     
     // Validation
     bool validateInputs();
+    
+    // Set show name as read-only (for adding episodes to existing show)
+    void setShowNameReadOnly(bool readOnly);
 
 private slots:
     void on_buttonBox_accepted();

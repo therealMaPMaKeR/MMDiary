@@ -8,9 +8,12 @@
 #include <memory>
 #include <QStringList>
 #include <QMap>
+#include <QList>
 #include <QPixmap>
 #include <QListWidgetItem>
 #include <QTreeWidgetItem>
+#include <QMenu>
+#include <QStorageInfo>
 
 // Forward declarations
 class MainWindow;
@@ -119,6 +122,25 @@ public:
     
     // Decrypt video file with metadata handling
     bool decryptVideoWithMetadata(const QString& sourceFile, const QString& targetFile);
+    
+    // Context menu for show list
+    void setupContextMenu();
+    void showContextMenu(const QPoint& pos);
+    
+    // Context menu actions
+    void addEpisodesToShow();
+    void decryptAndExportShow();
+    void deleteShow();
+    
+    // Helper functions for export
+    qint64 calculateShowSize(const QString& showFolderPath);
+    qint64 estimateDecryptedSize(const QString& showFolderPath);
+    bool exportShowEpisodes(const QString& showFolderPath, const QString& exportPath, const QString& showName);
+    void performExportWithWorker(const QString& showFolderPath, const QString& exportPath, const QString& showName);
+    
+    // Currently selected show for context menu operations
+    QString m_contextMenuShowName;
+    QString m_contextMenuShowPath;
 
 public slots:
     // Slot for debug button

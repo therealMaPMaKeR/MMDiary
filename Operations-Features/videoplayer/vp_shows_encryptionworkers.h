@@ -112,4 +112,54 @@ private:
     VP_ShowsMetadata* m_metadataManager;
 };
 
+// Worker class for exporting (decrypting) entire TV shows
+class VP_ShowsExportWorker : public QObject
+{
+    Q_OBJECT
+
+public:
+    struct ExportFileInfo {
+        QString sourceFile;
+        QString targetFile;
+        QString displayName;
+        qint64 fileSize;
+    };
+    
+    VP_ShowsExportWorker(const QList<ExportFileInfo>& files,
+                        const QByteArray& encryptionKey,
+                        const QString& username);
+    
+    ~VP_ShowsExportWorker();
+    
+    void cancel();
+
+public slots:
+    void doExport();
+
+signals:
+    // Overall progress (0-100)
+    void overallProgressUpdated(int percentage);
+    
+    // Current file progress (0-100)
+    void currentFileProgressUpdated(int percentage);
+    
+    // File progress (current file index, total files, current filename)
+    void fileProgressUpdate(int currentFile, int totalFiles, const QString& fileName);
+    
+    // Export complete signal
+    void exportFinished(bool success, const QString& errorMessage,
+                       const QStringList& successfulFiles,
+                       const QStringList& failedFiles);
+
+private:
+    QList<ExportFileInfo> m_files;
+    QByteArray m_encryptionKey;
+    QString m_username;
+    bool m_cancelled;
+    QMutex m_cancelMutex;
+    VP_ShowsMetadata* m_metadataManager;
+    
+    bool exportSingleFile(const ExportFileInfo& fileInfo, int& currentFileProgress);
+};
+
 #endif // VP_SHOWS_ENCRYPTIONWORKERS_H

@@ -3,6 +3,7 @@
 #include "inputvalidation.h"
 #include <QMessageBox>
 #include <QDebug>
+#include <QRegularExpression>
 
 VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     : QDialog(parent)
@@ -162,4 +163,17 @@ void VP_ShowsAddDialog::on_buttonBox_rejected()
 {
     qDebug() << "VP_ShowsAddDialog: Cancel button clicked";
     reject();
+}
+
+void VP_ShowsAddDialog::setShowNameReadOnly(bool readOnly)
+{
+    qDebug() << "VP_ShowsAddDialog: Setting show name read-only:" << readOnly;
+    ui->lineEdit_ShowName->setReadOnly(readOnly);
+    
+    // If read-only, also change the style to indicate it's disabled
+    if (readOnly) {
+        ui->lineEdit_ShowName->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #666666; }");
+    } else {
+        ui->lineEdit_ShowName->setStyleSheet("");  // Reset to default style
+    }
 }

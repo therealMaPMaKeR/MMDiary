@@ -116,8 +116,8 @@ void VP_ShowsEncryptionProgressDialog::startEncryption(const QStringList& source
     connect(m_worker, &VP_ShowsEncryptionWorker::encryptionFinished,
             m_workerThread, &QThread::quit);
     
-    connect(m_workerThread, &QThread::finished, m_worker, &QObject::deleteLater);
-    connect(m_workerThread, &QThread::finished, m_workerThread, &QObject::deleteLater);
+    // Don't use deleteLater - we'll handle cleanup manually in cleanup()
+    // This prevents use-after-free issues
     
     // Start the thread
     m_workerThread->start();
@@ -179,18 +179,45 @@ void VP_ShowsEncryptionProgressDialog::onCancelClicked()
 
 void VP_ShowsEncryptionProgressDialog::cleanup()
 {
-    if (m_workerThread && m_workerThread->isRunning()) {
-        m_workerThread->quit();
-        m_workerThread->wait(5000); // Wait up to 5 seconds
-        
-        if (m_workerThread->isRunning()) {
-            m_workerThread->terminate();
-            m_workerThread->wait();
-        }
+    qDebug() << "VP_ShowsEncryptionProgressDialog: cleanup() called";
+    
+    // First, check if we have a worker to cancel
+    if (m_worker) {
+        m_worker->cancel();
     }
     
-    m_workerThread = nullptr;
-    m_worker = nullptr;
+    // Handle thread cleanup
+    if (m_workerThread) {
+        // Disconnect all signals to prevent any further processing
+        if (m_worker) {
+            m_worker->disconnect();
+        }
+        m_workerThread->disconnect();
+        
+        // Only try to stop the thread if it's still valid and running
+        if (m_workerThread->isRunning()) {
+            qDebug() << "VP_ShowsEncryptionProgressDialog: Requesting thread quit";
+            m_workerThread->quit();
+            
+            // Wait for thread to finish
+            if (!m_workerThread->wait(5000)) {
+                qDebug() << "VP_ShowsEncryptionProgressDialog: Thread didn't quit in time, terminating";
+                m_workerThread->terminate();
+                m_workerThread->wait();
+            }
+        }
+        
+        // Delete the worker and thread objects
+        if (m_worker) {
+            delete m_worker;
+            m_worker = nullptr;
+        }
+        
+        delete m_workerThread;
+        m_workerThread = nullptr;
+    }
+    
+    qDebug() << "VP_ShowsEncryptionProgressDialog: cleanup() completed";
 }
 
 //---------------- VP_ShowsDecryptionProgressDialog ----------------//
@@ -278,8 +305,8 @@ void VP_ShowsDecryptionProgressDialog::startDecryption(const QString& sourceFile
     connect(m_worker, &VP_ShowsDecryptionWorker::decryptionFinished,
             m_workerThread, &QThread::quit);
     
-    connect(m_workerThread, &QThread::finished, m_worker, &QObject::deleteLater);
-    connect(m_workerThread, &QThread::finished, m_workerThread, &QObject::deleteLater);
+    // Don't use deleteLater - we'll handle cleanup manually in cleanup()
+    // This prevents use-after-free issues
     
     // Start the thread
     m_workerThread->start();
@@ -331,19 +358,267 @@ void VP_ShowsDecryptionProgressDialog::onCancelClicked()
 
 void VP_ShowsDecryptionProgressDialog::cleanup()
 {
-    if (m_workerThread && m_workerThread->isRunning()) {
-        m_workerThread->quit();
-        m_workerThread->wait(5000); // Wait up to 5 seconds
-        
-        if (m_workerThread->isRunning()) {
-            m_workerThread->terminate();
-            m_workerThread->wait();
-        }
+    qDebug() << "VP_ShowsDecryptionProgressDialog: cleanup() called";
+    
+    // First, check if we have a worker to cancel
+    if (m_worker) {
+        m_worker->cancel();
     }
     
-    m_workerThread = nullptr;
-    m_worker = nullptr;
+    // Handle thread cleanup
+    if (m_workerThread) {
+        // Disconnect all signals to prevent any further processing
+        if (m_worker) {
+            m_worker->disconnect();
+        }
+        m_workerThread->disconnect();
+        
+        // Only try to stop the thread if it's still valid and running
+        if (m_workerThread->isRunning()) {
+            qDebug() << "VP_ShowsDecryptionProgressDialog: Requesting thread quit";
+            m_workerThread->quit();
+            
+            // Wait for thread to finish
+            if (!m_workerThread->wait(5000)) {
+                qDebug() << "VP_ShowsDecryptionProgressDialog: Thread didn't quit in time, terminating";
+                m_workerThread->terminate();
+                m_workerThread->wait();
+            }
+        }
+        
+        // Delete the worker and thread objects
+        if (m_worker) {
+            delete m_worker;
+            m_worker = nullptr;
+        }
+        
+        delete m_workerThread;
+        m_workerThread = nullptr;
+    }
+    
+    qDebug() << "VP_ShowsDecryptionProgressDialog: cleanup() completed";
 }
 
 // Include QTimer for delayed close
 #include <QTimer>
+
+//---------------- VP_ShowsExportProgressDialog ----------------//
+
+VP_ShowsExportProgressDialog::VP_ShowsExportProgressDialog(QWidget* parent)
+    : QDialog(parent)
+    , m_workerThread(nullptr)
+    , m_worker(nullptr)
+{
+    qDebug() << "VP_ShowsExportProgressDialog: Constructor called";
+    setupUI();
+}
+
+VP_ShowsExportProgressDialog::~VP_ShowsExportProgressDialog()
+{
+    qDebug() << "VP_ShowsExportProgressDialog: Destructor called";
+    cleanup();
+}
+
+void VP_ShowsExportProgressDialog::setupUI()
+{
+    setWindowTitle("Exporting TV Show");
+    setModal(true);
+    setMinimumWidth(450);
+    
+    QVBoxLayout* mainLayout = new QVBoxLayout(this);
+    
+    // Status label
+    m_statusLabel = new QLabel("Preparing to export files...", this);
+    mainLayout->addWidget(m_statusLabel);
+    
+    // File label
+    m_fileLabel = new QLabel("", this);
+    mainLayout->addWidget(m_fileLabel);
+    
+    mainLayout->addSpacing(10);
+    
+    // Overall progress
+    m_overallLabel = new QLabel("Overall Progress:", this);
+    mainLayout->addWidget(m_overallLabel);
+    
+    m_overallProgressBar = new QProgressBar(this);
+    m_overallProgressBar->setRange(0, 100);
+    m_overallProgressBar->setValue(0);
+    m_overallProgressBar->setTextVisible(true);
+    mainLayout->addWidget(m_overallProgressBar);
+    
+    mainLayout->addSpacing(10);
+    
+    // Current file progress
+    QLabel* fileProgressLabel = new QLabel("Current File Progress:", this);
+    mainLayout->addWidget(fileProgressLabel);
+    
+    m_currentFileProgressBar = new QProgressBar(this);
+    m_currentFileProgressBar->setRange(0, 100);
+    m_currentFileProgressBar->setValue(0);
+    m_currentFileProgressBar->setTextVisible(true);
+    mainLayout->addWidget(m_currentFileProgressBar);
+    
+    mainLayout->addSpacing(10);
+    
+    // Cancel button
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    buttonLayout->addStretch();
+    
+    m_cancelButton = new QPushButton("Cancel", this);
+    connect(m_cancelButton, &QPushButton::clicked, this, &VP_ShowsExportProgressDialog::onCancelClicked);
+    buttonLayout->addWidget(m_cancelButton);
+    
+    buttonLayout->addStretch();
+    mainLayout->addLayout(buttonLayout);
+    
+    setLayout(mainLayout);
+}
+
+void VP_ShowsExportProgressDialog::startExport(const QList<VP_ShowsExportWorker::ExportFileInfo>& files,
+                                              const QByteArray& encryptionKey,
+                                              const QString& username,
+                                              const QString& showName)
+{
+    qDebug() << "VP_ShowsExportProgressDialog: Starting export for" << files.size() << "files";
+    
+    m_showName = showName;
+    
+    // Clean up any previous operation
+    cleanup();
+    
+    // Reset UI
+    m_overallProgressBar->setValue(0);
+    m_currentFileProgressBar->setValue(0);
+    m_statusLabel->setText(QString("Exporting %1 (%2 files)").arg(showName).arg(files.size()));
+    m_fileLabel->setText("");
+    m_cancelButton->setEnabled(true);
+    
+    // Create worker and thread
+    m_workerThread = new QThread();
+    m_worker = new VP_ShowsExportWorker(files, encryptionKey, username);
+    
+    // Move worker to thread
+    m_worker->moveToThread(m_workerThread);
+    
+    // Connect signals
+    connect(m_workerThread, &QThread::started, m_worker, &VP_ShowsExportWorker::doExport);
+    
+    connect(m_worker, &VP_ShowsExportWorker::overallProgressUpdated,
+            this, &VP_ShowsExportProgressDialog::onOverallProgressUpdated);
+    
+    connect(m_worker, &VP_ShowsExportWorker::currentFileProgressUpdated,
+            this, &VP_ShowsExportProgressDialog::onCurrentFileProgressUpdated);
+    
+    connect(m_worker, &VP_ShowsExportWorker::fileProgressUpdate,
+            this, &VP_ShowsExportProgressDialog::onFileProgressUpdate);
+    
+    connect(m_worker, &VP_ShowsExportWorker::exportFinished,
+            this, &VP_ShowsExportProgressDialog::onExportFinished);
+    
+    connect(m_worker, &VP_ShowsExportWorker::exportFinished,
+            m_workerThread, &QThread::quit);
+    
+    // Don't use deleteLater - we'll handle cleanup manually in cleanup()
+    // This prevents use-after-free issues
+    
+    // Start the thread
+    m_workerThread->start();
+    
+    // Show the dialog
+    show();
+}
+
+void VP_ShowsExportProgressDialog::onOverallProgressUpdated(int percentage)
+{
+    m_overallProgressBar->setValue(percentage);
+}
+
+void VP_ShowsExportProgressDialog::onCurrentFileProgressUpdated(int percentage)
+{
+    m_currentFileProgressBar->setValue(percentage);
+}
+
+void VP_ShowsExportProgressDialog::onFileProgressUpdate(int currentFile, int totalFiles, const QString& fileName)
+{
+    m_fileLabel->setText(QString("File %1 of %2: %3").arg(currentFile).arg(totalFiles).arg(fileName));
+    m_currentFileProgressBar->setValue(0); // Reset for new file
+}
+
+void VP_ShowsExportProgressDialog::onExportFinished(bool success, const QString& errorMessage,
+                                                   const QStringList& successfulFiles,
+                                                   const QStringList& failedFiles)
+{
+    qDebug() << "VP_ShowsExportProgressDialog: Export finished. Success:" << success;
+    
+    m_cancelButton->setEnabled(false);
+    
+    if (success) {
+        m_statusLabel->setText(QString("Export of %1 completed successfully!").arg(m_showName));
+        m_overallProgressBar->setValue(100);
+        m_currentFileProgressBar->setValue(100);
+    } else {
+        m_statusLabel->setText("Export failed: " + errorMessage);
+    }
+    
+    // Emit completion signal
+    emit exportComplete(success, errorMessage, successfulFiles, failedFiles);
+    
+    // Close dialog after a short delay
+    QTimer::singleShot(success ? 1500 : 3000, this, &QDialog::accept);
+}
+
+void VP_ShowsExportProgressDialog::onCancelClicked()
+{
+    qDebug() << "VP_ShowsExportProgressDialog: Cancel clicked";
+    
+    m_cancelButton->setEnabled(false);
+    m_statusLabel->setText("Cancelling export...");
+    
+    if (m_worker) {
+        m_worker->cancel();
+    }
+}
+
+void VP_ShowsExportProgressDialog::cleanup()
+{
+    qDebug() << "VP_ShowsExportProgressDialog: cleanup() called";
+    
+    // First, check if we have a worker to cancel
+    if (m_worker) {
+        m_worker->cancel();
+    }
+    
+    // Handle thread cleanup
+    if (m_workerThread) {
+        // Disconnect all signals to prevent any further processing
+        if (m_worker) {
+            m_worker->disconnect();
+        }
+        m_workerThread->disconnect();
+        
+        // Only try to stop the thread if it's still valid and running
+        if (m_workerThread->isRunning()) {
+            qDebug() << "VP_ShowsExportProgressDialog: Requesting thread quit";
+            m_workerThread->quit();
+            
+            // Wait for thread to finish
+            if (!m_workerThread->wait(5000)) {
+                qDebug() << "VP_ShowsExportProgressDialog: Thread didn't quit in time, terminating";
+                m_workerThread->terminate();
+                m_workerThread->wait();
+            }
+        }
+        
+        // Delete the worker and thread objects
+        if (m_worker) {
+            delete m_worker;
+            m_worker = nullptr;
+        }
+        
+        delete m_workerThread;
+        m_workerThread = nullptr;
+    }
+    
+    qDebug() << "VP_ShowsExportProgressDialog: cleanup() completed";
+}
