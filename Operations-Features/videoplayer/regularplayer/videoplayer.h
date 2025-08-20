@@ -12,7 +12,9 @@
 #include <QStyle>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <QMargins>
+#include <QTimer>
 #include <memory>
 
 class VideoPlayer : public QWidget
@@ -64,7 +66,10 @@ private slots:
     
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void showEvent(QShowEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
@@ -100,6 +105,13 @@ private:
     bool m_isFullScreen;
     QRect m_normalGeometry;
     QMargins m_normalMargins;
+    
+    // Mouse cursor auto-hide
+    QTimer* m_cursorTimer;
+    void startCursorTimer();
+    void stopCursorTimer();
+    void hideCursor();
+    void showCursor();
     
     // Custom position slider for clickable seeking
     class ClickableSlider;

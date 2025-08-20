@@ -5,6 +5,7 @@
 #include <QStyle>
 #include <QTime>
 #include <QCloseEvent>
+#include <QShowEvent>
 #include <QApplication>
 #include <QScreen>
 #include <QTimer>
@@ -59,6 +60,7 @@ VideoPlayer::VideoPlayer(QWidget *parent)
     , m_sliderLayout(nullptr)
     , m_isSliderBeingMoved(false)
     , m_isFullScreen(false)
+    , m_cursorTimer(nullptr)
 {
     qDebug() << "VideoPlayer: Constructor called";
     
@@ -73,6 +75,18 @@ VideoPlayer::VideoPlayer(QWidget *parent)
     m_mediaPlayer = std::make_unique<QMediaPlayer>(this);
     QAudioOutput* audioOutput = new QAudioOutput(this);
     m_mediaPlayer->setAudioOutput(audioOutput);
+    
+    // Setup cursor timer for auto-hide
+    m_cursorTimer = new QTimer(this);
+    m_cursorTimer->setSingleShot(true);
+    m_cursorTimer->setInterval(1000); // 1 second
+    connect(m_cursorTimer, &QTimer::timeout, this, &VideoPlayer::hideCursor);
+    
+    // Enable mouse tracking to detect mouse movement
+    setMouseTracking(true);
+    
+    // Set focus policy for keyboard input
+    setFocusPolicy(Qt::StrongFocus);
     
     // Setup UI
     setupUI();
@@ -115,6 +129,13 @@ void VideoPlayer::setupUI()
     // Install event filter on video widget for double-click fullscreen
     m_videoWidget->installEventFilter(this);
     
+    // Enable mouse tracking on video widget too
+    m_videoWidget->setMouseTracking(true);
+    
+    // Set focus policy to accept keyboard input
+    setFocusPolicy(Qt::StrongFocus);
+    m_videoWidget->setFocusPolicy(Qt::StrongFocus);
+    
     // Create controls
     createControls();
     
@@ -151,8 +172,8 @@ void VideoPlayer::createControls()
     m_positionSlider->setRange(0, 0);
     m_positionSlider->setToolTip(tr("Click to seek"));
     
-    // Volume slider - extended range to 150%
-    m_volumeSlider = new QSlider(Qt::Horizontal, this);
+    // Volume slider - use custom clickable slider, extended range to 150%
+    m_volumeSlider = createClickableSlider();
     m_volumeSlider->setRange(0, 150);  // Extended to 150%
     m_volumeSlider->setValue(70);
     m_volumeSlider->setMaximumWidth(100);
@@ -299,6 +320,9 @@ bool VideoPlayer::loadVideo(const QString& filePath)
     // Update window title
     setWindowTitle(tr("Video Player - %1").arg(fileInfo.fileName()));
     
+    // Ensure the widget has focus for keyboard input
+    setFocus();
+    
     qDebug() << "VideoPlayer: Video loaded successfully";
     return true;
 }
@@ -314,6 +338,9 @@ void VideoPlayer::play()
     }
     
     m_mediaPlayer->play();
+    
+    // Ensure we have focus for keyboard shortcuts
+    setFocus();
 }
 
 void VideoPlayer::pause()
@@ -338,7 +365,11 @@ void VideoPlayer::setVolume(int volume)
         // Allow volume up to 150%
         float volumeFloat = volume / 100.0f;
         m_mediaPlayer->audioOutput()->setVolume(volumeFloat);
-        m_volumeSlider->setValue(volume);
+        
+        // Update slider if it's not at the right position
+        if (m_volumeSlider->value() != volume) {
+            m_volumeSlider->setValue(volume);
+        }
         
         // Update volume label to show percentage
         if (volume > 100) {
@@ -346,6 +377,8 @@ void VideoPlayer::setVolume(int volume)
         } else {
             m_volumeLabel->setText(tr("Vol:"));
         }
+        
+        emit volumeChanged(volume);
     }
 }
 
@@ -395,6 +428,14 @@ void VideoPlayer::startInFullScreen()
                 m_controlsWidget->setVisible(false);
             }
         });
+        
+        // Start cursor timer for auto-hide
+        startCursorTimer();
+        
+        // Ensure we have focus for keyboard input
+        setFocus();
+        raise();
+        activateWindow();
     }
 }
 
@@ -433,6 +474,14 @@ void VideoPlayer::toggleFullScreen()
         m_fullScreenButton->setToolTip(tr("Exit Full Screen (ESC)"));
         
         emit fullScreenChanged(true);
+        
+        // Start cursor timer for auto-hide
+        startCursorTimer();
+        
+        // Ensure we have focus for keyboard input
+        setFocus();
+        raise();
+        activateWindow();
     }
 }
 
@@ -440,6 +489,10 @@ void VideoPlayer::exitFullScreen()
 {
     if (m_isFullScreen) {
         qDebug() << "VideoPlayer: Exiting fullscreen mode";
+        
+        // Stop cursor timer and restore cursor
+        stopCursorTimer();
+        showCursor();
         
         // Show controls
         m_controlsWidget->setVisible(true);
@@ -539,6 +592,18 @@ void VideoPlayer::closeEvent(QCloseEvent *event)
     event->accept();
 }
 
+void VideoPlayer::showEvent(QShowEvent *event)
+{
+    qDebug() << "VideoPlayer: Window shown, setting focus";
+    
+    // Ensure the widget has focus when shown
+    setFocus();
+    raise();
+    activateWindow();
+    
+    QWidget::showEvent(event);
+}
+
 void VideoPlayer::keyPressEvent(QKeyEvent *event)
 {
     qDebug() << "VideoPlayer: Key pressed:" << event->key();
@@ -559,28 +624,51 @@ void VideoPlayer::keyPressEvent(QKeyEvent *event)
             break;
             
         case Qt::Key_Left:
-            // Seek backward 10 seconds
-            setPosition(qMax(qint64(0), position() - 10000));
+            {
+                // Seek backward 10 seconds
+                qint64 currentPos = m_mediaPlayer->position();
+                qint64 newPos = qMax(qint64(0), currentPos - 10000);
+                qDebug() << "VideoPlayer: Seeking backward from" << currentPos << "to" << newPos;
+                m_mediaPlayer->setPosition(newPos);
+            }
             break;
             
         case Qt::Key_Right:
-            // Seek forward 10 seconds
-            setPosition(qMin(duration(), position() + 10000));
+            {
+                // Seek forward 10 seconds
+                qint64 currentPos = m_mediaPlayer->position();
+                qint64 newPos = qMin(m_mediaPlayer->duration(), currentPos + 10000);
+                qDebug() << "VideoPlayer: Seeking forward from" << currentPos << "to" << newPos;
+                m_mediaPlayer->setPosition(newPos);
+            }
             break;
             
         case Qt::Key_Up:
             // Increase volume by 5%
-            setVolume(qMin(150, volume() + 5));
+            {
+                int currentVolume = m_volumeSlider->value();
+                int newVolume = qMin(150, currentVolume + 5);
+                setVolume(newVolume);
+                qDebug() << "VideoPlayer: Key_Up - Volume changed from" << currentVolume << "to" << newVolume;
+            }
             break;
             
         case Qt::Key_Down:
             // Decrease volume by 5%
-            setVolume(qMax(0, volume() - 5));
+            {
+                int currentVolume = m_volumeSlider->value();
+                int newVolume = qMax(0, currentVolume - 5);
+                setVolume(newVolume);
+                qDebug() << "VideoPlayer: Key_Down - Volume changed from" << currentVolume << "to" << newVolume;
+            }
             break;
             
         default:
             QWidget::keyPressEvent(event);
     }
+    
+    // Accept the event to prevent it from being propagated
+    event->accept();
 }
 
 bool VideoPlayer::eventFilter(QObject *watched, QEvent *event)
@@ -594,23 +682,21 @@ bool VideoPlayer::eventFilter(QObject *watched, QEvent *event)
         }
     }
     
-    // In fullscreen mode, show controls on mouse move
-    if (m_isFullScreen && event->type() == QEvent::MouseMove) {
-        m_controlsWidget->setVisible(true);
+    // Handle mouse movement on video widget in fullscreen mode
+    if (watched == m_videoWidget && m_isFullScreen && event->type() == QEvent::MouseMove) {
+        // Show cursor
+        showCursor();
         
-        // Hide controls after 3 seconds of no mouse movement
-        static QTimer* hideTimer = nullptr;
-        if (!hideTimer) {
-            hideTimer = new QTimer(this);
-            hideTimer->setSingleShot(true);
-            connect(hideTimer, &QTimer::timeout, [this]() {
-                if (m_isFullScreen && !m_controlsWidget->underMouse()) {
-                    m_controlsWidget->setVisible(false);
-                }
-            });
+        // Show controls if hidden
+        if (!m_controlsWidget->isVisible()) {
+            qDebug() << "VideoPlayer: Mouse movement on video widget - showing controls";
+            m_controlsWidget->setVisible(true);
         }
-        hideTimer->stop();
-        hideTimer->start(3000);
+        
+        // Restart the cursor timer
+        startCursorTimer();
+        
+        // Don't return true here, let the event propagate
     }
     
     return QWidget::eventFilter(watched, event);
@@ -742,5 +828,101 @@ QString VideoPlayer::formatTime(qint64 milliseconds) const
         return QString("%1:%2")
             .arg(minutes, 2, 10, QChar('0'))
             .arg(seconds, 2, 10, QChar('0'));
+    }
+}
+
+void VideoPlayer::wheelEvent(QWheelEvent *event)
+{
+    qDebug() << "VideoPlayer: Mouse wheel event detected";
+    
+    // Get the number of degrees the wheel was rotated
+    QPoint numDegrees = event->angleDelta() / 8;
+    
+    if (!numDegrees.isNull()) {
+        // Get the number of steps (typically 15 degrees per step)
+        QPoint numSteps = numDegrees / 15;
+        
+        // Adjust volume based on vertical wheel movement
+        int currentVolume = m_volumeSlider->value();
+        int volumeChange = numSteps.y() * 5; // 5% per step
+        int newVolume = qBound(0, currentVolume + volumeChange, 150);
+        
+        if (newVolume != currentVolume) {
+            setVolume(newVolume);
+            qDebug() << "VideoPlayer: Mouse wheel - Volume changed from" << currentVolume << "to" << newVolume;
+        }
+    }
+    
+    event->accept();
+}
+
+void VideoPlayer::mouseMoveEvent(QMouseEvent *event)
+{
+    if (m_isFullScreen) {
+        // Show cursor and controls
+        showCursor();
+        
+        // Show controls if hidden
+        if (!m_controlsWidget->isVisible()) {
+            qDebug() << "VideoPlayer: Mouse movement detected - showing controls";
+            m_controlsWidget->setVisible(true);
+        }
+        
+        // Restart the timer
+        startCursorTimer();
+    }
+    
+    // Call base class implementation
+    QWidget::mouseMoveEvent(event);
+}
+
+void VideoPlayer::startCursorTimer()
+{
+    if (m_isFullScreen && m_cursorTimer) {
+        qDebug() << "VideoPlayer: Starting cursor timer";
+        m_cursorTimer->stop();
+        m_cursorTimer->start();
+    }
+}
+
+void VideoPlayer::stopCursorTimer()
+{
+    if (m_cursorTimer) {
+        qDebug() << "VideoPlayer: Stopping cursor timer";
+        m_cursorTimer->stop();
+    }
+}
+
+void VideoPlayer::hideCursor()
+{
+    if (m_isFullScreen && !m_controlsWidget->underMouse()) {
+        qDebug() << "VideoPlayer: Hiding cursor and controls";
+        
+        // Hide cursor on both widgets
+        setCursor(Qt::BlankCursor);
+        m_videoWidget->setCursor(Qt::BlankCursor);
+        
+        // Hide controls
+        m_controlsWidget->setVisible(false);
+        
+        // Force cursor update
+        QApplication::setOverrideCursor(Qt::BlankCursor);
+    }
+}
+
+void VideoPlayer::showCursor()
+{
+    // Only show if cursor is hidden
+    if (cursor().shape() == Qt::BlankCursor || QApplication::overrideCursor()) {
+        qDebug() << "VideoPlayer: Showing cursor";
+        
+        // Restore cursor on both widgets
+        setCursor(Qt::ArrowCursor);
+        m_videoWidget->setCursor(Qt::ArrowCursor);
+        
+        // Remove any override cursor
+        while (QApplication::overrideCursor()) {
+            QApplication::restoreOverrideCursor();
+        }
     }
 }
