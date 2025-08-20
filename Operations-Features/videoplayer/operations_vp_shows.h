@@ -141,6 +141,26 @@ public:
     // Currently selected show for context menu operations
     QString m_contextMenuShowName;
     QString m_contextMenuShowPath;
+    
+    // Episode tree widget context menu
+    void setupEpisodeContextMenu();
+    void showEpisodeContextMenu(const QPoint& pos);
+    
+    // Episode context menu actions
+    void playEpisodeFromContextMenu();
+    void decryptAndExportEpisodeFromContextMenu();
+    void deleteEpisodeFromContextMenu();
+    
+    // Helper functions for episode operations
+    void collectEpisodesFromTreeItem(QTreeWidgetItem* item, QStringList& episodePaths);
+    bool deleteEpisodesWithConfirmation(const QStringList& episodePaths, const QString& description);
+    bool exportEpisodes(const QStringList& episodePaths, const QString& exportPath, const QString& showName);
+    void performEpisodeExportWithWorker(const QStringList& episodePaths, const QString& exportPath, const QString& description);
+    
+    // Currently selected tree item for episode context menu
+    QTreeWidgetItem* m_contextMenuTreeItem;
+    QString m_contextMenuEpisodePath;
+    QStringList m_contextMenuEpisodePaths;
 
 public slots:
     // Slot for debug button

@@ -89,6 +89,9 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
         connect(m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList, &QTreeWidget::itemDoubleClicked,
                 this, &Operations_VP_Shows::onEpisodeDoubleClicked);
         qDebug() << "Operations_VP_Shows: Connected episode tree widget double-click handler";
+        
+        // Setup context menu for the episode tree widget
+        setupEpisodeContextMenu();
     }
     
     // Load the TV shows list on initialization
@@ -630,6 +633,12 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
     qDebug() << "Operations_VP_Shows: Successful files:" << successfulFiles.size();
     qDebug() << "Operations_VP_Shows: Failed files:" << failedFiles.size();
     
+    // Clear context menu data after operation completes
+    m_contextMenuShowName.clear();
+    m_contextMenuShowPath.clear();
+    m_contextMenuEpisodePaths.clear();
+    m_contextMenuEpisodePath.clear();
+    
     if (success && !successfulFiles.isEmpty()) {
         // After successful encryption, check if we have TMDB data and save show description/image
         // The show folder path should be the directory of the first target file
@@ -660,6 +669,11 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
         
         // Refresh the show list in the UI
         refreshTVShowsList();
+        
+        // If we're currently displaying a show and added episodes to it, refresh the episode list
+        if (m_isUpdatingExistingShow && !m_currentShowFolder.isEmpty()) {
+            loadShowEpisodes(m_currentShowFolder);
+        }
     } else if (!success) {
         QString detailedMessage = message;
         if (!failedFiles.isEmpty()) {
@@ -1478,27 +1492,18 @@ void Operations_VP_Shows::cleanupTempFile()
                             QFile::ReadUser | QFile::WriteUser);
 #endif
         
-        // Use operations_files secure delete for the temp file with 3 passes
-        // Set allowExternalFiles to true since this is a temp file
-        bool deleted = OperationsFiles::secureDelete(m_currentTempFile, 3, true);
-        
-        if (deleted) {
+        // Use regular delete for temp file
+        if (QFile::remove(m_currentTempFile)) {
             qDebug() << "Operations_VP_Shows: Successfully deleted temp file";
         } else {
-            qDebug() << "Operations_VP_Shows: Failed to secure delete temp file, trying regular delete";
-            // Try regular delete as fallback
-            if (QFile::remove(m_currentTempFile)) {
-                qDebug() << "Operations_VP_Shows: Regular delete succeeded";
-            } else {
-                qDebug() << "Operations_VP_Shows: Regular delete also failed";
-                // Schedule another attempt later
-                QTimer::singleShot(2000, this, [this]() {
-                    if (!m_currentTempFile.isEmpty() && QFile::exists(m_currentTempFile)) {
-                        qDebug() << "Operations_VP_Shows: Retry deleting temp file";
-                        QFile::remove(m_currentTempFile);
-                    }
-                });
-            }
+            qDebug() << "Operations_VP_Shows: Failed to delete temp file";
+            // Schedule another attempt later
+            QTimer::singleShot(2000, this, [this]() {
+                if (!m_currentTempFile.isEmpty() && QFile::exists(m_currentTempFile)) {
+                    qDebug() << "Operations_VP_Shows: Retry deleting temp file";
+                    QFile::remove(m_currentTempFile);
+                }
+            });
         }
     }
     
@@ -1600,6 +1605,10 @@ void Operations_VP_Shows::showContextMenu(const QPoint& pos)
         return;
     }
     
+    // Clear any previous context menu data
+    m_contextMenuEpisodePaths.clear();
+    m_contextMenuEpisodePath.clear();
+    
     // Store the show name and path for the context menu actions
     m_contextMenuShowName = item->text();
     m_contextMenuShowPath = item->data(Qt::UserRole).toString();
@@ -1635,11 +1644,33 @@ void Operations_VP_Shows::showContextMenu(const QPoint& pos)
 
 void Operations_VP_Shows::addEpisodesToShow()
 {
-    qDebug() << "Operations_VP_Shows: Add episodes to show:" << m_contextMenuShowName;
+    // Clear any stale context menu episode paths to prevent confusion
+    m_contextMenuEpisodePaths.clear();
+    m_contextMenuEpisodePath.clear();
     
+    // Determine the show name and path based on context
+    // This function can be called from either the show list context menu or the episode tree context menu
+    QString showName;
+    QString showPath;
+    
+    // Check if we're being called from the episode tree context menu
+    // In that case, use the current show being displayed
     if (m_contextMenuShowName.isEmpty() || m_contextMenuShowPath.isEmpty()) {
-        qDebug() << "Operations_VP_Shows: No show selected for adding episodes";
-        return;
+        // Try to use the current show being displayed
+        if (!m_currentShowFolder.isEmpty() && m_mainWindow && m_mainWindow->ui && 
+            m_mainWindow->ui->label_VP_Shows_Display_Name) {
+            showName = m_mainWindow->ui->label_VP_Shows_Display_Name->text();
+            showPath = m_currentShowFolder;
+            qDebug() << "Operations_VP_Shows: Add episodes to current show:" << showName;
+        } else {
+            qDebug() << "Operations_VP_Shows: No show selected for adding episodes";
+            return;
+        }
+    } else {
+        // Being called from show list context menu
+        showName = m_contextMenuShowName;
+        showPath = m_contextMenuShowPath;
+        qDebug() << "Operations_VP_Shows: Add episodes to show:" << showName;
     }
     
     // Open file dialog to select video files
@@ -1664,7 +1695,7 @@ void Operations_VP_Shows::addEpisodesToShow()
     VP_ShowsMetadata::ShowMetadata existingMetadata;
     
     // Find the first video file in the show folder to get its metadata
-    QDir showDir(m_contextMenuShowPath);
+    QDir showDir(showPath);
     QStringList videoExtensions;
     videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
                    << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
@@ -1681,11 +1712,11 @@ void Operations_VP_Shows::addEpisodesToShow()
     }
     
     // Show the add episodes dialog with the show name pre-filled and disabled
-    VP_ShowsAddDialog addDialog(m_contextMenuShowName, m_mainWindow);
+    VP_ShowsAddDialog addDialog(showName, m_mainWindow);
     
     // Set the show name field as read-only since we're adding to an existing show
     addDialog.setShowNameReadOnly(true);
-    addDialog.setWindowTitle(tr("Add Episodes to %1").arg(m_contextMenuShowName));
+    addDialog.setWindowTitle(tr("Add Episodes to %1").arg(showName));
     
     if (addDialog.exec() != QDialog::Accepted) {
         qDebug() << "Operations_VP_Shows: Add episodes dialog cancelled";
@@ -1730,7 +1761,7 @@ void Operations_VP_Shows::addEpisodesToShow()
     
     // Filter new episodes
     QStringList filesToImport = filterNewEpisodes(selectedFiles, existingEpisodes, 
-                                                 m_contextMenuShowName, newLanguage, newTranslation);
+                                                 showName, newLanguage, newTranslation);
     
     if (filesToImport.isEmpty()) {
         QMessageBox::information(m_mainWindow,
@@ -1764,7 +1795,7 @@ void Operations_VP_Shows::addEpisodesToShow()
     }
     
     // Start encryption with the show name and metadata
-    m_encryptionDialog->startEncryption(filesToImport, targetFiles, m_contextMenuShowName, 
+    m_encryptionDialog->startEncryption(filesToImport, targetFiles, showName, 
                                        m_mainWindow->user_Key, m_mainWindow->user_Username, 
                                        newLanguage, newTranslation);
 }
@@ -1954,14 +1985,10 @@ void Operations_VP_Shows::deleteShow()
     for (const QString& file : allFiles) {
         QString filePath = showDir.absoluteFilePath(file);
         
-        // Use secure delete with 3 passes for each file
-        if (!OperationsFiles::secureDelete(filePath, 3)) {
-            qDebug() << "Operations_VP_Shows: Failed to securely delete file:" << file;
-            // Try regular delete as fallback
-            if (!QFile::remove(filePath)) {
-                qDebug() << "Operations_VP_Shows: Failed to delete file:" << file;
-                allDeleted = false;
-            }
+        // Use regular delete for encrypted files (no need for secure deletion)
+        if (!QFile::remove(filePath)) {
+            qDebug() << "Operations_VP_Shows: Failed to delete file:" << file;
+            allDeleted = false;
         }
     }
     
@@ -2325,6 +2352,637 @@ void Operations_VP_Shows::performExportWithWorker(const QString& showFolderPath,
             QMessageBox::information(m_mainWindow,
                                    tr("Export Complete"),
                                    tr("The show \"%1\" has been successfully exported.").arg(showName));
+        } else {
+            QString detailedMessage = message;
+            if (!failedFiles.isEmpty()) {
+                detailedMessage += tr("\n\nFailed files: %1").arg(failedFiles.size());
+            }
+            QMessageBox::warning(m_mainWindow,
+                               tr("Export Failed"),
+                               detailedMessage);
+        }
+        
+        // Clean up the dialog
+        exportDialog->deleteLater();
+    });
+    
+    // Start the export
+    exportDialog->startExport(exportFiles, m_mainWindow->user_Key, m_mainWindow->user_Username, showName);
+}
+
+void Operations_VP_Shows::setupEpisodeContextMenu()
+{
+    qDebug() << "Operations_VP_Shows: Setting up context menu for episode tree widget";
+    
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+        qDebug() << "Operations_VP_Shows: Cannot setup episode context menu - tree widget not available";
+        return;
+    }
+    
+    // Enable context menu for the tree widget
+    m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->setContextMenuPolicy(Qt::CustomContextMenu);
+    
+    // Connect the context menu signal
+    connect(m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList, &QTreeWidget::customContextMenuRequested,
+            this, &Operations_VP_Shows::showEpisodeContextMenu);
+    
+    qDebug() << "Operations_VP_Shows: Episode context menu setup complete";
+}
+
+void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
+{
+    qDebug() << "Operations_VP_Shows: Episode context menu requested";
+    
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+        return;
+    }
+    
+    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+    
+    // Get the item at the position
+    QTreeWidgetItem* item = treeWidget->itemAt(pos);
+    
+    if (!item) {
+        qDebug() << "Operations_VP_Shows: No item at context menu position";
+        return;
+    }
+    
+    // Store the selected item for context menu actions
+    m_contextMenuTreeItem = item;
+    
+    // Determine what type of item this is (Language, Season, or Episode)
+    QString itemType;
+    QString description;
+    
+    // Clear previous episode paths
+    m_contextMenuEpisodePaths.clear();
+    
+    // Check the item level and collect episode paths
+    if (item->childCount() > 0) {
+        // This is either a language/translation item or a season item
+        QTreeWidgetItem* parent = item->parent();
+        
+        if (parent == nullptr) {
+            // Top-level item (Language/Translation)
+            itemType = "language";
+            description = item->text(0); // e.g., "English Dubbed"
+            qDebug() << "Operations_VP_Shows: Context menu on language/translation:" << description;
+        } else {
+            // Second-level item (Season)
+            itemType = "season";
+            description = item->text(0); // e.g., "Season 1"
+            QString language = parent->text(0);
+            description = QString("%1 - %2").arg(language).arg(description);
+            qDebug() << "Operations_VP_Shows: Context menu on season:" << description;
+        }
+        
+        // Collect all episode paths under this item
+        collectEpisodesFromTreeItem(item, m_contextMenuEpisodePaths);
+        
+    } else {
+        // This is an episode item
+        itemType = "episode";
+        description = item->text(0); // Episode name
+        
+        // Get the video path from the item's data
+        QString videoPath = item->data(0, Qt::UserRole).toString();
+        if (!videoPath.isEmpty()) {
+            m_contextMenuEpisodePaths.append(videoPath);
+            m_contextMenuEpisodePath = videoPath; // Store single episode path
+        }
+        
+        qDebug() << "Operations_VP_Shows: Context menu on episode:" << description;
+    }
+    
+    if (m_contextMenuEpisodePaths.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No episode paths found for context menu";
+        return;
+    }
+    
+    // Create the context menu
+    QMenu* contextMenu = new QMenu(m_mainWindow);
+    
+    // Play action
+    QAction* playAction;
+    if (itemType == "episode") {
+        playAction = contextMenu->addAction(tr("Play"));
+    } else {
+        playAction = contextMenu->addAction(tr("Play First Episode"));
+    }
+    connect(playAction, &QAction::triggered, this, &Operations_VP_Shows::playEpisodeFromContextMenu);
+    
+    // Add Episodes action - always show this regardless of item type
+    QAction* addEpisodesAction = contextMenu->addAction(tr("Add Episodes"));
+    connect(addEpisodesAction, &QAction::triggered, this, &Operations_VP_Shows::addEpisodesToShow);
+    
+    // Decrypt and Export action
+    QAction* exportAction;
+    if (itemType == "episode") {
+        exportAction = contextMenu->addAction(tr("Decrypt and Export"));
+    } else {
+        int episodeCount = m_contextMenuEpisodePaths.size();
+        exportAction = contextMenu->addAction(tr("Decrypt and Export (%1 episode%2)").arg(episodeCount).arg(episodeCount > 1 ? "s" : ""));
+    }
+    connect(exportAction, &QAction::triggered, this, &Operations_VP_Shows::decryptAndExportEpisodeFromContextMenu);
+    
+    // Delete action
+    QAction* deleteAction;
+    if (itemType == "episode") {
+        deleteAction = contextMenu->addAction(tr("Delete"));
+    } else {
+        int episodeCount = m_contextMenuEpisodePaths.size();
+        deleteAction = contextMenu->addAction(tr("Delete (%1 episode%2)").arg(episodeCount).arg(episodeCount > 1 ? "s" : ""));
+    }
+    connect(deleteAction, &QAction::triggered, this, &Operations_VP_Shows::deleteEpisodeFromContextMenu);
+    
+    // Show the menu at the cursor position
+    contextMenu->exec(treeWidget->mapToGlobal(pos));
+    
+    // Clean up
+    contextMenu->deleteLater();
+}
+
+void Operations_VP_Shows::collectEpisodesFromTreeItem(QTreeWidgetItem* item, QStringList& episodePaths)
+{
+    if (!item) return;
+    
+    // If this item has no children, it's an episode
+    if (item->childCount() == 0) {
+        QString videoPath = item->data(0, Qt::UserRole).toString();
+        if (!videoPath.isEmpty()) {
+            episodePaths.append(videoPath);
+        }
+    } else {
+        // This item has children, recursively collect from all children
+        for (int i = 0; i < item->childCount(); ++i) {
+            collectEpisodesFromTreeItem(item->child(i), episodePaths);
+        }
+    }
+}
+
+void Operations_VP_Shows::playEpisodeFromContextMenu()
+{
+    qDebug() << "Operations_VP_Shows: Play episode from context menu";
+    
+    if (m_contextMenuEpisodePaths.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No episodes to play";
+        return;
+    }
+    
+    // Play the first episode in the list
+    QString firstEpisodePath = m_contextMenuEpisodePaths.first();
+    
+    // Get the episode name from the tree item
+    QString episodeName;
+    if (m_contextMenuTreeItem) {
+        if (m_contextMenuTreeItem->childCount() == 0) {
+            // It's an episode item
+            episodeName = m_contextMenuTreeItem->text(0);
+        } else {
+            // It's a language or season item, find the first episode
+            QTreeWidgetItem* firstEpisode = m_contextMenuTreeItem;
+            while (firstEpisode && firstEpisode->childCount() > 0) {
+                firstEpisode = firstEpisode->child(0);
+            }
+            if (firstEpisode) {
+                episodeName = firstEpisode->text(0);
+            }
+        }
+    }
+    
+    if (episodeName.isEmpty()) {
+        QFileInfo fileInfo(firstEpisodePath);
+        episodeName = fileInfo.fileName();
+    }
+    
+    qDebug() << "Operations_VP_Shows: Playing episode:" << episodeName;
+    
+    // Decrypt and play the episode
+    decryptAndPlayEpisode(firstEpisodePath, episodeName);
+}
+
+void Operations_VP_Shows::decryptAndExportEpisodeFromContextMenu()
+{
+    qDebug() << "Operations_VP_Shows: Decrypt and export episodes from context menu";
+    qDebug() << "Operations_VP_Shows: Episodes to export:" << m_contextMenuEpisodePaths.size();
+    
+    if (m_contextMenuEpisodePaths.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No episodes to export";
+        return;
+    }
+    
+    // Get the show name from the display label
+    QString showName;
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->label_VP_Shows_Display_Name) {
+        showName = m_mainWindow->ui->label_VP_Shows_Display_Name->text();
+    }
+    
+    if (showName.isEmpty()) {
+        showName = "TV Show";
+    }
+    
+    // Select export folder
+    QString exportPath = QFileDialog::getExistingDirectory(
+        m_mainWindow,
+        tr("Select Export Folder"),
+        QDir::homePath(),
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks
+    );
+    
+    if (exportPath.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No export folder selected";
+        return;
+    }
+    
+    // Estimate the size needed
+    qint64 estimatedSize = 0;
+    for (const QString& episodePath : m_contextMenuEpisodePaths) {
+        QFileInfo fileInfo(episodePath);
+        estimatedSize += static_cast<qint64>(fileInfo.size() * 0.95); // Estimate 95% of encrypted size
+    }
+    
+    // Check available disk space
+    QStorageInfo storageInfo(exportPath);
+    qint64 availableSpace = storageInfo.bytesAvailable();
+    
+    qDebug() << "Operations_VP_Shows: Estimated size:" << estimatedSize << "Available space:" << availableSpace;
+    
+    if (availableSpace < estimatedSize) {
+        // Convert sizes to human-readable format
+        auto formatSize = [](qint64 bytes) -> QString {
+            const qint64 kb = 1024;
+            const qint64 mb = kb * 1024;
+            const qint64 gb = mb * 1024;
+            
+            if (bytes >= gb) {
+                return QString("%1 GB").arg(bytes / double(gb), 0, 'f', 2);
+            } else if (bytes >= mb) {
+                return QString("%1 MB").arg(bytes / double(mb), 0, 'f', 2);
+            } else if (bytes >= kb) {
+                return QString("%1 KB").arg(bytes / double(kb), 0, 'f', 2);
+            } else {
+                return QString("%1 bytes").arg(bytes);
+            }
+        };
+        
+        QMessageBox::warning(m_mainWindow,
+                           tr("Insufficient Disk Space"),
+                           tr("There is not enough space on the disk to export the selected episodes.\n\n"
+                              "Required size: %1\n"
+                              "Available space: %2\n\n"
+                              "Please free up some space and try again.")
+                           .arg(formatSize(estimatedSize))
+                           .arg(formatSize(availableSpace)));
+        return;
+    }
+    
+    // Build description for the export
+    QString description;
+    if (m_contextMenuTreeItem) {
+        if (m_contextMenuTreeItem->childCount() == 0) {
+            // Single episode
+            description = m_contextMenuTreeItem->text(0);
+        } else if (m_contextMenuTreeItem->parent() == nullptr) {
+            // Language/Translation level
+            description = QString("%1 - %2").arg(showName).arg(m_contextMenuTreeItem->text(0));
+        } else {
+            // Season level
+            QString language = m_contextMenuTreeItem->parent()->text(0);
+            description = QString("%1 - %2 - %3").arg(showName).arg(language).arg(m_contextMenuTreeItem->text(0));
+        }
+    }
+    
+    // Show confirmation dialog
+    int episodeCount = m_contextMenuEpisodePaths.size();
+    QString confirmMessage = tr("You are about to export and decrypt %1 episode%2\n\n"
+                               "Export to: %3\n\n"
+                               "Do you want to proceed?")
+                           .arg(episodeCount)
+                           .arg(episodeCount > 1 ? "s" : "")
+                           .arg(exportPath);
+    
+    int result = QMessageBox::question(m_mainWindow,
+                                      tr("Export Confirmation"),
+                                      confirmMessage,
+                                      QMessageBox::Yes | QMessageBox::No,
+                                      QMessageBox::No);
+    
+    if (result != QMessageBox::Yes) {
+        qDebug() << "Operations_VP_Shows: Export cancelled by user";
+        return;
+    }
+    
+    // Perform the export
+    performEpisodeExportWithWorker(m_contextMenuEpisodePaths, exportPath, description);
+}
+
+void Operations_VP_Shows::deleteEpisodeFromContextMenu()
+{
+    qDebug() << "Operations_VP_Shows: Delete episodes from context menu";
+    qDebug() << "Operations_VP_Shows: Episodes to delete:" << m_contextMenuEpisodePaths.size();
+    
+    if (m_contextMenuEpisodePaths.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No episodes to delete";
+        return;
+    }
+    
+    // Build description for deletion
+    QString description;
+    if (m_contextMenuTreeItem) {
+        if (m_contextMenuTreeItem->childCount() == 0) {
+            // Single episode
+            description = m_contextMenuTreeItem->text(0);
+        } else if (m_contextMenuTreeItem->parent() == nullptr) {
+            // Language/Translation level
+            description = m_contextMenuTreeItem->text(0);
+        } else {
+            // Season level
+            QString language = m_contextMenuTreeItem->parent()->text(0);
+            description = QString("%1 - %2").arg(language).arg(m_contextMenuTreeItem->text(0));
+        }
+    }
+    
+    // Delete episodes with confirmation
+    if (deleteEpisodesWithConfirmation(m_contextMenuEpisodePaths, description)) {
+        // Check if we need to go back to the shows list
+        // This happens if we deleted all episodes of the show
+        
+        // Get all video files in the current show folder to see if any remain
+        if (!m_currentShowFolder.isEmpty()) {
+            QDir showDir(m_currentShowFolder);
+            QStringList videoExtensions;
+            videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
+                           << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+            showDir.setNameFilters(videoExtensions);
+            QStringList remainingVideos = showDir.entryList(QDir::Files);
+            
+            if (remainingVideos.isEmpty()) {
+                // No episodes left, delete the entire show
+                qDebug() << "Operations_VP_Shows: No episodes left, deleting entire show";
+                
+                // Get the show name
+                QString showName;
+                if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->label_VP_Shows_Display_Name) {
+                    showName = m_mainWindow->ui->label_VP_Shows_Display_Name->text();
+                }
+                
+                // Delete the show folder
+                if (!showDir.removeRecursively()) {
+                    qDebug() << "Operations_VP_Shows: Failed to remove empty show directory";
+                }
+                
+                // Go back to the shows list
+                if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->stackedWidget_VP_Shows) {
+                    m_mainWindow->ui->stackedWidget_VP_Shows->setCurrentIndex(0);
+                }
+                
+                // Refresh the shows list
+                refreshTVShowsList();
+                
+                if (!showName.isEmpty()) {
+                    QMessageBox::information(m_mainWindow,
+                                           tr("Show Deleted"),
+                                           tr("All episodes have been deleted. The show \"%1\" has been removed from your library.").arg(showName));
+                }
+            } else {
+                // Some episodes remain, just refresh the episode list
+                loadShowEpisodes(m_currentShowFolder);
+            }
+        }
+    }
+}
+
+bool Operations_VP_Shows::deleteEpisodesWithConfirmation(const QStringList& episodePaths, const QString& description)
+{
+    if (episodePaths.isEmpty()) {
+        return false;
+    }
+    
+    int episodeCount = episodePaths.size();
+    
+    // First confirmation dialog
+    QString firstMessage;
+    if (episodeCount == 1) {
+        firstMessage = tr("You are about to delete the episode \"%1\" from your library.\n\n"
+                         "Are you sure that you want to proceed?").arg(description);
+    } else {
+        firstMessage = tr("You are about to delete %1 episodes (%2) from your library.\n\n"
+                         "Are you sure that you want to proceed?")
+                       .arg(episodeCount)
+                       .arg(description);
+    }
+    
+    int firstResult = QMessageBox::question(m_mainWindow,
+                                           tr("Delete Episode%1").arg(episodeCount > 1 ? "s" : ""),
+                                           firstMessage,
+                                           QMessageBox::No | QMessageBox::Yes,
+                                           QMessageBox::No);
+    
+    if (firstResult != QMessageBox::Yes) {
+        qDebug() << "Operations_VP_Shows: Deletion cancelled at first confirmation";
+        return false;
+    }
+    
+    // Second confirmation dialog
+    QString secondMessage;
+    if (episodeCount == 1) {
+        secondMessage = tr("Are you really sure you want to delete \"%1\"?\n\n"
+                          "This action cannot be undone.").arg(description);
+    } else {
+        secondMessage = tr("Are you really sure you want to delete %1 episodes?\n\n"
+                          "This action cannot be undone.").arg(episodeCount);
+    }
+    
+    QMessageBox secondConfirm(m_mainWindow);
+    secondConfirm.setWindowTitle(tr("Final Confirmation"));
+    secondConfirm.setText(secondMessage);
+    secondConfirm.setIcon(QMessageBox::Warning);
+    
+    QPushButton* deleteButton = secondConfirm.addButton(tr("Delete"), QMessageBox::DestructiveRole);
+    QPushButton* noButton = secondConfirm.addButton(tr("No"), QMessageBox::RejectRole);
+    
+    secondConfirm.setDefaultButton(noButton);
+    secondConfirm.exec();
+    
+    if (secondConfirm.clickedButton() != deleteButton) {
+        qDebug() << "Operations_VP_Shows: Deletion cancelled at second confirmation";
+        return false;
+    }
+    
+    qDebug() << "Operations_VP_Shows: User confirmed deletion, proceeding to delete" << episodeCount << "episode(s)";
+    
+    // Delete the episodes
+    bool allDeleted = true;
+    int deletedCount = 0;
+    
+    for (const QString& episodePath : episodePaths) {
+        // Use regular delete for encrypted files (no need for secure deletion)
+        if (QFile::remove(episodePath)) {
+            deletedCount++;
+            qDebug() << "Operations_VP_Shows: Successfully deleted episode:" << episodePath;
+        } else {
+            qDebug() << "Operations_VP_Shows: Failed to delete episode:" << episodePath;
+            allDeleted = false;
+        }
+    }
+    
+    if (allDeleted) {
+        QMessageBox::information(m_mainWindow,
+                               tr("Episodes Deleted"),
+                               tr("%1 episode%2 deleted successfully.")
+                               .arg(deletedCount)
+                               .arg(deletedCount > 1 ? "s have been" : " has been"));
+    } else {
+        QMessageBox::warning(m_mainWindow,
+                           tr("Partial Deletion"),
+                           tr("Some episodes could not be deleted. %1 out of %2 episode%3 deleted.")
+                           .arg(deletedCount)
+                           .arg(episodeCount)
+                           .arg(episodeCount > 1 ? "s were" : " was"));
+    }
+    
+    return deletedCount > 0;
+}
+
+void Operations_VP_Shows::performEpisodeExportWithWorker(const QStringList& episodePaths, const QString& exportPath, const QString& description)
+{
+    qDebug() << "Operations_VP_Shows: Preparing episode export with worker";
+    qDebug() << "Operations_VP_Shows: Episodes to export:" << episodePaths.size();
+    
+    // Get the show name
+    QString showName;
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->label_VP_Shows_Display_Name) {
+        showName = m_mainWindow->ui->label_VP_Shows_Display_Name->text();
+    }
+    if (showName.isEmpty()) {
+        showName = "TV Show";
+    }
+    
+    // Build the list of export file info
+    QList<VP_ShowsExportWorker::ExportFileInfo> exportFiles;
+    
+    // Create metadata manager to read episode info
+    VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    
+    // Create show folder in export path
+    QDir exportDir(exportPath);
+    QString showFolderName = showName;
+    
+    // Sanitize the show name for use as a folder name
+    showFolderName.replace(QRegularExpression("[<>:\"|?*]"), "_");
+    
+    if (!exportDir.mkdir(showFolderName)) {
+        // Folder might already exist, try to use it
+        qDebug() << "Operations_VP_Shows: Show folder already exists or couldn't be created";
+    }
+    
+    QString showExportPath = exportDir.absoluteFilePath(showFolderName);
+    QDir showExportDir(showExportPath);
+    
+    // Process each episode
+    for (const QString& episodePath : episodePaths) {
+        // Read metadata to determine output path and filename
+        VP_ShowsMetadata::ShowMetadata metadata;
+        if (!metadataManager.readMetadataFromFile(episodePath, metadata)) {
+            qDebug() << "Operations_VP_Shows: Failed to read metadata from:" << episodePath;
+            continue;
+        }
+        
+        // Parse season and episode numbers
+        int seasonNum = metadata.season.toInt();
+        int episodeNum = metadata.episode.toInt();
+        if (seasonNum <= 0 || episodeNum <= 0) {
+            // Try to parse from filename as fallback
+            VP_ShowsTMDB::parseEpisodeFromFilename(metadata.filename, seasonNum, episodeNum);
+            if (seasonNum <= 0) seasonNum = 1;
+        }
+        
+        // Create language/translation folder path
+        QString languageFolderName = QString("%1 %2").arg(metadata.language).arg(metadata.translation);
+        // Sanitize the language folder name
+        languageFolderName.replace(QRegularExpression("[<>:\"|?*]"), "_");
+        
+        if (!showExportDir.exists(languageFolderName)) {
+            if (!showExportDir.mkdir(languageFolderName)) {
+                qDebug() << "Operations_VP_Shows: Failed to create language folder:" << languageFolderName;
+                continue;
+            }
+        }
+        
+        QString languagePath = showExportDir.absoluteFilePath(languageFolderName);
+        QDir languageDir(languagePath);
+        
+        // Create season folder path with zero-padded number
+        QString seasonFolderName = QString("Season %1").arg(seasonNum, 2, 10, QChar('0'));
+        if (!languageDir.exists(seasonFolderName)) {
+            if (!languageDir.mkdir(seasonFolderName)) {
+                qDebug() << "Operations_VP_Shows: Failed to create season folder:" << seasonFolderName;
+                continue;
+            }
+        }
+        
+        QString seasonPath = languageDir.absoluteFilePath(seasonFolderName);
+        
+        // Generate output filename
+        QString outputFileName;
+        
+        if (episodeNum > 0) {
+            outputFileName = QString("%1_S%2E%3")
+                           .arg(showName)
+                           .arg(seasonNum, 2, 10, QChar('0'))
+                           .arg(episodeNum, 2, 10, QChar('0'));
+            
+            if (!metadata.EPName.isEmpty()) {
+                outputFileName += "_" + metadata.EPName;
+            }
+        } else {
+            // Use original filename without extension
+            QFileInfo fileInfo(metadata.filename);
+            outputFileName = fileInfo.completeBaseName();
+        }
+        
+        // Sanitize filename
+        outputFileName.replace(QRegularExpression("[<>:\"|?*]"), "_");
+        
+        // Add extension
+        QFileInfo sourceInfo(episodePath);
+        outputFileName += "." + sourceInfo.suffix();
+        
+        QString outputFilePath = QDir(seasonPath).absoluteFilePath(outputFileName);
+        
+        // Create export info
+        VP_ShowsExportWorker::ExportFileInfo fileInfo;
+        fileInfo.sourceFile = episodePath;
+        fileInfo.targetFile = outputFilePath;
+        fileInfo.displayName = outputFileName;
+        fileInfo.fileSize = QFileInfo(episodePath).size();
+        
+        exportFiles.append(fileInfo);
+    }
+    
+    if (exportFiles.isEmpty()) {
+        QMessageBox::warning(m_mainWindow,
+                           tr("Export Error"),
+                           tr("No valid episodes found to export."));
+        return;
+    }
+    
+    // Create and show export progress dialog
+    VP_ShowsExportProgressDialog* exportDialog = new VP_ShowsExportProgressDialog(m_mainWindow);
+    
+    // Connect completion signal
+    connect(exportDialog, &VP_ShowsExportProgressDialog::exportComplete,
+            this, [this, exportDialog, description](bool success, const QString& message,
+                                                   const QStringList& successfulFiles,
+                                                   const QStringList& failedFiles) {
+        qDebug() << "Operations_VP_Shows: Episode export complete. Success:" << success;
+        
+        if (success) {
+            QMessageBox::information(m_mainWindow,
+                                   tr("Export Complete"),
+                                   tr("Successfully exported %1 episode%2.")
+                                   .arg(successfulFiles.size())
+                                   .arg(successfulFiles.size() > 1 ? "s" : ""));
         } else {
             QString detailedMessage = message;
             if (!failedFiles.isEmpty()) {

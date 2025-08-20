@@ -5,6 +5,7 @@
 #include <QHBoxLayout>
 #include <QDebug>
 #include <QMessageBox>
+#include <QApplication>
 
 //---------------- VP_ShowsEncryptionProgressDialog ----------------//
 
@@ -207,9 +208,12 @@ void VP_ShowsEncryptionProgressDialog::cleanup()
             }
         }
         
-        // Delete the worker and thread objects
+        // Delete the worker using deleteLater to ensure it's deleted in the correct thread
         if (m_worker) {
-            delete m_worker;
+            // Move the worker back to the main thread before deletion
+            // This ensures deleteLater works correctly
+            m_worker->moveToThread(QApplication::instance()->thread());
+            m_worker->deleteLater();
             m_worker = nullptr;
         }
         
@@ -386,9 +390,12 @@ void VP_ShowsDecryptionProgressDialog::cleanup()
             }
         }
         
-        // Delete the worker and thread objects
+        // Delete the worker using deleteLater to ensure it's deleted in the correct thread
         if (m_worker) {
-            delete m_worker;
+            // Move the worker back to the main thread before deletion
+            // This ensures deleteLater works correctly
+            m_worker->moveToThread(QApplication::instance()->thread());
+            m_worker->deleteLater();
             m_worker = nullptr;
         }
         
@@ -675,9 +682,12 @@ void VP_ShowsExportProgressDialog::cleanup()
             }
         }
         
-        // Delete the worker and thread objects
+        // Delete the worker using deleteLater to ensure it's deleted in the correct thread
         if (m_worker) {
-            delete m_worker;
+            // Move the worker back to the main thread before deletion
+            // This ensures deleteLater works correctly
+            m_worker->moveToThread(QApplication::instance()->thread());
+            m_worker->deleteLater();
             m_worker = nullptr;
         }
         
