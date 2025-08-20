@@ -40,12 +40,27 @@ private:
     // Current decrypted temp file path (for cleanup)
     QString m_currentTempFile;
     
+    // Flags for tracking import state
+    bool m_isUpdatingExistingShow = false;
+    int m_originalEpisodeCount = 0;
+    int m_newEpisodeCount = 0;
+    
     // Helper functions
     QString selectVideoFile();
     bool isValidVideoFile(const QString& filePath);
     QStringList findVideoFiles(const QString& folderPath, bool recursive = true);
     QString generateRandomFileName(const QString& extension);
     bool createShowFolderStructure(QString& outputPath);
+    
+    // Duplicate handling functions
+    bool checkForExistingShow(const QString& showName, const QString& language, 
+                             const QString& translation, QString& existingFolder,
+                             QStringList& existingEpisodes);
+    QStringList filterNewEpisodes(const QStringList& candidateFiles, 
+                                 const QStringList& existingEpisodes,
+                                 const QString& showName,
+                                 const QString& language,
+                                 const QString& translation);
 
 public:
     explicit Operations_VP_Shows(MainWindow* mainWindow);

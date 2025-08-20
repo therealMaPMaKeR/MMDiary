@@ -293,18 +293,48 @@ void Operations_VP_Shows::importTVShow()
     
     qDebug() << "Operations_VP_Shows: Found" << videoFiles.size() << "video files";
     
-    // Create the output folder structure using secure operations_files functions
+    // Check if this show already exists with the same language and translation mode
+    QString existingShowFolder;
+    QStringList existingEpisodes;
+    bool showExists = checkForExistingShow(showName, language, translationMode, existingShowFolder, existingEpisodes);
+    
     QString outputPath;
-    if (!createShowFolderStructure(outputPath)) {
-        QMessageBox::critical(m_mainWindow,
-                            tr("Folder Creation Failed"),
-                            tr("Failed to create the necessary folder structure. Please check permissions and try again."));
-        return;
+    QStringList filesToImport;
+    QStringList targetFiles;
+    
+    if (showExists) {
+        qDebug() << "Operations_VP_Shows: Show already exists, checking for new episodes";
+        qDebug() << "Operations_VP_Shows: Existing show folder:" << existingShowFolder;
+        qDebug() << "Operations_VP_Shows: Existing episodes count:" << existingEpisodes.size();
+        
+        // Filter out episodes we already have
+        filesToImport = filterNewEpisodes(videoFiles, existingEpisodes, showName, language, translationMode);
+        
+        if (filesToImport.isEmpty()) {
+            qDebug() << "Operations_VP_Shows: No new episodes to import";
+            QMessageBox::warning(m_mainWindow,
+                               tr("No New Episodes"),
+                               tr("Could not import \"%1\". This show is already in your library and the folder you selected contains no new episodes.").arg(showName));
+            return;
+        }
+        
+        qDebug() << "Operations_VP_Shows: Found" << filesToImport.size() << "new episodes to import";
+        outputPath = existingShowFolder; // Use existing show folder
+    } else {
+        qDebug() << "Operations_VP_Shows: This is a new show, importing all episodes";
+        filesToImport = videoFiles;
+        
+        // Create the output folder structure using secure operations_files functions
+        if (!createShowFolderStructure(outputPath)) {
+            QMessageBox::critical(m_mainWindow,
+                                tr("Folder Creation Failed"),
+                                tr("Failed to create the necessary folder structure. Please check permissions and try again."));
+            return;
+        }
     }
     
-    // Generate random filenames for each video file
-    QStringList targetFiles;
-    for (const QString& sourceFile : videoFiles) {
+    // Generate random filenames for each video file to import
+    for (const QString& sourceFile : filesToImport) {
         QFileInfo fileInfo(sourceFile);
         QString extension = fileInfo.suffix().toLower();
         QString randomName = generateRandomFileName(extension);
@@ -326,6 +356,11 @@ void Operations_VP_Shows::importTVShow()
     QByteArray encryptionKey = m_mainWindow->user_Key;
     QString username = m_mainWindow->user_Username;
     
+    // Store whether this is an update or new import for the completion message
+    m_isUpdatingExistingShow = showExists;
+    m_originalEpisodeCount = videoFiles.size();
+    m_newEpisodeCount = filesToImport.size();
+    
     // Create and show progress dialog
     if (!m_encryptionDialog) {
         m_encryptionDialog = new VP_ShowsEncryptionProgressDialog(m_mainWindow);
@@ -334,7 +369,7 @@ void Operations_VP_Shows::importTVShow()
     }
     
     // Start encryption with language and translation info
-    m_encryptionDialog->startEncryption(videoFiles, targetFiles, showName, encryptionKey, username, 
+    m_encryptionDialog->startEncryption(filesToImport, targetFiles, showName, encryptionKey, username, 
                                        language, translationMode);
 }
 
@@ -364,6 +399,140 @@ QStringList Operations_VP_Shows::findVideoFiles(const QString& folderPath, bool 
     }
     
     return videoFiles;
+}
+
+bool Operations_VP_Shows::checkForExistingShow(const QString& showName, const QString& language, 
+                                              const QString& translation, QString& existingFolder,
+                                              QStringList& existingEpisodes)
+{
+    qDebug() << "Operations_VP_Shows: Checking for existing show:" << showName 
+             << "Language:" << language << "Translation:" << translation;
+    
+    // Build the path to the shows directory
+    QString basePath = QDir::current().absoluteFilePath("Data");
+    QString userPath = QDir(basePath).absoluteFilePath(m_mainWindow->user_Username);
+    QString videoplayerPath = QDir(userPath).absoluteFilePath("Videoplayer");
+    QString showsPath = QDir(videoplayerPath).absoluteFilePath("Shows");
+    
+    QDir showsDir(showsPath);
+    if (!showsDir.exists()) {
+        qDebug() << "Operations_VP_Shows: Shows directory does not exist yet";
+        return false;
+    }
+    
+    // Get all subdirectories in the shows folder
+    QStringList showFolders = showsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    
+    // Create metadata manager for reading show metadata
+    VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    
+    // Check each show folder
+    for (const QString& folderName : showFolders) {
+        QString folderPath = showsDir.absoluteFilePath(folderName);
+        QDir showFolder(folderPath);
+        
+        // Find the first video file in this folder to read its metadata
+        QStringList videoExtensions;
+        videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
+                       << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+        
+        showFolder.setNameFilters(videoExtensions);
+        QStringList videoFiles = showFolder.entryList(QDir::Files);
+        
+        if (videoFiles.isEmpty()) {
+            continue;
+        }
+        
+        // Read metadata from the first video file
+        QString firstVideoPath = showFolder.absoluteFilePath(videoFiles.first());
+        VP_ShowsMetadata::ShowMetadata metadata;
+        
+        if (metadataManager.readMetadataFromFile(firstVideoPath, metadata)) {
+            // Check if this is the same show with same language and translation
+            if (metadata.showName == showName && 
+                metadata.language == language && 
+                metadata.translation == translation) {
+                
+                qDebug() << "Operations_VP_Shows: Found existing show in folder:" << folderPath;
+                existingFolder = folderPath;
+                
+                // Get all existing episodes with their identifiers
+                for (const QString& videoFile : videoFiles) {
+                    QString videoPath = showFolder.absoluteFilePath(videoFile);
+                    VP_ShowsMetadata::ShowMetadata epMetadata;
+                    
+                    if (metadataManager.readMetadataFromFile(videoPath, epMetadata)) {
+                        // Create episode identifier based on season and episode numbers
+                        int seasonNum = epMetadata.season.toInt();
+                        int episodeNum = epMetadata.episode.toInt();
+                        
+                        // If metadata doesn't have valid numbers, try to parse from filename
+                        if (seasonNum == 0 || episodeNum == 0) {
+                            VP_ShowsTMDB::parseEpisodeFromFilename(epMetadata.filename, seasonNum, episodeNum);
+                        }
+                        
+                        // Create identifier like "S01E01" or use original filename if parsing failed
+                        QString episodeId;
+                        if (seasonNum > 0 && episodeNum > 0) {
+                            episodeId = QString("S%1E%2").arg(seasonNum, 2, 10, QChar('0'))
+                                                        .arg(episodeNum, 2, 10, QChar('0'));
+                        } else {
+                            // Use the original filename as identifier
+                            episodeId = epMetadata.filename;
+                        }
+                        
+                        existingEpisodes.append(episodeId);
+                        qDebug() << "Operations_VP_Shows: Found existing episode:" << episodeId;
+                    }
+                }
+                
+                return true; // Found existing show
+            }
+        }
+    }
+    
+    return false; // No existing show found
+}
+
+QStringList Operations_VP_Shows::filterNewEpisodes(const QStringList& candidateFiles, 
+                                                  const QStringList& existingEpisodes,
+                                                  const QString& showName,
+                                                  const QString& language,
+                                                  const QString& translation)
+{
+    qDebug() << "Operations_VP_Shows: Filtering new episodes from" << candidateFiles.size() << "files";
+    qDebug() << "Operations_VP_Shows: Existing episodes count:" << existingEpisodes.size();
+    
+    QStringList newEpisodes;
+    
+    for (const QString& candidateFile : candidateFiles) {
+        QFileInfo fileInfo(candidateFile);
+        QString filename = fileInfo.fileName();
+        
+        // Try to parse season and episode from filename
+        int seasonNum = 0, episodeNum = 0;
+        VP_ShowsTMDB::parseEpisodeFromFilename(filename, seasonNum, episodeNum);
+        
+        QString episodeId;
+        if (seasonNum > 0 && episodeNum > 0) {
+            episodeId = QString("S%1E%2").arg(seasonNum, 2, 10, QChar('0'))
+                                        .arg(episodeNum, 2, 10, QChar('0'));
+        } else {
+            // Use the filename as identifier if parsing failed
+            episodeId = filename;
+        }
+        
+        // Check if this episode already exists
+        if (!existingEpisodes.contains(episodeId)) {
+            newEpisodes.append(candidateFile);
+            qDebug() << "Operations_VP_Shows: New episode to import:" << episodeId << "-" << filename;
+        } else {
+            qDebug() << "Operations_VP_Shows: Episode already exists:" << episodeId << "-" << filename;
+        }
+    }
+    
+    qDebug() << "Operations_VP_Shows: Found" << newEpisodes.size() << "new episodes to import";
+    return newEpisodes;
 }
 
 QString Operations_VP_Shows::generateRandomFileName(const QString& extension)
@@ -461,9 +630,23 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
             qDebug() << "Operations_VP_Shows: Import successful, TMDB data may have been saved";
         }
         
+        QString successMessage;
+        if (m_isUpdatingExistingShow) {
+            // This was an update to an existing show
+            int addedCount = successfulFiles.size();
+            successMessage = tr("Successfully added %1 new episode(s) to your library.").arg(addedCount);
+            
+            if (failedFiles.size() > 0) {
+                successMessage += tr("\n\nNote: %1 episode(s) failed to import.").arg(failedFiles.size());
+            }
+        } else {
+            // This was a new show import
+            successMessage = tr("TV show imported successfully!\n%1").arg(message);
+        }
+        
         QMessageBox::information(m_mainWindow,
                                tr("Import Successful"),
-                               tr("TV show imported successfully!\n%1").arg(message));
+                               successMessage);
         
         // Refresh the show list in the UI
         refreshTVShowsList();
@@ -478,16 +661,21 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
         }
         
         QMessageBox::warning(m_mainWindow,
-                           tr("Import Partially Failed"),
+                           tr("Import Failed"),
                            detailedMessage);
         
         // Clean up any partially created folders if all files failed
-        if (successfulFiles.isEmpty() && !failedFiles.isEmpty()) {
-            qDebug() << "Operations_VP_Shows: All files failed, cleaning up created folders";
+        if (successfulFiles.isEmpty() && !failedFiles.isEmpty() && !m_isUpdatingExistingShow) {
+            qDebug() << "Operations_VP_Shows: All files failed for new show, cleaning up created folders";
             // The encrypted files that failed would have been cleaned up by the encryption worker
             // We just need to log this for debugging purposes
         }
     }
+    
+    // Reset the flags
+    m_isUpdatingExistingShow = false;
+    m_originalEpisodeCount = 0;
+    m_newEpisodeCount = 0;
 }
 
 void Operations_VP_Shows::loadTVShowsList()
