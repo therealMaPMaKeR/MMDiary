@@ -436,8 +436,17 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
             .arg(m_translation);
         m_processedEpisodes.insert(episodeKey);
         
-        metadata.season = QString::number(season);
-        metadata.episode = QString::number(episode);
+        // If we couldn't parse a season number, use absolute numbering
+        if (season == 0) {
+            // No season detected, use absolute numbering
+            metadata.season = "0";  // Use "0" as marker for absolute numbering
+            metadata.episode = QString::number(episode);
+            qDebug() << "VP_ShowsEncryptionWorker: Using absolute numbering for episode" << episode;
+        } else {
+            // Season detected, use traditional numbering
+            metadata.season = QString::number(season);
+            metadata.episode = QString::number(episode);
+        }
         
         qDebug() << "VP_ShowsEncryptionWorker: Parsed episode info - S" << season << "E" << episode;
         

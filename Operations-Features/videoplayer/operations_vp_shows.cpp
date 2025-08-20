@@ -1225,8 +1225,9 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     // Key: "Language Translation" (e.g., "English Dubbed"), Value: map of seasons
     QMap<QString, QMap<int, QList<QPair<int, QTreeWidgetItem*>>>> languageVersions;
     
-    // List to hold error episodes (duplicates or parsing failures)
-    QList<QTreeWidgetItem*> errorEpisodes;
+    // Map to hold error episodes per language/translation
+    // Key: "Language Translation", Value: list of error episode items
+    QMap<QString, QList<QTreeWidgetItem*>> errorEpisodesByLanguage;
     
     // Process each video file
     for (const QString& videoFile : videoFiles) {
@@ -1254,11 +1255,13 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             errorItem->setText(0, errorName);
             errorItem->setData(0, Qt::UserRole, videoPath);
             
-            // Set a red color to indicate error
-            errorItem->setForeground(0, QBrush(Qt::red));
+            // No special color - use same as regular episodes
             
-            // Add to error list
-            errorEpisodes.append(errorItem);
+            // Create language/translation key for grouping
+            QString languageKey = QString("%1 %2").arg(metadata.language).arg(metadata.translation);
+            
+            // Add to error list for this language/translation
+            errorEpisodesByLanguage[languageKey].append(errorItem);
             continue;
         }
         
@@ -1282,16 +1285,26 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         // Create episode item
         QTreeWidgetItem* episodeItem = new QTreeWidgetItem();
         
-        // Format the episode name
+        // Format the episode name based on numbering type
         QString episodeName;
-        if (!metadata.EPName.isEmpty()) {
-            // Use TMDB episode name if available
-            episodeName = QString("%1 - %2").arg(episodeNum).arg(metadata.EPName);
+        if (metadata.isAbsoluteNumbering()) {
+            // For absolute numbering, just use episode number without season
+            if (!metadata.EPName.isEmpty()) {
+                episodeName = QString("Episode %1 - %2").arg(episodeNum).arg(metadata.EPName);
+            } else {
+                QFileInfo fileInfo(metadata.filename);
+                QString baseName = fileInfo.completeBaseName();
+                episodeName = QString("Episode %1 - %2").arg(episodeNum).arg(baseName);
+            }
         } else {
-            // Use original filename without extension as fallback
-            QFileInfo fileInfo(metadata.filename);
-            QString baseName = fileInfo.completeBaseName();
-            episodeName = QString("%1 - %2").arg(episodeNum).arg(baseName);
+            // Traditional season/episode numbering
+            if (!metadata.EPName.isEmpty()) {
+                episodeName = QString("%1 - %2").arg(episodeNum).arg(metadata.EPName);
+            } else {
+                QFileInfo fileInfo(metadata.filename);
+                QString baseName = fileInfo.completeBaseName();
+                episodeName = QString("%1 - %2").arg(episodeNum).arg(baseName);
+            }
         }
         
         episodeItem->setText(0, episodeName);
@@ -1308,34 +1321,32 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         m_episodeFileMapping[mappingKey] = videoPath;
         
         // Add to language/season map
-        languageVersions[languageKey][seasonNum].append(QPair<int, QTreeWidgetItem*>(episodeNum, episodeItem));
+        // For absolute numbering, we'll use season 0 as a marker
+        if (metadata.isAbsoluteNumbering()) {
+            languageVersions[languageKey][0].append(QPair<int, QTreeWidgetItem*>(episodeNum, episodeItem));
+        } else {
+            languageVersions[languageKey][seasonNum].append(QPair<int, QTreeWidgetItem*>(episodeNum, episodeItem));
+        }
         
         qDebug() << "Operations_VP_Shows: Added episode" << languageKey 
                  << "S" << seasonNum << "E" << episodeNum << "-" << episodeName;
     }
     
-    // Add error episodes category if there are any
-    if (!errorEpisodes.isEmpty()) {
-        QTreeWidgetItem* errorCategory = new QTreeWidgetItem();
-        errorCategory->setText(0, tr("Error - Duplicate or Invalid Episodes (%1)").arg(errorEpisodes.size()));
-        errorCategory->setForeground(0, QBrush(Qt::darkRed));
-        
-        // Add all error episodes under this category
-        for (QTreeWidgetItem* errorItem : errorEpisodes) {
-            errorCategory->addChild(errorItem);
-        }
-        
-        // Add error category to tree widget at the top
-        m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->addTopLevelItem(errorCategory);
-        
-        // Expand the error category so users can see the problematic episodes
-        errorCategory->setExpanded(true);
-        
-        qDebug() << "Operations_VP_Shows: Added" << errorEpisodes.size() << "error episodes to display";
+    // Create language/translation items, then season items, then add episodes
+    // First, get all unique language keys (from both regular episodes and error episodes)
+    QSet<QString> allLanguageKeys;
+    
+    // Add keys from regular episodes
+    for (const QString& key : languageVersions.keys()) {
+        allLanguageKeys.insert(key);
     }
     
-    // Create language/translation items, then season items, then add episodes
-    QList<QString> languageKeys = languageVersions.keys();
+    // Add keys from error episodes
+    for (const QString& key : errorEpisodesByLanguage.keys()) {
+        allLanguageKeys.insert(key);
+    }
+    
+    QList<QString> languageKeys = allLanguageKeys.values();
     std::sort(languageKeys.begin(), languageKeys.end());
     
     for (const QString& languageKey : languageKeys) {
@@ -1343,33 +1354,67 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         QTreeWidgetItem* languageItem = new QTreeWidgetItem();
         languageItem->setText(0, languageKey);
         
-        // Get seasons for this language/translation
-        QMap<int, QList<QPair<int, QTreeWidgetItem*>>>& seasons = languageVersions[languageKey];
-        QList<int> seasonNumbers = seasons.keys();
-        std::sort(seasonNumbers.begin(), seasonNumbers.end());
-        
-        for (int seasonNum : seasonNumbers) {
-            // Create season item
-            QTreeWidgetItem* seasonItem = new QTreeWidgetItem();
-            seasonItem->setText(0, tr("Season %1").arg(seasonNum));
+        // Get seasons for this language/translation (if any regular episodes exist)
+        if (languageVersions.contains(languageKey)) {
+            QMap<int, QList<QPair<int, QTreeWidgetItem*>>>& seasons = languageVersions[languageKey];
+            QList<int> seasonNumbers = seasons.keys();
+            std::sort(seasonNumbers.begin(), seasonNumbers.end());
             
-            // Sort episodes by episode number
-            QList<QPair<int, QTreeWidgetItem*>>& episodes = seasons[seasonNum];
-            std::sort(episodes.begin(), episodes.end(), 
-                      [](const QPair<int, QTreeWidgetItem*>& a, const QPair<int, QTreeWidgetItem*>& b) {
-                          return a.first < b.first;
-                      });
-            
-            // Add episodes to season
-            for (const auto& episode : episodes) {
-                seasonItem->addChild(episode.second);
+            for (int seasonNum : seasonNumbers) {
+                // Create season or episodes item based on numbering type
+                QTreeWidgetItem* seasonItem = new QTreeWidgetItem();
+                
+                // Check if this is absolute numbering (season 0 is our marker)
+                if (seasonNum == 0) {
+                    // This is absolute numbering, use "Episodes" instead of "Season"
+                    seasonItem->setText(0, tr("Episodes"));
+                } else {
+                    // Traditional season numbering
+                    seasonItem->setText(0, tr("Season %1").arg(seasonNum));
+                }
+                
+                // Sort episodes by episode number
+                QList<QPair<int, QTreeWidgetItem*>>& episodes = seasons[seasonNum];
+                std::sort(episodes.begin(), episodes.end(), 
+                          [](const QPair<int, QTreeWidgetItem*>& a, const QPair<int, QTreeWidgetItem*>& b) {
+                              return a.first < b.first;
+                          });
+                
+                // Add episodes to season
+                for (const auto& episode : episodes) {
+                    seasonItem->addChild(episode.second);
+                }
+                
+                // Add season to language item
+                languageItem->addChild(seasonItem);
+                
+                // Expand the season by default
+                seasonItem->setExpanded(true);
             }
-            
-            // Add season to language item
-            languageItem->addChild(seasonItem);
-            
-            // Expand the season by default
-            seasonItem->setExpanded(true);
+        }
+        
+        // Add error episodes category for this language if there are any
+        if (errorEpisodesByLanguage.contains(languageKey)) {
+            QList<QTreeWidgetItem*>& errorEpisodes = errorEpisodesByLanguage[languageKey];
+            if (!errorEpisodes.isEmpty()) {
+                // Create error category item
+                QTreeWidgetItem* errorCategory = new QTreeWidgetItem();
+                errorCategory->setText(0, tr("Error - Duplicate Episodes (%1)").arg(errorEpisodes.size()));
+                
+                // Add all error episodes under this category
+                for (QTreeWidgetItem* errorItem : errorEpisodes) {
+                    errorCategory->addChild(errorItem);
+                }
+                
+                // Add error category to language item (it will appear alongside seasons)
+                languageItem->addChild(errorCategory);
+                
+                // Expand the error category so users can see the problematic episodes
+                errorCategory->setExpanded(true);
+                
+                qDebug() << "Operations_VP_Shows: Added" << errorEpisodes.size() 
+                         << "error episodes for" << languageKey;
+            }
         }
         
         // Add language item to tree widget

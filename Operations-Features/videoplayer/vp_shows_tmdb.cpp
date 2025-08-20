@@ -406,8 +406,8 @@ bool VP_ShowsTMDB::parseEpisodeFromFilename(const QString& filename, int& season
         return false;
     }
     
-    // List of regex patterns to try, in order of preference
-    QList<QRegularExpression> patterns = {
+    // First try patterns with both season and episode
+    QList<QRegularExpression> seasonPatterns = {
         // S##E## or s##e## (most common)
         QRegularExpression("S(\\d{1,2})E(\\d{1,3})", QRegularExpression::CaseInsensitiveOption),
         
@@ -433,7 +433,8 @@ bool VP_ShowsTMDB::parseEpisodeFromFilename(const QString& filename, int& season
         QRegularExpression("(?:^|[^\\d])(\\d{2})(\\d{2})(?:[^\\d]|$)")
     };
     
-    for (const auto& pattern : patterns) {
+    // Try season patterns first
+    for (const auto& pattern : seasonPatterns) {
         QRegularExpressionMatch match = pattern.match(filename);
         if (match.hasMatch()) {
             season = match.captured(1).toInt();
@@ -443,6 +444,39 @@ bool VP_ShowsTMDB::parseEpisodeFromFilename(const QString& filename, int& season
             if (season > 0 && season <= 99 && episode > 0 && episode <= 999) {
                 qDebug() << "VP_ShowsTMDB: Parsed from filename:" << filename 
                         << "-> S" << season << "E" << episode;
+                return true;
+            }
+        }
+    }
+    
+    // If no season pattern matched, try absolute numbering patterns
+    QList<QRegularExpression> absolutePatterns = {
+        // E### or Ep### or Episode ### (common for anime)
+        QRegularExpression("(?:E|Ep|Episode)\\s*(\\d{1,4})", QRegularExpression::CaseInsensitiveOption),
+        
+        // #### format at the beginning or surrounded by non-digits (e.g., "001.mkv" or "Show_001")
+        QRegularExpression("(?:^|[^\\d])(\\d{3,4})(?:[^\\d]|$)"),
+        
+        // - ### - format (common in anime releases)
+        QRegularExpression("\\s-\\s*(\\d{1,4})\\s*-\\s"),
+        
+        // [###] format
+        QRegularExpression("\\[(\\d{1,4})\\]"),
+        
+        // (#) or (###) format
+        QRegularExpression("\\((\\d{1,4})\\)")
+    };
+    
+    for (const auto& pattern : absolutePatterns) {
+        QRegularExpressionMatch match = pattern.match(filename);
+        if (match.hasMatch()) {
+            episode = match.captured(1).toInt();
+            
+            // For absolute numbering, set season to 0
+            if (episode > 0 && episode <= 9999) {
+                season = 0;  // Indicates absolute numbering
+                qDebug() << "VP_ShowsTMDB: Parsed absolute episode from filename:" << filename 
+                        << "-> Episode" << episode;
                 return true;
             }
         }

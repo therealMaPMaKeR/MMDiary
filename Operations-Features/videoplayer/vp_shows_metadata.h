@@ -12,7 +12,7 @@ public:
     struct ShowMetadata {
         QString filename;       // Original filename with extension
         QString showName;       // Name of the TV show (from folder name)
-        QString season;         // Season number/name
+        QString season;         // Season number/name (empty or "0" for absolute numbering)
         QString episode;        // Episode number/name
         QString EPName;         // Episode name from TMDB
         QByteArray EPImage;     // Episode thumbnail (128x128) from TMDB
@@ -41,6 +41,11 @@ public:
               EPName(epName), EPImage(epImage), language(lang), translation(trans)
         {
             encryptionDateTime = QDateTime::currentDateTime();
+        }
+        
+        // Helper function to check if using absolute numbering
+        bool isAbsoluteNumbering() const {
+            return season.isEmpty() || season == "0";
         }
     };
     
