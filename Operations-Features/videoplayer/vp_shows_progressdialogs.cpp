@@ -435,6 +435,13 @@ void VP_ShowsExportProgressDialog::setupUI()
     m_fileLabel = new QLabel("", this);
     mainLayout->addWidget(m_fileLabel);
     
+    // Warning label (initially hidden)
+    m_warningLabel = new QLabel("", this);
+    m_warningLabel->setStyleSheet("QLabel { color: #FF8800; }"); // Orange color for warnings
+    m_warningLabel->setWordWrap(true);
+    m_warningLabel->setVisible(false);
+    mainLayout->addWidget(m_warningLabel);
+    
     mainLayout->addSpacing(10);
     
     // Overall progress
@@ -483,6 +490,7 @@ void VP_ShowsExportProgressDialog::startExport(const QList<VP_ShowsExportWorker:
     qDebug() << "VP_ShowsExportProgressDialog: Starting export for" << files.size() << "files";
     
     m_showName = showName;
+    m_warnings.clear();
     
     // Clean up any previous operation
     cleanup();
@@ -491,7 +499,10 @@ void VP_ShowsExportProgressDialog::startExport(const QList<VP_ShowsExportWorker:
     m_overallProgressBar->setValue(0);
     m_currentFileProgressBar->setValue(0);
     m_statusLabel->setText(QString("Exporting %1 (%2 files)").arg(showName).arg(files.size()));
+    m_statusLabel->setStyleSheet("");  // Reset any custom styling
     m_fileLabel->setText("");
+    m_warningLabel->setText("");
+    m_warningLabel->setVisible(false);
     m_cancelButton->setEnabled(true);
     
     // Create worker and thread
@@ -512,6 +523,9 @@ void VP_ShowsExportProgressDialog::startExport(const QList<VP_ShowsExportWorker:
     
     connect(m_worker, &VP_ShowsExportWorker::fileProgressUpdate,
             this, &VP_ShowsExportProgressDialog::onFileProgressUpdate);
+    
+    connect(m_worker, &VP_ShowsExportWorker::fileExportWarning,
+            this, &VP_ShowsExportProgressDialog::onFileExportWarning);
     
     connect(m_worker, &VP_ShowsExportWorker::exportFinished,
             this, &VP_ShowsExportProgressDialog::onExportFinished);
@@ -545,6 +559,22 @@ void VP_ShowsExportProgressDialog::onFileProgressUpdate(int currentFile, int tot
     m_currentFileProgressBar->setValue(0); // Reset for new file
 }
 
+void VP_ShowsExportProgressDialog::onFileExportWarning(const QString& fileName, const QString& warningMessage)
+{
+    qDebug() << "VP_ShowsExportProgressDialog: Warning for file" << fileName << ":" << warningMessage;
+    
+    // Add warning to list
+    m_warnings.append(fileName);
+    
+    // Update the warning label with count
+    if (m_warnings.size() == 1) {
+        m_warningLabel->setText(QString("⚠ 1 file skipped (already exists in target folder)"));
+    } else {
+        m_warningLabel->setText(QString("⚠ %1 files skipped (already exist in target folder)").arg(m_warnings.size()));
+    }
+    m_warningLabel->setVisible(true);
+}
+
 void VP_ShowsExportProgressDialog::onExportFinished(bool success, const QString& errorMessage,
                                                    const QStringList& successfulFiles,
                                                    const QStringList& failedFiles)
@@ -553,19 +583,54 @@ void VP_ShowsExportProgressDialog::onExportFinished(bool success, const QString&
     
     m_cancelButton->setEnabled(false);
     
+    // Check if the error message indicates all files were skipped
+    bool allFilesSkipped = errorMessage.contains("All") && errorMessage.contains("already exist");
+    
     if (success) {
-        m_statusLabel->setText(QString("Export of %1 completed successfully!").arg(m_showName));
+        m_statusLabel->setText(errorMessage);  // The error message contains the success summary
         m_overallProgressBar->setValue(100);
         m_currentFileProgressBar->setValue(100);
+        
+        // Update warning label if files were skipped
+        if (!m_warnings.isEmpty()) {
+            if (m_warnings.size() == 1) {
+                m_warningLabel->setText(QString("⚠ 1 file was not exported (already exists in target folder)"));
+            } else {
+                m_warningLabel->setText(QString("⚠ %1 files were not exported (already exist in target folder)").arg(m_warnings.size()));
+            }
+            m_warningLabel->setVisible(true);
+        }
+    } else if (allFilesSkipped) {
+        // Special case: all files were skipped due to duplicates
+        m_statusLabel->setText(errorMessage);
+        m_statusLabel->setStyleSheet("QLabel { color: #FF8800; }");  // Orange for warning
+        m_overallProgressBar->setValue(100);  // Set to 100 since we checked all files
+        m_currentFileProgressBar->setValue(100);
+        
+        // Warning label already shows the count during processing
+        if (!m_warnings.isEmpty()) {
+            m_warningLabel->setText(QString("⚠ No files exported - all %1 files already exist in the target folder").arg(m_warnings.size()));
+            m_warningLabel->setVisible(true);
+        }
     } else {
-        m_statusLabel->setText("Export failed: " + errorMessage);
+        // Export failed for other reasons
+        m_statusLabel->setText(errorMessage);
+        m_statusLabel->setStyleSheet("QLabel { color: #FF0000; }");  // Red for error
     }
     
     // Emit completion signal
     emit exportComplete(success, errorMessage, successfulFiles, failedFiles);
     
-    // Close dialog after a short delay
-    QTimer::singleShot(success ? 1500 : 3000, this, &QDialog::accept);
+    // Close dialog after a delay
+    // Longer delay if there were warnings or if all files were skipped
+    int delay = 1500;
+    if (!m_warnings.isEmpty() || allFilesSkipped) {
+        delay = 4000;  // Give more time to read the warning
+    } else if (!success) {
+        delay = 3000;
+    }
+    
+    QTimer::singleShot(delay, this, &QDialog::accept);
 }
 
 void VP_ShowsExportProgressDialog::onCancelClicked()

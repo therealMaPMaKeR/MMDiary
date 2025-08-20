@@ -2,6 +2,7 @@
 #include "vp_shows_config.h"
 #include "CryptoUtils.h"
 #include "operations_files.h"
+#include "inputvalidation.h"
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
@@ -656,7 +657,8 @@ void VP_ShowsExportWorker::doExport()
     }
     
     QStringList successfulFiles;
-    QStringList failedFiles;
+    QStringList skippedFiles;  // Track files skipped due to duplicates
+    QStringList failedFiles;   // Track files that failed for other reasons
     qint64 totalProcessed = 0;
     
     // Process each file
@@ -677,6 +679,27 @@ void VP_ShowsExportWorker::doExport()
         // Emit file progress update
         emit fileProgressUpdate(i + 1, m_files.size(), fileInfo.displayName);
         
+            // Check if file already exists BEFORE attempting export
+        // This prevents overwriting existing files in the target folder
+        QFileInfo targetInfo(fileInfo.targetFile);
+        if (targetInfo.exists()) {
+            // File already exists, skip it to avoid overwriting
+            skippedFiles.append(fileInfo.sourceFile);
+            qDebug() << "VP_ShowsExportWorker: Skipping duplicate file:" << fileInfo.displayName;
+            
+            // Emit a warning about the skipped file so user knows why it wasn't exported
+            emit fileExportWarning(fileInfo.displayName, 
+                QString("Skipped - file already exists in target folder"));
+            
+            // Still update overall progress to reflect that we processed this file (by skipping it)
+            totalProcessed += fileInfo.fileSize;
+            if (totalSize > 0) {
+                int overallProgress = static_cast<int>((totalProcessed * 100) / totalSize);
+                emit overallProgressUpdated(overallProgress);
+            }
+            continue;  // Move to next file
+        }
+        
         // Export the file
         int currentFileProgress = 0;
         bool success = exportSingleFile(fileInfo, currentFileProgress);
@@ -685,7 +708,12 @@ void VP_ShowsExportWorker::doExport()
             successfulFiles.append(fileInfo.targetFile);
             totalProcessed += fileInfo.fileSize;
         } else {
-            failedFiles.append(fileInfo.sourceFile);
+            // Check again if it's because file exists (in case it was created between our check and export attempt)
+            if (QFileInfo(fileInfo.targetFile).exists()) {
+                skippedFiles.append(fileInfo.sourceFile);
+            } else {
+                failedFiles.append(fileInfo.sourceFile);
+            }
         }
         
         // Update overall progress
@@ -695,27 +723,82 @@ void VP_ShowsExportWorker::doExport()
         }
     }
     
-    // Determine overall success
-    bool overallSuccess = !successfulFiles.isEmpty();
+    // Determine overall success and create appropriate message
+    bool overallSuccess = false;
     QString errorMessage;
     
-    if (failedFiles.isEmpty()) {
-        errorMessage = QString("Successfully exported %1 files").arg(successfulFiles.size());
-    } else if (successfulFiles.isEmpty()) {
+    // Check if all files were skipped
+    if (successfulFiles.isEmpty() && failedFiles.isEmpty() && !skippedFiles.isEmpty()) {
+        errorMessage = QString("All %1 files already exist in the target folder - no files were exported")
+                      .arg(skippedFiles.size());
+        overallSuccess = false;
+    }
+    // Check if no files could be processed at all
+    else if (successfulFiles.isEmpty() && !failedFiles.isEmpty()) {
         errorMessage = QString("Failed to export all %1 files").arg(failedFiles.size());
-    } else {
-        errorMessage = QString("Exported %1 files, failed %2 files")
-                      .arg(successfulFiles.size())
+        overallSuccess = false;
+    }
+    // Some files were successful
+    else if (!successfulFiles.isEmpty()) {
+        overallSuccess = true;
+        
+        if (skippedFiles.isEmpty() && failedFiles.isEmpty()) {
+            errorMessage = QString("Successfully exported %1 files").arg(successfulFiles.size());
+        } else {
+            QStringList messageParts;
+            messageParts.append(QString("Exported %1 files").arg(successfulFiles.size()));
+            
+            if (!skippedFiles.isEmpty()) {
+                messageParts.append(QString("%1 files skipped (already exist)").arg(skippedFiles.size()));
+            }
+            
+            if (!failedFiles.isEmpty()) {
+                messageParts.append(QString("%1 files failed").arg(failedFiles.size()));
+            }
+            
+            errorMessage = messageParts.join(", ");
+        }
+    }
+    // Nothing succeeded but we have a mix of skipped and failed
+    else {
+        errorMessage = QString("No files exported - %1 skipped (duplicates), %2 failed")
+                      .arg(skippedFiles.size())
                       .arg(failedFiles.size());
+        overallSuccess = false;
     }
     
     qDebug() << "VP_ShowsExportWorker:" << errorMessage;
+    qDebug() << "VP_ShowsExportWorker: Successful:" << successfulFiles.size() 
+             << "Skipped:" << skippedFiles.size() 
+             << "Failed:" << failedFiles.size();
+    
     emit exportFinished(overallSuccess, errorMessage, successfulFiles, failedFiles);
 }
 
 bool VP_ShowsExportWorker::exportSingleFile(const ExportFileInfo& fileInfo, int& currentFileProgress)
 {
     qDebug() << "VP_ShowsExportWorker: Exporting" << fileInfo.sourceFile << "to" << fileInfo.targetFile;
+    
+    // Validate the target file path using InputValidation
+    InputValidation::ValidationResult targetValidation = 
+        InputValidation::validateInput(fileInfo.targetFile, InputValidation::InputType::ExternalFilePath);
+    
+    if (!targetValidation.isValid) {
+        qDebug() << "VP_ShowsExportWorker: Invalid target file path:" << targetValidation.errorMessage;
+        return false;
+    }
+    
+    // Ensure the parent directory exists using operations_files functions
+    QFileInfo finalTargetInfo(fileInfo.targetFile);
+    QString targetDir = finalTargetInfo.absolutePath();
+    
+    if (!QDir(targetDir).exists()) {
+        qDebug() << "VP_ShowsExportWorker: Target directory doesn't exist, creating:" << targetDir;
+        if (!QDir().mkpath(targetDir)) {
+            qDebug() << "VP_ShowsExportWorker: Failed to create target directory:" << targetDir;
+            return false;
+        }
+    }
     
     QFile source(fileInfo.sourceFile);
     if (!source.open(QIODevice::ReadOnly)) {

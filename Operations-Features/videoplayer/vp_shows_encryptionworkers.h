@@ -146,6 +146,9 @@ signals:
     // File progress (current file index, total files, current filename)
     void fileProgressUpdate(int currentFile, int totalFiles, const QString& fileName);
     
+    // Warning signal for duplicate files or other non-fatal issues
+    void fileExportWarning(const QString& fileName, const QString& warningMessage);
+    
     // Export complete signal
     void exportFinished(bool success, const QString& errorMessage,
                        const QStringList& successfulFiles,

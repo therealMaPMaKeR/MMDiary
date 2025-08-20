@@ -116,6 +116,7 @@ private slots:
     void onOverallProgressUpdated(int percentage);
     void onCurrentFileProgressUpdated(int percentage);
     void onFileProgressUpdate(int currentFile, int totalFiles, const QString& fileName);
+    void onFileExportWarning(const QString& fileName, const QString& warningMessage);
     void onExportFinished(bool success, const QString& errorMessage,
                          const QStringList& successfulFiles,
                          const QStringList& failedFiles);
@@ -130,11 +131,13 @@ private:
     QLabel* m_statusLabel;
     QLabel* m_fileLabel;
     QLabel* m_overallLabel;
+    QLabel* m_warningLabel;
     QPushButton* m_cancelButton;
     
     QThread* m_workerThread;
     VP_ShowsExportWorker* m_worker;
     QString m_showName;
+    QStringList m_warnings;
 };
 
 #endif // VP_SHOWS_PROGRESSDIALOGS_H
