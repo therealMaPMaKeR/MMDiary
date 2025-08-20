@@ -169,6 +169,9 @@ public slots:
     // Slot for add show button
     void on_pushButton_VP_List_AddShow_clicked();
     
+    // Slot for add episode button (standalone, no pre-selected show)
+    void on_pushButton_VP_List_AddEpisode_clicked();
+    
     // Slot for play/continue button
     void onPlayContinueClicked();
     

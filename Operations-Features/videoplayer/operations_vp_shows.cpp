@@ -55,6 +55,13 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
         qDebug() << "Operations_VP_Shows: Connected Add Show button";
     }
     
+    // Connect the Add Episode button if it exists
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->pushButton_VP_List_AddEpisode) {
+        connect(m_mainWindow->ui->pushButton_VP_List_AddEpisode, &QPushButton::clicked,
+                this, &Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked);
+        qDebug() << "Operations_VP_Shows: Connected Add Episode button";
+    }
+    
     // Connect double-click on shows list to display show details
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->listWidget_VP_List_List) {
         connect(m_mainWindow->ui->listWidget_VP_List_List, &QListWidget::itemDoubleClicked,
@@ -249,6 +256,130 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddShow_clicked()
 {
     qDebug() << "Operations_VP_Shows: Add Show button clicked";
     importTVShow();
+}
+
+void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
+{
+    qDebug() << "Operations_VP_Shows: Add Episode button clicked";
+    
+    // Open file dialog to select video files for episodes
+    QString filter = "Video Files (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm *.m4v *.mpg *.mpeg *.3gp);;All Files (*.*)";
+    
+    QStringList selectedFiles = QFileDialog::getOpenFileNames(
+        m_mainWindow,
+        tr("Select Episode Video Files"),
+        QDir::homePath(),
+        filter
+    );
+    
+    if (selectedFiles.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No files selected for adding episodes";
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Selected" << selectedFiles.size() << "files for episodes";
+    
+    // Show the add dialog with empty show name field
+    VP_ShowsAddDialog addDialog("", m_mainWindow);  // Pass empty string for show name
+    addDialog.setWindowTitle(tr("Add Episodes to Library"));
+    
+    if (addDialog.exec() != QDialog::Accepted) {
+        qDebug() << "Operations_VP_Shows: Add episodes dialog cancelled";
+        return;
+    }
+    
+    // Get the show details from the dialog
+    QString showName = addDialog.getShowName();
+    QString language = addDialog.getLanguage();
+    QString translationMode = addDialog.getTranslationMode();
+    
+    // The dialog already validates that show name is not empty
+    if (showName.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Show name is empty after dialog (should not happen)";
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Adding episodes - Show:" << showName
+             << "Language:" << language << "Translation:" << translationMode;
+    
+    // Check if this show already exists with the same language and translation mode
+    QString existingShowFolder;
+    QStringList existingEpisodes;
+    bool showExists = checkForExistingShow(showName, language, translationMode, existingShowFolder, existingEpisodes);
+    
+    QString outputPath;
+    QStringList filesToImport;
+    QStringList targetFiles;
+    
+    if (showExists) {
+        qDebug() << "Operations_VP_Shows: Show already exists, checking for new episodes";
+        qDebug() << "Operations_VP_Shows: Existing show folder:" << existingShowFolder;
+        qDebug() << "Operations_VP_Shows: Existing episodes count:" << existingEpisodes.size();
+        
+        // Filter out episodes we already have
+        filesToImport = filterNewEpisodes(selectedFiles, existingEpisodes, showName, language, translationMode);
+        
+        if (filesToImport.isEmpty()) {
+            qDebug() << "Operations_VP_Shows: No new episodes to import";
+            QMessageBox::information(m_mainWindow,
+                                   tr("No New Episodes"),
+                                   tr("All selected episodes already exist in \"%1\" with the specified language and translation.").arg(showName));
+            return;
+        }
+        
+        qDebug() << "Operations_VP_Shows: Found" << filesToImport.size() << "new episodes to import";
+        outputPath = existingShowFolder; // Use existing show folder
+    } else {
+        qDebug() << "Operations_VP_Shows: This is a new show, importing all episodes";
+        filesToImport = selectedFiles;
+        
+        // Create the output folder structure using secure operations_files functions
+        if (!createShowFolderStructure(outputPath)) {
+            QMessageBox::critical(m_mainWindow,
+                                tr("Folder Creation Failed"),
+                                tr("Failed to create the necessary folder structure. Please check permissions and try again."));
+            return;
+        }
+    }
+    
+    // Generate random filenames for each video file to import
+    for (const QString& sourceFile : filesToImport) {
+        QFileInfo fileInfo(sourceFile);
+        QString extension = fileInfo.suffix().toLower();
+        QString randomName = generateRandomFileName(extension);
+        QString targetFile = QDir(outputPath).absoluteFilePath(randomName);
+        
+        // Validate the target path using operations_files
+        if (!OperationsFiles::isWithinAllowedDirectory(targetFile, "Data")) {
+            qDebug() << "Operations_VP_Shows: Generated target path is outside allowed directory:" << targetFile;
+            QMessageBox::critical(m_mainWindow,
+                                tr("Security Error"),
+                                tr("Failed to generate secure file paths. Operation cancelled."));
+            return;
+        }
+        
+        targetFiles.append(targetFile);
+    }
+    
+    // Get encryption key and username from mainwindow
+    QByteArray encryptionKey = m_mainWindow->user_Key;
+    QString username = m_mainWindow->user_Username;
+    
+    // Store whether this is an update or new import for the completion message
+    m_isUpdatingExistingShow = showExists;
+    m_originalEpisodeCount = selectedFiles.size();
+    m_newEpisodeCount = filesToImport.size();
+    
+    // Create and show progress dialog
+    if (!m_encryptionDialog) {
+        m_encryptionDialog = new VP_ShowsEncryptionProgressDialog(m_mainWindow);
+        connect(m_encryptionDialog, &VP_ShowsEncryptionProgressDialog::encryptionComplete,
+                this, &Operations_VP_Shows::onEncryptionComplete);
+    }
+    
+    // Start encryption with language and translation info
+    m_encryptionDialog->startEncryption(filesToImport, targetFiles, showName, encryptionKey, username, 
+                                       language, translationMode);
 }
 
 void Operations_VP_Shows::importTVShow()
