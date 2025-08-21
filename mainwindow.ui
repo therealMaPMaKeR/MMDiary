@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1319</width>
-    <height>899</height>
+    <width>960</width>
+    <height>540</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -2023,7 +2023,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                </font>
               </property>
               <property name="currentIndex">
-               <number>0</number>
+               <number>1</number>
               </property>
               <widget class="QWidget" name="page_List">
                <layout class="QVBoxLayout" name="verticalLayout_25">
@@ -2122,14 +2122,14 @@ li.checked::marker { content: &quot;\2612&quot;; }
                      </property>
                      <property name="minimumSize">
                       <size>
-                       <width>256</width>
-                       <height>256</height>
+                       <width>200</width>
+                       <height>200</height>
                       </size>
                      </property>
                      <property name="maximumSize">
                       <size>
-                       <width>256</width>
-                       <height>256</height>
+                       <width>200</width>
+                       <height>200</height>
                       </size>
                      </property>
                      <property name="text">
@@ -2158,16 +2158,16 @@ li.checked::marker { content: &quot;\2612&quot;; }
                     </widget>
                    </item>
                    <item>
-                    <widget class="QPushButton" name="pushButton_VP_Shows_Display_ReturnToList">
+                    <widget class="QPushButton" name="pushButton_VP_Shows_Display_ResetHistory">
                      <property name="text">
-                      <string>back to list</string>
+                      <string>Reset watch history</string>
                      </property>
                     </widget>
                    </item>
                    <item>
-                    <widget class="QPushButton" name="pushButton_VP_Shows_Display_ResetHistory">
+                    <widget class="QPushButton" name="pushButton_VP_Shows_Display_ReturnToList">
                      <property name="text">
-                      <string>Reset watch history</string>
+                      <string>Back to List</string>
                      </property>
                     </widget>
                    </item>
@@ -2269,6 +2269,9 @@ li.checked::marker { content: &quot;\2612&quot;; }
                    </item>
                    <item>
                     <widget class="QTreeWidget" name="treeWidget_VP_Shows_Display_EpisodeList">
+                     <attribute name="headerVisible">
+                      <bool>false</bool>
+                     </attribute>
                      <column>
                       <property name="text">
                        <string/>
@@ -2331,7 +2334,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1319</width>
+     <width>960</width>
      <height>21</height>
     </rect>
    </property>
