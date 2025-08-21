@@ -1138,12 +1138,19 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName)
         QPixmap showImage = loadShowImage(showFolderPath);
         
         if (!showImage.isNull()) {
-            // Scale the image to fit the label (256x256)
-            QPixmap scaledImage = showImage.scaled(256, 256, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            // Get the actual size of the label widget
+            QSize labelSize = m_mainWindow->ui->label_VP_Shows_Display_Image->size();
+            qDebug() << "Operations_VP_Shows: Label size for image scaling:" << labelSize.width() << "x" << labelSize.height();
+            
+            // Scale the image to fit the label using its actual size
+            QPixmap scaledImage = showImage.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
             m_mainWindow->ui->label_VP_Shows_Display_Image->setPixmap(scaledImage);
+            
+            qDebug() << "Operations_VP_Shows: Scaled image from" << showImage.size() << "to" << scaledImage.size();
         } else {
             // Set a placeholder text if no image is available
             m_mainWindow->ui->label_VP_Shows_Display_Image->setText(tr("No Image Available"));
+            qDebug() << "Operations_VP_Shows: No image available for show, displaying placeholder text";
         }
     }
     
