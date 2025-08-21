@@ -7,8 +7,10 @@
 #include "vp_shows_settings_dialog.h"
 #include "vp_shows_add_dialog.h"
 #include "vp_shows_tmdb.h"
+#include "vp_shows_settings.h"  // Add show settings
 #include "operations_files.h"  // Add operations_files for secure file operations
 #include "CryptoUtils.h"
+#include <QCheckBox>
 #include <QDataStream>
 #include <QDebug>
 #include <QFileInfo>
@@ -99,6 +101,19 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
         
         // Setup context menu for the episode tree widget
         setupEpisodeContextMenu();
+    }
+    
+    // Connect checkbox state changes for show settings
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->checkBox_VP_Shows_Display_SkipContent) {
+        connect(m_mainWindow->ui->checkBox_VP_Shows_Display_SkipContent, &QCheckBox::stateChanged,
+                this, &Operations_VP_Shows::onSkipContentCheckboxChanged);
+        qDebug() << "Operations_VP_Shows: Connected skip intro/outro checkbox";
+    }
+    
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->checkBox_VP_Shows_Display_Autoplay) {
+        connect(m_mainWindow->ui->checkBox_VP_Shows_Display_Autoplay, &QCheckBox::stateChanged,
+                this, &Operations_VP_Shows::onAutoplayCheckboxChanged);
+        qDebug() << "Operations_VP_Shows: Connected autoplay checkbox";
     }
     
     // Load the TV shows list on initialization
@@ -1167,6 +1182,9 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName)
     
     // Load and display the episode list
     loadShowEpisodes(showFolderPath);
+    
+    // Load show-specific settings and update checkboxes
+    loadShowSettings(showFolderPath);
     
     // Switch to the display page
     if (m_mainWindow->ui->stackedWidget_VP_Shows) {

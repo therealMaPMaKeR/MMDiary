@@ -14,6 +14,7 @@
 #include <QTreeWidgetItem>
 #include <QMenu>
 #include <QStorageInfo>
+#include "vp_shows_settings.h"
 
 // Forward declarations
 class MainWindow;
@@ -161,6 +162,20 @@ public:
     QTreeWidgetItem* m_contextMenuTreeItem;
     QString m_contextMenuEpisodePath;
     QStringList m_contextMenuEpisodePaths;
+    
+    // Settings handling
+    // Load settings for the current show (checkboxes)
+    void loadShowSettings(const QString& showFolderPath);
+    
+    // Save settings for the current show when checkboxes change
+    void saveShowSettings();
+    
+    // Current show settings
+    VP_ShowsSettings::ShowSettings m_currentShowSettings;
+    
+    // Handle checkbox state changes
+    void onSkipContentCheckboxChanged(int state);
+    void onAutoplayCheckboxChanged(int state);
 
 public slots:
     // Slot for debug button

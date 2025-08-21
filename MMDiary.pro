@@ -83,12 +83,14 @@ SOURCES += \
     Operations-Features/settings/operations_settings.cpp \
     Operations-Features/tasklists/operations_tasklists.cpp \
     Operations-Features/videoplayer/operations_vp_shows.cpp \
+    Operations-Features/videoplayer/operations_vp_shows_settings_handlers.cpp \
     Operations-Features/videoplayer/regularplayer/videoplayer.cpp \
     Operations-Features/videoplayer/vp_shows_metadata.cpp \
     Operations-Features/videoplayer/vp_shows_encryptionworkers.cpp \
     Operations-Features/videoplayer/vp_shows_progressdialogs.cpp \
     Operations-Features/videoplayer/vp_shows_tmdb.cpp \
     Operations-Features/videoplayer/vp_shows_config.cpp \
+    Operations-Features/videoplayer/vp_shows_settings.cpp \
     Operations-Features/videoplayer/vp_shows_settings_dialog.cpp \
     Operations-Features/videoplayer/vp_shows_add_dialog.cpp \
     Operations-Features/videoplayer/vp_shows_watchhistory.cpp \
@@ -137,6 +139,7 @@ HEADERS += \
     Operations-Features/videoplayer/vp_shows_progressdialogs.h \
     Operations-Features/videoplayer/vp_shows_tmdb.h \
     Operations-Features/videoplayer/vp_shows_config.h \
+    Operations-Features/videoplayer/vp_shows_settings.h \
     Operations-Features/videoplayer/vp_shows_settings_dialog.h \
     Operations-Features/videoplayer/vp_shows_add_dialog.h \
     Operations-Features/videoplayer/vp_shows_watchhistory.h \
