@@ -986,23 +986,12 @@ void VP_Shows_Videoplayer::initializeWatchProgress()
     
     qDebug() << "VP_Shows_Videoplayer: Initializing watch progress for episode:" << m_episodePath;
     
-    // Check if we should resume from a saved position
-    qint64 resumePosition = m_watchHistory->getResumePosition(m_episodePath);
+    // REMOVED: Resume position logic - this is now handled by Operations_VP_Shows_WatchHistory
+    // The resume position is set in operations_vp_shows.cpp after video loads
+    // This prevents the double-setting issue where position was set twice (500ms and 100ms delays)
     
-    if (resumePosition > 0) {
-        qDebug() << "VP_Shows_Videoplayer: Resuming from position:" << resumePosition;
-        
-        // Set the position after a small delay to ensure video is loaded
-        QTimer::singleShot(500, [this, resumePosition]() {
-            if (m_mediaPlayer->duration() > 0 && resumePosition < m_mediaPlayer->duration()) {
-                m_mediaPlayer->setPosition(resumePosition);
-                m_lastSavedPosition = resumePosition;
-            }
-        });
-    } else {
-        qDebug() << "VP_Shows_Videoplayer: Starting from beginning";
-        m_lastSavedPosition = 0;
-    }
+    qDebug() << "VP_Shows_Videoplayer: Starting from beginning (resume handled externally)";
+    m_lastSavedPosition = 0;
     
     // Add episode to watch history
     qint64 duration = m_mediaPlayer->duration();

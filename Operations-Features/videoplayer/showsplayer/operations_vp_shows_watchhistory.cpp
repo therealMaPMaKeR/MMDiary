@@ -175,20 +175,14 @@ void Operations_VP_Shows_WatchHistory::startTracking(const QString& episodePath,
     qDebug() << "Operations_VP_Shows_WatchHistory: Tracking state set";
     qDebug() << "Operations_VP_Shows_WatchHistory: Timer interval:" << m_progressTimer->interval() << "ms";
     
-    // Check if we should resume from a saved position
+    // REMOVED: Resume position logic - this is now handled by operations_vp_shows.cpp
+    // The resume position is set in operations_vp_shows.cpp::decryptAndPlayEpisode() after video loads
+    // This prevents the double-setting issue where position was set twice
+    
+    // Check if we have a resume position (for tracking purposes only, not for setting)
     qint64 resumePosition = m_watchHistory->getResumePosition(episodePath);
     if (resumePosition > 0) {
-        qDebug() << "Operations_VP_Shows_WatchHistory: Scheduling resume to position:" << resumePosition << "ms";
-        
-        // Set the position after a small delay to ensure video is loaded and playing
-        QTimer::singleShot(500, [this, player, resumePosition]() {
-            if (player && player->duration() > 0 && resumePosition < player->duration()) {
-                qDebug() << "Operations_VP_Shows_WatchHistory: Resuming playback at position:" << resumePosition << "ms";
-                player->setPosition(resumePosition);
-                // Update our tracked position
-                m_lastSavedPosition = resumePosition;
-            }
-        });
+        qDebug() << "Operations_VP_Shows_WatchHistory: Episode has resume position:" << resumePosition << "ms (handled externally)";
     }
     
     // Skip initial progress update if we have a resume position
@@ -198,7 +192,7 @@ void Operations_VP_Shows_WatchHistory::startTracking(const QString& episodePath,
         qDebug() << "Operations_VP_Shows_WatchHistory: Performing initial progress update...";
         updateProgress();
     } else {
-        qDebug() << "Operations_VP_Shows_WatchHistory: Skipping initial update, will resume from saved position";
+        qDebug() << "Operations_VP_Shows_WatchHistory: Skipping initial update, resuming from saved position";
     }
     
     // Start periodic updates with a shorter initial interval
