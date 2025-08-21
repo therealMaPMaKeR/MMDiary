@@ -1,4 +1,4 @@
-#include "videoplayer.h"
+#include "VP_Shows_Videoplayer.h"
 #include <QAudioOutput>
 #include <QDebug>
 #include <QFileInfo>
@@ -11,7 +11,7 @@
 #include <QTimer>
 
 // Custom clickable slider class for seeking in video
-class VideoPlayer::ClickableSlider : public QSlider
+class VP_Shows_Videoplayer::ClickableSlider : public QSlider
 {
 public:
     explicit ClickableSlider(Qt::Orientation orientation, QWidget *parent = nullptr)
@@ -43,7 +43,7 @@ protected:
     }
 };
 
-VideoPlayer::VideoPlayer(QWidget *parent)
+VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
     : QWidget(parent)
     , m_videoWidget(nullptr)
     , m_playButton(nullptr)
@@ -62,7 +62,7 @@ VideoPlayer::VideoPlayer(QWidget *parent)
     , m_isFullScreen(false)
     , m_cursorTimer(nullptr)
 {
-    qDebug() << "VideoPlayer: Constructor called";
+    qDebug() << "VP_Shows_Videoplayer: Constructor called";
     
     // Set window properties
     setWindowTitle(tr("Video Player"));
@@ -80,7 +80,7 @@ VideoPlayer::VideoPlayer(QWidget *parent)
     m_cursorTimer = new QTimer(this);
     m_cursorTimer->setSingleShot(true);
     m_cursorTimer->setInterval(1000); // 1 second
-    connect(m_cursorTimer, &QTimer::timeout, this, &VideoPlayer::hideCursor);
+    connect(m_cursorTimer, &QTimer::timeout, this, &VP_Shows_Videoplayer::hideCursor);
     
     // Enable mouse tracking to detect mouse movement
     setMouseTracking(true);
@@ -94,20 +94,20 @@ VideoPlayer::VideoPlayer(QWidget *parent)
     // Connect signals
     connectSignals();
     
-    qDebug() << "VideoPlayer: Initialization complete";
+    qDebug() << "VP_Shows_Videoplayer: Initialization complete";
 }
 
-VideoPlayer::~VideoPlayer()
+VP_Shows_Videoplayer::~VP_Shows_Videoplayer()
 {
-    qDebug() << "VideoPlayer: Destructor called";
+    qDebug() << "VP_Shows_Videoplayer: Destructor called";
     if (m_mediaPlayer) {
         m_mediaPlayer->stop();
     }
 }
 
-void VideoPlayer::setupUI()
+void VP_Shows_Videoplayer::setupUI()
 {
-    qDebug() << "VideoPlayer: Setting up UI";
+    qDebug() << "VP_Shows_Videoplayer: Setting up UI";
     
     // Create video widget
     m_videoWidget = new QVideoWidget(this);
@@ -143,14 +143,14 @@ void VideoPlayer::setupUI()
     createLayouts();
 }
 
-VideoPlayer::ClickableSlider* VideoPlayer::createClickableSlider()
+VP_Shows_Videoplayer::ClickableSlider* VP_Shows_Videoplayer::createClickableSlider()
 {
     return new ClickableSlider(Qt::Horizontal, this);
 }
 
-void VideoPlayer::createControls()
+void VP_Shows_Videoplayer::createControls()
 {
-    qDebug() << "VideoPlayer: Creating controls";
+    qDebug() << "VP_Shows_Videoplayer: Creating controls";
     
     // Play/Pause button
     m_playButton = new QPushButton(this);
@@ -194,9 +194,9 @@ void VideoPlayer::createControls()
     }
 }
 
-void VideoPlayer::createLayouts()
+void VP_Shows_Videoplayer::createLayouts()
 {
-    qDebug() << "VideoPlayer: Creating layouts";
+    qDebug() << "VP_Shows_Videoplayer: Creating layouts";
     
     // Create a widget to hold all controls (for fullscreen mode)
     m_controlsWidget = new QWidget(this);
@@ -234,54 +234,54 @@ void VideoPlayer::createLayouts()
     setLayout(m_mainLayout);
 }
 
-void VideoPlayer::connectSignals()
+void VP_Shows_Videoplayer::connectSignals()
 {
-    qDebug() << "VideoPlayer: Connecting signals";
+    qDebug() << "VP_Shows_Videoplayer: Connecting signals";
     
     // Button signals
     connect(m_playButton, &QPushButton::clicked,
-            this, &VideoPlayer::on_playButton_clicked);
+            this, &VP_Shows_Videoplayer::on_playButton_clicked);
     
     connect(m_stopButton, &QPushButton::clicked,
-            this, &VideoPlayer::stop);
+            this, &VP_Shows_Videoplayer::stop);
     
     connect(m_fullScreenButton, &QPushButton::clicked,
-            this, &VideoPlayer::on_fullScreenButton_clicked);
+            this, &VP_Shows_Videoplayer::on_fullScreenButton_clicked);
     
     // Slider signals
     connect(m_positionSlider, &QSlider::sliderMoved,
-            this, &VideoPlayer::on_positionSlider_sliderMoved);
+            this, &VP_Shows_Videoplayer::on_positionSlider_sliderMoved);
     
     connect(m_positionSlider, &QSlider::sliderPressed,
-            this, &VideoPlayer::on_positionSlider_sliderPressed);
+            this, &VP_Shows_Videoplayer::on_positionSlider_sliderPressed);
     
     connect(m_positionSlider, &QSlider::sliderReleased,
-            this, &VideoPlayer::on_positionSlider_sliderReleased);
+            this, &VP_Shows_Videoplayer::on_positionSlider_sliderReleased);
     
     connect(m_volumeSlider, &QSlider::sliderMoved,
-            this, &VideoPlayer::on_volumeSlider_sliderMoved);
+            this, &VP_Shows_Videoplayer::on_volumeSlider_sliderMoved);
     
     // Media player signals
     connect(m_mediaPlayer.get(), &QMediaPlayer::positionChanged,
-            this, &VideoPlayer::updatePosition);
+            this, &VP_Shows_Videoplayer::updatePosition);
     
     connect(m_mediaPlayer.get(), &QMediaPlayer::durationChanged,
-            this, &VideoPlayer::updateDuration);
+            this, &VP_Shows_Videoplayer::updateDuration);
     
     connect(m_mediaPlayer.get(), &QMediaPlayer::playbackStateChanged,
-            this, &VideoPlayer::handlePlaybackStateChanged);
+            this, &VP_Shows_Videoplayer::handlePlaybackStateChanged);
     
     connect(m_mediaPlayer.get(), &QMediaPlayer::errorOccurred,
-            this, &VideoPlayer::handleError);
+            this, &VP_Shows_Videoplayer::handleError);
 }
 
-bool VideoPlayer::loadVideo(const QString& filePath)
+bool VP_Shows_Videoplayer::loadVideo(const QString& filePath)
 {
-    qDebug() << "VideoPlayer: Loading video:" << filePath;
+    qDebug() << "VP_Shows_Videoplayer: Loading video:" << filePath;
     
     // Handle empty path to clear the player
     if (filePath.isEmpty()) {
-        qDebug() << "VideoPlayer: Clearing media player";
+        qDebug() << "VP_Shows_Videoplayer: Clearing media player";
         m_mediaPlayer->stop();
         m_mediaPlayer->setSource(QUrl());
         m_mediaPlayer->setVideoOutput(nullptr);
@@ -292,7 +292,7 @@ bool VideoPlayer::loadVideo(const QString& filePath)
     // Check if file exists
     QFileInfo fileInfo(filePath);
     if (!fileInfo.exists()) {
-        qDebug() << "VideoPlayer: File does not exist:" << filePath;
+        qDebug() << "VP_Shows_Videoplayer: File does not exist:" << filePath;
         emit errorOccurred(tr("Video file does not exist: %1").arg(filePath));
         return false;
     }
@@ -323,16 +323,16 @@ bool VideoPlayer::loadVideo(const QString& filePath)
     // Ensure the widget has focus for keyboard input
     setFocus();
     
-    qDebug() << "VideoPlayer: Video loaded successfully";
+    qDebug() << "VP_Shows_Videoplayer: Video loaded successfully";
     return true;
 }
 
-void VideoPlayer::play()
+void VP_Shows_Videoplayer::play()
 {
-    qDebug() << "VideoPlayer: Play requested";
+    qDebug() << "VP_Shows_Videoplayer: Play requested";
     
     if (m_currentVideoPath.isEmpty()) {
-        qDebug() << "VideoPlayer: No video loaded";
+        qDebug() << "VP_Shows_Videoplayer: No video loaded";
         emit errorOccurred(tr("No video loaded"));
         return;
     }
@@ -343,23 +343,23 @@ void VideoPlayer::play()
     setFocus();
 }
 
-void VideoPlayer::pause()
+void VP_Shows_Videoplayer::pause()
 {
-    qDebug() << "VideoPlayer: Pause requested";
+    qDebug() << "VP_Shows_Videoplayer: Pause requested";
     m_mediaPlayer->pause();
 }
 
-void VideoPlayer::stop()
+void VP_Shows_Videoplayer::stop()
 {
-    qDebug() << "VideoPlayer: Stop requested";
+    qDebug() << "VP_Shows_Videoplayer: Stop requested";
     m_mediaPlayer->stop();
     m_positionSlider->setValue(0);
     m_positionLabel->setText("00:00");
 }
 
-void VideoPlayer::setVolume(int volume)
+void VP_Shows_Videoplayer::setVolume(int volume)
 {
-    qDebug() << "VideoPlayer: Setting volume to" << volume << "%";
+    qDebug() << "VP_Shows_Videoplayer: Setting volume to" << volume << "%";
     
     if (m_mediaPlayer->audioOutput()) {
         // Allow volume up to 150%
@@ -382,15 +382,15 @@ void VideoPlayer::setVolume(int volume)
     }
 }
 
-void VideoPlayer::setPosition(qint64 position)
+void VP_Shows_Videoplayer::setPosition(qint64 position)
 {
-    qDebug() << "VideoPlayer: Setting position to" << position;
+    qDebug() << "VP_Shows_Videoplayer: Setting position to" << position;
     m_mediaPlayer->setPosition(position);
 }
 
-void VideoPlayer::startInFullScreen()
+void VP_Shows_Videoplayer::startInFullScreen()
 {
-    qDebug() << "VideoPlayer: Starting in fullscreen mode";
+    qDebug() << "VP_Shows_Videoplayer: Starting in fullscreen mode";
     
     if (!m_isFullScreen) {
         // Store the normal geometry before going fullscreen
@@ -439,13 +439,13 @@ void VideoPlayer::startInFullScreen()
     }
 }
 
-void VideoPlayer::toggleFullScreen()
+void VP_Shows_Videoplayer::toggleFullScreen()
 {
     if (m_isFullScreen) {
         exitFullScreen();
     } else {
         // Enter fullscreen
-        qDebug() << "VideoPlayer: Entering fullscreen mode";
+        qDebug() << "VP_Shows_Videoplayer: Entering fullscreen mode";
         
         // Store normal geometry
         m_normalGeometry = geometry();
@@ -485,10 +485,10 @@ void VideoPlayer::toggleFullScreen()
     }
 }
 
-void VideoPlayer::exitFullScreen()
+void VP_Shows_Videoplayer::exitFullScreen()
 {
     if (m_isFullScreen) {
-        qDebug() << "VideoPlayer: Exiting fullscreen mode";
+        qDebug() << "VP_Shows_Videoplayer: Exiting fullscreen mode";
         
         // Stop cursor timer and restore cursor
         stopCursorTimer();
@@ -535,27 +535,27 @@ void VideoPlayer::exitFullScreen()
     }
 }
 
-bool VideoPlayer::isPlaying() const
+bool VP_Shows_Videoplayer::isPlaying() const
 {
     return m_mediaPlayer->playbackState() == QMediaPlayer::PlayingState;
 }
 
-bool VideoPlayer::isPaused() const
+bool VP_Shows_Videoplayer::isPaused() const
 {
     return m_mediaPlayer->playbackState() == QMediaPlayer::PausedState;
 }
 
-qint64 VideoPlayer::duration() const
+qint64 VP_Shows_Videoplayer::duration() const
 {
     return m_mediaPlayer->duration();
 }
 
-qint64 VideoPlayer::position() const
+qint64 VP_Shows_Videoplayer::position() const
 {
     return m_mediaPlayer->position();
 }
 
-int VideoPlayer::volume() const
+int VP_Shows_Videoplayer::volume() const
 {
     if (m_mediaPlayer->audioOutput()) {
         return static_cast<int>(m_mediaPlayer->audioOutput()->volume() * 100);
@@ -563,14 +563,14 @@ int VideoPlayer::volume() const
     return 0;
 }
 
-QString VideoPlayer::currentVideoPath() const
+QString VP_Shows_Videoplayer::currentVideoPath() const
 {
     return m_currentVideoPath;
 }
 
-void VideoPlayer::closeEvent(QCloseEvent *event)
+void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
 {
-    qDebug() << "VideoPlayer: Window closing, stopping playback";
+    qDebug() << "VP_Shows_Videoplayer: Window closing, stopping playback";
     
     // Stop playback and clear media source to release file handle
     if (m_mediaPlayer) {
@@ -592,9 +592,9 @@ void VideoPlayer::closeEvent(QCloseEvent *event)
     event->accept();
 }
 
-void VideoPlayer::showEvent(QShowEvent *event)
+void VP_Shows_Videoplayer::showEvent(QShowEvent *event)
 {
-    qDebug() << "VideoPlayer: Window shown, setting focus";
+    qDebug() << "VP_Shows_Videoplayer: Window shown, setting focus";
     
     // Ensure the widget has focus when shown
     setFocus();
@@ -604,9 +604,9 @@ void VideoPlayer::showEvent(QShowEvent *event)
     QWidget::showEvent(event);
 }
 
-void VideoPlayer::keyPressEvent(QKeyEvent *event)
+void VP_Shows_Videoplayer::keyPressEvent(QKeyEvent *event)
 {
-    qDebug() << "VideoPlayer: Key pressed:" << event->key();
+    qDebug() << "VP_Shows_Videoplayer: Key pressed:" << event->key();
     
     switch(event->key()) {
         case Qt::Key_Escape:
@@ -628,7 +628,7 @@ void VideoPlayer::keyPressEvent(QKeyEvent *event)
                 // Seek backward 10 seconds
                 qint64 currentPos = m_mediaPlayer->position();
                 qint64 newPos = qMax(qint64(0), currentPos - 10000);
-                qDebug() << "VideoPlayer: Seeking backward from" << currentPos << "to" << newPos;
+                qDebug() << "VP_Shows_Videoplayer: Seeking backward from" << currentPos << "to" << newPos;
                 m_mediaPlayer->setPosition(newPos);
             }
             break;
@@ -638,7 +638,7 @@ void VideoPlayer::keyPressEvent(QKeyEvent *event)
                 // Seek forward 10 seconds
                 qint64 currentPos = m_mediaPlayer->position();
                 qint64 newPos = qMin(m_mediaPlayer->duration(), currentPos + 10000);
-                qDebug() << "VideoPlayer: Seeking forward from" << currentPos << "to" << newPos;
+                qDebug() << "VP_Shows_Videoplayer: Seeking forward from" << currentPos << "to" << newPos;
                 m_mediaPlayer->setPosition(newPos);
             }
             break;
@@ -649,7 +649,7 @@ void VideoPlayer::keyPressEvent(QKeyEvent *event)
                 int currentVolume = m_volumeSlider->value();
                 int newVolume = qMin(150, currentVolume + 5);
                 setVolume(newVolume);
-                qDebug() << "VideoPlayer: Key_Up - Volume changed from" << currentVolume << "to" << newVolume;
+                qDebug() << "VP_Shows_Videoplayer: Key_Up - Volume changed from" << currentVolume << "to" << newVolume;
             }
             break;
             
@@ -659,7 +659,7 @@ void VideoPlayer::keyPressEvent(QKeyEvent *event)
                 int currentVolume = m_volumeSlider->value();
                 int newVolume = qMax(0, currentVolume - 5);
                 setVolume(newVolume);
-                qDebug() << "VideoPlayer: Key_Down - Volume changed from" << currentVolume << "to" << newVolume;
+                qDebug() << "VP_Shows_Videoplayer: Key_Down - Volume changed from" << currentVolume << "to" << newVolume;
             }
             break;
             
@@ -671,7 +671,7 @@ void VideoPlayer::keyPressEvent(QKeyEvent *event)
     event->accept();
 }
 
-bool VideoPlayer::eventFilter(QObject *watched, QEvent *event)
+bool VP_Shows_Videoplayer::eventFilter(QObject *watched, QEvent *event)
 {
     // Handle double-click on video widget for fullscreen
     if (watched == m_videoWidget && event->type() == QEvent::MouseButtonDblClick) {
@@ -689,7 +689,7 @@ bool VideoPlayer::eventFilter(QObject *watched, QEvent *event)
         
         // Show controls if hidden
         if (!m_controlsWidget->isVisible()) {
-            qDebug() << "VideoPlayer: Mouse movement on video widget - showing controls";
+            qDebug() << "VP_Shows_Videoplayer: Mouse movement on video widget - showing controls";
             m_controlsWidget->setVisible(true);
         }
         
@@ -702,9 +702,9 @@ bool VideoPlayer::eventFilter(QObject *watched, QEvent *event)
     return QWidget::eventFilter(watched, event);
 }
 
-void VideoPlayer::on_playButton_clicked()
+void VP_Shows_Videoplayer::on_playButton_clicked()
 {
-    qDebug() << "VideoPlayer: Play button clicked";
+    qDebug() << "VP_Shows_Videoplayer: Play button clicked";
     
     if (m_mediaPlayer->playbackState() == QMediaPlayer::PlayingState) {
         pause();
@@ -713,37 +713,37 @@ void VideoPlayer::on_playButton_clicked()
     }
 }
 
-void VideoPlayer::on_positionSlider_sliderMoved(int position)
+void VP_Shows_Videoplayer::on_positionSlider_sliderMoved(int position)
 {
-    qDebug() << "VideoPlayer: Position slider moved to" << position;
+    qDebug() << "VP_Shows_Videoplayer: Position slider moved to" << position;
     setPosition(position);
 }
 
-void VideoPlayer::on_positionSlider_sliderPressed()
+void VP_Shows_Videoplayer::on_positionSlider_sliderPressed()
 {
-    qDebug() << "VideoPlayer: Position slider pressed";
+    qDebug() << "VP_Shows_Videoplayer: Position slider pressed";
     m_isSliderBeingMoved = true;
 }
 
-void VideoPlayer::on_positionSlider_sliderReleased()
+void VP_Shows_Videoplayer::on_positionSlider_sliderReleased()
 {
-    qDebug() << "VideoPlayer: Position slider released";
+    qDebug() << "VP_Shows_Videoplayer: Position slider released";
     m_isSliderBeingMoved = false;
 }
 
-void VideoPlayer::on_volumeSlider_sliderMoved(int position)
+void VP_Shows_Videoplayer::on_volumeSlider_sliderMoved(int position)
 {
-    qDebug() << "VideoPlayer: Volume slider moved to" << position << "%";
+    qDebug() << "VP_Shows_Videoplayer: Volume slider moved to" << position << "%";
     setVolume(position);
 }
 
-void VideoPlayer::on_fullScreenButton_clicked()
+void VP_Shows_Videoplayer::on_fullScreenButton_clicked()
 {
-    qDebug() << "VideoPlayer: Fullscreen button clicked";
+    qDebug() << "VP_Shows_Videoplayer: Fullscreen button clicked";
     toggleFullScreen();
 }
 
-void VideoPlayer::updatePosition(qint64 position)
+void VP_Shows_Videoplayer::updatePosition(qint64 position)
 {
     if (!m_isSliderBeingMoved) {
         m_positionSlider->setValue(static_cast<int>(position));
@@ -752,19 +752,19 @@ void VideoPlayer::updatePosition(qint64 position)
     emit positionChanged(position);
 }
 
-void VideoPlayer::updateDuration(qint64 duration)
+void VP_Shows_Videoplayer::updateDuration(qint64 duration)
 {
-    qDebug() << "VideoPlayer: Duration changed to" << duration;
+    qDebug() << "VP_Shows_Videoplayer: Duration changed to" << duration;
     
     m_positionSlider->setRange(0, static_cast<int>(duration));
     m_durationLabel->setText(formatTime(duration));
     emit durationChanged(duration);
 }
 
-void VideoPlayer::handleError(QMediaPlayer::Error error, const QString &errorString)
+void VP_Shows_Videoplayer::handleError(QMediaPlayer::Error error, const QString &errorString)
 {
     Q_UNUSED(error);
-    qDebug() << "VideoPlayer: Error occurred:" << errorString;
+    qDebug() << "VP_Shows_Videoplayer: Error occurred:" << errorString;
     
     QString errorMessage;
     
@@ -791,9 +791,9 @@ void VideoPlayer::handleError(QMediaPlayer::Error error, const QString &errorStr
     emit errorOccurred(errorMessage);
 }
 
-void VideoPlayer::handlePlaybackStateChanged(QMediaPlayer::PlaybackState state)
+void VP_Shows_Videoplayer::handlePlaybackStateChanged(QMediaPlayer::PlaybackState state)
 {
-    qDebug() << "VideoPlayer: Playback state changed to" << state;
+    qDebug() << "VP_Shows_Videoplayer: Playback state changed to" << state;
     
     switch(state) {
         case QMediaPlayer::PlayingState:
@@ -810,7 +810,7 @@ void VideoPlayer::handlePlaybackStateChanged(QMediaPlayer::PlaybackState state)
     emit playbackStateChanged(state);
 }
 
-QString VideoPlayer::formatTime(qint64 milliseconds) const
+QString VP_Shows_Videoplayer::formatTime(qint64 milliseconds) const
 {
     int seconds = static_cast<int>(milliseconds / 1000);
     int minutes = seconds / 60;
@@ -831,9 +831,9 @@ QString VideoPlayer::formatTime(qint64 milliseconds) const
     }
 }
 
-void VideoPlayer::wheelEvent(QWheelEvent *event)
+void VP_Shows_Videoplayer::wheelEvent(QWheelEvent *event)
 {
-    qDebug() << "VideoPlayer: Mouse wheel event detected";
+    qDebug() << "VP_Shows_Videoplayer: Mouse wheel event detected";
     
     // Get the number of degrees the wheel was rotated
     QPoint numDegrees = event->angleDelta() / 8;
@@ -849,14 +849,14 @@ void VideoPlayer::wheelEvent(QWheelEvent *event)
         
         if (newVolume != currentVolume) {
             setVolume(newVolume);
-            qDebug() << "VideoPlayer: Mouse wheel - Volume changed from" << currentVolume << "to" << newVolume;
+            qDebug() << "VP_Shows_Videoplayer: Mouse wheel - Volume changed from" << currentVolume << "to" << newVolume;
         }
     }
     
     event->accept();
 }
 
-void VideoPlayer::mouseMoveEvent(QMouseEvent *event)
+void VP_Shows_Videoplayer::mouseMoveEvent(QMouseEvent *event)
 {
     if (m_isFullScreen) {
         // Show cursor and controls
@@ -864,7 +864,7 @@ void VideoPlayer::mouseMoveEvent(QMouseEvent *event)
         
         // Show controls if hidden
         if (!m_controlsWidget->isVisible()) {
-            qDebug() << "VideoPlayer: Mouse movement detected - showing controls";
+            qDebug() << "VP_Shows_Videoplayer: Mouse movement detected - showing controls";
             m_controlsWidget->setVisible(true);
         }
         
@@ -876,27 +876,27 @@ void VideoPlayer::mouseMoveEvent(QMouseEvent *event)
     QWidget::mouseMoveEvent(event);
 }
 
-void VideoPlayer::startCursorTimer()
+void VP_Shows_Videoplayer::startCursorTimer()
 {
     if (m_isFullScreen && m_cursorTimer) {
-        qDebug() << "VideoPlayer: Starting cursor timer";
+        qDebug() << "VP_Shows_Videoplayer: Starting cursor timer";
         m_cursorTimer->stop();
         m_cursorTimer->start();
     }
 }
 
-void VideoPlayer::stopCursorTimer()
+void VP_Shows_Videoplayer::stopCursorTimer()
 {
     if (m_cursorTimer) {
-        qDebug() << "VideoPlayer: Stopping cursor timer";
+        qDebug() << "VP_Shows_Videoplayer: Stopping cursor timer";
         m_cursorTimer->stop();
     }
 }
 
-void VideoPlayer::hideCursor()
+void VP_Shows_Videoplayer::hideCursor()
 {
     if (m_isFullScreen && !m_controlsWidget->underMouse()) {
-        qDebug() << "VideoPlayer: Hiding cursor and controls";
+        qDebug() << "VP_Shows_Videoplayer: Hiding cursor and controls";
         
         // Hide cursor on both widgets
         setCursor(Qt::BlankCursor);
@@ -910,11 +910,11 @@ void VideoPlayer::hideCursor()
     }
 }
 
-void VideoPlayer::showCursor()
+void VP_Shows_Videoplayer::showCursor()
 {
     // Only show if cursor is hidden
     if (cursor().shape() == Qt::BlankCursor || QApplication::overrideCursor()) {
-        qDebug() << "VideoPlayer: Showing cursor";
+        qDebug() << "VP_Shows_Videoplayer: Showing cursor";
         
         // Restore cursor on both widgets
         setCursor(Qt::ArrowCursor);

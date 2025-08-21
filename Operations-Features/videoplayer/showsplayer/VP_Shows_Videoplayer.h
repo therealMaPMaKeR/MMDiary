@@ -1,5 +1,5 @@
-#ifndef VIDEOPLAYER_H
-#define VIDEOPLAYER_H
+#ifndef VP_SHOWS_VIDEOPLAYER_H
+#define VP_SHOWS_VIDEOPLAYER_H
 
 #include <QWidget>
 #include <QMediaPlayer>
@@ -17,13 +17,13 @@
 #include <QTimer>
 #include <memory>
 
-class VideoPlayer : public QWidget
+class VP_Shows_Videoplayer : public QWidget
 {
     Q_OBJECT
 
 public:
-    explicit VideoPlayer(QWidget *parent = nullptr);
-    ~VideoPlayer();
+    explicit VP_Shows_Videoplayer(QWidget *parent = nullptr);
+    ~VP_Shows_Videoplayer();
 
     // Video control functions
     bool loadVideo(const QString& filePath);
@@ -118,4 +118,4 @@ private:
     ClickableSlider* createClickableSlider();
 };
 
-#endif // VIDEOPLAYER_H
+#endif // VP_SHOWS_VIDEOPLAYER_H

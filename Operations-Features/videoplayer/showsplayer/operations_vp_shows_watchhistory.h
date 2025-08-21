@@ -8,7 +8,7 @@
 
 // Forward declarations
 class Operations_VP_Shows;
-class VideoPlayer;
+class VP_Shows_Videoplayer;
 
 /**
  * @brief Integration helper class for watch history with video player
@@ -45,7 +45,7 @@ public:
      * @param episodePath Relative path to the episode
      * @param player Video player instance
      */
-    void startTracking(const QString& episodePath, VideoPlayer* player);
+    void startTracking(const QString& episodePath, VP_Shows_Videoplayer* player);
     
     /**
      * @brief Stop tracking playback
@@ -125,7 +125,7 @@ private:
     Operations_VP_Shows* m_parent;
     std::unique_ptr<VP_ShowsWatchHistory> m_watchHistory;
     QTimer* m_progressTimer;
-    VideoPlayer* m_currentPlayer;
+    VP_Shows_Videoplayer* m_currentPlayer;
     QString m_currentEpisodePath;
     bool m_isTracking;
     qint64 m_lastSavedPosition;

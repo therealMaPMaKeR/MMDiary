@@ -21,7 +21,7 @@ INCLUDEPATH += $$PWD \
                $$PWD/Operations-Features/settings \
                $$PWD/Operations-Features/tasklists \
                $$PWD/Operations-Features/videoplayer \
-               $$PWD/Operations-Features/videoplayer/regularplayer \
+               $$PWD/Operations-Features/videoplayer/showsplayer \
                $$PWD/Operations-Global \
                $$PWD/Operations-Global/databases \
                $$PWD/Operations-Global/encryption \
@@ -82,19 +82,19 @@ SOURCES += \
     Operations-Features/passwordmanager/operations_passwordmanager.cpp \
     Operations-Features/settings/operations_settings.cpp \
     Operations-Features/tasklists/operations_tasklists.cpp \
-    Operations-Features/videoplayer/operations_vp_shows.cpp \
-    Operations-Features/videoplayer/operations_vp_shows_settings_handlers.cpp \
-    Operations-Features/videoplayer/regularplayer/videoplayer.cpp \
-    Operations-Features/videoplayer/vp_shows_metadata.cpp \
-    Operations-Features/videoplayer/vp_shows_encryptionworkers.cpp \
-    Operations-Features/videoplayer/vp_shows_progressdialogs.cpp \
-    Operations-Features/videoplayer/vp_shows_tmdb.cpp \
-    Operations-Features/videoplayer/vp_shows_config.cpp \
-    Operations-Features/videoplayer/vp_shows_settings.cpp \
-    Operations-Features/videoplayer/vp_shows_settings_dialog.cpp \
-    Operations-Features/videoplayer/vp_shows_add_dialog.cpp \
-    Operations-Features/videoplayer/vp_shows_watchhistory.cpp \
-    Operations-Features/videoplayer/operations_vp_shows_watchhistory.cpp \
+    Operations-Features/videoplayer/showsplayer/operations_vp_shows.cpp \
+    Operations-Features/videoplayer/showsplayer/operations_vp_shows_settings_handlers.cpp \
+    Operations-Features/videoplayer/showsplayer/VP_Shows_Videoplayer.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_metadata.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_encryptionworkers.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_progressdialogs.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_tmdb.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_config.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_settings.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_add_dialog.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_watchhistory.cpp \
+    Operations-Features/videoplayer/showsplayer/operations_vp_shows_watchhistory.cpp \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.cpp \
     Operations-Features/encrypteddata/encrypteddata_fileiconprovider.cpp \
     Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.cpp \
@@ -132,18 +132,18 @@ HEADERS += \
     Operations-Features/passwordmanager/operations_passwordmanager.h \
     Operations-Features/settings/operations_settings.h \
     Operations-Features/tasklists/operations_tasklists.h \
-    Operations-Features/videoplayer/operations_vp_shows.h \
-    Operations-Features/videoplayer/regularplayer/videoplayer.h \
-    Operations-Features/videoplayer/vp_shows_metadata.h \
-    Operations-Features/videoplayer/vp_shows_encryptionworkers.h \
-    Operations-Features/videoplayer/vp_shows_progressdialogs.h \
-    Operations-Features/videoplayer/vp_shows_tmdb.h \
-    Operations-Features/videoplayer/vp_shows_config.h \
-    Operations-Features/videoplayer/vp_shows_settings.h \
-    Operations-Features/videoplayer/vp_shows_settings_dialog.h \
-    Operations-Features/videoplayer/vp_shows_add_dialog.h \
-    Operations-Features/videoplayer/vp_shows_watchhistory.h \
-    Operations-Features/videoplayer/operations_vp_shows_watchhistory.h \
+    Operations-Features/videoplayer/showsplayer/operations_vp_shows.h \
+    Operations-Features/videoplayer/showsplayer/VP_Shows_Videoplayer.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_metadata.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_encryptionworkers.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_progressdialogs.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_tmdb.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_config.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_settings.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_add_dialog.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_watchhistory.h \
+    Operations-Features/videoplayer/showsplayer/operations_vp_shows_watchhistory.h \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.h \
     Operations-Features/encrypteddata/encrypteddata_fileiconprovider.h \
     Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.h \
@@ -168,7 +168,7 @@ HEADERS += \
 FORMS += \
     HiddenItemsList.ui \
     Operations-Features/passwordmanager/passwordmanager_addpassword.ui \
-    Operations-Features/videoplayer/vp_shows_add_dialog.ui \
+    Operations-Features/videoplayer/showsplayer/vp_shows_add_dialog.ui \
     Operations-Features/tasklists/tasklists_addtask.ui \
     Operations-Global/imageviewer.ui \
     Operations-Global/passwordvalidation.ui \
@@ -188,4 +188,3 @@ DISTFILES +=
 
 RESOURCES += \
     resources.qrc
-

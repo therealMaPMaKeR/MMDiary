@@ -1,6 +1,6 @@
 #include "operations_vp_shows_watchhistory.h"
 #include "operations_vp_shows.h"
-#include "regularplayer/videoplayer.h"
+#include "VP_Shows_Videoplayer.h"
 #include <QDebug>
 
 Operations_VP_Shows_WatchHistory::Operations_VP_Shows_WatchHistory(Operations_VP_Shows* parent)
@@ -51,7 +51,7 @@ bool Operations_VP_Shows_WatchHistory::initializeForShow(const QString& showFold
     }
 }
 
-void Operations_VP_Shows_WatchHistory::startTracking(const QString& episodePath, VideoPlayer* player)
+void Operations_VP_Shows_WatchHistory::startTracking(const QString& episodePath, VP_Shows_Videoplayer *player)
 {
     if (!m_watchHistory || !player) {
         qDebug() << "Operations_VP_Shows_WatchHistory: Cannot start tracking - not initialized";

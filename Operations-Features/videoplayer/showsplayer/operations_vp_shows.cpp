@@ -1,7 +1,7 @@
 #include "operations_vp_shows.h"
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
-#include "regularplayer/videoplayer.h"
+#include "VP_Shows_Videoplayer.h"
 #include "vp_shows_progressdialogs.h"
 #include "vp_shows_metadata.h"
 #include "vp_shows_settings_dialog.h"
@@ -215,13 +215,13 @@ void Operations_VP_Shows::testVideoPlayer()
     try {
         // Create video player if not exists
         if (!m_testVideoPlayer) {
-            qDebug() << "Operations_VP_Shows: Creating new VideoPlayer instance";
-            m_testVideoPlayer = std::make_unique<VideoPlayer>();
+            qDebug() << "Operations_VP_Shows: Creating new VP_Shows_Videoplayer instance";
+            m_testVideoPlayer = std::make_unique<VP_Shows_Videoplayer>();
             
             // Connect error signal
-            connect(m_testVideoPlayer.get(), &VideoPlayer::errorOccurred,
+            connect(m_testVideoPlayer.get(), &VP_Shows_Videoplayer::errorOccurred,
                     this, [this](const QString& error) {
-                qDebug() << "Operations_VP_Shows: VideoPlayer error:" << error;
+                qDebug() << "Operations_VP_Shows: VP_Shows_Videoplayer error:" << error;
                 QMessageBox::critical(m_mainWindow, 
                                     tr("Video Player Error"),
                                     error);
@@ -1557,13 +1557,13 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     
     // Create video player if not exists
     if (!m_episodePlayer) {
-        qDebug() << "Operations_VP_Shows: Creating new VideoPlayer instance for episode playback";
-        m_episodePlayer = std::make_unique<VideoPlayer>();
+        qDebug() << "Operations_VP_Shows: Creating new VP_Shows_Videoplayer instance for episode playback";
+        m_episodePlayer = std::make_unique<VP_Shows_Videoplayer>();
         
         // Connect error signal
-        connect(m_episodePlayer.get(), &VideoPlayer::errorOccurred,
+        connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::errorOccurred,
                 this, [this](const QString& error) {
-            qDebug() << "Operations_VP_Shows: VideoPlayer error:" << error;
+            qDebug() << "Operations_VP_Shows: VP_Shows_Videoplayer error:" << error;
             QMessageBox::critical(m_mainWindow, 
                                 tr("Video Player Error"),
                                 error);
@@ -1572,7 +1572,7 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         });
         
         // Connect playback state changed to clean up when stopped
-        connect(m_episodePlayer.get(), &VideoPlayer::playbackStateChanged,
+        connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::playbackStateChanged,
                 this, [this](QMediaPlayer::PlaybackState state) {
             if (state == QMediaPlayer::StoppedState) {
                 qDebug() << "Operations_VP_Shows: Playback stopped, scheduling cleanup";

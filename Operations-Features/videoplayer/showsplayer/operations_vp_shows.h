@@ -18,7 +18,7 @@
 
 // Forward declarations
 class MainWindow;
-class VideoPlayer;
+class VP_Shows_Videoplayer;
 class VP_ShowsEncryptionProgressDialog;
 
 class Operations_VP_Shows : public QObject
@@ -27,8 +27,8 @@ class Operations_VP_Shows : public QObject
 
 private:
     MainWindow* m_mainWindow;
-    std::unique_ptr<VideoPlayer> m_testVideoPlayer;  // For testing purposes
-    std::unique_ptr<VideoPlayer> m_episodePlayer;    // For episode playback
+    std::unique_ptr<VP_Shows_Videoplayer> m_testVideoPlayer;  // For testing purposes
+    std::unique_ptr<VP_Shows_Videoplayer> m_episodePlayer;    // For episode playback
     VP_ShowsEncryptionProgressDialog* m_encryptionDialog;
     
     // Store mapping between show names and their folder paths
