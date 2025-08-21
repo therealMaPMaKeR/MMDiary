@@ -10,8 +10,8 @@
 #include "vp_shows_settings.h"  // Add show settings
 #include "operations_files.h"  // Add operations_files for secure file operations
 #include "CryptoUtils.h"
-#include "vp_shows_watchhistory.h"  // Add watch history management
-#include "operations_vp_shows_watchhistory.h"  // Add watch history integration
+#include "vp_shows_watchhistory.h"  // Core watch history data management
+#include "vp_shows_playback_tracker.h"  // Playback tracking integration
 #include <QCheckBox>
 #include <QDataStream>
 #include <QDebug>
@@ -45,7 +45,7 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     , m_mainWindow(mainWindow)
     , m_encryptionDialog(nullptr)
     , m_watchHistory(nullptr)
-    , m_watchHistoryIntegration(nullptr)
+    , m_playbackTracker(nullptr)
 {
     qDebug() << "Operations_VP_Shows: Constructor called";
     
@@ -130,10 +130,10 @@ Operations_VP_Shows::~Operations_VP_Shows()
 {
     qDebug() << "Operations_VP_Shows: Destructor called";
     
-    // Stop watch history tracking if active
-    if (m_watchHistoryIntegration) {
-        qDebug() << "Operations_VP_Shows: Stopping watch history tracking in destructor";
-        m_watchHistoryIntegration->stopTracking();
+    // Stop playback tracking if active
+    if (m_playbackTracker) {
+        qDebug() << "Operations_VP_Shows: Stopping playback tracking in destructor";
+        m_playbackTracker->stopTracking();
     }
     
     // Force release and cleanup any playing video
@@ -143,9 +143,9 @@ Operations_VP_Shows::~Operations_VP_Shows()
         m_episodePlayer.reset();
     }
     
-    // Clean up watch history
-    if (m_watchHistoryIntegration) {
-        m_watchHistoryIntegration.reset();
+    // Clean up playback tracker and watch history
+    if (m_playbackTracker) {
+        m_playbackTracker.reset();
     }
     if (m_watchHistory) {
         m_watchHistory.reset();
@@ -1510,9 +1510,9 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     // Clean up any existing temp file first
     cleanupTempFile();
     
-    // Reset any existing watch history before creating new one
-    if (m_watchHistoryIntegration) {
-        m_watchHistoryIntegration.reset();
+    // Reset any existing playback tracker before creating new one
+    if (m_playbackTracker) {
+        m_playbackTracker.reset();
     }
     if (m_watchHistory) {
         m_watchHistory.reset();
@@ -1525,18 +1525,18 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     if (!m_currentShowFolder.isEmpty()) {
         qDebug() << "Operations_VP_Shows: Initializing watch history integration for show folder:" << m_currentShowFolder;
         
-        // Create the watch history integration layer
-        m_watchHistoryIntegration = std::make_unique<Operations_VP_Shows_WatchHistory>(this);
+        // Create the playback tracker
+        m_playbackTracker = std::make_unique<VP_ShowsPlaybackTracker>(this);
         
         // Initialize it with the show folder
-        bool initSuccess = m_watchHistoryIntegration->initializeForShow(
+        bool initSuccess = m_playbackTracker->initializeForShow(
             m_currentShowFolder, 
             m_mainWindow->user_Key,
             m_mainWindow->user_Username
         );
         
         if (initSuccess) {
-            qDebug() << "Operations_VP_Shows: Watch history integration initialized successfully";
+            qDebug() << "Operations_VP_Shows: Playback tracker initialized successfully";
             
             // Calculate relative path of episode within show folder
             QDir showDir(m_currentShowFolder);
@@ -1555,13 +1555,13 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             qDebug() << "Operations_VP_Shows: Episode identifier:" << episodeIdentifier;
             
             // Check for resume position
-            qint64 resumePosition = m_watchHistoryIntegration->getResumePosition(relativeEpisodePath);
+            qint64 resumePosition = m_playbackTracker->getResumePosition(relativeEpisodePath);
             if (resumePosition > 0) {
                 qDebug() << "Operations_VP_Shows: Found resume position:" << resumePosition << "ms";
             }
         } else {
-            qDebug() << "Operations_VP_Shows: WARNING - Failed to initialize watch history integration";
-            m_watchHistoryIntegration.reset();
+            qDebug() << "Operations_VP_Shows: WARNING - Failed to initialize playback tracker";
+            m_playbackTracker.reset();
         }
     }
     
@@ -1651,10 +1651,10 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             if (state == QMediaPlayer::StoppedState) {
                 qDebug() << "Operations_VP_Shows: Playback stopped, scheduling cleanup";
                 
-                // Stop watch history tracking to save final position
-                if (m_watchHistoryIntegration) {
-                    qDebug() << "Operations_VP_Shows: Stopping watch history tracking";
-                    m_watchHistoryIntegration->stopTracking();
+                // Stop playback tracking to save final position
+                if (m_playbackTracker) {
+                    qDebug() << "Operations_VP_Shows: Stopping playback tracking";
+                    m_playbackTracker->stopTracking();
                 }
                 
                 // Force the media player to release the file
@@ -1690,13 +1690,13 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         // Add a small delay to ensure video widget is properly initialized
         QTimer::singleShot(100, [this, relativeEpisodePath]() {
             if (m_episodePlayer) {
-                // Start tracking with the watch history integration
-                if (m_watchHistoryIntegration && !relativeEpisodePath.isEmpty()) {
-                    qDebug() << "Operations_VP_Shows: Starting watch history tracking for episode";
-                    m_watchHistoryIntegration->startTracking(relativeEpisodePath, m_episodePlayer.get());
+                // Start tracking with the playback tracker
+                if (m_playbackTracker && !relativeEpisodePath.isEmpty()) {
+                    qDebug() << "Operations_VP_Shows: Starting playback tracking for episode";
+                    m_playbackTracker->startTracking(relativeEpisodePath, m_episodePlayer.get());
                     
                     // Get resume position and seek if needed
-                    qint64 resumePosition = m_watchHistoryIntegration->getResumePosition(relativeEpisodePath);
+                    qint64 resumePosition = m_playbackTracker->getResumePosition(relativeEpisodePath);
                     if (resumePosition > 1000) { // Only resume if more than 1 second
                         qDebug() << "Operations_VP_Shows: Resuming playback from:" << resumePosition << "ms";
                         m_episodePlayer->setPosition(resumePosition);

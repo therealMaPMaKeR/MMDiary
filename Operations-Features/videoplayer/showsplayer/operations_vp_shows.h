@@ -21,7 +21,7 @@ class MainWindow;
 class VP_Shows_Videoplayer;
 class VP_ShowsEncryptionProgressDialog;
 class VP_ShowsWatchHistory;
-class Operations_VP_Shows_WatchHistory;
+class VP_ShowsPlaybackTracker;
 
 class Operations_VP_Shows : public QObject
 {
@@ -32,8 +32,8 @@ private:
     std::unique_ptr<VP_Shows_Videoplayer> m_testVideoPlayer;  // For testing purposes
     std::unique_ptr<VP_Shows_Videoplayer> m_episodePlayer;    // For episode playback
     VP_ShowsEncryptionProgressDialog* m_encryptionDialog;
-    std::unique_ptr<VP_ShowsWatchHistory> m_watchHistory;     // Watch history manager
-    std::unique_ptr<Operations_VP_Shows_WatchHistory> m_watchHistoryIntegration; // Watch history integration layer
+    std::unique_ptr<VP_ShowsWatchHistory> m_watchHistory;     // Direct watch history access (for non-playback queries)
+    std::unique_ptr<VP_ShowsPlaybackTracker> m_playbackTracker; // Playback tracking and integration
     
     // Store mapping between show names and their folder paths
     QMap<QString, QString> m_showFolderMapping;
