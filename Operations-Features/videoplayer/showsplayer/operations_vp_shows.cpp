@@ -1262,6 +1262,18 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     
     qDebug() << "Operations_VP_Shows: Found" << videoFiles.size() << "video files";
     
+    // Initialize watch history for checking which episodes are watched
+    VP_ShowsWatchHistory watchHistory(showFolderPath, m_mainWindow->user_Key, m_mainWindow->user_Username);
+    bool historyLoaded = watchHistory.loadHistory();
+    if (historyLoaded) {
+        qDebug() << "Operations_VP_Shows: Watch history loaded for episode display";
+    } else {
+        qDebug() << "Operations_VP_Shows: No watch history found for episode display";
+    }
+    
+    // Define light grey color for watched episodes (suitable for dark theme)
+    QColor watchedColor = QColor(150, 150, 150); // Light grey for watched episodes
+    
     // Create metadata manager
     VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
     
@@ -1356,6 +1368,16 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         // Store the file path in the item's data
         episodeItem->setData(0, Qt::UserRole, videoPath);
         
+        // Check if this episode has been watched and apply grey color if it has
+        if (historyLoaded) {
+            // Get relative path for watch history check
+            QString relativeEpisodePath = showDir.relativeFilePath(videoPath);
+            if (watchHistory.isEpisodeCompleted(relativeEpisodePath)) {
+                episodeItem->setForeground(0, QBrush(watchedColor));
+                qDebug() << "Operations_VP_Shows: Episode marked as watched:" << episodeName;
+            }
+        }
+        
         // Create mapping key and store the mapping
         QString mappingKey = QString("%1_%2_S%3E%4")
             .arg(metadata.showName)
@@ -1398,6 +1420,10 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         QTreeWidgetItem* languageItem = new QTreeWidgetItem();
         languageItem->setText(0, languageKey);
         
+        bool allEpisodesInLanguageWatched = true; // Track if all episodes in this language are watched
+        int totalEpisodesInLanguage = 0;
+        int watchedEpisodesInLanguage = 0;
+        
         // Get seasons for this language/translation (if any regular episodes exist)
         if (languageVersions.contains(languageKey)) {
             QMap<int, QList<QPair<int, QTreeWidgetItem*>>>& seasons = languageVersions[languageKey];
@@ -1424,9 +1450,31 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
                               return a.first < b.first;
                           });
                 
+                // Track if all episodes in this season are watched
+                bool allEpisodesInSeasonWatched = true;
+                int episodesInSeason = 0;
+                int watchedInSeason = 0;
+                
                 // Add episodes to season
                 for (const auto& episode : episodes) {
                     seasonItem->addChild(episode.second);
+                    episodesInSeason++;
+                    totalEpisodesInLanguage++;
+                    
+                    // Check if this episode is watched by checking its foreground color
+                    if (episode.second->foreground(0).color() == watchedColor) {
+                        watchedInSeason++;
+                        watchedEpisodesInLanguage++;
+                    } else {
+                        allEpisodesInSeasonWatched = false;
+                        allEpisodesInLanguageWatched = false;
+                    }
+                }
+                
+                // If all episodes in season are watched, grey out the season item
+                if (allEpisodesInSeasonWatched && episodesInSeason > 0) {
+                    seasonItem->setForeground(0, QBrush(watchedColor));
+                    qDebug() << "Operations_VP_Shows: All episodes in season watched, greying out:" << seasonItem->text(0);
                 }
                 
                 // Add season to language item
@@ -1459,6 +1507,12 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
                 qDebug() << "Operations_VP_Shows: Added" << errorEpisodes.size() 
                          << "error episodes for" << languageKey;
             }
+        }
+        
+        // If all episodes in this language are watched, grey out the language item
+        if (allEpisodesInLanguageWatched && totalEpisodesInLanguage > 0) {
+            languageItem->setForeground(0, QBrush(watchedColor));
+            qDebug() << "Operations_VP_Shows: All episodes in language watched, greying out:" << languageKey;
         }
         
         // Add language item to tree widget
@@ -1661,6 +1715,14 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 forceReleaseVideoFile();
                 // Use a timer to delay cleanup to ensure file handle is fully released
                 QTimer::singleShot(1000, this, &Operations_VP_Shows::cleanupTempFile);
+                
+                // Refresh the episode list to update watched status colors
+                if (!m_currentShowFolder.isEmpty()) {
+                    QTimer::singleShot(1500, this, [this]() {
+                        qDebug() << "Operations_VP_Shows: Refreshing episode list after playback";
+                        loadShowEpisodes(m_currentShowFolder);
+                    });
+                }
             }
         });
         
