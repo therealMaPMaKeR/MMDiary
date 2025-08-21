@@ -20,6 +20,7 @@
 class MainWindow;
 class VP_Shows_Videoplayer;
 class VP_ShowsEncryptionProgressDialog;
+class VP_ShowsWatchHistory;
 
 class Operations_VP_Shows : public QObject
 {
@@ -30,6 +31,7 @@ private:
     std::unique_ptr<VP_Shows_Videoplayer> m_testVideoPlayer;  // For testing purposes
     std::unique_ptr<VP_Shows_Videoplayer> m_episodePlayer;    // For episode playback
     VP_ShowsEncryptionProgressDialog* m_encryptionDialog;
+    std::unique_ptr<VP_ShowsWatchHistory> m_watchHistory;     // Watch history manager
     
     // Store mapping between show names and their folder paths
     QMap<QString, QString> m_showFolderMapping;

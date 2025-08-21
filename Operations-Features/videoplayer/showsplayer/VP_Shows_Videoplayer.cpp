@@ -61,6 +61,11 @@ VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
     , m_isSliderBeingMoved(false)
     , m_isFullScreen(false)
     , m_cursorTimer(nullptr)
+    , m_watchHistory(nullptr)
+    , m_progressSaveTimer(nullptr)
+    , m_lastSavedPosition(0)
+    , m_hasStartedPlaying(false)
+    , m_isClosing(false)
 {
     qDebug() << "VP_Shows_Videoplayer: Constructor called";
     
@@ -82,6 +87,11 @@ VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
     m_cursorTimer->setInterval(1000); // 1 second
     connect(m_cursorTimer, &QTimer::timeout, this, &VP_Shows_Videoplayer::hideCursor);
     
+    // Setup progress save timer for watch history
+    m_progressSaveTimer = new QTimer(this);
+    m_progressSaveTimer->setInterval(VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS * 1000);
+    connect(m_progressSaveTimer, &QTimer::timeout, this, &VP_Shows_Videoplayer::saveWatchProgress);
+    
     // Enable mouse tracking to detect mouse movement
     setMouseTracking(true);
     
@@ -100,6 +110,16 @@ VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
 VP_Shows_Videoplayer::~VP_Shows_Videoplayer()
 {
     qDebug() << "VP_Shows_Videoplayer: Destructor called";
+    
+    // Save final watch progress before destruction
+    if (m_watchHistory && m_hasStartedPlaying && !m_isClosing) {
+        finalizeWatchProgress();
+    }
+    
+    if (m_progressSaveTimer) {
+        m_progressSaveTimer->stop();
+    }
+    
     if (m_mediaPlayer) {
         m_mediaPlayer->stop();
     }
@@ -337,7 +357,18 @@ void VP_Shows_Videoplayer::play()
         return;
     }
     
+    // Initialize watch progress on first play
+    if (!m_hasStartedPlaying) {
+        initializeWatchProgress();
+        m_hasStartedPlaying = true;
+    }
+    
     m_mediaPlayer->play();
+    
+    // Start periodic save timer when playing
+    if (m_watchHistory && !m_progressSaveTimer->isActive()) {
+        m_progressSaveTimer->start();
+    }
     
     // Ensure we have focus for keyboard shortcuts
     setFocus();
@@ -347,14 +378,35 @@ void VP_Shows_Videoplayer::pause()
 {
     qDebug() << "VP_Shows_Videoplayer: Pause requested";
     m_mediaPlayer->pause();
+    
+    // Save progress when pausing
+    if (m_watchHistory && m_hasStartedPlaying) {
+        saveWatchProgress();
+    }
+    
+    // Stop periodic save timer when paused
+    if (m_progressSaveTimer->isActive()) {
+        m_progressSaveTimer->stop();
+    }
 }
 
 void VP_Shows_Videoplayer::stop()
 {
     qDebug() << "VP_Shows_Videoplayer: Stop requested";
+    
+    // Save progress before stopping
+    if (m_watchHistory && m_hasStartedPlaying) {
+        saveWatchProgress();
+    }
+    
     m_mediaPlayer->stop();
     m_positionSlider->setValue(0);
     m_positionLabel->setText("00:00");
+    
+    // Stop periodic save timer
+    if (m_progressSaveTimer->isActive()) {
+        m_progressSaveTimer->stop();
+    }
 }
 
 void VP_Shows_Videoplayer::setVolume(int volume)
@@ -572,6 +624,18 @@ void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
 {
     qDebug() << "VP_Shows_Videoplayer: Window closing, stopping playback";
     
+    m_isClosing = true;
+    
+    // Save final watch progress before closing
+    if (m_watchHistory && m_hasStartedPlaying) {
+        finalizeWatchProgress();
+    }
+    
+    // Stop progress save timer
+    if (m_progressSaveTimer) {
+        m_progressSaveTimer->stop();
+    }
+    
     // Stop playback and clear media source to release file handle
     if (m_mediaPlayer) {
         m_mediaPlayer->stop();
@@ -588,6 +652,10 @@ void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
     if (m_isFullScreen) {
         exitFullScreen();
     }
+    
+    // Reset state
+    m_hasStartedPlaying = false;
+    m_lastSavedPosition = 0;
     
     event->accept();
 }
@@ -799,11 +867,50 @@ void VP_Shows_Videoplayer::handlePlaybackStateChanged(QMediaPlayer::PlaybackStat
         case QMediaPlayer::PlayingState:
             m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
             m_playButton->setToolTip(tr("Pause"));
+            
+            // Start progress save timer when playing
+            if (m_watchHistory && !m_progressSaveTimer->isActive()) {
+                m_progressSaveTimer->start();
+            }
             break;
+            
         case QMediaPlayer::PausedState:
+            m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+            m_playButton->setToolTip(tr("Play"));
+            
+            // Save progress and stop timer when paused
+            if (m_watchHistory && m_hasStartedPlaying) {
+                saveWatchProgress();
+            }
+            if (m_progressSaveTimer->isActive()) {
+                m_progressSaveTimer->stop();
+            }
+            break;
+            
         case QMediaPlayer::StoppedState:
             m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
             m_playButton->setToolTip(tr("Play"));
+            
+            // Check if we reached the end of the episode
+            if (m_hasStartedPlaying && m_watchHistory) {
+                qint64 currentPos = m_mediaPlayer->position();
+                qint64 duration = m_mediaPlayer->duration();
+                
+                // If we're at the end (within 2 seconds), mark as completed
+                if (duration > 0 && (duration - currentPos) < 2000) {
+                    qDebug() << "VP_Shows_Videoplayer: Episode reached end, marking as completed";
+                    if (!m_episodePath.isEmpty()) {
+                        m_watchHistory->updateWatchProgress(m_episodePath, duration, duration, m_episodeIdentifier);
+                        m_watchHistory->markEpisodeCompleted(m_episodePath);
+                        m_watchHistory->saveHistory();
+                    }
+                }
+            }
+            
+            // Stop timer when stopped
+            if (m_progressSaveTimer->isActive()) {
+                m_progressSaveTimer->stop();
+            }
             break;
     }
     
@@ -874,6 +981,116 @@ void VP_Shows_Videoplayer::mouseMoveEvent(QMouseEvent *event)
     
     // Call base class implementation
     QWidget::mouseMoveEvent(event);
+}
+
+void VP_Shows_Videoplayer::setWatchHistoryManager(VP_ShowsWatchHistory* watchHistory)
+{
+    qDebug() << "VP_Shows_Videoplayer: Setting watch history manager";
+    m_watchHistory = watchHistory;
+}
+
+void VP_Shows_Videoplayer::setEpisodeInfo(const QString& showPath, const QString& episodePath, const QString& episodeIdentifier)
+{
+    qDebug() << "VP_Shows_Videoplayer: Setting episode info - Show:" << showPath 
+             << "Episode:" << episodePath << "Identifier:" << episodeIdentifier;
+    m_showPath = showPath;
+    m_episodePath = episodePath;
+    m_episodeIdentifier = episodeIdentifier;
+    m_hasStartedPlaying = false;
+    m_lastSavedPosition = 0;
+}
+
+void VP_Shows_Videoplayer::saveWatchProgress()
+{
+    if (!m_watchHistory || m_episodePath.isEmpty() || !m_hasStartedPlaying) {
+        return;
+    }
+    
+    qint64 currentPosition = m_mediaPlayer->position();
+    qint64 duration = m_mediaPlayer->duration();
+    
+    // Only save if position has changed significantly (more than 1 second)
+    if (!shouldUpdateProgress(currentPosition)) {
+        return;
+    }
+    
+    qDebug() << "VP_Shows_Videoplayer: Saving watch progress - Position:" << currentPosition 
+             << "Duration:" << duration;
+    
+    m_watchHistory->updateWatchProgress(m_episodePath, currentPosition, duration, m_episodeIdentifier);
+    m_watchHistory->saveHistory();
+    m_lastSavedPosition = currentPosition;
+}
+
+void VP_Shows_Videoplayer::initializeWatchProgress()
+{
+    if (!m_watchHistory || m_episodePath.isEmpty()) {
+        qDebug() << "VP_Shows_Videoplayer: Cannot initialize watch progress - no history manager or episode path";
+        return;
+    }
+    
+    qDebug() << "VP_Shows_Videoplayer: Initializing watch progress for episode:" << m_episodePath;
+    
+    // Check if we should resume from a saved position
+    qint64 resumePosition = m_watchHistory->getResumePosition(m_episodePath);
+    
+    if (resumePosition > 0) {
+        qDebug() << "VP_Shows_Videoplayer: Resuming from position:" << resumePosition;
+        
+        // Set the position after a small delay to ensure video is loaded
+        QTimer::singleShot(500, [this, resumePosition]() {
+            if (m_mediaPlayer->duration() > 0 && resumePosition < m_mediaPlayer->duration()) {
+                m_mediaPlayer->setPosition(resumePosition);
+                m_lastSavedPosition = resumePosition;
+            }
+        });
+    } else {
+        qDebug() << "VP_Shows_Videoplayer: Starting from beginning";
+        m_lastSavedPosition = 0;
+    }
+    
+    // Add episode to watch history
+    qint64 duration = m_mediaPlayer->duration();
+    m_watchHistory->updateWatchProgress(m_episodePath, 0, duration, m_episodeIdentifier);
+}
+
+void VP_Shows_Videoplayer::finalizeWatchProgress()
+{
+    if (!m_watchHistory || m_episodePath.isEmpty() || !m_hasStartedPlaying) {
+        return;
+    }
+    
+    qint64 currentPosition = m_mediaPlayer->position();
+    qint64 duration = m_mediaPlayer->duration();
+    
+    qDebug() << "VP_Shows_Videoplayer: Finalizing watch progress - Position:" << currentPosition 
+             << "Duration:" << duration;
+    
+    // Special handling for when the player is closed
+    // If the recorded position equals duration and current position is 0, don't update
+    EpisodeWatchInfo info = m_watchHistory->getEpisodeWatchInfo(m_episodePath);
+    if (info.lastPosition == info.totalDuration && currentPosition == 0) {
+        qDebug() << "VP_Shows_Videoplayer: Episode was completed, not overwriting with 0";
+        return;
+    }
+    
+    // If we're near the end, mark as completed
+    if (duration > 0 && (duration - currentPosition) < VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS) {
+        qDebug() << "VP_Shows_Videoplayer: Marking episode as completed";
+        m_watchHistory->updateWatchProgress(m_episodePath, duration, duration, m_episodeIdentifier);
+        m_watchHistory->markEpisodeCompleted(m_episodePath);
+    } else {
+        // Otherwise, save current position
+        m_watchHistory->updateWatchProgress(m_episodePath, currentPosition, duration, m_episodeIdentifier);
+    }
+    
+    m_watchHistory->saveHistory();
+}
+
+bool VP_Shows_Videoplayer::shouldUpdateProgress(qint64 currentPosition) const
+{
+    // Don't update if position hasn't changed significantly (at least 1 second difference)
+    return qAbs(currentPosition - m_lastSavedPosition) >= 1000;
 }
 
 void VP_Shows_Videoplayer::startCursorTimer()

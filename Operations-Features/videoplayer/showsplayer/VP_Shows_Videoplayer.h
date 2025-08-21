@@ -16,6 +16,7 @@
 #include <QMargins>
 #include <QTimer>
 #include <memory>
+#include "vp_shows_watchhistory.h"
 
 class VP_Shows_Videoplayer : public QWidget
 {
@@ -43,6 +44,10 @@ public:
     qint64 position() const;
     int volume() const;
     QString currentVideoPath() const;
+    
+    // Watch history integration
+    void setWatchHistoryManager(VP_ShowsWatchHistory* watchHistory);
+    void setEpisodeInfo(const QString& showPath, const QString& episodePath, const QString& episodeIdentifier = QString());
 
 signals:
     void errorOccurred(const QString& error);
@@ -54,6 +59,7 @@ signals:
 
 private slots:
     void on_playButton_clicked();
+    void saveWatchProgress();  // Periodic save of watch progress
     void on_positionSlider_sliderMoved(int position);
     void on_positionSlider_sliderPressed();
     void on_positionSlider_sliderReleased();
@@ -116,6 +122,20 @@ private:
     // Custom position slider for clickable seeking
     class ClickableSlider;
     ClickableSlider* createClickableSlider();
+    
+    // Watch history management
+    VP_ShowsWatchHistory* m_watchHistory;
+    QString m_showPath;
+    QString m_episodePath;
+    QString m_episodeIdentifier;
+    QTimer* m_progressSaveTimer;
+    qint64 m_lastSavedPosition;
+    bool m_hasStartedPlaying;
+    bool m_isClosing;
+    
+    void initializeWatchProgress();
+    void finalizeWatchProgress();
+    bool shouldUpdateProgress(qint64 currentPosition) const;
 };
 
 #endif // VP_SHOWS_VIDEOPLAYER_H

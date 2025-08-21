@@ -10,6 +10,7 @@
 #include "vp_shows_settings.h"  // Add show settings
 #include "operations_files.h"  // Add operations_files for secure file operations
 #include "CryptoUtils.h"
+#include "vp_shows_watchhistory.h"  // Add watch history management
 #include <QCheckBox>
 #include <QDataStream>
 #include <QDebug>
@@ -41,6 +42,7 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     : QObject(mainWindow)
     , m_mainWindow(mainWindow)
     , m_encryptionDialog(nullptr)
+    , m_watchHistory(nullptr)
 {
     qDebug() << "Operations_VP_Shows: Constructor called";
     
@@ -130,6 +132,11 @@ Operations_VP_Shows::~Operations_VP_Shows()
         forceReleaseVideoFile();
         // Reset the player to ensure it's properly closed
         m_episodePlayer.reset();
+    }
+    
+    // Clean up watch history
+    if (m_watchHistory) {
+        m_watchHistory.reset();
     }
     
     if (m_encryptionDialog) {
@@ -1491,6 +1498,36 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     // Clean up any existing temp file first
     cleanupTempFile();
     
+    // Reset any existing watch history before creating new one
+    if (m_watchHistory) {
+        m_watchHistory.reset();
+    }
+    
+    // Create watch history manager for this show
+    QString relativeEpisodePath;
+    QString episodeIdentifier;
+    
+    if (!m_currentShowFolder.isEmpty()) {
+        m_watchHistory = std::make_unique<VP_ShowsWatchHistory>(m_currentShowFolder, 
+                                                                m_mainWindow->user_Key,
+                                                                m_mainWindow->user_Username);
+        
+        // Calculate relative path of episode within show folder
+        QDir showDir(m_currentShowFolder);
+        relativeEpisodePath = showDir.relativeFilePath(encryptedFilePath);
+        
+        // Try to extract episode identifier from the episode name
+        QRegularExpression regex("S(\\d+)E(\\d+)", QRegularExpression::CaseInsensitiveOption);
+        QRegularExpressionMatch match = regex.match(episodeName);
+        if (match.hasMatch()) {
+            int season = match.captured(1).toInt();
+            int episode = match.captured(2).toInt();
+            episodeIdentifier = QString("S%1E%2").arg(season, 2, 10, QChar('0')).arg(episode, 2, 10, QChar('0'));
+        }
+        
+        qDebug() << "Operations_VP_Shows: Watch history initialized for episode:" << relativeEpisodePath;
+    }
+    
     // Ensure username is set for operations_files
     if (!m_mainWindow->user_Username.isEmpty()) {
         OperationsFiles::setUsername(m_mainWindow->user_Username);
@@ -1585,6 +1622,12 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         
         // Note: We can't connect to destroyed signal directly since unique_ptr manages the object
         // The cleanup will happen through playback state changes or when closing the window
+    }
+    
+    // Set watch history manager if available (do this before loading video)
+    if (m_watchHistory && m_episodePlayer) {
+        m_episodePlayer->setWatchHistoryManager(m_watchHistory.get());
+        m_episodePlayer->setEpisodeInfo(m_currentShowFolder, relativeEpisodePath, episodeIdentifier);
     }
     
     // Load and play the video
