@@ -56,6 +56,7 @@ signals:
     void durationChanged(qint64 duration);
     void volumeChanged(int volume);
     void fullScreenChanged(bool isFullScreen);
+    void aboutToClose(qint64 finalPosition);  // Emitted before window closes with final playback position
 
 private slots:
     void on_playButton_clicked();

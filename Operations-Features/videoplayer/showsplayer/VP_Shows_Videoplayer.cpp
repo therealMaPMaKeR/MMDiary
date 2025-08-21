@@ -87,10 +87,8 @@ VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
     m_cursorTimer->setInterval(1000); // 1 second
     connect(m_cursorTimer, &QTimer::timeout, this, &VP_Shows_Videoplayer::hideCursor);
     
-    // Setup progress save timer for watch history
-    m_progressSaveTimer = new QTimer(this);
-    m_progressSaveTimer->setInterval(VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS * 1000);
-    connect(m_progressSaveTimer, &QTimer::timeout, this, &VP_Shows_Videoplayer::saveWatchProgress);
+    // Note: Progress save timer is not needed since Operations_VP_Shows_WatchHistory handles it
+    m_progressSaveTimer = nullptr;
     
     // Enable mouse tracking to detect mouse movement
     setMouseTracking(true);
@@ -111,14 +109,8 @@ VP_Shows_Videoplayer::~VP_Shows_Videoplayer()
 {
     qDebug() << "VP_Shows_Videoplayer: Destructor called";
     
-    // Save final watch progress before destruction
-    if (m_watchHistory && m_hasStartedPlaying && !m_isClosing) {
-        finalizeWatchProgress();
-    }
-    
-    if (m_progressSaveTimer) {
-        m_progressSaveTimer->stop();
-    }
+    // Note: Watch history is managed by Operations_VP_Shows_WatchHistory
+    // The aboutToClose signal handles final position saving
     
     if (m_mediaPlayer) {
         m_mediaPlayer->stop();
@@ -357,18 +349,16 @@ void VP_Shows_Videoplayer::play()
         return;
     }
     
-    // Initialize watch progress on first play
+    // Mark that playback has started (for the aboutToClose signal)
     if (!m_hasStartedPlaying) {
-        initializeWatchProgress();
         m_hasStartedPlaying = true;
+        // Note: Watch history is managed by Operations_VP_Shows_WatchHistory
+        // We don't use the internal m_watchHistory
     }
     
     m_mediaPlayer->play();
     
-    // Start periodic save timer when playing
-    if (m_watchHistory && !m_progressSaveTimer->isActive()) {
-        m_progressSaveTimer->start();
-    }
+    // Note: Progress timer is not needed since Operations_VP_Shows_WatchHistory handles it
     
     // Ensure we have focus for keyboard shortcuts
     setFocus();
@@ -379,34 +369,20 @@ void VP_Shows_Videoplayer::pause()
     qDebug() << "VP_Shows_Videoplayer: Pause requested";
     m_mediaPlayer->pause();
     
-    // Save progress when pausing
-    if (m_watchHistory && m_hasStartedPlaying) {
-        saveWatchProgress();
-    }
-    
-    // Stop periodic save timer when paused
-    if (m_progressSaveTimer->isActive()) {
-        m_progressSaveTimer->stop();
-    }
+    // Note: Watch history is managed by Operations_VP_Shows_WatchHistory
+    // We don't save progress here
 }
 
 void VP_Shows_Videoplayer::stop()
 {
     qDebug() << "VP_Shows_Videoplayer: Stop requested";
     
-    // Save progress before stopping
-    if (m_watchHistory && m_hasStartedPlaying) {
-        saveWatchProgress();
-    }
+    // Note: Watch history is managed by Operations_VP_Shows_WatchHistory
+    // We don't save progress here
     
     m_mediaPlayer->stop();
     m_positionSlider->setValue(0);
     m_positionLabel->setText("00:00");
-    
-    // Stop periodic save timer
-    if (m_progressSaveTimer->isActive()) {
-        m_progressSaveTimer->stop();
-    }
 }
 
 void VP_Shows_Videoplayer::setVolume(int volume)
@@ -626,17 +602,28 @@ void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
     
     m_isClosing = true;
     
-    // Save final watch progress before closing
-    if (m_watchHistory && m_hasStartedPlaying) {
-        finalizeWatchProgress();
+    // CRITICAL: Capture the current position BEFORE stopping the player
+    qint64 finalPosition = 0;
+    if (m_mediaPlayer) {
+        finalPosition = m_mediaPlayer->position();
+        qDebug() << "VP_Shows_Videoplayer: Captured final position before stop:" << finalPosition << "ms";
     }
     
-    // Stop progress save timer
-    if (m_progressSaveTimer) {
-        m_progressSaveTimer->stop();
+    // IMPORTANT: We're NOT using the internal m_watchHistory here
+    // The watch history is managed by Operations_VP_Shows_WatchHistory
+    // Just emit a signal with the final position so it can be captured
+    if (finalPosition > 0 && m_hasStartedPlaying) {
+        qDebug() << "VP_Shows_Videoplayer: Emitting aboutToClose signal with position:" << finalPosition << "ms";
+        emit aboutToClose(finalPosition);
+    } else if (m_hasStartedPlaying) {
+        qDebug() << "VP_Shows_Videoplayer: Player at position 0, still emitting aboutToClose";
+        emit aboutToClose(0);
     }
     
-    // Stop playback and clear media source to release file handle
+    // Small delay to allow watch history to save
+    QApplication::processEvents();
+    
+    // NOW stop playback and clear media source to release file handle
     if (m_mediaPlayer) {
         m_mediaPlayer->stop();
         // Clear the source to release file handle
@@ -867,50 +854,18 @@ void VP_Shows_Videoplayer::handlePlaybackStateChanged(QMediaPlayer::PlaybackStat
         case QMediaPlayer::PlayingState:
             m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
             m_playButton->setToolTip(tr("Pause"));
-            
-            // Start progress save timer when playing
-            if (m_watchHistory && !m_progressSaveTimer->isActive()) {
-                m_progressSaveTimer->start();
-            }
             break;
             
         case QMediaPlayer::PausedState:
             m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
             m_playButton->setToolTip(tr("Play"));
-            
-            // Save progress and stop timer when paused
-            if (m_watchHistory && m_hasStartedPlaying) {
-                saveWatchProgress();
-            }
-            if (m_progressSaveTimer->isActive()) {
-                m_progressSaveTimer->stop();
-            }
             break;
             
         case QMediaPlayer::StoppedState:
             m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
             m_playButton->setToolTip(tr("Play"));
             
-            // Check if we reached the end of the episode
-            if (m_hasStartedPlaying && m_watchHistory) {
-                qint64 currentPos = m_mediaPlayer->position();
-                qint64 duration = m_mediaPlayer->duration();
-                
-                // If we're at the end (within 2 seconds), mark as completed
-                if (duration > 0 && (duration - currentPos) < 2000) {
-                    qDebug() << "VP_Shows_Videoplayer: Episode reached end, marking as completed";
-                    if (!m_episodePath.isEmpty()) {
-                        m_watchHistory->updateWatchProgress(m_episodePath, duration, duration, m_episodeIdentifier);
-                        m_watchHistory->markEpisodeCompleted(m_episodePath);
-                        m_watchHistory->saveHistory();
-                    }
-                }
-            }
-            
-            // Stop timer when stopped
-            if (m_progressSaveTimer->isActive()) {
-                m_progressSaveTimer->stop();
-            }
+            // Note: Watch history completion checking is handled by Operations_VP_Shows_WatchHistory
             break;
     }
     

@@ -49,8 +49,9 @@ public:
     
     /**
      * @brief Stop tracking playback
+     * @param finalPosition Optional final position to save (if already captured)
      */
-    void stopTracking();
+    void stopTracking(qint64 finalPosition = -1);
     
     /**
      * @brief Get resume position for an episode

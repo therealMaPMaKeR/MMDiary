@@ -100,17 +100,25 @@ TVShowWatchData TVShowWatchData::fromJson(const QJsonObject& json) {
 VP_ShowsWatchHistory::VP_ShowsWatchHistory(const QString& showFolderPath, 
                                          const QByteArray& encryptionKey,
                                          const QString& username)
-    : m_showFolderPath(showFolderPath)
+    : m_showFolderPath(QDir(showFolderPath).absolutePath())  // Ensure absolute path
     , m_encryptionKey(encryptionKey)
     , m_username(username)
-    , m_historyFilePath(showFolderPath + "/" + HISTORY_FILENAME)
+    , m_historyFilePath(QDir(showFolderPath).absolutePath() + "/" + HISTORY_FILENAME)  // Use absolute path
     , m_watchData(std::make_unique<TVShowWatchData>())
     , m_isDirty(false)
 {
-    qDebug() << "VP_ShowsWatchHistory: Initializing watch history for show folder:" << showFolderPath;
+    qDebug() << "VP_ShowsWatchHistory: ============================================";
+    qDebug() << "VP_ShowsWatchHistory: Initializing watch history";
+    qDebug() << "VP_ShowsWatchHistory: Show folder path (original):" << showFolderPath;
+    qDebug() << "VP_ShowsWatchHistory: Show folder path (absolute):" << m_showFolderPath;
+    qDebug() << "VP_ShowsWatchHistory: History file path:" << m_historyFilePath;
+    qDebug() << "VP_ShowsWatchHistory: Username:" << username;
+    qDebug() << "VP_ShowsWatchHistory: Encryption key present:" << !encryptionKey.isEmpty();
+    qDebug() << "VP_ShowsWatchHistory: Encryption key length:" << encryptionKey.length();
+    qDebug() << "VP_ShowsWatchHistory: Current working directory:" << QDir::currentPath();
     
     // Extract show name from folder path
-    QFileInfo folderInfo(showFolderPath);
+    QFileInfo folderInfo(m_showFolderPath);  // Use the absolute path
     QString folderName = folderInfo.fileName();
     
     // Parse show name from folder format: "ShowName_Language_Translation"
@@ -136,26 +144,45 @@ VP_ShowsWatchHistory::~VP_ShowsWatchHistory() {
 
 bool VP_ShowsWatchHistory::loadHistory() {
     qDebug() << "VP_ShowsWatchHistory: Loading history from:" << m_historyFilePath;
+    qDebug() << "VP_ShowsWatchHistory: Current working directory:" << QDir::currentPath();
+    qDebug() << "VP_ShowsWatchHistory: Show folder path:" << m_showFolderPath;
     
     // Check if file exists
     if (!QFile::exists(m_historyFilePath)) {
-        qDebug() << "VP_ShowsWatchHistory: History file does not exist";
+        qDebug() << "VP_ShowsWatchHistory: History file does not exist at:" << m_historyFilePath;
+        qDebug() << "VP_ShowsWatchHistory: Absolute path would be:" << QFileInfo(m_historyFilePath).absoluteFilePath();
         return false;
     }
+    
+    qDebug() << "VP_ShowsWatchHistory: History file exists, attempting to read...";
+    qDebug() << "VP_ShowsWatchHistory: File size:" << QFileInfo(m_historyFilePath).size() << "bytes";
     
     // Read encrypted file
     QString jsonContent;
     if (!OperationsFiles::readEncryptedFile(m_historyFilePath, m_encryptionKey, jsonContent)) {
         qDebug() << "VP_ShowsWatchHistory: Failed to read encrypted history file";
+        qDebug() << "VP_ShowsWatchHistory: Encryption key length:" << m_encryptionKey.length();
         return false;
     }
     
+    qDebug() << "VP_ShowsWatchHistory: Successfully read encrypted file, content length:" << jsonContent.length();
+    
     // Parse JSON
-    QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8(), &parseError);
     if (doc.isNull() || !doc.isObject()) {
         qDebug() << "VP_ShowsWatchHistory: Invalid JSON in history file";
+        qDebug() << "VP_ShowsWatchHistory: JSON parse error:" << parseError.errorString();
+        qDebug() << "VP_ShowsWatchHistory: Error offset:" << parseError.offset;
+        if (jsonContent.length() < 500) {
+            qDebug() << "VP_ShowsWatchHistory: JSON content:" << jsonContent;
+        } else {
+            qDebug() << "VP_ShowsWatchHistory: JSON content (first 500 chars):" << jsonContent.left(500);
+        }
         return false;
     }
+    
+    qDebug() << "VP_ShowsWatchHistory: JSON parsed successfully";
     
     // Load watch data
     try {
@@ -171,11 +198,26 @@ bool VP_ShowsWatchHistory::loadHistory() {
 
 bool VP_ShowsWatchHistory::saveHistory() {
     qDebug() << "VP_ShowsWatchHistory: Saving history to:" << m_historyFilePath;
+    qDebug() << "VP_ShowsWatchHistory: Current working directory:" << QDir::currentPath();
+    qDebug() << "VP_ShowsWatchHistory: Show folder path:" << m_showFolderPath;
+    
+    // Ensure the show folder exists
+    QDir showDir(m_showFolderPath);
+    if (!showDir.exists()) {
+        qDebug() << "VP_ShowsWatchHistory: Show folder does not exist:" << m_showFolderPath;
+        qDebug() << "VP_ShowsWatchHistory: Attempting to create show folder...";
+        if (!showDir.mkpath(".")) {
+            qDebug() << "VP_ShowsWatchHistory: Failed to create show folder";
+            return false;
+        }
+    }
     
     // Convert watch data to JSON
     QJsonObject json = m_watchData->toJson();
     QJsonDocument doc(json);
     QString jsonContent = doc.toJson(QJsonDocument::Indented);
+    
+    qDebug() << "VP_ShowsWatchHistory: JSON content length:" << jsonContent.length();
     
     // Validate JSON content is not empty
     if (jsonContent.isEmpty()) {
@@ -183,10 +225,29 @@ bool VP_ShowsWatchHistory::saveHistory() {
         return false;
     }
     
+    // Log first part of JSON for debugging
+    if (jsonContent.length() < 500) {
+        qDebug() << "VP_ShowsWatchHistory: JSON to save:" << jsonContent;
+    } else {
+        qDebug() << "VP_ShowsWatchHistory: JSON to save (first 500 chars):" << jsonContent.left(500);
+    }
+    
     // Write encrypted file
+    qDebug() << "VP_ShowsWatchHistory: Attempting to write encrypted file...";
+    qDebug() << "VP_ShowsWatchHistory: Target path:" << m_historyFilePath;
+    qDebug() << "VP_ShowsWatchHistory: Encryption key length:" << m_encryptionKey.length();
+    
     if (!OperationsFiles::writeEncryptedFile(m_historyFilePath, m_encryptionKey, jsonContent)) {
         qDebug() << "VP_ShowsWatchHistory: Failed to write encrypted history file";
+        qDebug() << "VP_ShowsWatchHistory: Check if parent directory exists:" << QFileInfo(m_historyFilePath).dir().exists();
         return false;
+    }
+    
+    // Verify file was created
+    if (QFile::exists(m_historyFilePath)) {
+        qDebug() << "VP_ShowsWatchHistory: File created successfully, size:" << QFileInfo(m_historyFilePath).size() << "bytes";
+    } else {
+        qDebug() << "VP_ShowsWatchHistory: WARNING - File not found after write!";
     }
     
     m_isDirty = false;
@@ -209,12 +270,17 @@ void VP_ShowsWatchHistory::updateWatchProgress(const QString& episodePath,
                                               qint64 position, 
                                               qint64 duration,
                                               const QString& episodeIdentifier) {
+    qDebug() << "VP_ShowsWatchHistory: updateWatchProgress called";
+    qDebug() << "VP_ShowsWatchHistory: Episode path:" << episodePath;
+    qDebug() << "VP_ShowsWatchHistory: Position:" << position << "ms, Duration:" << duration << "ms";
+    
     QString validPath = validateEpisodePath(episodePath);
     if (validPath.isEmpty()) {
         qDebug() << "VP_ShowsWatchHistory: Invalid episode path:" << episodePath;
         return;
     }
     
+    qDebug() << "VP_ShowsWatchHistory: Validated path:" << validPath;
     qDebug() << "VP_ShowsWatchHistory: Updating progress for" << validPath 
              << "- Position:" << position << "Duration:" << duration;
     
@@ -402,6 +468,8 @@ void VP_ShowsWatchHistory::initializeEmptyData() {
     
     // Initialize with default settings
     m_watchData->settings = TVShowSettings();
+    
+    qDebug() << "VP_ShowsWatchHistory: Initialized empty data with show name:" << m_watchData->showName;
 }
 
 QString VP_ShowsWatchHistory::validateEpisodePath(const QString& episodePath) const {
