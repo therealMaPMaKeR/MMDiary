@@ -91,6 +91,8 @@ SOURCES += \
     Operations-Features/videoplayer/vp_shows_config.cpp \
     Operations-Features/videoplayer/vp_shows_settings_dialog.cpp \
     Operations-Features/videoplayer/vp_shows_add_dialog.cpp \
+    Operations-Features/videoplayer/vp_shows_watchhistory.cpp \
+    Operations-Features/videoplayer/operations_vp_shows_watchhistory.cpp \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.cpp \
     Operations-Features/encrypteddata/encrypteddata_fileiconprovider.cpp \
     Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.cpp \
@@ -137,6 +139,8 @@ HEADERS += \
     Operations-Features/videoplayer/vp_shows_config.h \
     Operations-Features/videoplayer/vp_shows_settings_dialog.h \
     Operations-Features/videoplayer/vp_shows_add_dialog.h \
+    Operations-Features/videoplayer/vp_shows_watchhistory.h \
+    Operations-Features/videoplayer/operations_vp_shows_watchhistory.h \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.h \
     Operations-Features/encrypteddata/encrypteddata_fileiconprovider.h \
     Operations-Features/encrypteddata/encrypteddata_editencryptedfiledialog.h \
