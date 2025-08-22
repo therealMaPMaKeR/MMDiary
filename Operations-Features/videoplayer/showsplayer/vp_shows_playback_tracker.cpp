@@ -359,6 +359,60 @@ void VP_ShowsPlaybackTracker::markCurrentEpisodeCompleted()
     emit episodeCompleted(m_currentEpisodePath);
 }
 
+void VP_ShowsPlaybackTracker::setEpisodeWatched(const QString& episodePath, bool watched)
+{
+    if (!m_watchHistory) {
+        qDebug() << "VP_ShowsPlaybackTracker: Cannot set watched status - watch history not initialized";
+        return;
+    }
+    
+    qDebug() << "VP_ShowsPlaybackTracker: Setting episode" << episodePath << "watched status to:" << watched;
+    m_watchHistory->setEpisodeWatched(episodePath, watched);
+    m_watchHistory->saveHistory();
+    
+    if (watched) {
+        emit episodeCompleted(episodePath);
+    }
+}
+
+void VP_ShowsPlaybackTracker::markEpisodeWatched(const QString& episodePath)
+{
+    if (!m_watchHistory) {
+        qDebug() << "VP_ShowsPlaybackTracker: Cannot mark as watched - watch history not initialized";
+        return;
+    }
+    
+    qDebug() << "VP_ShowsPlaybackTracker: Marking episode as watched:" << episodePath;
+    m_watchHistory->markEpisodeCompleted(episodePath);
+    m_watchHistory->saveHistory();
+    
+    emit episodeCompleted(episodePath);
+}
+
+void VP_ShowsPlaybackTracker::markEpisodeUnwatched(const QString& episodePath)
+{
+    if (!m_watchHistory) {
+        qDebug() << "VP_ShowsPlaybackTracker: Cannot mark as unwatched - watch history not initialized";
+        return;
+    }
+    
+    qDebug() << "VP_ShowsPlaybackTracker: Marking episode as unwatched:" << episodePath;
+    m_watchHistory->markEpisodeUnwatched(episodePath);
+    m_watchHistory->saveHistory();
+}
+
+void VP_ShowsPlaybackTracker::resetEpisodePosition(const QString& episodePath)
+{
+    if (!m_watchHistory) {
+        qDebug() << "VP_ShowsPlaybackTracker: Cannot reset position - watch history not initialized";
+        return;
+    }
+    
+    qDebug() << "VP_ShowsPlaybackTracker: Resetting position for episode:" << episodePath;
+    m_watchHistory->resetEpisodePosition(episodePath);
+    m_watchHistory->saveHistory();
+}
+
 qint64 VP_ShowsPlaybackTracker::getTotalWatchTime() const
 {
     if (!m_watchHistory) {

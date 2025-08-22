@@ -151,6 +151,33 @@ public:
      */
     void markCurrentEpisodeCompleted();
     
+    /**
+     * @brief Mark any episode as watched/unwatched
+     * @param episodePath Relative path to the episode
+     * @param watched Whether to mark as watched (true) or unwatched (false)
+     * @note This preserves the lastPosition for resume functionality
+     */
+    void setEpisodeWatched(const QString& episodePath, bool watched);
+    
+    /**
+     * @brief Mark an episode as watched (completed)
+     * @param episodePath Relative path to the episode
+     */
+    void markEpisodeWatched(const QString& episodePath);
+    
+    /**
+     * @brief Mark an episode as unwatched
+     * @param episodePath Relative path to the episode
+     */
+    void markEpisodeUnwatched(const QString& episodePath);
+    
+    /**
+     * @brief Reset the resume position for an episode to start from beginning
+     * @param episodePath Relative path to the episode
+     * @note This only resets position, doesn't change watched status
+     */
+    void resetEpisodePosition(const QString& episodePath);
+    
     // === Statistics ===
     
     /**

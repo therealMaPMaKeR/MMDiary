@@ -305,10 +305,11 @@ void VP_ShowsWatchHistory::updateWatchProgress(const QString& episodePath,
         info.watchCount = 1;
     }
     
-    // Check if episode is completed
+    // Check if episode is completed (near end)
     if (isNearEnd(position, duration)) {
         info.completed = true;
-        qDebug() << "VP_ShowsWatchHistory: Episode marked as completed";
+        // Note: We keep the actual position, not artificially setting it to duration
+        qDebug() << "VP_ShowsWatchHistory: Episode marked as completed (position:" << position << "duration:" << duration << ")";
     }
     
     // Update show-level info
@@ -330,6 +331,88 @@ void VP_ShowsWatchHistory::markEpisodeCompleted(const QString& episodePath) {
     EpisodeWatchInfo& info = m_watchData->watchHistory[validPath];
     info.completed = true;
     info.lastWatched = QDateTime::currentDateTime();
+    // Explicitly NOT modifying lastPosition - keep it intact for resume functionality
+    
+    // If this is a new entry (not previously tracked), initialize it
+    if (info.episodePath.isEmpty()) {
+        info.episodePath = validPath;
+        info.episodeIdentifier = parseEpisodeIdentifier(validPath);
+        info.watchCount = 1;
+    }
+    
+    m_isDirty = true;
+}
+
+void VP_ShowsWatchHistory::setEpisodeWatched(const QString& episodePath, bool watched) {
+    QString validPath = validateEpisodePath(episodePath);
+    if (validPath.isEmpty()) {
+        qDebug() << "VP_ShowsWatchHistory: Invalid episode path:" << episodePath;
+        return;
+    }
+    
+    qDebug() << "VP_ShowsWatchHistory: Setting episode" << validPath << "watched status to:" << watched;
+    
+    EpisodeWatchInfo& info = m_watchData->watchHistory[validPath];
+    info.completed = watched;
+    info.lastWatched = QDateTime::currentDateTime();
+    
+    // If this is a new entry being marked as watched, initialize it
+    if (info.episodePath.isEmpty()) {
+        info.episodePath = validPath;
+        info.episodeIdentifier = parseEpisodeIdentifier(validPath);
+        info.watchCount = watched ? 1 : 0;
+    } else if (watched && info.watchCount == 0) {
+        // If marking as watched and watch count is 0, set it to 1
+        info.watchCount = 1;
+    }
+    
+    // Important: We preserve lastPosition and totalDuration
+    // This allows resume functionality to work regardless of watched status
+    
+    m_isDirty = true;
+}
+
+void VP_ShowsWatchHistory::markEpisodeUnwatched(const QString& episodePath) {
+    QString validPath = validateEpisodePath(episodePath);
+    if (validPath.isEmpty()) {
+        qDebug() << "VP_ShowsWatchHistory: Invalid episode path:" << episodePath;
+        return;
+    }
+    
+    qDebug() << "VP_ShowsWatchHistory: Marking episode as unwatched:" << validPath;
+    
+    // Check if episode exists in history
+    if (!m_watchData->watchHistory.contains(validPath)) {
+        qDebug() << "VP_ShowsWatchHistory: Episode not in history, nothing to unmark";
+        return;
+    }
+    
+    EpisodeWatchInfo& info = m_watchData->watchHistory[validPath];
+    info.completed = false;
+    // Keep lastWatched and lastPosition intact for resume functionality
+    
+    m_isDirty = true;
+}
+
+void VP_ShowsWatchHistory::resetEpisodePosition(const QString& episodePath) {
+    QString validPath = validateEpisodePath(episodePath);
+    if (validPath.isEmpty()) {
+        qDebug() << "VP_ShowsWatchHistory: Invalid episode path:" << episodePath;
+        return;
+    }
+    
+    qDebug() << "VP_ShowsWatchHistory: Resetting position for episode:" << validPath;
+    
+    // Check if episode exists in history
+    if (!m_watchData->watchHistory.contains(validPath)) {
+        qDebug() << "VP_ShowsWatchHistory: Episode not in history, nothing to reset";
+        return;
+    }
+    
+    EpisodeWatchInfo& info = m_watchData->watchHistory[validPath];
+    info.lastPosition = 0;  // Reset to beginning
+    // Keep completed status and other data intact
+    qDebug() << "VP_ShowsWatchHistory: Position reset to 0 (completed status:" << info.completed << ")";
     
     m_isDirty = true;
 }
@@ -389,19 +472,55 @@ QString VP_ShowsWatchHistory::getNextUnwatchedEpisode(const QString& currentEpis
 qint64 VP_ShowsWatchHistory::getResumePosition(const QString& episodePath) const {
     QString validPath = validateEpisodePath(episodePath);
     if (validPath.isEmpty() || !m_watchData->watchHistory.contains(validPath)) {
+        qDebug() << "VP_ShowsWatchHistory: No watch history for episode, starting from beginning";
         return 0;
     }
     
     const EpisodeWatchInfo& info = m_watchData->watchHistory[validPath];
     
-    // If episode is completed or near end, start from beginning
-    if (info.completed || isNearEnd(info.lastPosition, info.totalDuration)) {
-        qDebug() << "VP_ShowsWatchHistory: Episode completed or near end, starting from beginning";
+    // Safety check: if position is invalid or 0, start from beginning
+    if (info.lastPosition <= 0) {
+        qDebug() << "VP_ShowsWatchHistory: Invalid or zero position, starting from beginning";
         return 0;
     }
     
-    qDebug() << "VP_ShowsWatchHistory: Resume position for" << validPath << "is" << info.lastPosition;
-    return info.lastPosition;
+    // Safety check: if position is at or beyond duration, start from beginning
+    if (info.totalDuration > 0 && info.lastPosition >= info.totalDuration) {
+        qDebug() << "VP_ShowsWatchHistory: Position (" << info.lastPosition 
+                 << "ms) is at or beyond duration (" << info.totalDuration 
+                 << "ms), starting from beginning";
+        return 0;
+    }
+    
+    // Check if position is too close to the end (within RESUME_THRESHOLD_MS)
+    // If so, start from beginning to avoid player crashes when seeking to end
+    if (info.totalDuration > 0) {
+        qint64 remainingTime = info.totalDuration - info.lastPosition;
+        if (remainingTime <= RESUME_THRESHOLD_MS) {
+            qDebug() << "VP_ShowsWatchHistory: Position too close to end (" << remainingTime 
+                     << "ms remaining of " << RESUME_THRESHOLD_MS << "ms threshold), starting from beginning";
+            qDebug() << "VP_ShowsWatchHistory: Last position:" << info.lastPosition 
+                     << "Total duration:" << info.totalDuration
+                     << "Completed:" << info.completed;
+            return 0;
+        }
+    }
+    
+    // Additional safety: cap position to 95% of duration if duration is known
+    qint64 safePosition = info.lastPosition;
+    if (info.totalDuration > 0) {
+        qint64 maxSafePosition = (info.totalDuration * 95) / 100;  // 95% of duration
+        if (safePosition > maxSafePosition) {
+            qDebug() << "VP_ShowsWatchHistory: Capping position from" << safePosition 
+                     << "to" << maxSafePosition << "(95% of duration)";
+            safePosition = maxSafePosition;
+        }
+    }
+    
+    // Return the safe resume position
+    qDebug() << "VP_ShowsWatchHistory: Resume position for" << validPath << "is" << safePosition
+             << "(duration:" << info.totalDuration << ", completed:" << info.completed << ")";
+    return safePosition;
 }
 
 TVShowSettings VP_ShowsWatchHistory::getSettings() const {

@@ -90,6 +90,7 @@ public:
     // Constants
     static constexpr const char* HISTORY_FILENAME = ".show_history.encrypted";
     static constexpr qint64 COMPLETION_THRESHOLD_MS = 120000; // 2 minutes in milliseconds
+    static constexpr qint64 RESUME_THRESHOLD_MS = 60000; // 1 minute in milliseconds - if within this of end, start from beginning
     static constexpr int SAVE_INTERVAL_SECONDS = 10; // Save progress every 10 seconds
     
     /**
@@ -146,6 +147,27 @@ public:
      * @param episodePath Relative path to the episode
      */
     void markEpisodeCompleted(const QString& episodePath);
+    
+    /**
+     * @brief Toggle watched status of an episode
+     * @param episodePath Relative path to the episode
+     * @param watched Whether to mark as watched (true) or unwatched (false)
+     * @note This preserves the lastPosition for resume functionality
+     */
+    void setEpisodeWatched(const QString& episodePath, bool watched);
+    
+    /**
+     * @brief Mark an episode as unwatched
+     * @param episodePath Relative path to the episode
+     */
+    void markEpisodeUnwatched(const QString& episodePath);
+    
+    /**
+     * @brief Reset the resume position for an episode to start from beginning
+     * @param episodePath Relative path to the episode
+     * @note This only resets position, doesn't change watched status
+     */
+    void resetEpisodePosition(const QString& episodePath);
     
     /**
      * @brief Get watch info for a specific episode
