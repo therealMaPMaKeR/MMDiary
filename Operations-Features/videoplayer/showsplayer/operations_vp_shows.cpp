@@ -1087,6 +1087,39 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName)
     // Store current show folder for later use
     m_currentShowFolder = showFolderPath;
     
+    // Initialize watch history for direct access (needed for context menu)
+    if (!m_watchHistory) {
+        qDebug() << "Operations_VP_Shows: Initializing watch history for show:" << showFolderPath;
+        m_watchHistory = std::make_unique<VP_ShowsWatchHistory>(
+            showFolderPath,
+            m_mainWindow->user_Key,
+            m_mainWindow->user_Username
+            );
+
+        // Try to load existing history
+        if (!m_watchHistory->loadHistory()) {
+            qDebug() << "Operations_VP_Shows: No existing history found, creating new";
+            m_watchHistory->saveHistory();
+        } else {
+            qDebug() << "Operations_VP_Shows: Loaded existing watch history";
+        }
+    } else {
+        // If m_watchHistory exists but for a different show, recreate it
+        qDebug() << "Operations_VP_Shows: Re-initializing watch history for new show:" << showFolderPath;
+        m_watchHistory.reset();
+        m_watchHistory = std::make_unique<VP_ShowsWatchHistory>(
+            showFolderPath,
+            m_mainWindow->user_Key,
+            m_mainWindow->user_Username
+            );
+
+        if (!m_watchHistory->loadHistory()) {
+            qDebug() << "Operations_VP_Shows: No existing history found, creating new";
+            m_watchHistory->saveHistory();
+        }
+    }
+
+
     // Update the show name label
     if (m_mainWindow->ui->label_VP_Shows_Display_Name) {
         m_mainWindow->ui->label_VP_Shows_Display_Name->setText(showName);
@@ -1187,13 +1220,12 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     
     qDebug() << "Operations_VP_Shows: Found" << videoFiles.size() << "video files";
     
-    // Initialize watch history for checking which episodes are watched
-    VP_ShowsWatchHistory watchHistory(showFolderPath, m_mainWindow->user_Key, m_mainWindow->user_Username);
-    bool historyLoaded = watchHistory.loadHistory();
+    // Use the member watch history that was initialized in displayShowDetails
+    bool historyLoaded = (m_watchHistory != nullptr);
     if (historyLoaded) {
-        qDebug() << "Operations_VP_Shows: Watch history loaded for episode display";
+        qDebug() << "Operations_VP_Shows: Using existing watch history for episode display";
     } else {
-        qDebug() << "Operations_VP_Shows: No watch history found for episode display";
+        qDebug() << "Operations_VP_Shows: No watch history available for episode display";
     }
     
     // Define light grey color for watched episodes (suitable for dark theme)
@@ -1297,7 +1329,7 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         if (historyLoaded) {
             // Get relative path for watch history check
             QString relativeEpisodePath = showDir.relativeFilePath(videoPath);
-            if (watchHistory.isEpisodeCompleted(relativeEpisodePath)) {
+            if (m_watchHistory->isEpisodeCompleted(relativeEpisodePath)) {
                 episodeItem->setForeground(0, QBrush(watchedColor));
                 qDebug() << "Operations_VP_Shows: Episode marked as watched:" << episodeName;
             }
@@ -1447,6 +1479,12 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         languageItem->setExpanded(true);
     }
     
+    // Refresh episode colors to ensure watched state is shown
+    // This is needed in case episodes were marked as watched elsewhere
+    if (m_watchHistory) {
+        refreshEpisodeTreeColors();
+    }
+
     qDebug() << "Operations_VP_Shows: Finished loading episodes. Total language versions:" << languageKeys.size();
 }
 
@@ -2850,6 +2888,33 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
     // Create the context menu
     QMenu* contextMenu = new QMenu(m_mainWindow);
     
+    // Mark as Watched/Unwatched action
+    QAction* markWatchedAction = nullptr;
+    if (m_watchHistory) {
+        // Determine the current watch state
+        WatchState watchState = getItemWatchState(item);
+
+        // Choose the appropriate icon and text based on state
+        QString actionText;
+        switch (watchState) {
+        case WatchState::NotWatched:
+            actionText = tr("Mark as Watched ☐");
+            break;
+        case WatchState::Watched:
+            actionText = tr("Mark as Watched ☑");
+            break;
+        case WatchState::PartiallyWatched:
+            actionText = tr("Mark as Watched ◉");
+            break;
+        }
+
+        markWatchedAction = contextMenu->addAction(actionText);
+        connect(markWatchedAction, &QAction::triggered, this, &Operations_VP_Shows::toggleWatchedStateFromContextMenu);
+
+        // Add a separator after the mark watched action
+        contextMenu->addSeparator();
+    }
+
     // Play action
     QAction* playAction;
     if (itemType == "episode") {
@@ -3387,4 +3452,210 @@ void Operations_VP_Shows::performEpisodeExportWithWorker(const QStringList& epis
     
     // Start the export
     exportDialog->startExport(exportFiles, m_mainWindow->user_Key, m_mainWindow->user_Username, showName);
+}
+
+// =================
+// HELPER FUNCTIONS
+// =================
+
+// Helper function to determine the watch state of an item (episode or category)
+Operations_VP_Shows::WatchState Operations_VP_Shows::getItemWatchState(QTreeWidgetItem* item)
+{
+    if (!item || !m_watchHistory) {
+        return WatchState::NotWatched;
+    }
+
+    // If it's an episode (no children)
+    if (item->childCount() == 0) {
+        QString videoPath = item->data(0, Qt::UserRole).toString();
+        if (!videoPath.isEmpty()) {
+            // Convert absolute path to relative path for watch history
+            QDir showDir(m_currentShowFolder);
+            QString relativePath = showDir.relativeFilePath(videoPath);
+
+            if (m_watchHistory->isEpisodeCompleted(relativePath)) {
+                return WatchState::Watched;
+            }
+        }
+        return WatchState::NotWatched;
+    }
+
+    // It's a category (has children) - check all episodes under it
+    int watchedCount = 0;
+    int totalCount = 0;
+    countWatchedEpisodes(item, watchedCount, totalCount);
+
+    if (totalCount == 0) {
+        return WatchState::NotWatched;
+    } else if (watchedCount == 0) {
+        return WatchState::NotWatched;
+    } else if (watchedCount == totalCount) {
+        return WatchState::Watched;
+    } else {
+        return WatchState::PartiallyWatched;
+    }
+}
+
+// Helper function to count watched episodes under a tree item
+void Operations_VP_Shows::countWatchedEpisodes(QTreeWidgetItem* item, int& watchedCount, int& totalCount)
+{
+    if (!item || !m_watchHistory) return;
+
+    // If this is an episode (no children)
+    if (item->childCount() == 0) {
+        QString videoPath = item->data(0, Qt::UserRole).toString();
+        if (!videoPath.isEmpty()) {
+            totalCount++;
+
+            // Convert absolute path to relative path for watch history
+            QDir showDir(m_currentShowFolder);
+            QString relativePath = showDir.relativeFilePath(videoPath);
+
+            if (m_watchHistory->isEpisodeCompleted(relativePath)) {
+                watchedCount++;
+            }
+        }
+    } else {
+        // This is a category, recursively count all child episodes
+        for (int i = 0; i < item->childCount(); ++i) {
+            countWatchedEpisodes(item->child(i), watchedCount, totalCount);
+        }
+    }
+}
+
+// Helper function to set watched state for all episodes under an item
+void Operations_VP_Shows::setWatchedStateForItem(QTreeWidgetItem* item, bool watched)
+{
+    if (!item || !m_watchHistory) return;
+
+    QStringList episodePaths;
+    collectEpisodesFromTreeItem(item, episodePaths);
+
+    qDebug() << "Operations_VP_Shows: Setting" << episodePaths.size()
+             << "episodes to watched state:" << watched;
+
+    // Convert absolute paths to relative paths and update watch history
+    QDir showDir(m_currentShowFolder);
+    for (const QString& absolutePath : episodePaths) {
+        QString relativePath = showDir.relativeFilePath(absolutePath);
+        m_watchHistory->setEpisodeWatched(relativePath, watched);
+    }
+
+    // Save the history once after all updates
+    if (!episodePaths.isEmpty()) {
+        m_watchHistory->saveHistory();
+    }
+
+    // Refresh the tree widget to show updated states
+    refreshEpisodeTreeColors();
+}
+
+// Helper function to refresh the tree widget colors based on watch states
+void Operations_VP_Shows::refreshEpisodeTreeColors()
+{
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+        return;
+    }
+
+    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+    QColor watchedColor(128, 128, 128); // Grey color for watched items
+
+    // Process all top-level items (languages)
+    for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+        refreshItemColors(treeWidget->topLevelItem(i), watchedColor);
+    }
+}
+
+// Helper function to recursively refresh colors for an item and its children
+void Operations_VP_Shows::refreshItemColors(QTreeWidgetItem* item, const QColor& watchedColor)
+{
+    if (!item || !m_watchHistory) return;
+
+    // If this is an episode (no children)
+    if (item->childCount() == 0) {
+        QString videoPath = item->data(0, Qt::UserRole).toString();
+        if (!videoPath.isEmpty()) {
+            // Convert absolute path to relative path for watch history
+            QDir showDir(m_currentShowFolder);
+            QString relativePath = showDir.relativeFilePath(videoPath);
+
+            if (m_watchHistory->isEpisodeCompleted(relativePath)) {
+                item->setForeground(0, QBrush(watchedColor));
+            } else {
+                item->setForeground(0, QBrush()); // Reset to default color
+            }
+        }
+    } else {
+        // This is a category, process children first
+        bool allWatched = true;
+        bool hasEpisodes = false;
+
+        for (int i = 0; i < item->childCount(); ++i) {
+            QTreeWidgetItem* child = item->child(i);
+            refreshItemColors(child, watchedColor);
+
+            // Check if this child or its descendants have unwatched episodes
+            int watchedCount = 0;
+            int totalCount = 0;
+            countWatchedEpisodes(child, watchedCount, totalCount);
+
+            if (totalCount > 0) {
+                hasEpisodes = true;
+                if (watchedCount < totalCount) {
+                    allWatched = false;
+                }
+            }
+        }
+
+        // Set category color based on whether all episodes are watched
+        if (hasEpisodes && allWatched) {
+            item->setForeground(0, QBrush(watchedColor));
+        } else {
+            item->setForeground(0, QBrush()); // Reset to default color
+        }
+    }
+}
+// =================
+// CONTEXT MENU ACTION
+// =================
+
+// Slot for handling the mark as watched/unwatched action
+void Operations_VP_Shows::toggleWatchedStateFromContextMenu()
+{
+    if (!m_contextMenuTreeItem || !m_watchHistory) {
+        qDebug() << "Operations_VP_Shows: Cannot toggle watched state - no item selected or watch history not available";
+        return;
+    }
+
+    // Get current watch state
+    WatchState currentState = getItemWatchState(m_contextMenuTreeItem);
+
+    // Determine the new state
+    bool markAsWatched = (currentState != WatchState::Watched);
+
+    QString itemDescription = m_contextMenuTreeItem->text(0);
+    qDebug() << "Operations_VP_Shows: Toggling watched state for:" << itemDescription
+             << "Current state:" << static_cast<int>(currentState)
+             << "New watched state:" << markAsWatched;
+
+    // Set the new state
+    setWatchedStateForItem(m_contextMenuTreeItem, markAsWatched);
+
+    // Show feedback to user
+    QString message;
+    if (m_contextMenuTreeItem->childCount() == 0) {
+        // Single episode
+        message = markAsWatched ?
+                      tr("Episode \"%1\" marked as watched").arg(itemDescription) :
+                      tr("Episode \"%1\" marked as unwatched").arg(itemDescription);
+    } else {
+        // Category with multiple episodes
+        int episodeCount = m_contextMenuEpisodePaths.size();
+        message = markAsWatched ?
+                      tr("Marked %1 episode%2 as watched").arg(episodeCount).arg(episodeCount > 1 ? "s" : "") :
+                      tr("Marked %1 episode%2 as unwatched").arg(episodeCount).arg(episodeCount > 1 ? "s" : "");
+    }
+
+    // Optional: Show a status message (you can use statusBar if available)
+    qDebug() << "Operations_VP_Shows:" << message;
 }

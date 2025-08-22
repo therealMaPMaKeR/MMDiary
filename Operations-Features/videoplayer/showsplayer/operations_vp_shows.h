@@ -70,6 +70,21 @@ private:
                                  const QString& language,
                                  const QString& translation);
 
+    enum class WatchState {
+        NotWatched = 0,
+        Watched = 1,
+        PartiallyWatched = 2
+    };
+
+
+
+    WatchState getItemWatchState(QTreeWidgetItem* item);
+    void countWatchedEpisodes(QTreeWidgetItem* item, int& watchedCount, int& totalCount);
+    void setWatchedStateForItem(QTreeWidgetItem* item, bool watched);
+    void refreshEpisodeTreeColors();
+    void refreshItemColors(QTreeWidgetItem* item, const QColor& watchedColor);
+
+
 public:
     explicit Operations_VP_Shows(MainWindow* mainWindow);
     ~Operations_VP_Shows();
@@ -192,6 +207,9 @@ public slots:
     void onEncryptionComplete(bool success, const QString& message,
                              const QStringList& successfulFiles,
                              const QStringList& failedFiles);
+
+private slots:
+    void toggleWatchedStateFromContextMenu();
 
 signals:
     void videoPlayerError(const QString& errorMessage);
