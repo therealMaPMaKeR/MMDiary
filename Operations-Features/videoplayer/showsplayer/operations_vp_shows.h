@@ -77,9 +77,6 @@ public:
     // Friend class declaration
     friend class MainWindow;
     
-    // Test function to open and play a video
-    void testVideoPlayer();
-    
     // Import TV show functionality
     void importTVShow();
     
@@ -182,9 +179,6 @@ public:
     void onAutoplayCheckboxChanged(int state);
 
 public slots:
-    // Slot for debug button
-    void on_pushButton_Debug_clicked();
-    
     // Slot for add show button
     void on_pushButton_VP_List_AddShow_clicked();
     
