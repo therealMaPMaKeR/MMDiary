@@ -46,8 +46,10 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     , m_encryptionDialog(nullptr)
     , m_watchHistory(nullptr)
     , m_playbackTracker(nullptr)
+    , m_isAutoplayInProgress(false)
 {
     qDebug() << "Operations_VP_Shows: Constructor called";
+    qDebug() << "Operations_VP_Shows: Autoplay system initialized";
     
     // Set username for operations_files functions
     if (m_mainWindow && !m_mainWindow->user_Username.isEmpty()) {
@@ -1528,6 +1530,10 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
 {
     qDebug() << "Operations_VP_Shows: Starting decryption and playback for:" << episodeName;
     
+    // Store the current playing episode path for autoplay
+    m_currentPlayingEpisodePath = encryptedFilePath;
+    qDebug() << "Operations_VP_Shows: Stored current playing episode path:" << m_currentPlayingEpisodePath;
+    
     // Clean up any existing temp file first
     cleanupTempFile();
     
@@ -1686,6 +1692,12 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 if (m_playbackTracker) {
                     qDebug() << "Operations_VP_Shows: Stopping playback tracking";
                     m_playbackTracker->stopTracking();
+                }
+                
+                // Trigger autoplay if enabled
+                if (m_currentShowSettings.autoplay && !m_isAutoplayInProgress) {
+                    qDebug() << "Operations_VP_Shows: Triggering autoplay after playback stopped";
+                    autoplayNextEpisode();
                 }
                 
                 // Force the media player to release the file
@@ -3319,6 +3331,290 @@ bool Operations_VP_Shows::deleteEpisodesWithConfirmation(const QStringList& epis
     }
     
     return deletedCount > 0;
+}
+
+// ============================================================================
+// Autoplay Functionality Implementation
+// ============================================================================
+
+QStringList Operations_VP_Shows::getAllAvailableEpisodes() const
+{
+    qDebug() << "Operations_VP_Shows: Building list of all available episodes";
+    
+    QStringList allEpisodes;
+    
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+        qDebug() << "Operations_VP_Shows: Tree widget not available";
+        return allEpisodes;
+    }
+    
+    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+    
+    // Iterate through all language versions (top-level items)
+    for (int langIndex = 0; langIndex < treeWidget->topLevelItemCount(); ++langIndex) {
+        QTreeWidgetItem* languageItem = treeWidget->topLevelItem(langIndex);
+        
+        // Skip if this is an error category
+        if (languageItem->text(0).contains("Error - Duplicate Episodes")) {
+            continue;
+        }
+        
+        // Iterate through all seasons in this language
+        for (int seasonIndex = 0; seasonIndex < languageItem->childCount(); ++seasonIndex) {
+            QTreeWidgetItem* seasonItem = languageItem->child(seasonIndex);
+            
+            // Skip if this is an error category nested under language
+            if (seasonItem->text(0).contains("Error - Duplicate Episodes")) {
+                continue;
+            }
+            
+            // Iterate through all episodes in this season
+            for (int epIndex = 0; epIndex < seasonItem->childCount(); ++epIndex) {
+                QTreeWidgetItem* episodeItem = seasonItem->child(epIndex);
+                
+                // Get the file path from the episode item
+                QString episodePath = episodeItem->data(0, Qt::UserRole).toString();
+                if (!episodePath.isEmpty()) {
+                    allEpisodes.append(episodePath);
+                }
+            }
+        }
+    }
+    
+    qDebug() << "Operations_VP_Shows: Found" << allEpisodes.size() << "total episodes";
+    return allEpisodes;
+}
+
+QString Operations_VP_Shows::findNextEpisode(const QString& currentEpisodePath) const
+{
+    qDebug() << "Operations_VP_Shows: Finding next episode after:" << currentEpisodePath;
+    
+    if (currentEpisodePath.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Current episode path is empty";
+        return QString();
+    }
+    
+    // Get metadata for the current episode to determine language/translation
+    VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    VP_ShowsMetadata::ShowMetadata currentMetadata;
+    
+    QString currentLanguage;
+    QString currentTranslation;
+    
+    if (metadataManager.readMetadataFromFile(currentEpisodePath, currentMetadata)) {
+        currentLanguage = currentMetadata.language;
+        currentTranslation = currentMetadata.translation;
+        qDebug() << "Operations_VP_Shows: Current episode language:" << currentLanguage 
+                 << "Translation:" << currentTranslation;
+    } else {
+        qDebug() << "Operations_VP_Shows: Could not read metadata for current episode";
+    }
+    
+    QString nextEpisode;
+    QString nextEpisodeSameLanguage;
+    QString nextEpisodeAnyLanguage;
+    bool foundCurrent = false;
+    
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+        qDebug() << "Operations_VP_Shows: Tree widget not available";
+        return QString();
+    }
+    
+    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+    
+    // Iterate through all language versions
+    for (int langIndex = 0; langIndex < treeWidget->topLevelItemCount(); ++langIndex) {
+        QTreeWidgetItem* languageItem = treeWidget->topLevelItem(langIndex);
+        
+        // Skip error categories
+        if (languageItem->text(0).contains("Error - Duplicate Episodes")) {
+            continue;
+        }
+        
+        QString languageKey = languageItem->text(0); // e.g., "English Dubbed"
+        bool isSameLanguage = !currentLanguage.isEmpty() && 
+                              !currentTranslation.isEmpty() && 
+                              languageKey == QString("%1 %2").arg(currentLanguage).arg(currentTranslation);
+        
+        // Iterate through all seasons
+        for (int seasonIndex = 0; seasonIndex < languageItem->childCount(); ++seasonIndex) {
+            QTreeWidgetItem* seasonItem = languageItem->child(seasonIndex);
+            
+            // Skip error categories
+            if (seasonItem->text(0).contains("Error - Duplicate Episodes")) {
+                continue;
+            }
+            
+            // Iterate through all episodes
+            for (int epIndex = 0; epIndex < seasonItem->childCount(); ++epIndex) {
+                QTreeWidgetItem* episodeItem = seasonItem->child(epIndex);
+                QString episodePath = episodeItem->data(0, Qt::UserRole).toString();
+                
+                if (episodePath.isEmpty()) {
+                    continue;
+                }
+                
+                // Check if this is the current episode
+                if (episodePath == currentEpisodePath) {
+                    foundCurrent = true;
+                    qDebug() << "Operations_VP_Shows: Found current episode in tree";
+                    continue; // Skip the current episode
+                }
+                
+                // If we've found the current episode, look for the next one
+                if (foundCurrent) {
+                    // Get relative path for checking completion status
+                    QDir showDir(m_currentShowFolder);
+                    QString relativeEpisodePath = showDir.relativeFilePath(episodePath);
+                    
+                    // Check if this episode has been completed
+                    if (m_playbackTracker && m_playbackTracker->isEpisodeCompleted(relativeEpisodePath)) {
+                        qDebug() << "Operations_VP_Shows: Skipping completed episode:" << episodePath;
+                        continue; // Skip completed episodes
+                    }
+                    
+                    // Prioritize same language/translation
+                    if (isSameLanguage && nextEpisodeSameLanguage.isEmpty()) {
+                        nextEpisodeSameLanguage = episodePath;
+                        qDebug() << "Operations_VP_Shows: Found next episode in same language:" << episodePath;
+                        // Continue searching in case we find a better match
+                    }
+                    
+                    // Store as fallback if different language
+                    if (!isSameLanguage && nextEpisodeAnyLanguage.isEmpty()) {
+                        nextEpisodeAnyLanguage = episodePath;
+                        qDebug() << "Operations_VP_Shows: Found next episode in different language:" << episodePath;
+                    }
+                    
+                    // If we found a same-language episode and we're past the current episode's position,
+                    // we can return it immediately
+                    if (!nextEpisodeSameLanguage.isEmpty() && isSameLanguage) {
+                        return nextEpisodeSameLanguage;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Return the best match we found
+    if (!nextEpisodeSameLanguage.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Returning next episode in same language";
+        return nextEpisodeSameLanguage;
+    } else if (!nextEpisodeAnyLanguage.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Returning next episode in different language";
+        return nextEpisodeAnyLanguage;
+    }
+    
+    qDebug() << "Operations_VP_Shows: No next episode found";
+    return QString();
+}
+
+void Operations_VP_Shows::autoplayNextEpisode()
+{
+    qDebug() << "Operations_VP_Shows: Autoplay triggered";
+    
+    // Check if autoplay is enabled
+    if (!m_currentShowSettings.autoplay) {
+        qDebug() << "Operations_VP_Shows: Autoplay is disabled in settings";
+        return;
+    }
+    
+    // Check if we're already processing an autoplay to prevent multiple triggers
+    if (m_isAutoplayInProgress) {
+        qDebug() << "Operations_VP_Shows: Autoplay already in progress, skipping";
+        return;
+    }
+    
+    // Check if we have a current episode path
+    if (m_currentPlayingEpisodePath.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No current episode path stored";
+        return;
+    }
+    
+    // Find the next episode
+    QString nextEpisodePath = findNextEpisode(m_currentPlayingEpisodePath);
+    
+    if (nextEpisodePath.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No next episode available for autoplay";
+        // Optionally show a message to the user
+        QMessageBox::information(m_mainWindow,
+                               tr("End of Episodes"),
+                               tr("You've reached the end of available episodes."));
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Autoplaying next episode:" << nextEpisodePath;
+    
+    // Set the flag to prevent multiple autoplay triggers
+    m_isAutoplayInProgress = true;
+    
+    // Get episode name from the tree widget for display purposes
+    QString episodeName;
+    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+    
+    // Find the episode item in the tree to get its display name
+    for (int langIndex = 0; langIndex < treeWidget->topLevelItemCount(); ++langIndex) {
+        QTreeWidgetItem* languageItem = treeWidget->topLevelItem(langIndex);
+        for (int seasonIndex = 0; seasonIndex < languageItem->childCount(); ++seasonIndex) {
+            QTreeWidgetItem* seasonItem = languageItem->child(seasonIndex);
+            for (int epIndex = 0; epIndex < seasonItem->childCount(); ++epIndex) {
+                QTreeWidgetItem* episodeItem = seasonItem->child(epIndex);
+                if (episodeItem->data(0, Qt::UserRole).toString() == nextEpisodePath) {
+                    episodeName = episodeItem->text(0);
+                    break;
+                }
+            }
+            if (!episodeName.isEmpty()) break;
+        }
+        if (!episodeName.isEmpty()) break;
+    }
+    
+    if (episodeName.isEmpty()) {
+        QFileInfo fileInfo(nextEpisodePath);
+        episodeName = fileInfo.fileName();
+    }
+    
+    // Small delay to ensure the previous player is fully closed
+    QTimer::singleShot(500, this, [this, nextEpisodePath, episodeName]() {
+        // Decrypt and play the next episode
+        decryptAndPlayEpisode(nextEpisodePath, episodeName);
+        
+        // Reset the autoplay flag
+        m_isAutoplayInProgress = false;
+    });
+}
+
+void Operations_VP_Shows::handleEpisodeNearCompletion(const QString& episodePath)
+{
+    qDebug() << "Operations_VP_Shows: Episode near completion:" << episodePath;
+    
+    // Get relative path for comparison
+    QDir showDir(m_currentShowFolder);
+    QString relativeEpisodePath = showDir.relativeFilePath(episodePath);
+    QString currentRelativePath = showDir.relativeFilePath(m_currentPlayingEpisodePath);
+    
+    // Check if this is the currently playing episode
+    if (relativeEpisodePath != currentRelativePath) {
+        qDebug() << "Operations_VP_Shows: Episode path mismatch, not triggering autoplay";
+        return;
+    }
+    
+    // Check if autoplay is enabled
+    if (!m_currentShowSettings.autoplay) {
+        qDebug() << "Operations_VP_Shows: Autoplay is disabled, not proceeding";
+        return;
+    }
+    
+    // Check if we're already processing an autoplay
+    if (m_isAutoplayInProgress) {
+        qDebug() << "Operations_VP_Shows: Autoplay already in progress";
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Preparing for autoplay...";
+    
+    // The actual autoplay will be triggered when the player stops
+    // This is just a notification that we're near the end
 }
 
 void Operations_VP_Shows::performEpisodeExportWithWorker(const QStringList& episodePaths, const QString& exportPath, const QString& description)

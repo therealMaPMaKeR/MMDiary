@@ -179,6 +179,10 @@ public:
     QString m_contextMenuEpisodePath;
     QStringList m_contextMenuEpisodePaths;
     
+    // Autoplay tracking
+    QString m_currentPlayingEpisodePath;  // Path of currently playing episode
+    bool m_isAutoplayInProgress = false;  // Flag to prevent multiple autoplay triggers
+    
     // Settings handling
     // Load settings for the current show (checkboxes)
     void loadShowSettings(const QString& showFolderPath);
@@ -192,6 +196,12 @@ public:
     // Handle checkbox state changes
     void onSkipContentCheckboxChanged(int state);
     void onAutoplayCheckboxChanged(int state);
+    
+    // Autoplay functionality
+    QStringList getAllAvailableEpisodes() const;  // Get all episodes in playback order
+    QString findNextEpisode(const QString& currentEpisodePath) const;  // Find next episode to play
+    void autoplayNextEpisode();  // Trigger autoplay of next episode
+    void handleEpisodeNearCompletion(const QString& episodePath);  // Handle when episode is about to end
 
 public slots:
     // Slot for add show button
