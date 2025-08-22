@@ -291,6 +291,11 @@ bool VP_Shows_Videoplayer::loadVideo(const QString& filePath)
 {
     qDebug() << "VP_Shows_Videoplayer: Loading video:" << filePath;
     
+    // Reset the closing flag when loading a new video (fixes auto-close on subsequent plays)
+    m_isClosing = false;
+    m_hasStartedPlaying = false;
+    qDebug() << "VP_Shows_Videoplayer: Reset flags for new video load";
+    
     // Handle empty path to clear the player
     if (filePath.isEmpty()) {
         qDebug() << "VP_Shows_Videoplayer: Clearing media player";
@@ -383,6 +388,10 @@ void VP_Shows_Videoplayer::stop()
     m_mediaPlayer->stop();
     m_positionSlider->setValue(0);
     m_positionLabel->setText("00:00");
+    
+    // QUICK FIX: The handlePlaybackStateChanged will close the player when it enters StoppedState
+    // This prevents crash from temp file being deleted
+    qDebug() << "VP_Shows_Videoplayer: Stop will trigger player close via state change handler";
 }
 
 void VP_Shows_Videoplayer::setVolume(int volume)
@@ -598,9 +607,10 @@ QString VP_Shows_Videoplayer::currentVideoPath() const
 
 void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
 {
-    qDebug() << "VP_Shows_Videoplayer: Window closing, stopping playback";
+    qDebug() << "VP_Shows_Videoplayer: Window closing, stopping playback. m_isClosing =" << m_isClosing;
     
-    m_isClosing = true;
+    // The m_isClosing flag is already set by handlePlaybackStateChanged if this is an auto-close
+    // We don't need to set it here anymore
     
     // CRITICAL: Capture the current position BEFORE stopping the player
     qint64 finalPosition = 0;
@@ -650,6 +660,10 @@ void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
 void VP_Shows_Videoplayer::showEvent(QShowEvent *event)
 {
     qDebug() << "VP_Shows_Videoplayer: Window shown, setting focus";
+    
+    // Reset the closing flag when window is shown (for reuse scenarios)
+    m_isClosing = false;
+    qDebug() << "VP_Shows_Videoplayer: Reset closing flag on show";
     
     // Ensure the widget has focus when shown
     setFocus();
@@ -864,6 +878,22 @@ void VP_Shows_Videoplayer::handlePlaybackStateChanged(QMediaPlayer::PlaybackStat
         case QMediaPlayer::StoppedState:
             m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
             m_playButton->setToolTip(tr("Play"));
+            
+            // QUICK FIX: Close the player when playback stops to prevent crash
+            // This happens because the temp decrypted file gets deleted by async cleanup
+            // TODO: Implement proper fix to handle temp file lifecycle better
+            qDebug() << "VP_Shows_Videoplayer: Playback stopped, checking if should close. m_isClosing =" << m_isClosing;
+            
+            // Don't close if we're already closing (to prevent recursive close)
+            if (!m_isClosing) {
+                qDebug() << "VP_Shows_Videoplayer: Scheduling close via timer";
+                // Mark that we're scheduling a close to prevent multiple timers
+                m_isClosing = true;
+                // Use a timer to close the window to allow this event to complete
+                QTimer::singleShot(100, this, &QWidget::close);
+            } else {
+                qDebug() << "VP_Shows_Videoplayer: Already closing, skipping auto-close";
+            }
             
             // Note: Watch history completion checking is handled by Operations_VP_Shows_WatchHistory
             break;
