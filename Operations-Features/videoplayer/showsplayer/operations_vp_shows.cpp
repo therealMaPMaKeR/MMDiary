@@ -1084,17 +1084,33 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName)
     QString showFolderPath = m_showFolderMapping[showName];
     qDebug() << "Operations_VP_Shows: Show folder path:" << showFolderPath;
     
-    // Store current show folder for later use
-    m_currentShowFolder = showFolderPath;
-    
     // Initialize watch history for direct access (needed for context menu)
+    // Only recreate if it doesn't exist or if we're switching to a different show
+    bool needNewWatchHistory = false;
+    
     if (!m_watchHistory) {
+        needNewWatchHistory = true;
         qDebug() << "Operations_VP_Shows: Initializing watch history for show:" << showFolderPath;
+    } else if (m_currentShowFolder != showFolderPath) {
+        // Different show, need to recreate
+        needNewWatchHistory = true;
+        qDebug() << "Operations_VP_Shows: Re-initializing watch history for different show:" << showFolderPath;
+    } else {
+        // Same show, just reload the history to get latest data
+        qDebug() << "Operations_VP_Shows: Reloading watch history for current show:" << showFolderPath;
+        if (!m_watchHistory->loadHistory()) {
+            qDebug() << "Operations_VP_Shows: Failed to reload history, recreating";
+            needNewWatchHistory = true;
+        }
+    }
+    
+    if (needNewWatchHistory) {
+        m_watchHistory.reset();
         m_watchHistory = std::make_unique<VP_ShowsWatchHistory>(
             showFolderPath,
             m_mainWindow->user_Key,
             m_mainWindow->user_Username
-            );
+        );
 
         // Try to load existing history
         if (!m_watchHistory->loadHistory()) {
@@ -1103,22 +1119,10 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName)
         } else {
             qDebug() << "Operations_VP_Shows: Loaded existing watch history";
         }
-    } else {
-        // If m_watchHistory exists but for a different show, recreate it
-        qDebug() << "Operations_VP_Shows: Re-initializing watch history for new show:" << showFolderPath;
-        m_watchHistory.reset();
-        m_watchHistory = std::make_unique<VP_ShowsWatchHistory>(
-            showFolderPath,
-            m_mainWindow->user_Key,
-            m_mainWindow->user_Username
-            );
-
-        if (!m_watchHistory->loadHistory()) {
-            qDebug() << "Operations_VP_Shows: No existing history found, creating new";
-            m_watchHistory->saveHistory();
-        }
     }
-
+    
+    // Store current show folder for later use (after watch history initialization)
+    m_currentShowFolder = showFolderPath;
 
     // Update the show name label
     if (m_mainWindow->ui->label_VP_Shows_Display_Name) {
@@ -1531,9 +1535,8 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     if (m_playbackTracker) {
         m_playbackTracker.reset();
     }
-    if (m_watchHistory) {
-        m_watchHistory.reset();
-    }
+    // Don't reset m_watchHistory - it should persist for the context menu functionality
+    // m_watchHistory is initialized in displayShowDetails and should remain available
     
     // Initialize watch history integration for this show
     QString relativeEpisodePath;
@@ -1541,6 +1544,17 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     
     if (!m_currentShowFolder.isEmpty()) {
         qDebug() << "Operations_VP_Shows: Initializing watch history integration for show folder:" << m_currentShowFolder;
+        
+        // Ensure m_watchHistory is initialized if it's not already
+        if (!m_watchHistory) {
+            qDebug() << "Operations_VP_Shows: Creating watch history for playback";
+            m_watchHistory = std::make_unique<VP_ShowsWatchHistory>(
+                m_currentShowFolder,
+                m_mainWindow->user_Key,
+                m_mainWindow->user_Username
+            );
+            m_watchHistory->loadHistory();
+        }
         
         // Create the playback tracker
         m_playbackTracker = std::make_unique<VP_ShowsPlaybackTracker>(this);
@@ -1683,6 +1697,16 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 if (!m_currentShowFolder.isEmpty()) {
                     QTimer::singleShot(1500, this, [this]() {
                         qDebug() << "Operations_VP_Shows: Refreshing episode list after playback";
+                        
+                        // Reload watch history to get the updated watch states
+                        if (m_watchHistory) {
+                            qDebug() << "Operations_VP_Shows: Reloading watch history for updated states";
+                            if (!m_watchHistory->loadHistory()) {
+                                qDebug() << "Operations_VP_Shows: Failed to reload watch history";
+                            }
+                        }
+                        
+                        // Now refresh the episode list with updated watch states
                         loadShowEpisodes(m_currentShowFolder);
                     });
                 }
