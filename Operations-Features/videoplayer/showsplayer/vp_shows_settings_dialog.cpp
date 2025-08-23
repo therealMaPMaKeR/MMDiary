@@ -22,6 +22,8 @@
 #include <QFont>
 #include <QBrush>
 #include <QPalette>
+#include <QMouseEvent>
+#include <QCursor>
 
 VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QString& showPath, QWidget *parent)
     : QDialog(parent)
@@ -32,6 +34,7 @@ VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QS
     , m_searchTimer(nullptr)
     , m_tmdbApi(nullptr)
     , m_networkManager(nullptr)
+    , m_isShowingSuggestions(false)
 {
     ui->setupUi(this);
     
@@ -97,10 +100,10 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
             this, &VP_ShowsSettingsDialog::onImageDownloadFinished);
     
     // Create suggestions list widget (initially hidden)
-    // Try Qt::Tool instead of Qt::Popup
-    m_suggestionsList = new QListWidget(nullptr);  // No parent
-    m_suggestionsList->setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
-    m_suggestionsList->setAttribute(Qt::WA_ShowWithoutActivating);
+    // Don't use Qt::Popup as it auto-hides on focus loss
+    m_suggestionsList = new QListWidget();
+    m_suggestionsList->setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+    m_suggestionsList->setAttribute(Qt::WA_ShowWithoutActivating, true);
     m_suggestionsList->setFocusPolicy(Qt::NoFocus);
     m_suggestionsList->setMouseTracking(true);
     
@@ -148,11 +151,9 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
     connect(m_suggestionsList, &QListWidget::itemEntered,
             this, &VP_ShowsSettingsDialog::onSuggestionItemHovered);
     
-    // Install event filter on line edit to handle focus events
-    ui->lineEdit_ShowName->installEventFilter(this);
-    
-    // Install event filter on the dialog to hide suggestions when clicking elsewhere
-    this->installEventFilter(this);
+    // Don't install any event filters for now - they might be causing issues
+    // ui->lineEdit_ShowName->installEventFilter(this);
+    // this->installEventFilter(this);
     
     qDebug() << "VP_ShowsSettingsDialog: Autofill UI setup complete";
 }
@@ -179,8 +180,10 @@ void VP_ShowsSettingsDialog::onShowNameTextChanged(const QString& text)
     // Clear current suggestions if text is too short
     if (text.trimmed().length() < 2) {
         qDebug() << "VP_ShowsSettingsDialog: Text too short (< 2 chars), clearing suggestions";
-        clearSuggestions();
-        hideSuggestions();
+        if (m_isShowingSuggestions) {
+            clearSuggestions();
+            hideSuggestions();
+        }
         return;
     }
     
@@ -309,9 +312,12 @@ void VP_ShowsSettingsDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowIn
     qDebug() << "VP_ShowsSettingsDialog: Showing suggestions list";
     qDebug() << "VP_ShowsSettingsDialog: List widget visible before show():" << m_suggestionsList->isVisible();
     
+    // Set flag to indicate we're showing suggestions
+    m_isShowingSuggestions = true;
+    
+    // Show the list immediately
     m_suggestionsList->show();
     m_suggestionsList->raise();
-    m_suggestionsList->activateWindow();
     
     qDebug() << "VP_ShowsSettingsDialog: After show - visible:" << m_suggestionsList->isVisible();
     qDebug() << "VP_ShowsSettingsDialog: Item 0 text:" << (m_suggestionsList->count() > 0 ? m_suggestionsList->item(0)->text() : "No items");
@@ -328,7 +334,13 @@ void VP_ShowsSettingsDialog::clearSuggestions()
 
 void VP_ShowsSettingsDialog::hideSuggestions()
 {
+    qDebug() << "VP_ShowsSettingsDialog: hideSuggestions() called";
+    
+    // Clear the flag
+    m_isShowingSuggestions = false;
+    
     if (m_suggestionsList) {
+        qDebug() << "VP_ShowsSettingsDialog: Hiding suggestions list";
         m_suggestionsList->hide();
     }
     
@@ -494,25 +506,30 @@ void VP_ShowsSettingsDialog::onImageDownloadFinished(QNetworkReply* reply)
 
 bool VP_ShowsSettingsDialog::eventFilter(QObject* obj, QEvent* event)
 {
-    // Handle focus out event for line edit
+    // Don't handle FocusOut for now - it's causing the list to disappear
+    // We'll rely on other mechanisms to hide the list
+    /*
     if (obj == ui->lineEdit_ShowName && event->type() == QEvent::FocusOut) {
-        // Hide suggestions when line edit loses focus
-        // But not if the focus went to the suggestions list
-        if (!m_suggestionsList || !m_suggestionsList->hasFocus()) {
-            QTimer::singleShot(200, this, &VP_ShowsSettingsDialog::hideSuggestions);
-        }
+        // Commented out to prevent premature hiding
         return false;
     }
+    */
     
     // Handle mouse press events on the dialog
     if (obj == this && event->type() == QEvent::MouseButtonPress) {
-        // Hide suggestions when clicking elsewhere in the dialog
+        // Only hide suggestions if clicking outside both the line edit and suggestions list
         if (m_suggestionsList && m_suggestionsList->isVisible()) {
-            QPoint globalPos = QCursor::pos();
-            QRect suggestionsRect = m_suggestionsList->geometry();
-            suggestionsRect.moveTopLeft(m_suggestionsList->mapToGlobal(QPoint(0, 0)));
+            QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+            QPoint globalPos = mouseEvent->globalPos();
             
-            if (!suggestionsRect.contains(globalPos)) {
+            // Check if click is outside suggestions list
+            QRect suggestionsRect = m_suggestionsList->geometry();
+            
+            // Check if click is outside line edit
+            QPoint lineEditTopLeft = ui->lineEdit_ShowName->mapToGlobal(QPoint(0, 0));
+            QRect lineEditRect(lineEditTopLeft, ui->lineEdit_ShowName->size());
+            
+            if (!suggestionsRect.contains(globalPos) && !lineEditRect.contains(globalPos)) {
                 hideSuggestions();
             }
         }

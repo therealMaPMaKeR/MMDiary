@@ -69,6 +69,9 @@ private:
     QMap<QString, QPixmap> m_posterCache;
     QString m_currentDownloadingPoster;
     
+    // State tracking
+    bool m_isShowingSuggestions;
+    
     // Constants
     static constexpr int SEARCH_DELAY_MS = 500;  // Debounce delay for search
     static constexpr int MAX_SUGGESTIONS = 8;    // Maximum number of suggestions to show
