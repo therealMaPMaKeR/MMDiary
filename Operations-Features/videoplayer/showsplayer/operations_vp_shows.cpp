@@ -4,6 +4,7 @@
 #include "VP_Shows_Videoplayer.h"
 #include "vp_shows_progressdialogs.h"
 #include "vp_shows_metadata.h"
+#include "vp_shows_tmdbsetup.h"
 #include "vp_shows_settings_dialog.h"
 #include "vp_shows_add_dialog.h"
 #include "vp_shows_tmdb.h"
@@ -113,6 +114,13 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
         
         // Setup context menu for the episode tree widget
         setupEpisodeContextMenu();
+    }
+    
+    // Connect Settings button on display page
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->pushButton_VP_Shows_Display_Settings) {
+        connect(m_mainWindow->ui->pushButton_VP_Shows_Display_Settings, &QPushButton::clicked,
+                this, &Operations_VP_Shows::openShowSettings);
+        qDebug() << "Operations_VP_Shows: Connected show settings button";
     }
     
     // Connect checkbox state changes for show settings
@@ -909,19 +917,55 @@ void Operations_VP_Shows::refreshTVShowsList()
 
 void Operations_VP_Shows::openSettings()
 {
-    qDebug() << "Operations_VP_Shows: Opening TV shows settings dialog";
+    qDebug() << "Operations_VP_Shows: Opening TMDB setup dialog";
     
-    VP_ShowsSettingsDialog settingsDialog(m_mainWindow);
+    VP_Shows_TMDBSetup tmdbSetupDialog(m_mainWindow);
     
     // Show the dialog modally
-    if (settingsDialog.exec() == QDialog::Accepted) {
-        qDebug() << "Operations_VP_Shows: Settings saved";
+    if (tmdbSetupDialog.exec() == QDialog::Accepted) {
+        qDebug() << "Operations_VP_Shows: TMDB settings saved";
         
         // Optionally refresh the shows list in case TMDB settings changed
         // This would be relevant if we display TMDB-sourced data in the list
         // For now, we just log that settings were saved
     } else {
-        qDebug() << "Operations_VP_Shows: Settings dialog cancelled";
+        qDebug() << "Operations_VP_Shows: TMDB setup dialog cancelled";
+    }
+}
+
+void Operations_VP_Shows::openShowSettings()
+{
+    qDebug() << "Operations_VP_Shows: Opening show-specific settings dialog";
+    
+    // Check if we have a current show
+    if (m_currentShowFolder.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No show currently selected";
+        QMessageBox::information(m_mainWindow, "No Show Selected", 
+                                "Please select a show before opening settings.");
+        return;
+    }
+    
+    // Get the show name from the folder
+    QDir showDir(m_currentShowFolder);
+    QString showName = showDir.dirName();
+    
+    // Decrypt the show name if it's obfuscated
+    QString decryptedShowName = CryptoUtils::Encryption_Decrypt(m_mainWindow->user_Key, showName);
+    if (decryptedShowName.isEmpty() || decryptedShowName == showName) {
+        // If decryption failed or returned the same string, it might not be encrypted
+        decryptedShowName = showName;
+    }
+    
+    VP_ShowsSettingsDialog settingsDialog(decryptedShowName, m_currentShowFolder, m_mainWindow);
+    
+    // Show the dialog modally
+    if (settingsDialog.exec() == QDialog::Accepted) {
+        qDebug() << "Operations_VP_Shows: Show settings saved";
+        
+        // Reload show settings to apply any changes
+        loadShowSettings(m_currentShowFolder);
+    } else {
+        qDebug() << "Operations_VP_Shows: Show settings dialog cancelled";
     }
 }
 

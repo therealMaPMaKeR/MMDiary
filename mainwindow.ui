@@ -2161,9 +2161,9 @@ li.checked::marker { content: &quot;\2612&quot;; }
                     </widget>
                    </item>
                    <item>
-                    <widget class="QPushButton" name="pushButton_VP_Shows_Display_ResetHistory">
+                    <widget class="QPushButton" name="pushButton_VP_Shows_Display_Settings">
                      <property name="text">
-                      <string>Reset watch history</string>
+                      <string>Settings</string>
                      </property>
                     </widget>
                    </item>

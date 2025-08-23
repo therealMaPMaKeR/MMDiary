@@ -89,6 +89,7 @@ SOURCES += \
     Operations-Features/videoplayer/showsplayer/vp_shows_encryptionworkers.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_progressdialogs.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_tmdb.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_tmdbsetup.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_config.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.cpp \
@@ -138,6 +139,7 @@ HEADERS += \
     Operations-Features/videoplayer/showsplayer/vp_shows_encryptionworkers.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_progressdialogs.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_tmdb.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_tmdbsetup.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_config.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.h \
@@ -169,6 +171,7 @@ FORMS += \
     HiddenItemsList.ui \
     Operations-Features/passwordmanager/passwordmanager_addpassword.ui \
     Operations-Features/videoplayer/showsplayer/vp_shows_add_dialog.ui \
+    Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.ui \
     Operations-Features/tasklists/tasklists_addtask.ui \
     Operations-Global/imageviewer.ui \
     Operations-Global/passwordvalidation.ui \

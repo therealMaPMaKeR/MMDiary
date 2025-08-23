@@ -2,33 +2,26 @@
 #define VP_SHOWS_SETTINGS_DIALOG_H
 
 #include <QDialog>
-#include <QLineEdit>
-#include <QCheckBox>
-#include <QPushButton>
+
+namespace Ui {
+class VP_ShowsSettingsDialog;
+}
 
 class VP_ShowsSettingsDialog : public QDialog
 {
     Q_OBJECT
 
 public:
-    explicit VP_ShowsSettingsDialog(QWidget *parent = nullptr);
+    explicit VP_ShowsSettingsDialog(const QString& showName, const QString& showPath, QWidget *parent = nullptr);
     ~VP_ShowsSettingsDialog();
 
 private slots:
-    void onSaveClicked();
-    void onTestConnectionClicked();
-    void onTMDBEnabledToggled(bool checked);
+    // Add your slot functions here as needed
 
 private:
-    void setupUi();
-    void loadSettings();
-    
-    // UI elements
-    QCheckBox* m_enableTMDBCheckBox;
-    QLineEdit* m_apiKeyEdit;
-    QPushButton* m_testButton;
-    QPushButton* m_saveButton;
-    QPushButton* m_cancelButton;
+    Ui::VP_ShowsSettingsDialog *ui;
+    QString m_showName;
+    QString m_showPath;
 };
 
 #endif // VP_SHOWS_SETTINGS_DIALOG_H

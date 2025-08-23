@@ -102,8 +102,11 @@ public:
     // Refresh the TV shows list (public version that can be called from outside)
     void refreshTVShowsList();
     
-    // Open TV shows settings dialog
+    // Open TMDB setup dialog
     void openSettings();
+    
+    // Open show-specific settings dialog
+    void openShowSettings();
     
     // Save show description to encrypted file
     bool saveShowDescription(const QString& showFolderPath, const QString& description);
