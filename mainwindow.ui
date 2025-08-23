@@ -2023,7 +2023,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                </font>
               </property>
               <property name="currentIndex">
-               <number>0</number>
+               <number>1</number>
               </property>
               <widget class="QWidget" name="page_List">
                <layout class="QVBoxLayout" name="verticalLayout_25">
