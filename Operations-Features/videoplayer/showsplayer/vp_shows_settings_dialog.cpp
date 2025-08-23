@@ -24,6 +24,7 @@
 #include <QPalette>
 #include <QMouseEvent>
 #include <QCursor>
+#include <QColor>
 
 VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QString& showPath, QWidget *parent)
     : QDialog(parent)
@@ -35,6 +36,7 @@ VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QS
     , m_tmdbApi(nullptr)
     , m_networkManager(nullptr)
     , m_isShowingSuggestions(false)
+    , m_hoveredItemIndex(-1)
 {
     ui->setupUi(this);
     
@@ -105,7 +107,7 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
     m_suggestionsList->setWindowFlags(Qt::FramelessWindowHint);  // Simple frameless widget
     m_suggestionsList->setFocusPolicy(Qt::NoFocus);  // No focus to prevent auto-selection
     m_suggestionsList->setMouseTracking(true);
-    m_suggestionsList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_suggestionsList->setSelectionMode(QAbstractItemView::NoSelection);  // No selection - we'll handle hover manually
     m_suggestionsList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_suggestionsList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     
@@ -117,6 +119,7 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
     m_suggestionsList->raise();
     
     // Force text to be visible with explicit styling
+    // Note: We handle hover manually, so we only use the default item style
     m_suggestionsList->setStyleSheet(
         "QListWidget { "
         "    background-color: white; "
@@ -128,13 +131,7 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
         "    color: black; "
         "    background-color: white; "
         "    padding: 5px; "
-        "} "
-        "QListWidget::item:hover { "
-        "    background-color: lightblue; "
-        "} "
-        "QListWidget::item:selected { "
-        "    background-color: blue; "
-        "    color: white; "
+        "    border: none; "
         "} "
     );
     m_suggestionsList->hide();
@@ -331,9 +328,8 @@ void VP_ShowsSettingsDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowIn
     m_suggestionsList->show();
     m_suggestionsList->raise();  // Ensure it's on top of other widgets
     
-    // Clear any selection to prevent auto-selecting first item
-    m_suggestionsList->clearSelection();
-    m_suggestionsList->setCurrentItem(nullptr);
+    // Reset hover index when showing new suggestions
+    m_hoveredItemIndex = -1;
     
     // Force a repaint to ensure visibility
     m_suggestionsList->update();
@@ -362,10 +358,19 @@ void VP_ShowsSettingsDialog::hideSuggestions()
 {
     qDebug() << "VP_ShowsSettingsDialog: hideSuggestions() called";
     
-    // Clear the flag
+    // Clear the flag and hover index
     m_isShowingSuggestions = false;
+    m_hoveredItemIndex = -1;
     
     if (m_suggestionsList) {
+        // Clear any hover styling before hiding
+        for (int i = 0; i < m_suggestionsList->count(); ++i) {
+            QListWidgetItem* item = m_suggestionsList->item(i);
+            if (item) {
+                item->setBackground(Qt::white);
+                item->setForeground(Qt::black);
+            }
+        }
         qDebug() << "VP_ShowsSettingsDialog: Hiding suggestions list";
         m_suggestionsList->hide();
     }
@@ -421,9 +426,15 @@ void VP_ShowsSettingsDialog::positionSuggestionsList()
 
 void VP_ShowsSettingsDialog::onSuggestionItemHovered()
 {
-    QListWidgetItem* item = m_suggestionsList->currentItem();
+    // Use the tracked hover index instead of currentItem
+    if (m_hoveredItemIndex < 0 || m_hoveredItemIndex >= m_suggestionsList->count()) {
+        qDebug() << "VP_ShowsSettingsDialog: No valid hover index";
+        return;
+    }
+    
+    QListWidgetItem* item = m_suggestionsList->item(m_hoveredItemIndex);
     if (!item) {
-        qDebug() << "VP_ShowsSettingsDialog: No item to hover";
+        qDebug() << "VP_ShowsSettingsDialog: No item at hover index" << m_hoveredItemIndex;
         return;
     }
     
@@ -572,31 +583,41 @@ bool VP_ShowsSettingsDialog::eventFilter(QObject* obj, QEvent* event)
             qDebug() << "VP_ShowsSettingsDialog: Suggestions list event:" << event->type();
         }
         
-        // Debug mouse move events periodically
-        static int moveCounter = 0;
+        // Handle mouse move for hover tracking
         if (event->type() == QEvent::MouseMove) {
             QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
             QPoint pos = mouseEvent->pos();
             
-            // Debug every 10th move event to avoid spam
-            if (++moveCounter % 10 == 0) {
-                qDebug() << "VP_ShowsSettingsDialog: Mouse move at pos:" << pos;
-            }
-            
+            // Find which item is under the mouse
             QListWidgetItem* item = m_suggestionsList->itemAt(pos);
+            int newHoverIndex = item ? m_suggestionsList->row(item) : -1;
             
-            if (item) {
-                // Only update if hovering over a different item
-                if (item != m_suggestionsList->currentItem()) {
-                    qDebug() << "VP_ShowsSettingsDialog: Mouse hovering over:" << item->text();
-                    m_suggestionsList->setCurrentItem(item);
-                    // Directly call hover handler
-                    onSuggestionItemHovered();
+            // Only update if hovering over a different item
+            if (newHoverIndex != m_hoveredItemIndex) {
+                // Clear previous hover state
+                if (m_hoveredItemIndex >= 0 && m_hoveredItemIndex < m_suggestionsList->count()) {
+                    QListWidgetItem* prevItem = m_suggestionsList->item(m_hoveredItemIndex);
+                    if (prevItem) {
+                        // Reset to normal style
+                        prevItem->setBackground(Qt::white);
+                        prevItem->setForeground(Qt::black);
+                    }
                 }
-            } else {
-                // Debug when not over an item
-                if (moveCounter % 10 == 0) {
-                    qDebug() << "VP_ShowsSettingsDialog: Mouse not over any item at pos:" << pos;
+                
+                // Set new hover state
+                m_hoveredItemIndex = newHoverIndex;
+                if (m_hoveredItemIndex >= 0) {
+                    QListWidgetItem* currentItem = m_suggestionsList->item(m_hoveredItemIndex);
+                    if (currentItem) {
+                        qDebug() << "VP_ShowsSettingsDialog: Mouse hovering over item" << m_hoveredItemIndex << ":" << currentItem->text();
+                        // Apply hover style
+                        currentItem->setBackground(QColor("lightblue"));
+                        currentItem->setForeground(Qt::black);
+                        // Call hover handler
+                        onSuggestionItemHovered();
+                    }
+                } else {
+                    qDebug() << "VP_ShowsSettingsDialog: Mouse not over any item";
                 }
             }
             return false;
@@ -604,25 +625,31 @@ bool VP_ShowsSettingsDialog::eventFilter(QObject* obj, QEvent* event)
         else if (event->type() == QEvent::MouseButtonPress) {
             QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
             if (mouseEvent->button() == Qt::LeftButton) {
-                QPoint pos = mouseEvent->pos();
-                QListWidgetItem* item = m_suggestionsList->itemAt(pos);
-                
-                if (item) {
-                    qDebug() << "VP_ShowsSettingsDialog: Mouse press on item:" << item->text();
-                    // Set current item and trigger click handler
-                    m_suggestionsList->setCurrentItem(item);
-                    // Manually call the click handler since Qt::Popup might interfere
-                    onSuggestionItemClicked(item);
-                    return true;  // Consume the event
+                // Use the currently hovered item
+                if (m_hoveredItemIndex >= 0 && m_hoveredItemIndex < m_suggestionsList->count()) {
+                    QListWidgetItem* item = m_suggestionsList->item(m_hoveredItemIndex);
+                    if (item) {
+                        qDebug() << "VP_ShowsSettingsDialog: Mouse press on item" << m_hoveredItemIndex << ":" << item->text();
+                        // Manually call the click handler
+                        onSuggestionItemClicked(item);
+                        return true;  // Consume the event
+                    }
                 }
             }
             return false;
         }
         else if (event->type() == QEvent::Leave) {
-            // Clear selection when mouse leaves
+            // Clear hover state when mouse leaves
             qDebug() << "VP_ShowsSettingsDialog: Mouse left suggestions list";
-            m_suggestionsList->clearSelection();
-            m_suggestionsList->setCurrentItem(nullptr);
+            if (m_hoveredItemIndex >= 0 && m_hoveredItemIndex < m_suggestionsList->count()) {
+                QListWidgetItem* item = m_suggestionsList->item(m_hoveredItemIndex);
+                if (item) {
+                    // Reset to normal style
+                    item->setBackground(Qt::white);
+                    item->setForeground(Qt::black);
+                }
+            }
+            m_hoveredItemIndex = -1;
         }
     }
     

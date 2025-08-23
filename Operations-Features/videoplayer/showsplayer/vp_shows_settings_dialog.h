@@ -71,6 +71,7 @@ private:
     
     // State tracking
     bool m_isShowingSuggestions;
+    int m_hoveredItemIndex;  // Track hovered item index separately from selection
     
     // Constants
     static constexpr int SEARCH_DELAY_MS = 500;  // Debounce delay for search
