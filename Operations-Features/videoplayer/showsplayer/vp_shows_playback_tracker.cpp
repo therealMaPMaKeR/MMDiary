@@ -12,6 +12,7 @@ VP_ShowsPlaybackTracker::VP_ShowsPlaybackTracker(Operations_VP_Shows* parent)
     , m_currentPlayer(nullptr)
     , m_isTracking(false)
     , m_lastSavedPosition(0)
+    , m_lastNearCompletionEpisode()
 {
     qDebug() << "VP_ShowsPlaybackTracker: Initializing playback tracker";
     
@@ -129,6 +130,10 @@ void VP_ShowsPlaybackTracker::startTracking(const QString& episodePath, VP_Shows
     m_currentEpisodePath = episodePath;
     m_currentPlayer = player;
     m_isTracking = true;
+    
+    // Reset the near completion tracking for the new episode
+    m_lastNearCompletionEpisode.clear();
+    qDebug() << "VP_ShowsPlaybackTracker: Reset near-completion tracking for new episode";
     
     // Connect to player signals
     connectPlayerSignals(player);
@@ -250,6 +255,7 @@ void VP_ShowsPlaybackTracker::stopTracking(qint64 finalPosition)
     m_currentPlayer = nullptr;
     m_currentEpisodePath.clear();
     m_lastSavedPosition = 0;
+    m_lastNearCompletionEpisode.clear();
     
     // Emit tracking stopped signal
     qint64 emittedPosition = finalPosition >= 0 ? finalPosition : m_lastSavedPosition;
@@ -502,16 +508,20 @@ void VP_ShowsPlaybackTracker::updateProgress()
         
         // Check if near end (within 2 minutes)
         if (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && remaining > 0) {
-            // Only emit once per episode - use a simple flag approach
-            static QString lastNearCompletionEpisode;
-            
-            if (lastNearCompletionEpisode != m_currentEpisodePath) {
+            // Only emit once per episode
+            if (m_lastNearCompletionEpisode != m_currentEpisodePath) {
                 qDebug() << "VP_ShowsPlaybackTracker: *** EPISODE NEAR COMPLETION DETECTED ***";
                 qDebug() << "VP_ShowsPlaybackTracker: Remaining time:" << remaining << "ms (" << (remaining/1000) << "seconds)";
                 qDebug() << "VP_ShowsPlaybackTracker: Emitting episodeNearCompletion signal for:" << m_currentEpisodePath;
                 emit episodeNearCompletion(m_currentEpisodePath);
-                lastNearCompletionEpisode = m_currentEpisodePath;
+                m_lastNearCompletionEpisode = m_currentEpisodePath;
             }
+        } else if (remaining > VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && 
+                   m_lastNearCompletionEpisode == m_currentEpisodePath) {
+            // If we moved back out of the near-completion zone (e.g., user seeked backward)
+            // Reset the flag so we can emit again if they come back
+            qDebug() << "VP_ShowsPlaybackTracker: Moved out of near-completion zone, resetting flag";
+            m_lastNearCompletionEpisode.clear();
         }
     }
     
@@ -566,7 +576,39 @@ void VP_ShowsPlaybackTracker::connectPlayerSignals(VP_Shows_Videoplayer* player)
     QMetaObject::Connection posConnection = connect(player, &VP_Shows_Videoplayer::positionChanged,
             this, [this](qint64 position) {
                 if (m_isTracking && position > 0) {
-                    // Track the latest position but don't save every time
+                    // Detect large position jumps (seeks)
+                    qint64 positionJump = qAbs(position - m_lastSavedPosition);
+                    
+                    // If position jumped more than 5 seconds, it's likely a seek
+                    // This catches manual skips, keyboard arrow seeks, and slider drags
+                    if (positionJump > 5000) {
+                        // Check if we seeked to near the end
+                        if (m_currentPlayer) {
+                            qint64 duration = m_currentPlayer->duration();
+                            if (duration > 0) {
+                                qint64 remaining = duration - position;
+                                
+                                // If we seeked to within 2 minutes of the end
+                                if (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && remaining > 0) {
+                                    if (m_lastNearCompletionEpisode != m_currentEpisodePath) {
+                                        qDebug() << "VP_ShowsPlaybackTracker: *** SEEK DETECTED TO NEAR END ***";
+                                        qDebug() << "VP_ShowsPlaybackTracker: Position jumped" << (positionJump/1000) << "seconds";
+                                        qDebug() << "VP_ShowsPlaybackTracker: Remaining time after seek:" << remaining << "ms (" << (remaining/1000) << "seconds)";
+                                        qDebug() << "VP_ShowsPlaybackTracker: Emitting episodeNearCompletion signal";
+                                        emit episodeNearCompletion(m_currentEpisodePath);
+                                        m_lastNearCompletionEpisode = m_currentEpisodePath;
+                                    }
+                                } else if (remaining > VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && 
+                                          m_lastNearCompletionEpisode == m_currentEpisodePath) {
+                                    // If we seeked back out of the near-completion zone
+                                    qDebug() << "VP_ShowsPlaybackTracker: Seeked out of near-completion zone, resetting flag";
+                                    m_lastNearCompletionEpisode.clear();
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Track the latest position
                     m_lastSavedPosition = position;
                 }
             });

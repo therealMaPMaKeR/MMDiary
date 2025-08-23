@@ -252,6 +252,9 @@ private:
     // Helper methods
     void connectPlayerSignals(VP_Shows_Videoplayer* player);
     void disconnectPlayerSignals();
+    
+    // Track if we've already emitted near completion for current episode
+    QString m_lastNearCompletionEpisode;
 };
 
 #endif // VP_SHOWS_PLAYBACK_TRACKER_H
