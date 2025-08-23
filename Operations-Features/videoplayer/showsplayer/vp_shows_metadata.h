@@ -18,16 +18,17 @@ public:
         QByteArray EPImage;     // Episode thumbnail (128x128) from TMDB
         QString language;       // Language of the episode (e.g., "English")
         QString translation;    // Translation mode ("Dubbed" or "Subbed")
+        QString airDate;        // Episode air date from TMDB (format: YYYY-MM-DD)
         QDateTime encryptionDateTime; // When the file was encrypted
         
         // Default constructor
-        ShowMetadata() : language("English"), translation("Dubbed") {}
+        ShowMetadata() : language("English"), translation("Dubbed"), airDate(QString()) {}
         
         // Constructor with basic fields
         ShowMetadata(const QString& fname, const QString& show, 
                     const QString& seas = QString(), const QString& ep = QString())
             : filename(fname), showName(show), season(seas), episode(ep),
-              language("English"), translation("Dubbed")
+              language("English"), translation("Dubbed"), airDate(QString())
         {
             encryptionDateTime = QDateTime::currentDateTime();
         }
@@ -36,9 +37,11 @@ public:
         ShowMetadata(const QString& fname, const QString& show, 
                     const QString& seas, const QString& ep,
                     const QString& epName, const QByteArray& epImage,
-                    const QString& lang = "English", const QString& trans = "Dubbed")
+                    const QString& lang = "English", const QString& trans = "Dubbed",
+                    const QString& aDate = QString())
             : filename(fname), showName(show), season(seas), episode(ep),
-              EPName(epName), EPImage(epImage), language(lang), translation(trans)
+              EPName(epName), EPImage(epImage), language(lang), translation(trans),
+              airDate(aDate)
         {
             encryptionDateTime = QDateTime::currentDateTime();
         }

@@ -62,6 +62,7 @@ public:
         int season;
         int episode;
         QString episodeName;
+        QString airDate;     // Episode air date (YYYY-MM-DD format)
         
         EpisodeMapping() : absoluteNumber(0), season(0), episode(0) {}
         EpisodeMapping(int abs, int s, int e, const QString& name = QString())

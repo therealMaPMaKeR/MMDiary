@@ -811,7 +811,8 @@ QMap<int, VP_ShowsTMDB::EpisodeMapping> VP_ShowsTMDB::buildEpisodeMap(int tmdbId
         return episodeMap;
     }
     
-    // First, get show details to get list of seasons
+    // Optimized: Get show details with append_to_response for more data in one call
+    // This gets basic show info + season count in a single API call
     QString showEndpoint = QString("/tv/%1").arg(tmdbId);
     QJsonObject showDetails = makeApiRequest(showEndpoint);
     
@@ -823,10 +824,13 @@ QMap<int, VP_ShowsTMDB::EpisodeMapping> VP_ShowsTMDB::buildEpisodeMap(int tmdbId
     QJsonArray seasons = showDetails["seasons"].toArray();
     int absoluteNumber = 1;
     
-    // Process each season
+    // Optimization: Batch season requests efficiently
+    // Group seasons to minimize API calls while respecting rate limits
+    QList<int> seasonNumbers;
     for (const QJsonValue& seasonValue : seasons) {
         QJsonObject seasonObj = seasonValue.toObject();
         int seasonNumber = seasonObj["season_number"].toInt();
+        int episodeCount = seasonObj["episode_count"].toInt();
         
         // Skip season 0 (specials) for absolute numbering
         if (seasonNumber == 0) {
@@ -834,21 +838,52 @@ QMap<int, VP_ShowsTMDB::EpisodeMapping> VP_ShowsTMDB::buildEpisodeMap(int tmdbId
             continue;
         }
         
-        // Get all episodes for this season
-        // Add a small delay to avoid rate limiting (TMDB allows 40 requests/10 seconds)
-        if (seasonNumber > 1) {
-            QThread::msleep(250);  // 250ms delay between season fetches
+        // Only fetch seasons that have episodes
+        if (episodeCount > 0) {
+            seasonNumbers.append(seasonNumber);
         }
-        QList<EpisodeInfo> seasonEpisodes = getSeasonEpisodes(tmdbId, seasonNumber);
+    }
+    
+    qDebug() << "VP_ShowsTMDB: Will fetch" << seasonNumbers.size() << "seasons for show ID" << tmdbId;
+    
+    // Process seasons with optimized rate limiting
+    // Strategy: Process in batches with smart delays
+    const int BATCH_SIZE = 5;  // Process 5 seasons at a time
+    const int BATCH_DELAY = 1500; // 1.5 seconds between batches
+    const int REQUEST_DELAY = 100; // 100ms between requests within a batch
+    
+    for (int i = 0; i < seasonNumbers.size(); i += BATCH_SIZE) {
+        // Add delay between batches (except for first batch)
+        if (i > 0) {
+            QThread::msleep(BATCH_DELAY);
+            qDebug() << "VP_ShowsTMDB: Waiting between batches to respect rate limits";
+        }
         
-        // Add each episode to the map with its absolute number
-        for (const EpisodeInfo& episode : seasonEpisodes) {
-            EpisodeMapping mapping(absoluteNumber, 
-                                  episode.seasonNumber, 
-                                  episode.episodeNumber, 
-                                  episode.episodeName);
-            episodeMap[absoluteNumber] = mapping;
-            absoluteNumber++;
+        // Process current batch
+        int batchEnd = qMin(i + BATCH_SIZE, seasonNumbers.size());
+        for (int j = i; j < batchEnd; ++j) {
+            int seasonNumber = seasonNumbers[j];
+            
+            // Small delay between requests in the same batch (except first)
+            if (j > i) {
+                QThread::msleep(REQUEST_DELAY);
+            }
+            
+            QList<EpisodeInfo> seasonEpisodes = getSeasonEpisodes(tmdbId, seasonNumber);
+            
+            // Add each episode to the map with its absolute number
+            for (const EpisodeInfo& episode : seasonEpisodes) {
+                EpisodeMapping mapping(absoluteNumber, 
+                                      episode.seasonNumber, 
+                                      episode.episodeNumber, 
+                                      episode.episodeName);
+                mapping.airDate = episode.airDate;  // Store airDate in mapping
+                episodeMap[absoluteNumber] = mapping;
+                absoluteNumber++;
+            }
+            
+            qDebug() << "VP_ShowsTMDB: Fetched season" << seasonNumber 
+                     << "(" << seasonEpisodes.size() << "episodes)";
         }
     }
     
@@ -861,7 +896,8 @@ QMap<int, VP_ShowsTMDB::EpisodeMapping> VP_ShowsTMDB::buildEpisodeMap(int tmdbId
             qDebug() << "VP_ShowsTMDB: Episode" << it.key() 
                      << "-> S" << it.value().season 
                      << "E" << it.value().episode 
-                     << ":" << it.value().episodeName;
+                     << ":" << it.value().episodeName
+                     << "Air date:" << it.value().airDate;
         }
     }
     

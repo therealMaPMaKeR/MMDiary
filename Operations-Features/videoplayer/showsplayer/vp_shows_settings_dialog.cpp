@@ -860,8 +860,16 @@ void VP_ShowsSettingsDialog::loadShowSettings()
     QByteArray encryptionKey = mainWindow->user_Key;
     QString username = mainWindow->user_Username;
     
-    if (encryptionKey.isEmpty() || username.isEmpty()) {
-        qDebug() << "VP_ShowsSettingsDialog: Encryption key or username is empty";
+    // Validate encryption key (must be exactly 32 bytes for AES-256)
+    if (encryptionKey.isEmpty() || encryptionKey.size() != 32) {
+        qDebug() << "VP_ShowsSettingsDialog: Invalid encryption key size:" << encryptionKey.size();
+        QMessageBox::critical(this, tr("Authentication Error"), 
+                            tr("Invalid encryption key. Please log out and log in again."));
+        return;
+    }
+    
+    if (username.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Username is empty";
         return;
     }
     
@@ -909,8 +917,16 @@ void VP_ShowsSettingsDialog::saveShowSettings()
     QByteArray encryptionKey = mainWindow->user_Key;
     QString username = mainWindow->user_Username;
     
-    if (encryptionKey.isEmpty() || username.isEmpty()) {
-        qDebug() << "VP_ShowsSettingsDialog: Encryption key or username is empty";
+    // Validate encryption key (must be exactly 32 bytes for AES-256)
+    if (encryptionKey.isEmpty() || encryptionKey.size() != 32) {
+        qDebug() << "VP_ShowsSettingsDialog: Invalid encryption key size:" << encryptionKey.size();
+        QMessageBox::critical(this, tr("Authentication Error"), 
+                            tr("Invalid encryption key. Please log out and log in again."));
+        return;
+    }
+    
+    if (username.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Username is empty";
         return;
     }
     
@@ -1341,8 +1357,14 @@ QString VP_ShowsSettingsDialog::loadActualShowName()
     QByteArray encryptionKey = mainWindow->user_Key;
     QString username = mainWindow->user_Username;
     
-    if (encryptionKey.isEmpty() || username.isEmpty()) {
-        qDebug() << "VP_ShowsSettingsDialog: Encryption key or username is empty";
+    // Validate encryption key (must be exactly 32 bytes for AES-256)
+    if (encryptionKey.isEmpty() || encryptionKey.size() != 32) {
+        qDebug() << "VP_ShowsSettingsDialog: Invalid encryption key size:" << encryptionKey.size();
+        return QString();
+    }
+    
+    if (username.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Username is empty";
         return QString();
     }
     

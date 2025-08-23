@@ -493,10 +493,14 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                     qDebug() << "VP_ShowsEncryptionWorker: Using episode map - absolute episode" << episode 
                              << "-> S" << tmdbSeason << "E" << tmdbEpisode;
                     
-                    // We can even use the episode name from the map if available
+                    // Use episode name and airDate from the map if available
                     if (!mapping.episodeName.isEmpty() && metadata.EPName.isEmpty()) {
                         metadata.EPName = mapping.episodeName;
                         qDebug() << "VP_ShowsEncryptionWorker: Got episode name from map:" << metadata.EPName;
+                    }
+                    if (!mapping.airDate.isEmpty() && metadata.airDate.isEmpty()) {
+                        metadata.airDate = mapping.airDate;
+                        qDebug() << "VP_ShowsEncryptionWorker: Got air date from map:" << metadata.airDate;
                     }
                 } else {
                     // No mapping found - use a fallback calculation
@@ -513,11 +517,13 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 }
             }
             
-            // Only fetch episode info if we don't already have the name from the map
-            bool needToFetchEpisodeInfo = metadata.EPName.isEmpty();
+            // Only fetch episode info if we're missing critical data
+            // If we already have both name and airDate from the map, skip the API call
+            bool needToFetchEpisodeInfo = metadata.EPName.isEmpty() || metadata.airDate.isEmpty();
             
             if (needToFetchEpisodeInfo && m_tmdbManager->getEpisodeInfo(m_showInfo.tmdbId, tmdbSeason, tmdbEpisode, episodeInfo)) {
                 metadata.EPName = episodeInfo.episodeName;
+                metadata.airDate = episodeInfo.airDate;  // Store the air date from TMDB
                 
                 // Download and scale episode thumbnail if available
                 if (!episodeInfo.stillPath.isEmpty()) {
@@ -546,7 +552,8 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                     }
                 }
                 
-                qDebug() << "VP_ShowsEncryptionWorker: Added TMDB episode data:" << metadata.EPName;
+                qDebug() << "VP_ShowsEncryptionWorker: Added TMDB episode data:" << metadata.EPName 
+                         << "Air date:" << metadata.airDate;
             } else {
                 qDebug() << "VP_ShowsEncryptionWorker: Failed to get TMDB episode info for S" << tmdbSeason << "E" << tmdbEpisode;
                 qDebug() << "VP_ShowsEncryptionWorker: TMDB ID:" << m_showInfo.tmdbId << "Original absolute episode:" << episode;
