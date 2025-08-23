@@ -50,10 +50,17 @@ private:
     // Event handling
     bool eventFilter(QObject* obj, QEvent* event) override;
     
+    // Load show metadata from encrypted files
+    QString loadActualShowName();  // Get show name from video metadata
+    void loadAndDisplayOriginalShowData();  // Load and display original poster/description
+    
 private:
     Ui::VP_ShowsSettingsDialog *ui;
-    QString m_showName;
-    QString m_showPath;
+    QString m_showName;  // Actual decrypted show name (e.g., "Daria")
+    QString m_showPath;  // Path to show folder
+    QString m_originalShowName;  // Store the original show name
+    QString m_originalDescription;  // Store the original show description
+    QPixmap m_originalPoster;  // Store the original show poster
     
     // Autofill/Search components
     QListWidget* m_suggestionsList;

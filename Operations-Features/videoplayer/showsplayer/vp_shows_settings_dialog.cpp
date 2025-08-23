@@ -1,8 +1,11 @@
 #include "vp_shows_settings_dialog.h"
 #include "ui_vp_shows_settings_dialog.h"
 #include "vp_shows_config.h"
+#include "vp_shows_metadata.h"
 #include "inputvalidation.h"
 #include "operations_files.h"
+#include "CryptoUtils.h"
+#include "mainwindow.h"
 #include <QDebug>
 #include <QListWidgetItem>
 #include <QListView>
@@ -32,7 +35,7 @@
 VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QString& showPath, QWidget *parent)
     : QDialog(parent)
     , ui(new Ui::VP_ShowsSettingsDialog)
-    , m_showName(showName)
+    , m_showName(showName)  // This is likely the obfuscated name initially
     , m_showPath(showPath)
     , m_suggestionsList(nullptr)
     , m_searchTimer(nullptr)
@@ -44,14 +47,29 @@ VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QS
 {
     ui->setupUi(this);
     
-    qDebug() << "VP_ShowsSettingsDialog: Created dialog for show:" << showName;
+    qDebug() << "VP_ShowsSettingsDialog: Created dialog for obfuscated show name:" << showName;
     qDebug() << "VP_ShowsSettingsDialog: Show path:" << showPath;
     
-    // Set window title to include show name
-    setWindowTitle(QString("Settings - %1").arg(showName));
+    // Load the actual show name from video metadata
+    QString actualShowName = loadActualShowName();
+    if (!actualShowName.isEmpty()) {
+        m_showName = actualShowName;
+        m_originalShowName = actualShowName;
+        qDebug() << "VP_ShowsSettingsDialog: Loaded actual show name:" << m_showName;
+    } else {
+        // Fallback: try to decrypt the folder name if no video metadata found
+        m_originalShowName = m_showName;
+        qDebug() << "VP_ShowsSettingsDialog: Could not load show name from metadata, using:" << m_showName;
+    }
+    
+    // Set window title with actual show name
+    setWindowTitle(QString("Settings - %1").arg(m_showName));
     
     // Set initial show name in the line edit
-    ui->lineEdit_ShowName->setText(showName);
+    ui->lineEdit_ShowName->setText(m_showName);
+    
+    // Load and display original show poster and description
+    loadAndDisplayOriginalShowData();
     
     // Initialize autofill functionality
     setupAutofillUI();
@@ -408,10 +426,13 @@ void VP_ShowsSettingsDialog::hideSuggestions()
         m_suggestionsList->hide();
     }
     
-    // Clear poster and description when hiding suggestions
-    ui->label_ShowPoster->clear();
-    ui->label_ShowPoster->setText("No Poster");
-    ui->textBrowser_ShowDescription->clear();
+    // Restore original poster and description when hiding suggestions
+    if (!m_originalPoster.isNull()) {
+        ui->label_ShowPoster->setPixmap(m_originalPoster);
+    } else {
+        ui->label_ShowPoster->setText("No Poster Available");
+    }
+    ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
     
     // Clear the current suggestions when hiding
     m_currentSuggestions.clear();
@@ -750,17 +771,34 @@ bool VP_ShowsSettingsDialog::eventFilter(QObject* obj, QEvent* event)
             } else {
                 // Clear selection if not over any item
                 if (m_hoveredItemIndex >= 0) {
-                    qDebug() << "VP_ShowsSettingsDialog: Mouse not over any item, clearing selection";
+                    qDebug() << "VP_ShowsSettingsDialog: Mouse not over any item, restoring original display";
                     m_hoveredItemIndex = -1;
                     m_suggestionsList->clearSelection();
+                    
+                    // Restore original poster and description when not hovering over any item
+                    if (!m_originalPoster.isNull()) {
+                        ui->label_ShowPoster->setPixmap(m_originalPoster);
+                    } else {
+                        ui->label_ShowPoster->setText("No Poster Available");
+                    }
+                    ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
                 }
             }
             return false;
         }
         else if (event->type() == QEvent::Leave) {
-            qDebug() << "VP_ShowsSettingsDialog: Mouse left suggestions viewport";
+            qDebug() << "VP_ShowsSettingsDialog: Mouse left suggestions viewport, restoring original display";
             m_hoveredItemIndex = -1;
             m_suggestionsList->clearSelection();
+            
+            // Restore original poster and description when mouse leaves suggestions
+            if (!m_originalPoster.isNull()) {
+                ui->label_ShowPoster->setPixmap(m_originalPoster);
+            } else {
+                ui->label_ShowPoster->setText("No Poster Available");
+            }
+            ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
+            
             return false;
         }
         else if (event->type() == QEvent::Enter) {
@@ -832,6 +870,145 @@ void VP_ShowsSettingsDialog::displayShowInfo(const VP_ShowsTMDB::ShowInfo& showI
         downloadAndDisplayPoster(showInfo.posterPath);
     } else {
         ui->label_ShowPoster->clear();
+        ui->label_ShowPoster->setText("No Poster Available");
+    }
+}
+
+QString VP_ShowsSettingsDialog::loadActualShowName()
+{
+    qDebug() << "VP_ShowsSettingsDialog: Loading actual show name from video metadata";
+    
+    // Get the parent widget and cast to MainWindow to access encryption key
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsSettingsDialog: Parent is not MainWindow";
+        return QString();
+    }
+    
+    // Get encryption key and username from MainWindow member variables
+    QByteArray encryptionKey = mainWindow->user_Key;
+    QString username = mainWindow->user_Username;
+    
+    if (encryptionKey.isEmpty() || username.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Encryption key or username is empty";
+        return QString();
+    }
+    
+    // Find any video file in the show folder
+    QDir showDir(m_showPath);
+    QStringList videoExtensions;
+    videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
+                   << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+    showDir.setNameFilters(videoExtensions);
+    QStringList videoFiles = showDir.entryList(QDir::Files);
+    
+    if (videoFiles.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: No video files found in show folder";
+        return QString();
+    }
+    
+    // Try to read metadata from the first video file
+    QString firstVideoPath = showDir.absoluteFilePath(videoFiles.first());
+    qDebug() << "VP_ShowsSettingsDialog: Reading metadata from:" << firstVideoPath;
+    
+    VP_ShowsMetadata metadataManager(encryptionKey, username);
+    VP_ShowsMetadata::ShowMetadata metadata;
+    
+    if (metadataManager.readMetadataFromFile(firstVideoPath, metadata)) {
+        qDebug() << "VP_ShowsSettingsDialog: Successfully read show name:" << metadata.showName;
+        return metadata.showName;
+    }
+    
+    qDebug() << "VP_ShowsSettingsDialog: Failed to read metadata from video file";
+    return QString();
+}
+
+void VP_ShowsSettingsDialog::loadAndDisplayOriginalShowData()
+{
+    qDebug() << "VP_ShowsSettingsDialog: Loading original show poster and description";
+    
+    // Get the parent widget and cast to MainWindow to access encryption key
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsSettingsDialog: Parent is not MainWindow";
+        return;
+    }
+    
+    // Get encryption key from MainWindow member variables
+    QByteArray encryptionKey = mainWindow->user_Key;
+    
+    if (encryptionKey.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Encryption key is empty";
+        return;
+    }
+    
+    // Generate the obfuscated folder name for loading files
+    QDir showDir(m_showPath);
+    QString obfuscatedName = showDir.dirName();
+    
+    // Load show description from showdesc_[obfuscated] file
+    QString descFileName = QString("showdesc_%1").arg(obfuscatedName);
+    QString descFilePath = showDir.absoluteFilePath(descFileName);
+    
+    if (QFile::exists(descFilePath)) {
+        QString description;
+        if (OperationsFiles::readEncryptedFile(descFilePath, encryptionKey, description)) {
+            m_originalDescription = description;
+            ui->textBrowser_ShowDescription->setPlainText(description);
+            qDebug() << "VP_ShowsSettingsDialog: Loaded show description";
+        } else {
+            qDebug() << "VP_ShowsSettingsDialog: Failed to decrypt show description";
+            m_originalDescription = "No description available.";
+            ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
+        }
+    } else {
+        qDebug() << "VP_ShowsSettingsDialog: No description file found";
+        m_originalDescription = "No description available.";
+        ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
+    }
+    
+    // Load show poster from showimage_[obfuscated] file
+    QString imageFileName = QString("showimage_%1").arg(obfuscatedName);
+    QString imageFilePath = showDir.absoluteFilePath(imageFileName);
+    
+    if (QFile::exists(imageFilePath)) {
+        // Read the encrypted image file
+        QFile file(imageFilePath);
+        if (file.open(QIODevice::ReadOnly)) {
+            QByteArray encryptedData = file.readAll();
+            file.close();
+            
+            // Decrypt the image data
+            QString username = mainWindow->user_Username;
+            QByteArray decryptedData = CryptoUtils::Encryption_DecryptBArray(encryptionKey, encryptedData);
+            
+            if (!decryptedData.isEmpty()) {
+                // Load the decrypted image into a pixmap
+                QPixmap poster;
+                if (poster.loadFromData(decryptedData)) {
+                    // Scale to fit the label
+                    QSize labelSize = ui->label_ShowPoster->size();
+                    m_originalPoster = poster.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                    ui->label_ShowPoster->setPixmap(m_originalPoster);
+                    qDebug() << "VP_ShowsSettingsDialog: Loaded and displayed show poster";
+                } else {
+                    qDebug() << "VP_ShowsSettingsDialog: Failed to load poster from decrypted data";
+                    m_originalPoster = QPixmap();
+                    ui->label_ShowPoster->setText("No Poster Available");
+                }
+            } else {
+                qDebug() << "VP_ShowsSettingsDialog: Failed to decrypt poster data";
+                m_originalPoster = QPixmap();
+                ui->label_ShowPoster->setText("No Poster Available");
+            }
+        } else {
+            qDebug() << "VP_ShowsSettingsDialog: Failed to open poster file";
+            m_originalPoster = QPixmap();
+            ui->label_ShowPoster->setText("No Poster Available");
+        }
+    } else {
+        qDebug() << "VP_ShowsSettingsDialog: No poster file found";
+        m_originalPoster = QPixmap();
         ui->label_ShowPoster->setText("No Poster Available");
     }
 }
