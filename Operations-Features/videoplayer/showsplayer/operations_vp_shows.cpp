@@ -968,8 +968,30 @@ void Operations_VP_Shows::openShowSettings()
         // Reload show settings to apply any changes
         loadShowSettings(m_currentShowFolder);
         
-        // Also reload the show display to reflect any name changes
-        displayShowDetails(m_currentShowFolder);
+        // Update the show name display if it changed
+        // We need to reload the metadata to get the updated show name
+        VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+        
+        // Find any video file to get the updated show name
+        QDir showDir(m_currentShowFolder);
+        QStringList videoExtensions;
+        videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
+                       << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+        showDir.setNameFilters(videoExtensions);
+        QStringList videoFiles = showDir.entryList(QDir::Files);
+        
+        if (!videoFiles.isEmpty()) {
+            QString firstVideoPath = showDir.absoluteFilePath(videoFiles.first());
+            VP_ShowsMetadata::ShowMetadata metadata;
+            
+            if (metadataManager.readMetadataFromFile(firstVideoPath, metadata)) {
+                // Update the show name display
+                if (m_mainWindow->ui->label_VP_Shows_Display_Name) {
+                    m_mainWindow->ui->label_VP_Shows_Display_Name->setText(metadata.showName);
+                    qDebug() << "Operations_VP_Shows: Updated show name display to:" << metadata.showName;
+                }
+            }
+        }
     } else {
         qDebug() << "Operations_VP_Shows: Show settings dialog cancelled";
     }

@@ -762,6 +762,18 @@ void VP_ShowsSettingsDialog::onImageDownloadFinished(QNetworkReply* reply)
 void VP_ShowsSettingsDialog::loadShowSettings()
 {
     qDebug() << "VP_ShowsSettingsDialog: Loading show settings";
+    qDebug() << "VP_ShowsSettingsDialog: Show path:" << m_showPath;
+    
+    // Check if the show folder exists
+    if (m_showPath.isEmpty() || !QDir(m_showPath).exists()) {
+        qDebug() << "VP_ShowsSettingsDialog: Show folder does not exist or path is empty:" << m_showPath;
+        // Use defaults if folder doesn't exist
+        m_currentSettings = VP_ShowsSettings::ShowSettings();
+        ui->checkBox_Autoplay->setChecked(m_currentSettings.autoplay);
+        ui->checkBox_SkipContent->setChecked(m_currentSettings.skipIntroOutro);
+        ui->checkBox_UseTMDB->setChecked(m_currentSettings.useTMDB);
+        return;
+    }
     
     // Get parent MainWindow to access encryption key and username
     MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
@@ -802,6 +814,15 @@ void VP_ShowsSettingsDialog::loadShowSettings()
 void VP_ShowsSettingsDialog::saveShowSettings()
 {
     qDebug() << "VP_ShowsSettingsDialog: Saving show settings";
+    qDebug() << "VP_ShowsSettingsDialog: Show path:" << m_showPath;
+    
+    // Check if the show folder exists
+    if (m_showPath.isEmpty() || !QDir(m_showPath).exists()) {
+        qDebug() << "VP_ShowsSettingsDialog: Show folder does not exist or path is empty:" << m_showPath;
+        QMessageBox::warning(this, tr("Settings Error"), 
+                           tr("Could not find the folder for this show."));
+        return;
+    }
     
     // Get parent MainWindow to access encryption key and username
     MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
@@ -844,6 +865,15 @@ void VP_ShowsSettingsDialog::saveShowSettings()
 void VP_ShowsSettingsDialog::updateAllVideosMetadata()
 {
     qDebug() << "VP_ShowsSettingsDialog: Updating metadata for all videos in show folder";
+    qDebug() << "VP_ShowsSettingsDialog: Show path:" << m_showPath;
+    
+    // Check if the show folder exists
+    if (m_showPath.isEmpty() || !QDir(m_showPath).exists()) {
+        qDebug() << "VP_ShowsSettingsDialog: Show folder does not exist or path is empty:" << m_showPath;
+        QMessageBox::warning(this, tr("Metadata Error"), 
+                           tr("Could not find the folder for this show."));
+        return;
+    }
     
     // Get the new show name from the UI
     QString newShowName = ui->lineEdit_ShowName->text().trimmed();
@@ -877,6 +907,21 @@ void VP_ShowsSettingsDialog::updateAllVideosMetadata()
     QStringList videoFiles = showDir.entryList(QDir::Files);
     
     qDebug() << "VP_ShowsSettingsDialog: Found" << videoFiles.size() << "video files to update";
+    
+    // Debug: List the files found
+    if (videoFiles.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: No video files found in folder. Checking all files...";
+        QStringList allFiles = showDir.entryList(QDir::Files);
+        qDebug() << "VP_ShowsSettingsDialog: Total files in folder:" << allFiles.size();
+        for (const QString& file : allFiles) {
+            qDebug() << "VP_ShowsSettingsDialog:   File:" << file;
+        }
+    } else {
+        qDebug() << "VP_ShowsSettingsDialog: Video files found:";
+        for (const QString& file : videoFiles) {
+            qDebug() << "VP_ShowsSettingsDialog:   Video:" << file;
+        }
+    }
     
     // Create metadata manager
     VP_ShowsMetadata metadataManager(encryptionKey, username);

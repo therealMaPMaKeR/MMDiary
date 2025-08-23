@@ -19,6 +19,21 @@ bool VP_ShowsSettings::loadShowSettings(const QString& showFolderPath, ShowSetti
 {
     qDebug() << "VP_ShowsSettings: Loading settings for show folder:" << showFolderPath;
     
+    // Validate folder path
+    if (showFolderPath.isEmpty()) {
+        qDebug() << "VP_ShowsSettings: Show folder path is empty";
+        settings = ShowSettings(); // Use defaults
+        return true; // Not an error, just use defaults
+    }
+    
+    // Check if the folder exists
+    QDir showDir(showFolderPath);
+    if (!showDir.exists()) {
+        qDebug() << "VP_ShowsSettings: Show folder does not exist:" << showFolderPath;
+        settings = ShowSettings(); // Use defaults
+        return true; // Not an error, just use defaults
+    }
+    
     // Generate the settings filename
     QString settingsFileName = generateSettingsFileName(showFolderPath);
     QString settingsFilePath = QDir(showFolderPath).absoluteFilePath(settingsFileName);
@@ -55,7 +70,20 @@ bool VP_ShowsSettings::saveShowSettings(const QString& showFolderPath, const Sho
 {
     qDebug() << "VP_ShowsSettings: Saving settings for show folder:" << showFolderPath;
     qDebug() << "VP_ShowsSettings: Settings - SkipIntroOutro:" << settings.skipIntroOutro 
-             << "Autoplay:" << settings.autoplay;
+             << "Autoplay:" << settings.autoplay << "UseTMDB:" << settings.useTMDB;
+    
+    // Validate folder path
+    if (showFolderPath.isEmpty()) {
+        qDebug() << "VP_ShowsSettings: Show folder path is empty";
+        return false;
+    }
+    
+    // Check if the folder exists
+    QDir showDir(showFolderPath);
+    if (!showDir.exists()) {
+        qDebug() << "VP_ShowsSettings: Show folder does not exist:" << showFolderPath;
+        return false;
+    }
     
     // Generate the settings filename
     QString settingsFileName = generateSettingsFileName(showFolderPath);
