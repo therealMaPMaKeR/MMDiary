@@ -66,6 +66,20 @@
       </widget>
      </item>
      <item>
+      <widget class="QPushButton" name="pushButton_UseCustomPoster">
+       <property name="text">
+        <string>Use custom show poster</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_UseCustomDesc">
+       <property name="text">
+        <string>Use custom show description</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <spacer name="verticalSpacer">
        <property name="orientation">
         <enum>Qt::Vertical</enum>
