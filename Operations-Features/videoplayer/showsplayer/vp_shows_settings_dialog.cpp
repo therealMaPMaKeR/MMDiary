@@ -116,8 +116,10 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
     m_suggestionsList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_suggestionsList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_suggestionsList->setLayoutMode(QListView::SinglePass);  // Optimize layout
-    m_suggestionsList->setUniformItemSizes(false);  // Allow different item sizes if needed
+    m_suggestionsList->setUniformItemSizes(true);  // Use uniform sizes for better performance
     m_suggestionsList->setSpacing(0);  // No spacing between items
+    m_suggestionsList->setContentsMargins(2, 2, 2, 2);  // Small margins for the list
+    m_suggestionsList->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);  // Adjust size to content
     
     // Ensure the widget accepts mouse events
     m_suggestionsList->setAttribute(Qt::WA_Hover, true);
@@ -127,27 +129,35 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
     // Set a high z-order to ensure it appears on top
     m_suggestionsList->raise();
     
-    // Force text to be visible with explicit styling
+    // Force text to be visible with explicit styling and consistent item heights
     m_suggestionsList->setStyleSheet(
         "QListWidget { "
         "    background-color: white; "
         "    color: black; "
-        "    border: 1px solid black; "
-        "    font: 12px Arial; "
+        "    border: 1px solid #888; "
+        "    font-family: Arial; "
+        "    font-size: 11px; "
         "    outline: none; "
+        "    padding: 1px; "
         "} "
         "QListWidget::item { "
         "    color: black; "
         "    background-color: white; "
-        "    padding: 5px; "
+        "    padding: 3px 5px; "
+        "    min-height: 16px; "
+        "    max-height: 20px; "
         "    border: none; "
+        "    border-bottom: 1px solid #eee; "
+        "} "
+        "QListWidget::item:last { "
+        "    border-bottom: none; "
         "} "
         "QListWidget::item:hover { "
-        "    background-color: lightblue; "
+        "    background-color: #e6f3ff; "
         "    color: black; "
         "} "
         "QListWidget::item:selected { "
-        "    background-color: lightblue; "
+        "    background-color: #cce8ff; "
         "    color: black; "
         "} "
     );
@@ -438,9 +448,28 @@ void VP_ShowsSettingsDialog::positionSuggestionsList()
     
     qDebug() << "VP_ShowsSettingsDialog: Setting list width to:" << width;
     
-    // Set maximum height (show up to MAX_SUGGESTIONS items)
+    // Set maximum height based on actual item heights
     int itemCount = m_suggestionsList->count();
-    int height = qMin(itemCount, MAX_SUGGESTIONS) * SUGGESTION_HEIGHT + 10; // +10 for borders/padding
+    int height = 0;
+    
+    // Calculate actual height needed for visible items
+    int visibleItems = qMin(itemCount, MAX_SUGGESTIONS);
+    for (int i = 0; i < visibleItems; ++i) {
+        QListWidgetItem* item = m_suggestionsList->item(i);
+        if (item) {
+            // Get the actual size hint for this row
+            height += m_suggestionsList->sizeHintForRow(i);
+        }
+    }
+    
+    // Add small padding for borders and margins (reduced from 10 to 4)
+    height += 4;
+    
+    // Ensure minimum height if we have items
+    if (visibleItems > 0 && height < 20) {
+        height = visibleItems * 20; // Fallback to minimum reasonable height
+    }
+    
     m_suggestionsList->setFixedHeight(height);
     
     qDebug() << "VP_ShowsSettingsDialog: Setting list height to:" << height << "(for" << itemCount << "items)";

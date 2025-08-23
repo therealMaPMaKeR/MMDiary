@@ -92,7 +92,7 @@ private:
     // Constants
     static constexpr int SEARCH_DELAY_MS = 500;  // Debounce delay for search
     static constexpr int MAX_SUGGESTIONS = 8;    // Maximum number of suggestions to show
-    static constexpr int SUGGESTION_HEIGHT = 60; // Height of each suggestion item
+    // Note: Suggestion item heights are now calculated dynamically based on actual content
 };
 
 #endif // VP_SHOWS_SETTINGS_DIALOG_H
