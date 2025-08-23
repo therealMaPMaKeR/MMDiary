@@ -3536,12 +3536,11 @@ void Operations_VP_Shows::autoplayNextEpisode()
     
     if (nextEpisodePath.isEmpty()) {
         qDebug() << "Operations_VP_Shows: No next episode available for autoplay";
-        // Optionally show a message to the user
-        QMessageBox::information(m_mainWindow,
-                               tr("End of Episodes"),
-                               tr("You've reached the end of available episodes."));
+        // No dialog shown - autoplay silently ends when no more episodes are available
         return;
     }
+    
+    // Original dialog code removed - autoplay ends silently
     
     qDebug() << "Operations_VP_Shows: Autoplaying next episode:" << nextEpisodePath;
     
