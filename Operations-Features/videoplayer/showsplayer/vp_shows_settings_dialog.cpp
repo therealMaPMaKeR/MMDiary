@@ -19,6 +19,9 @@
 #include <QDateTime>
 #include <QTemporaryFile>
 #include <QTimer>
+#include <QFont>
+#include <QBrush>
+#include <QPalette>
 
 VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QString& showPath, QWidget *parent)
     : QDialog(parent)
@@ -82,6 +85,8 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
         return;
     }
     
+    qDebug() << "VP_ShowsSettingsDialog: TMDB API key found, length:" << apiKey.length();
+    
     // Initialize TMDB API
     m_tmdbApi = std::make_unique<VP_ShowsTMDB>(this);
     m_tmdbApi->setApiKey(apiKey);
@@ -92,31 +97,46 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
             this, &VP_ShowsSettingsDialog::onImageDownloadFinished);
     
     // Create suggestions list widget (initially hidden)
-    m_suggestionsList = new QListWidget(this);
-    m_suggestionsList->setWindowFlags(Qt::Popup);
+    // Try Qt::Tool instead of Qt::Popup
+    m_suggestionsList = new QListWidget(nullptr);  // No parent
+    m_suggestionsList->setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+    m_suggestionsList->setAttribute(Qt::WA_ShowWithoutActivating);
     m_suggestionsList->setFocusPolicy(Qt::NoFocus);
     m_suggestionsList->setMouseTracking(true);
+    
+    // Force text to be visible with explicit styling
     m_suggestionsList->setStyleSheet(
-        "QListWidget {"
-        "    border: 1px solid #ccc;"
-        "    background-color: white;"
-        "    selection-background-color: #e0e0e0;"
-        "}"
-        "QListWidget::item {"
-        "    padding: 5px;"
-        "    min-height: 50px;"
-        "}"
-        "QListWidget::item:hover {"
-        "    background-color: #f0f0f0;"
-        "}"
+        "QListWidget { "
+        "    background-color: white; "
+        "    color: black; "
+        "    border: 1px solid black; "
+        "    font: 12px Arial; "
+        "} "
+        "QListWidget::item { "
+        "    color: black; "
+        "    background-color: white; "
+        "    padding: 5px; "
+        "} "
+        "QListWidget::item:hover { "
+        "    background-color: lightblue; "
+        "} "
+        "QListWidget::item:selected { "
+        "    background-color: blue; "
+        "    color: white; "
+        "} "
     );
     m_suggestionsList->hide();
+    
+    qDebug() << "VP_ShowsSettingsDialog: Suggestions list widget created";
     
     // Create search timer for debouncing
     m_searchTimer = new QTimer(this);
     m_searchTimer->setSingleShot(true);
     m_searchTimer->setInterval(SEARCH_DELAY_MS);
     connect(m_searchTimer, &QTimer::timeout, this, &VP_ShowsSettingsDialog::onSearchTimerTimeout);
+    
+    qDebug() << "VP_ShowsSettingsDialog: Search timer created with interval:" << SEARCH_DELAY_MS << "ms";
+    qDebug() << "VP_ShowsSettingsDialog: Timer is single shot:" << m_searchTimer->isSingleShot();
     
     // Connect lineEdit signals
     connect(ui->lineEdit_ShowName, &QLineEdit::textChanged,
@@ -139,6 +159,14 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
 
 void VP_ShowsSettingsDialog::onShowNameTextChanged(const QString& text)
 {
+    qDebug() << "VP_ShowsSettingsDialog: onShowNameTextChanged called with text:" << text;
+    
+    // Check if TMDB API is initialized
+    if (!m_tmdbApi) {
+        qDebug() << "VP_ShowsSettingsDialog: TMDB API not initialized, cannot search";
+        return;
+    }
+    
     // Validate input
     InputValidation::ValidationResult result = 
         InputValidation::validateInput(text, InputValidation::InputType::PlainText, 100);
@@ -150,6 +178,7 @@ void VP_ShowsSettingsDialog::onShowNameTextChanged(const QString& text)
     
     // Clear current suggestions if text is too short
     if (text.trimmed().length() < 2) {
+        qDebug() << "VP_ShowsSettingsDialog: Text too short (< 2 chars), clearing suggestions";
         clearSuggestions();
         hideSuggestions();
         return;
@@ -159,10 +188,15 @@ void VP_ShowsSettingsDialog::onShowNameTextChanged(const QString& text)
     m_currentSearchText = text.trimmed();
     
     // Reset and start the search timer (debouncing)
-    m_searchTimer->stop();
-    m_searchTimer->start();
-    
-    qDebug() << "VP_ShowsSettingsDialog: Text changed, starting search timer for:" << text;
+    if (m_searchTimer) {
+        m_searchTimer->stop();
+        m_searchTimer->start();
+        qDebug() << "VP_ShowsSettingsDialog: Text changed, starting search timer for:" << m_currentSearchText;
+        qDebug() << "VP_ShowsSettingsDialog: Timer interval:" << m_searchTimer->interval() << "ms";
+        qDebug() << "VP_ShowsSettingsDialog: Timer is active:" << m_searchTimer->isActive();
+    } else {
+        qDebug() << "VP_ShowsSettingsDialog: ERROR - m_searchTimer is null!";
+    }
 }
 
 void VP_ShowsSettingsDialog::onSearchTimerTimeout()
@@ -184,15 +218,24 @@ void VP_ShowsSettingsDialog::performTMDBSearch(const QString& searchText)
     }
     
     qDebug() << "VP_ShowsSettingsDialog: Performing TMDB search for:" << searchText;
+    qDebug() << "VP_ShowsSettingsDialog: MAX_SUGGESTIONS value:" << MAX_SUGGESTIONS;
     
-    // Clear previous suggestions
+    // Clear previous suggestions before starting new search
     m_currentSuggestions.clear();
+    clearSuggestions();  // Clear the list widget
     
     // Search for TV shows and get multiple results
     m_currentSuggestions = m_tmdbApi->searchTVShows(searchText, MAX_SUGGESTIONS);
     
+    qDebug() << "VP_ShowsSettingsDialog: Search returned" << m_currentSuggestions.size() << "results";
+    
     if (!m_currentSuggestions.isEmpty()) {
-        qDebug() << "VP_ShowsSettingsDialog: Found" << m_currentSuggestions.size() << "suggestions";
+        qDebug() << "VP_ShowsSettingsDialog: Found suggestions, displaying them";
+        for (int i = 0; i < m_currentSuggestions.size(); ++i) {
+            qDebug() << "VP_ShowsSettingsDialog:   Result" << i+1 << ":" 
+                     << m_currentSuggestions[i].showName 
+                     << "(ID:" << m_currentSuggestions[i].tmdbId << ")";
+        }
         displaySuggestions(m_currentSuggestions);
     } else {
         qDebug() << "VP_ShowsSettingsDialog: No results found for:" << searchText;
@@ -203,21 +246,27 @@ void VP_ShowsSettingsDialog::performTMDBSearch(const QString& searchText)
 
 void VP_ShowsSettingsDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowInfo>& shows)
 {
+    qDebug() << "VP_ShowsSettingsDialog: displaySuggestions called with" << shows.size() << "shows";
+    
     if (!m_suggestionsList) {
+        qDebug() << "VP_ShowsSettingsDialog: ERROR - m_suggestionsList is null!";
         return;
     }
     
-    clearSuggestions();
+    // Clear the list widget items (but not m_currentSuggestions since shows is a reference to it)
+    m_suggestionsList->clear();
     
     if (shows.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Shows list is empty, hiding suggestions";
         hideSuggestions();
         return;
     }
     
-    qDebug() << "VP_ShowsSettingsDialog: Displaying" << shows.size() << "suggestions";
+    qDebug() << "VP_ShowsSettingsDialog: Adding suggestions to list widget";
     
     // Add suggestions to the list
-    for (const auto& show : shows) {
+    for (int i = 0; i < shows.size(); ++i) {
+        const auto& show = shows[i];
         QString displayText = show.showName;
         if (!show.firstAirDate.isEmpty()) {
             // Extract year from date (format: YYYY-MM-DD)
@@ -225,20 +274,47 @@ void VP_ShowsSettingsDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowIn
             displayText += QString(" (%1)").arg(year);
         }
         
-        QListWidgetItem* item = new QListWidgetItem(displayText, m_suggestionsList);
-        item->setData(Qt::UserRole, QVariant::fromValue(show.tmdbId));
-        item->setData(Qt::UserRole + 1, show.showName);
-        item->setData(Qt::UserRole + 2, show.overview);
-        item->setData(Qt::UserRole + 3, show.posterPath);
+        qDebug() << "VP_ShowsSettingsDialog: Adding item" << i+1 << ":" << displayText;
         
-        // Set item height
-        item->setSizeHint(QSize(item->sizeHint().width(), SUGGESTION_HEIGHT));
+        // Simple approach - just add the text
+        m_suggestionsList->addItem(displayText);
+        
+        // Get the item we just added and set its data
+        QListWidgetItem* item = m_suggestionsList->item(m_suggestionsList->count() - 1);
+        if (item) {
+            item->setData(Qt::UserRole, QVariant::fromValue(show.tmdbId));
+            item->setData(Qt::UserRole + 1, show.showName);
+            item->setData(Qt::UserRole + 2, show.overview);
+            item->setData(Qt::UserRole + 3, show.posterPath);
+        }
     }
+    
+    qDebug() << "VP_ShowsSettingsDialog: List widget now has" << m_suggestionsList->count() << "items";
+    
+    // Debug: Verify items have text
+    for (int i = 0; i < m_suggestionsList->count() && i < 3; ++i) {
+        QListWidgetItem* debugItem = m_suggestionsList->item(i);
+        if (debugItem) {
+            qDebug() << "VP_ShowsSettingsDialog: Item" << i << "text:" << debugItem->text();
+        }
+    }
+    
+    // Force update the list widget
+    m_suggestionsList->update();
+    m_suggestionsList->repaint();
     
     // Position and show the suggestions list
     positionSuggestionsList();
+    
+    qDebug() << "VP_ShowsSettingsDialog: Showing suggestions list";
+    qDebug() << "VP_ShowsSettingsDialog: List widget visible before show():" << m_suggestionsList->isVisible();
+    
     m_suggestionsList->show();
     m_suggestionsList->raise();
+    m_suggestionsList->activateWindow();
+    
+    qDebug() << "VP_ShowsSettingsDialog: After show - visible:" << m_suggestionsList->isVisible();
+    qDebug() << "VP_ShowsSettingsDialog: Item 0 text:" << (m_suggestionsList->count() > 0 ? m_suggestionsList->item(0)->text() : "No items");
 }
 
 void VP_ShowsSettingsDialog::clearSuggestions()
@@ -246,7 +322,8 @@ void VP_ShowsSettingsDialog::clearSuggestions()
     if (m_suggestionsList) {
         m_suggestionsList->clear();
     }
-    m_currentSuggestions.clear();
+    // Don't clear m_currentSuggestions here as it may be passed by reference to displaySuggestions
+    // m_currentSuggestions.clear();  // REMOVED - this was causing the bug
 }
 
 void VP_ShowsSettingsDialog::hideSuggestions()
@@ -259,27 +336,39 @@ void VP_ShowsSettingsDialog::hideSuggestions()
     ui->label_ShowPoster->clear();
     ui->label_ShowPoster->setText("No Poster");
     ui->textBrowser_ShowDescription->clear();
+    
+    // Clear the current suggestions when hiding
+    m_currentSuggestions.clear();
 }
 
 void VP_ShowsSettingsDialog::positionSuggestionsList()
 {
     if (!m_suggestionsList || !ui->lineEdit_ShowName) {
+        qDebug() << "VP_ShowsSettingsDialog: Cannot position list - null pointers";
         return;
     }
     
     // Get the global position of the line edit
     QPoint globalPos = ui->lineEdit_ShowName->mapToGlobal(QPoint(0, ui->lineEdit_ShowName->height()));
     
+    qDebug() << "VP_ShowsSettingsDialog: Positioning suggestions list at global pos:" << globalPos;
+    
     // Set the position of the suggestions list
     m_suggestionsList->move(globalPos);
     
     // Set the width to match the line edit
-    m_suggestionsList->setFixedWidth(ui->lineEdit_ShowName->width());
+    int width = ui->lineEdit_ShowName->width();
+    m_suggestionsList->setFixedWidth(width);
+    
+    qDebug() << "VP_ShowsSettingsDialog: Setting list width to:" << width;
     
     // Set maximum height (show up to MAX_SUGGESTIONS items)
     int itemCount = m_suggestionsList->count();
     int height = qMin(itemCount, MAX_SUGGESTIONS) * SUGGESTION_HEIGHT + 10; // +10 for borders/padding
     m_suggestionsList->setFixedHeight(height);
+    
+    qDebug() << "VP_ShowsSettingsDialog: Setting list height to:" << height << "(for" << itemCount << "items)";
+    qDebug() << "VP_ShowsSettingsDialog: Final geometry:" << m_suggestionsList->geometry();
 }
 
 void VP_ShowsSettingsDialog::onSuggestionItemHovered()
