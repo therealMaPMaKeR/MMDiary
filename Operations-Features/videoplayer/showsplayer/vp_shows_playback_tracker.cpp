@@ -474,8 +474,36 @@ void VP_ShowsPlaybackTracker::updateProgress()
     qDebug() << "VP_ShowsPlaybackTracker: Updating progress for episode:" << m_currentEpisodePath;
     m_watchHistory->updateWatchProgress(m_currentEpisodePath, position, duration);
     
-    // Check for completion
-    checkForCompletion();
+    // Check for completion - emit signal when near end
+    if (duration > 0) {
+        qint64 remaining = duration - position;
+        
+        // Log when getting close to threshold
+        if (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS + 30000) { // Within 2.5 minutes
+            qDebug() << "VP_ShowsPlaybackTracker: Near threshold - Position:" << position 
+                     << "Duration:" << duration << "Remaining:" << remaining << "ms"
+                     << "Threshold:" << VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS << "ms";
+        }
+        
+        // Check if near end (within 2 minutes)
+        if (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && remaining > 0) {
+            // Only emit once per episode - use a simple flag approach
+            static QString lastNearCompletionEpisode;
+            if (lastNearCompletionEpisode != m_currentEpisodePath) {
+                qDebug() << "VP_ShowsPlaybackTracker: *** EPISODE NEAR COMPLETION ***";
+                qDebug() << "VP_ShowsPlaybackTracker: Episode path:" << m_currentEpisodePath;
+                qDebug() << "VP_ShowsPlaybackTracker: Remaining time:" << remaining << "ms";
+                qDebug() << "VP_ShowsPlaybackTracker: Emitting episodeNearCompletion signal";
+                emit episodeNearCompletion(m_currentEpisodePath);
+                lastNearCompletionEpisode = m_currentEpisodePath;
+            }
+            
+            // If within 10 seconds of end, mark as completed
+            if (remaining <= 10000) {
+                markCurrentEpisodeCompleted();
+            }
+        }
+    }
     
     // Save to disk
     if (m_watchHistory->saveHistory()) {
@@ -486,36 +514,7 @@ void VP_ShowsPlaybackTracker::updateProgress()
     }
 }
 
-void VP_ShowsPlaybackTracker::checkForCompletion()
-{
-    if (!m_currentPlayer || !m_watchHistory) {
-        return;
-    }
-    
-    qint64 position = m_currentPlayer->position();
-    qint64 duration = m_currentPlayer->duration();
-    
-    if (duration <= 0) {
-        return;
-    }
-    
-    // Check if near end (within 2 minutes)
-    qint64 remaining = duration - position;
-    if (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS) {
-        // Track if we've already emitted the near completion signal for this episode
-        static QString lastNearCompletionEpisode;
-        if (lastNearCompletionEpisode != m_currentEpisodePath) {
-            qDebug() << "VP_ShowsPlaybackTracker: Episode near completion:" << m_currentEpisodePath;
-            emit episodeNearCompletion(m_currentEpisodePath);
-            lastNearCompletionEpisode = m_currentEpisodePath;
-        }
-        
-        // If within 10 seconds of end, mark as completed
-        if (remaining <= 10000) {
-            markCurrentEpisodeCompleted();
-        }
-    }
-}
+// checkForCompletion functionality has been integrated directly into updateProgress()
 
 void VP_ShowsPlaybackTracker::connectPlayerSignals(VP_Shows_Videoplayer* player)
 {

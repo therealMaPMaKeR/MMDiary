@@ -250,7 +250,6 @@ private:
     qint64 m_lastSavedPosition;
     
     // Helper methods
-    void checkForCompletion();
     void connectPlayerSignals(VP_Shows_Videoplayer* player);
     void disconnectPlayerSignals();
 };

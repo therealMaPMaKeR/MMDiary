@@ -47,6 +47,7 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     , m_watchHistory(nullptr)
     , m_playbackTracker(nullptr)
     , m_isAutoplayInProgress(false)
+    , m_episodeWasNearCompletion(false)
 {
     qDebug() << "Operations_VP_Shows: Constructor called";
     qDebug() << "Operations_VP_Shows: Autoplay system initialized";
@@ -1534,6 +1535,10 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     m_currentPlayingEpisodePath = encryptedFilePath;
     qDebug() << "Operations_VP_Shows: Stored current playing episode path:" << m_currentPlayingEpisodePath;
     
+    // Reset the near-completion flag for the new episode
+    m_episodeWasNearCompletion = false;
+    qDebug() << "Operations_VP_Shows: Reset near-completion flag for new episode";
+    
     // Clean up any existing temp file first
     cleanupTempFile();
     
@@ -1574,6 +1579,17 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         
         if (initSuccess) {
             qDebug() << "Operations_VP_Shows: Playback tracker initialized successfully";
+            
+            // Connect the episodeNearCompletion signal to set our flag
+            connect(m_playbackTracker.get(), &VP_ShowsPlaybackTracker::episodeNearCompletion,
+                    this, [this](const QString& episodePath) {
+                qDebug() << "Operations_VP_Shows: *** NEAR COMPLETION SIGNAL RECEIVED ***";
+                qDebug() << "Operations_VP_Shows: Episode near completion signal received for:" << episodePath;
+                qDebug() << "Operations_VP_Shows: Setting m_episodeWasNearCompletion flag to true";
+                m_episodeWasNearCompletion = true;
+                qDebug() << "Operations_VP_Shows: Flag is now:" << m_episodeWasNearCompletion;
+            });
+            qDebug() << "Operations_VP_Shows: Connected episodeNearCompletion signal";
             
             // Calculate relative path of episode within show folder
             QDir showDir(m_currentShowFolder);
@@ -1694,10 +1710,19 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                     m_playbackTracker->stopTracking();
                 }
                 
-                // Trigger autoplay if enabled
-                if (m_currentShowSettings.autoplay && !m_isAutoplayInProgress) {
-                    qDebug() << "Operations_VP_Shows: Triggering autoplay after playback stopped";
+                // Trigger autoplay if enabled AND episode was near completion
+                qDebug() << "Operations_VP_Shows: Checking autoplay conditions:";
+                qDebug() << "Operations_VP_Shows:   - Autoplay enabled:" << m_currentShowSettings.autoplay;
+                qDebug() << "Operations_VP_Shows:   - Autoplay not in progress:" << !m_isAutoplayInProgress;
+                qDebug() << "Operations_VP_Shows:   - Episode was near completion:" << m_episodeWasNearCompletion;
+                
+                if (m_currentShowSettings.autoplay && !m_isAutoplayInProgress && m_episodeWasNearCompletion) {
+                    qDebug() << "Operations_VP_Shows: All conditions met - triggering autoplay";
                     autoplayNextEpisode();
+                } else if (m_currentShowSettings.autoplay && !m_episodeWasNearCompletion) {
+                    qDebug() << "Operations_VP_Shows: Autoplay enabled but episode was not near completion, skipping autoplay";
+                } else {
+                    qDebug() << "Operations_VP_Shows: Autoplay conditions not met, skipping";
                 }
                 
                 // Force the media player to release the file
@@ -3546,6 +3571,9 @@ void Operations_VP_Shows::autoplayNextEpisode()
     
     // Set the flag to prevent multiple autoplay triggers
     m_isAutoplayInProgress = true;
+    
+    // Reset the near-completion flag for the next episode
+    m_episodeWasNearCompletion = false;
     
     // Get episode name from the tree widget for display purposes
     QString episodeName;

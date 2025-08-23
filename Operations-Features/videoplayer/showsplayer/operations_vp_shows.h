@@ -182,6 +182,7 @@ public:
     // Autoplay tracking
     QString m_currentPlayingEpisodePath;  // Path of currently playing episode
     bool m_isAutoplayInProgress = false;  // Flag to prevent multiple autoplay triggers
+    bool m_episodeWasNearCompletion = false;  // Flag to track if episode reached near-end position
     
     // Settings handling
     // Load settings for the current show (checkboxes)
