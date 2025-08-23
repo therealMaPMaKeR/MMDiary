@@ -99,16 +99,22 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
     connect(m_networkManager.get(), &QNetworkAccessManager::finished,
             this, &VP_ShowsSettingsDialog::onImageDownloadFinished);
     
-    // Create suggestions list widget (initially hidden)
-    // Create as a frameless window that stays on top
-    m_suggestionsList = new QListWidget();
-    m_suggestionsList->setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
-    m_suggestionsList->setAttribute(Qt::WA_ShowWithoutActivating, false);  // Allow activation
-    m_suggestionsList->setFocusPolicy(Qt::StrongFocus);  // Allow full focus
+    // Create suggestions list widget as a child of the dialog
+    // This ensures proper event handling and positioning
+    m_suggestionsList = new QListWidget(this);  // Parent is the dialog
+    m_suggestionsList->setWindowFlags(Qt::FramelessWindowHint);  // Simple frameless widget
+    m_suggestionsList->setFocusPolicy(Qt::NoFocus);  // No focus to prevent auto-selection
     m_suggestionsList->setMouseTracking(true);
     m_suggestionsList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_suggestionsList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_suggestionsList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    
+    // Ensure the widget accepts mouse events
+    m_suggestionsList->setAttribute(Qt::WA_Hover, true);
+    m_suggestionsList->setEnabled(true);
+    
+    // Set a high z-order to ensure it appears on top
+    m_suggestionsList->raise();
     
     // Force text to be visible with explicit styling
     m_suggestionsList->setStyleSheet(
@@ -152,15 +158,8 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
     connect(m_suggestionsList, &QListWidget::itemClicked,
             this, &VP_ShowsSettingsDialog::onSuggestionItemClicked);
     
-    // Use currentItemChanged for hover-like behavior (works reliably)
-    connect(m_suggestionsList, &QListWidget::currentItemChanged,
-            this, [this](QListWidgetItem* current, QListWidgetItem* previous) {
-                Q_UNUSED(previous);
-                if (current) {
-                    qDebug() << "VP_ShowsSettingsDialog: Current item changed to:" << current->text();
-                    onSuggestionItemHovered();
-                }
-            });
+    // Don't connect currentItemChanged as it fires when we don't want it to
+    // We'll handle hover through mouse events only
     
     // Install event filter on the dialog itself for click outside detection
     this->installEventFilter(this);
@@ -330,15 +329,23 @@ void VP_ShowsSettingsDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowIn
     
     // Show the list immediately
     m_suggestionsList->show();
-    m_suggestionsList->raise();
-    m_suggestionsList->activateWindow();  // Ensure the window can receive events
+    m_suggestionsList->raise();  // Ensure it's on top of other widgets
     
-    // Set focus to the list to ensure it receives events
-    m_suggestionsList->setFocus();
+    // Clear any selection to prevent auto-selecting first item
+    m_suggestionsList->clearSelection();
+    m_suggestionsList->setCurrentItem(nullptr);
     
+    // Force a repaint to ensure visibility
+    m_suggestionsList->update();
+    m_suggestionsList->repaint();
+    
+    // Debug window properties
     qDebug() << "VP_ShowsSettingsDialog: After show - visible:" << m_suggestionsList->isVisible();
-    qDebug() << "VP_ShowsSettingsDialog: Has focus:" << m_suggestionsList->hasFocus();
     qDebug() << "VP_ShowsSettingsDialog: Is active window:" << m_suggestionsList->isActiveWindow();
+    qDebug() << "VP_ShowsSettingsDialog: Window geometry:" << m_suggestionsList->geometry();
+    qDebug() << "VP_ShowsSettingsDialog: Window flags:" << m_suggestionsList->windowFlags();
+    qDebug() << "VP_ShowsSettingsDialog: Mouse tracking enabled:" << m_suggestionsList->hasMouseTracking();
+    qDebug() << "VP_ShowsSettingsDialog: Widget is enabled:" << m_suggestionsList->isEnabled();
     qDebug() << "VP_ShowsSettingsDialog: Item 0 text:" << (m_suggestionsList->count() > 0 ? m_suggestionsList->item(0)->text() : "No items");
 }
 
@@ -379,13 +386,23 @@ void VP_ShowsSettingsDialog::positionSuggestionsList()
         return;
     }
     
-    // Get the global position of the line edit
-    QPoint globalPos = ui->lineEdit_ShowName->mapToGlobal(QPoint(0, ui->lineEdit_ShowName->height()));
+    // Get the position relative to the dialog (since list is now a child)
+    QPoint lineEditPos = ui->lineEdit_ShowName->pos();
+    // Account for any parent widgets between the line edit and the dialog
+    QWidget* parent = ui->lineEdit_ShowName->parentWidget();
+    while (parent && parent != this) {
+        lineEditPos += parent->pos();
+        parent = parent->parentWidget();
+    }
     
-    qDebug() << "VP_ShowsSettingsDialog: Positioning suggestions list at global pos:" << globalPos;
+    // Position below the line edit
+    int x = lineEditPos.x();
+    int y = lineEditPos.y() + ui->lineEdit_ShowName->height();
+    
+    qDebug() << "VP_ShowsSettingsDialog: Positioning suggestions list at:" << QPoint(x, y);
     
     // Set the position of the suggestions list
-    m_suggestionsList->move(globalPos);
+    m_suggestionsList->move(x, y);
     
     // Set the width to match the line edit
     int width = ui->lineEdit_ShowName->width();
@@ -549,19 +566,38 @@ bool VP_ShowsSettingsDialog::eventFilter(QObject* obj, QEvent* event)
         if (event->type() == QEvent::MouseButtonPress || 
             event->type() == QEvent::MouseButtonRelease ||
             event->type() == QEvent::Enter ||
-            event->type() == QEvent::Leave) {
+            event->type() == QEvent::Leave ||
+            event->type() == QEvent::Show ||
+            event->type() == QEvent::Hide) {
             qDebug() << "VP_ShowsSettingsDialog: Suggestions list event:" << event->type();
         }
         
+        // Debug mouse move events periodically
+        static int moveCounter = 0;
         if (event->type() == QEvent::MouseMove) {
             QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
             QPoint pos = mouseEvent->pos();
+            
+            // Debug every 10th move event to avoid spam
+            if (++moveCounter % 10 == 0) {
+                qDebug() << "VP_ShowsSettingsDialog: Mouse move at pos:" << pos;
+            }
+            
             QListWidgetItem* item = m_suggestionsList->itemAt(pos);
             
-            if (item && item != m_suggestionsList->currentItem()) {
-                // Update current item to trigger hover effect
-                m_suggestionsList->setCurrentItem(item);
-                // Note: onSuggestionItemHovered will be called by currentItemChanged signal
+            if (item) {
+                // Only update if hovering over a different item
+                if (item != m_suggestionsList->currentItem()) {
+                    qDebug() << "VP_ShowsSettingsDialog: Mouse hovering over:" << item->text();
+                    m_suggestionsList->setCurrentItem(item);
+                    // Directly call hover handler
+                    onSuggestionItemHovered();
+                }
+            } else {
+                // Debug when not over an item
+                if (moveCounter % 10 == 0) {
+                    qDebug() << "VP_ShowsSettingsDialog: Mouse not over any item at pos:" << pos;
+                }
             }
             return false;
         }
@@ -573,12 +609,20 @@ bool VP_ShowsSettingsDialog::eventFilter(QObject* obj, QEvent* event)
                 
                 if (item) {
                     qDebug() << "VP_ShowsSettingsDialog: Mouse press on item:" << item->text();
-                    // Let the itemClicked signal handle this
-                    // But ensure the item is selected
+                    // Set current item and trigger click handler
                     m_suggestionsList->setCurrentItem(item);
+                    // Manually call the click handler since Qt::Popup might interfere
+                    onSuggestionItemClicked(item);
+                    return true;  // Consume the event
                 }
             }
-            return false;  // Don't consume, let normal processing happen
+            return false;
+        }
+        else if (event->type() == QEvent::Leave) {
+            // Clear selection when mouse leaves
+            qDebug() << "VP_ShowsSettingsDialog: Mouse left suggestions list";
+            m_suggestionsList->clearSelection();
+            m_suggestionsList->setCurrentItem(nullptr);
         }
     }
     
@@ -587,17 +631,24 @@ bool VP_ShowsSettingsDialog::eventFilter(QObject* obj, QEvent* event)
         // Only hide suggestions if clicking outside both the line edit and suggestions list
         if (m_suggestionsList && m_suggestionsList->isVisible()) {
             QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
-            QPoint globalPos = mouseEvent->globalPos();
+            QPoint pos = mouseEvent->pos();  // Position relative to dialog
             
-            // Check if click is outside suggestions list
+            // Check if click is within suggestions list geometry
             QRect suggestionsRect = m_suggestionsList->geometry();
             
-            // Check if click is outside line edit
-            QPoint lineEditTopLeft = ui->lineEdit_ShowName->mapToGlobal(QPoint(0, 0));
-            QRect lineEditRect(lineEditTopLeft, ui->lineEdit_ShowName->size());
+            // Check if click is within line edit geometry
+            QRect lineEditRect = ui->lineEdit_ShowName->geometry();
+            // Adjust for parent widgets
+            QWidget* parent = ui->lineEdit_ShowName->parentWidget();
+            while (parent && parent != this) {
+                lineEditRect.translate(parent->pos());
+                parent = parent->parentWidget();
+            }
             
-            if (!suggestionsRect.contains(globalPos) && !lineEditRect.contains(globalPos)) {
-                qDebug() << "VP_ShowsSettingsDialog: Click outside suggestions, hiding list";
+            if (!suggestionsRect.contains(pos) && !lineEditRect.contains(pos)) {
+                qDebug() << "VP_ShowsSettingsDialog: Click outside suggestions at pos:" << pos;
+                qDebug() << "VP_ShowsSettingsDialog: Suggestions rect:" << suggestionsRect;
+                qDebug() << "VP_ShowsSettingsDialog: LineEdit rect:" << lineEditRect;
                 hideSuggestions();
             }
         }
