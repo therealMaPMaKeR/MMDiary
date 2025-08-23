@@ -27,6 +27,7 @@
 #include <QCursor>
 #include <QColor>
 #include <QRect>
+#include <QRandomGenerator>
 
 VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QString& showPath, QWidget *parent)
     : QDialog(parent)
@@ -37,6 +38,7 @@ VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QS
     , m_searchTimer(nullptr)
     , m_tmdbApi(nullptr)
     , m_networkManager(nullptr)
+    , m_currentCacheSize(0)
     , m_isShowingSuggestions(false)
     , m_hoveredItemIndex(-1)
 {
@@ -527,65 +529,162 @@ void VP_ShowsSettingsDialog::onSuggestionItemClicked(QListWidgetItem* item)
 void VP_ShowsSettingsDialog::downloadAndDisplayPoster(const QString& posterPath)
 {
     if (posterPath.isEmpty() || !m_tmdbApi) {
+        qDebug() << "VP_ShowsSettingsDialog: Cannot download poster - empty path or no TMDB API";
         return;
     }
+    
+    // Get the target size from the label
+    QSize labelSize = ui->label_ShowPoster->size();
+    qDebug() << "VP_ShowsSettingsDialog: Label size for poster:" << labelSize;
     
     // Check if we already have this poster in cache
     if (m_posterCache.contains(posterPath)) {
         qDebug() << "VP_ShowsSettingsDialog: Using cached poster for:" << posterPath;
-        QPixmap poster = m_posterCache[posterPath];
         
-        // Scale to fit the label
-        QSize labelSize = ui->label_ShowPoster->size();
-        QPixmap scaledPoster = poster.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        ui->label_ShowPoster->setPixmap(scaledPoster);
+        // Update access order for LRU
+        m_cacheAccessOrder.removeAll(posterPath);
+        m_cacheAccessOrder.append(posterPath);
+        
+        // Display the pre-scaled poster from cache
+        ui->label_ShowPoster->setPixmap(m_posterCache[posterPath].scaledPixmap);
         return;
     }
     
-    // Create a temporary file path for the image
-    QString tempFileName = QString("tmdb_poster_%1_XXXXXX.jpg")
-                          .arg(QString::number(QDateTime::currentMSecsSinceEpoch()));
+    qDebug() << "VP_ShowsSettingsDialog: Poster not in cache, downloading:" << posterPath;
     
-    std::unique_ptr<QTemporaryFile> tempFile = OperationsFiles::createTempFile(tempFileName, false);
-    if (!tempFile) {
-        qDebug() << "VP_ShowsSettingsDialog: Failed to create temp file for poster";
-        ui->label_ShowPoster->setText("Failed to Create Temp File");
+    // Get the user's temp directory using VP_ShowsConfig
+    QString username = OperationsFiles::getUsername();
+    if (username.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Cannot get username for temp directory";
+        ui->label_ShowPoster->setText("Failed to Get User");
         return;
     }
     
-    QString tempFilePath = tempFile->fileName();
-    tempFile->close(); // Close but keep the file
+    QString tempDir = VP_ShowsConfig::getTempDirectory(username);
+    if (tempDir.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to get temp directory";
+        ui->label_ShowPoster->setText("No Temp Directory");
+        return;
+    }
+    
+    // Create a temporary file path in the user's temp directory
+    QString tempFileName = QString("tmdb_poster_%1_%2.jpg")
+                          .arg(QString::number(QDateTime::currentMSecsSinceEpoch()))
+                          .arg(QRandomGenerator::global()->generate());
+    QString tempFilePath = QDir(tempDir).absoluteFilePath(tempFileName);
+    
+    qDebug() << "VP_ShowsSettingsDialog: Downloading poster to temp file:" << tempFilePath;
     
     // Download the poster
     bool success = m_tmdbApi->downloadImage(posterPath, tempFilePath, true); // true = isPoster
     
     if (success && QFile::exists(tempFilePath)) {
-        qDebug() << "VP_ShowsSettingsDialog: Loading poster from:" << tempFilePath;
+        qDebug() << "VP_ShowsSettingsDialog: Successfully downloaded poster to:" << tempFilePath;
         
+        // Load the downloaded image
         QPixmap poster(tempFilePath);
         if (!poster.isNull()) {
-            // Cache the poster
-            m_posterCache[posterPath] = poster;
+            qDebug() << "VP_ShowsSettingsDialog: Loaded poster, original size:" << poster.size();
             
-            // Scale to fit the label
-            QSize labelSize = ui->label_ShowPoster->size();
+            // Scale to fit the label and cache the scaled version
             QPixmap scaledPoster = poster.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            qDebug() << "VP_ShowsSettingsDialog: Scaled poster to:" << scaledPoster.size();
+            
+            // Add to cache (this will handle size limits)
+            addToCache(posterPath, scaledPoster);
+            
+            // Display the scaled poster
             ui->label_ShowPoster->setPixmap(scaledPoster);
             
-            // Clean up the temp file
-            QFile::remove(tempFilePath);
+            // Clean up the temp file using secure delete from operations_files
+            // Use 1 pass for temp files and allow external files since it's in Data/username/temp
+            if (!OperationsFiles::secureDelete(tempFilePath, 1, false)) {
+                qDebug() << "VP_ShowsSettingsDialog: Failed to securely delete temp file:" << tempFilePath;
+                // Try regular delete as fallback
+                QFile::remove(tempFilePath);
+            } else {
+                qDebug() << "VP_ShowsSettingsDialog: Securely deleted temp file:" << tempFilePath;
+            }
         } else {
-            qDebug() << "VP_ShowsSettingsDialog: Failed to load poster image";
+            qDebug() << "VP_ShowsSettingsDialog: Failed to load poster image from:" << tempFilePath;
             ui->label_ShowPoster->setText("Failed to Load");
-            QFile::remove(tempFilePath);
+            
+            // Clean up the temp file
+            OperationsFiles::secureDelete(tempFilePath, 1, false);
         }
     } else {
         qDebug() << "VP_ShowsSettingsDialog: Failed to download poster";
         ui->label_ShowPoster->setText("Download Failed");
+        
+        // Clean up any partial temp file
         if (QFile::exists(tempFilePath)) {
-            QFile::remove(tempFilePath);
+            OperationsFiles::secureDelete(tempFilePath, 1, false);
         }
     }
+}
+
+void VP_ShowsSettingsDialog::addToCache(const QString& posterPath, const QPixmap& scaledPixmap)
+{
+    if (posterPath.isEmpty() || scaledPixmap.isNull()) {
+        return;
+    }
+    
+    // Estimate the size of the pixmap
+    qint64 pixmapSize = estimatePixmapSize(scaledPixmap);
+    
+    qDebug() << "VP_ShowsSettingsDialog: Adding poster to cache:" << posterPath 
+             << "Size:" << pixmapSize << "bytes";
+    
+    // Create cache entry
+    CachedPoster cachedPoster;
+    cachedPoster.scaledPixmap = scaledPixmap;
+    cachedPoster.posterPath = posterPath;
+    cachedPoster.sizeInBytes = pixmapSize;
+    
+    // Add to cache
+    m_posterCache[posterPath] = cachedPoster;
+    m_currentCacheSize += pixmapSize;
+    
+    // Update access order
+    m_cacheAccessOrder.removeAll(posterPath);
+    m_cacheAccessOrder.append(posterPath);
+    
+    // Enforce cache limits
+    enforeCacheLimits();
+    
+    qDebug() << "VP_ShowsSettingsDialog: Cache now contains" << m_posterCache.size() 
+             << "items, total size:" << m_currentCacheSize << "bytes";
+}
+
+void VP_ShowsSettingsDialog::enforeCacheLimits()
+{
+    // Remove items if we exceed the item count limit or size limit
+    while ((m_posterCache.size() > MAX_CACHE_ITEMS || m_currentCacheSize > MAX_CACHE_SIZE) 
+           && !m_cacheAccessOrder.isEmpty()) {
+        
+        // Remove the least recently used item (first in the list)
+        QString oldestPath = m_cacheAccessOrder.takeFirst();
+        
+        if (m_posterCache.contains(oldestPath)) {
+            qint64 removedSize = m_posterCache[oldestPath].sizeInBytes;
+            m_currentCacheSize -= removedSize;
+            m_posterCache.remove(oldestPath);
+            
+            qDebug() << "VP_ShowsSettingsDialog: Removed from cache:" << oldestPath 
+                     << "Freed:" << removedSize << "bytes";
+        }
+    }
+}
+
+qint64 VP_ShowsSettingsDialog::estimatePixmapSize(const QPixmap& pixmap)
+{
+    if (pixmap.isNull()) {
+        return 0;
+    }
+    
+    // Estimate: width * height * 4 bytes per pixel (RGBA)
+    // This is an approximation as the actual memory usage may vary
+    return static_cast<qint64>(pixmap.width()) * pixmap.height() * 4;
 }
 
 void VP_ShowsSettingsDialog::onImageDownloadFinished(QNetworkReply* reply)

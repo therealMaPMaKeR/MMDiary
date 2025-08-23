@@ -65,9 +65,25 @@ private:
     QString m_currentSearchText;
     QList<VP_ShowsTMDB::ShowInfo> m_currentSuggestions;
     
-    // Image cache
-    QMap<QString, QPixmap> m_posterCache;
+    // Image cache with scaled posters
+    struct CachedPoster {
+        QPixmap scaledPixmap;  // Pre-scaled to label size
+        QString posterPath;     // Original poster path (for cache key)
+        qint64 sizeInBytes;     // Approximate memory size
+    };
+    
+    QMap<QString, CachedPoster> m_posterCache;  // Key is poster path
+    QList<QString> m_cacheAccessOrder;          // Track access order for LRU
+    qint64 m_currentCacheSize;                  // Current cache size in bytes
     QString m_currentDownloadingPoster;
+    
+    // Cache management
+    static constexpr qint64 MAX_CACHE_SIZE = 50 * 1024 * 1024;  // 50 MB limit
+    static constexpr int MAX_CACHE_ITEMS = 20;                  // Maximum number of cached posters
+    
+    void addToCache(const QString& posterPath, const QPixmap& scaledPixmap);
+    void enforeCacheLimits();
+    qint64 estimatePixmapSize(const QPixmap& pixmap);
     
     // State tracking
     bool m_isShowingSuggestions;
