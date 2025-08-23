@@ -34,6 +34,9 @@ private slots:
     void onSuggestionItemClicked(QListWidgetItem* item);
     void onImageDownloadFinished(QNetworkReply* reply);
     
+    // Checkbox handler
+    void onUseTMDBCheckboxToggled(bool checked);
+    
     // Other existing slots
     void onLineEditFocusOut();
     void hideSuggestions(bool itemWasSelected = false);

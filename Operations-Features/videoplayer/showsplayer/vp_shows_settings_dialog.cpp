@@ -81,6 +81,13 @@ VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QS
     
     // Load show-specific settings
     loadShowSettings();
+    
+    // Connect the UseTMDB checkbox to handle button states
+    connect(ui->checkBox_UseTMDB, &QCheckBox::toggled,
+            this, &VP_ShowsSettingsDialog::onUseTMDBCheckboxToggled);
+    
+    // Set initial button states based on checkbox state
+    onUseTMDBCheckboxToggled(ui->checkBox_UseTMDB->isChecked());
 }
 
 VP_ShowsSettingsDialog::~VP_ShowsSettingsDialog()
@@ -222,6 +229,17 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
 void VP_ShowsSettingsDialog::onShowNameTextChanged(const QString& text)
 {
     qDebug() << "VP_ShowsSettingsDialog: onShowNameTextChanged called with text:" << text;
+    
+    // Check if UseTMDB checkbox is checked
+    if (!ui->checkBox_UseTMDB->isChecked()) {
+        qDebug() << "VP_ShowsSettingsDialog: UseTMDB checkbox is unchecked, not searching";
+        // Clear any existing suggestions
+        if (m_isShowingSuggestions) {
+            clearSuggestions();
+            hideSuggestions(false);
+        }
+        return;
+    }
     
     // Check if TMDB API is initialized
     if (!m_tmdbApi) {
@@ -590,6 +608,61 @@ void VP_ShowsSettingsDialog::onSuggestionItemClicked(QListWidgetItem* item)
     
     // Hide suggestions (pass true to indicate an item was selected)
     hideSuggestions(true);
+}
+
+void VP_ShowsSettingsDialog::onUseTMDBCheckboxToggled(bool checked)
+{
+    qDebug() << "VP_ShowsSettingsDialog: UseTMDB checkbox toggled to:" << checked;
+    
+    // Define styles for enabled and disabled states
+    // Using opacity to make disabled buttons appear faded without changing dimensions
+    QString enabledStyle = "";
+    QString disabledStyle = "QPushButton { "
+                           "    color: rgba(255, 255, 255, 0.4); "
+                           "    background-color: rgba(60, 60, 60, 0.3); "
+                           "}";
+    
+    // Update button states based on checkbox state
+    if (checked) {
+        // When TMDB is enabled:
+        // - Disable custom poster and description buttons
+        // - Enable re-acquire show data button
+        ui->pushButton_UseCustomPoster->setEnabled(false);
+        ui->pushButton_UseCustomDesc->setEnabled(false);
+        ui->pushButton_ReacquireShowData->setEnabled(true);
+        
+        // Apply styles
+        ui->pushButton_UseCustomPoster->setStyleSheet(disabledStyle);
+        ui->pushButton_UseCustomDesc->setStyleSheet(disabledStyle);
+        ui->pushButton_ReacquireShowData->setStyleSheet(enabledStyle);
+        
+        qDebug() << "VP_ShowsSettingsDialog: TMDB enabled - disabled custom buttons, enabled re-acquire button";
+    } else {
+        // When TMDB is disabled:
+        // - Enable custom poster and description buttons
+        // - Disable re-acquire show data button
+        ui->pushButton_UseCustomPoster->setEnabled(true);
+        ui->pushButton_UseCustomDesc->setEnabled(true);
+        ui->pushButton_ReacquireShowData->setEnabled(false);
+        
+        // Apply styles
+        ui->pushButton_UseCustomPoster->setStyleSheet(enabledStyle);
+        ui->pushButton_UseCustomDesc->setStyleSheet(enabledStyle);
+        ui->pushButton_ReacquireShowData->setStyleSheet(disabledStyle);
+        
+        // Clear any existing suggestions
+        if (m_isShowingSuggestions) {
+            clearSuggestions();
+            hideSuggestions(false);
+        }
+        
+        // Stop any pending search
+        if (m_searchTimer && m_searchTimer->isActive()) {
+            m_searchTimer->stop();
+        }
+        
+        qDebug() << "VP_ShowsSettingsDialog: TMDB disabled - enabled custom buttons, disabled re-acquire button";
+    }
 }
 
 void VP_ShowsSettingsDialog::downloadAndDisplayPoster(const QString& posterPath)
