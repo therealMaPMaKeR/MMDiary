@@ -992,6 +992,42 @@ void Operations_VP_Shows::openShowSettings()
                 }
             }
         }
+        
+        // Update the show image display
+        if (m_mainWindow->ui->label_VP_Shows_Display_Image) {
+            QPixmap showImage = loadShowImage(m_currentShowFolder);
+            
+            if (!showImage.isNull()) {
+                // Get the actual size of the label widget
+                QSize labelSize = m_mainWindow->ui->label_VP_Shows_Display_Image->size();
+                
+                // Scale the image to fit the label
+                QPixmap scaledImage = showImage.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                m_mainWindow->ui->label_VP_Shows_Display_Image->setPixmap(scaledImage);
+                
+                qDebug() << "Operations_VP_Shows: Updated show image display";
+            } else {
+                // Set a placeholder text if no image is available
+                m_mainWindow->ui->label_VP_Shows_Display_Image->setText(tr("No Image Available"));
+                qDebug() << "Operations_VP_Shows: No image available for show";
+            }
+        }
+        
+        // Update the show description display
+        if (m_mainWindow->ui->textBrowser_VP_Shows_Display_Description) {
+            QString description = loadShowDescription(m_currentShowFolder);
+            
+            if (!description.isEmpty()) {
+                m_mainWindow->ui->textBrowser_VP_Shows_Display_Description->setPlainText(description);
+                qDebug() << "Operations_VP_Shows: Updated show description display";
+            } else {
+                m_mainWindow->ui->textBrowser_VP_Shows_Display_Description->setPlainText(tr("No description available."));
+                qDebug() << "Operations_VP_Shows: No description available for show";
+            }
+        }
+        
+        // Refresh the TV shows list to reflect any changes
+        refreshTVShowsList();
     } else {
         qDebug() << "Operations_VP_Shows: Show settings dialog cancelled";
     }

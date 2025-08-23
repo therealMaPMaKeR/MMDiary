@@ -34,6 +34,7 @@
 #include <QColor>
 #include <QRect>
 #include <QRandomGenerator>
+#include <QBuffer>
 
 VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QString& showPath, QWidget *parent)
     : QDialog(parent)
@@ -972,12 +973,127 @@ void VP_ShowsSettingsDialog::updateAllVideosMetadata()
     }
 }
 
+void VP_ShowsSettingsDialog::updateShowDescription()
+{
+    qDebug() << "VP_ShowsSettingsDialog: Updating show description file";
+    
+    // Get the current description from the text browser
+    QString currentDescription = ui->textBrowser_ShowDescription->toPlainText();
+    
+    // Get parent MainWindow to access encryption key
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsSettingsDialog: Parent is not MainWindow";
+        return;
+    }
+    
+    // Generate the obfuscated folder name
+    QDir showDir(m_showPath);
+    QString obfuscatedName = showDir.dirName();
+    
+    // Create the filename with prefix showdesc_
+    QString descFileName = QString("showdesc_%1").arg(obfuscatedName);
+    QString descFilePath = showDir.absoluteFilePath(descFileName);
+    
+    // If description is empty and file exists, delete it
+    if (currentDescription.isEmpty() || currentDescription == "No description available.") {
+        if (QFile::exists(descFilePath)) {
+            QFile::remove(descFilePath);
+            qDebug() << "VP_ShowsSettingsDialog: Removed empty description file";
+        }
+        return;
+    }
+    
+    // Encrypt and save the description
+    if (OperationsFiles::writeEncryptedFile(descFilePath, mainWindow->user_Key, currentDescription)) {
+        qDebug() << "VP_ShowsSettingsDialog: Successfully saved show description";
+    } else {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to save show description";
+    }
+}
+
+void VP_ShowsSettingsDialog::updateShowImage()
+{
+    qDebug() << "VP_ShowsSettingsDialog: Updating show image file";
+    
+    // Get parent MainWindow to access encryption key and username
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsSettingsDialog: Parent is not MainWindow";
+        return;
+    }
+    
+    // Check if we have a current pixmap in the label
+    QPixmap currentPixmap = ui->label_ShowPoster->pixmap();
+    if (currentPixmap.isNull()) {
+        qDebug() << "VP_ShowsSettingsDialog: No poster image to save";
+        
+        // Delete existing image file if there's no image
+        QDir showDir(m_showPath);
+        QString obfuscatedName = showDir.dirName();
+        QString imageFileName = QString("showimage_%1").arg(obfuscatedName);
+        QString imageFilePath = showDir.absoluteFilePath(imageFileName);
+        
+        if (QFile::exists(imageFilePath)) {
+            QFile::remove(imageFilePath);
+            qDebug() << "VP_ShowsSettingsDialog: Removed empty image file";
+        }
+        return;
+    }
+    
+    // Convert pixmap to byte array
+    QByteArray imageData;
+    QBuffer buffer(&imageData);
+    buffer.open(QIODevice::WriteOnly);
+    currentPixmap.save(&buffer, "PNG");
+    buffer.close();
+    
+    // Generate the obfuscated folder name
+    QDir showDir(m_showPath);
+    QString obfuscatedName = showDir.dirName();
+    
+    // Create the filename with prefix showimage_
+    QString imageFileName = QString("showimage_%1").arg(obfuscatedName);
+    QString imageFilePath = showDir.absoluteFilePath(imageFileName);
+    
+    // Encrypt the image data
+    QByteArray encryptedData = CryptoUtils::Encryption_EncryptBArray(
+        mainWindow->user_Key, imageData, mainWindow->user_Username);
+    
+    if (encryptedData.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to encrypt image data";
+        return;
+    }
+    
+    // Save the encrypted image data to file
+    QFile file(imageFilePath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to open image file for writing:" << file.errorString();
+        return;
+    }
+    
+    qint64 written = file.write(encryptedData);
+    file.close();
+    
+    if (written != encryptedData.size()) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to write complete image data";
+    } else {
+        qDebug() << "VP_ShowsSettingsDialog: Successfully saved show image";
+    }
+}
+
 void VP_ShowsSettingsDialog::accept()
 {
     qDebug() << "VP_ShowsSettingsDialog: OK button pressed, processing changes";
     
     // First update all video metadata with the new show name
     updateAllVideosMetadata();
+    
+    // Save/update the show description file
+    updateShowDescription();
+    
+    // Save/update the show image file
+    updateShowImage();
     
     // Then save the settings
     saveShowSettings();

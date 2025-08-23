@@ -42,6 +42,8 @@ private slots:
     void loadShowSettings();
     void saveShowSettings();
     void updateAllVideosMetadata();
+    void updateShowDescription();
+    void updateShowImage();
 
 private:
     // UI setup and initialization
