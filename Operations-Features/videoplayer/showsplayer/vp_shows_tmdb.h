@@ -47,8 +47,11 @@ public:
     // Set API key (should be stored securely in your app)
     void setApiKey(const QString& apiKey);
     
-    // Search for TV show and get basic info
+    // Search for TV show and get basic info (returns first result)
     bool searchTVShow(const QString& showName, ShowInfo& showInfo);
+    
+    // Search for TV shows and get multiple results
+    QList<ShowInfo> searchTVShows(const QString& showName, int maxResults = 10);
     
     // Get specific episode information
     bool getEpisodeInfo(int tmdbId, int season, int episode, EpisodeInfo& episodeInfo);

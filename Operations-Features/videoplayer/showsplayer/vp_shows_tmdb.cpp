@@ -283,6 +283,111 @@ bool VP_ShowsTMDB::searchTVShow(const QString& showName, ShowInfo& showInfo)
     return true;
 }
 
+QList<VP_ShowsTMDB::ShowInfo> VP_ShowsTMDB::searchTVShows(const QString& showName, int maxResults)
+{
+    QList<ShowInfo> shows;
+    
+    if (showName.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Empty show name provided for multi-search";
+        return shows;
+    }
+    
+    QString sanitizedName = sanitizeShowName(showName);
+    
+    // Validate input
+    InputValidation::ValidationResult validationResult = 
+        InputValidation::validateInput(sanitizedName, InputValidation::InputType::PlainText, 100);
+    
+    if (!validationResult.isValid) {
+        qDebug() << "VP_ShowsTMDB: Invalid show name after sanitization:" << validationResult.errorMessage;
+        return shows;
+    }
+    
+    QString endpoint = "/search/tv";
+    QUrl url(m_baseUrl + endpoint);
+    QUrlQuery query;
+    query.addQueryItem("query", sanitizedName);
+    
+    // Support both API key and Bearer token authentication
+    if (m_apiKey.startsWith("Bearer ") || m_apiKey.length() > 100) {
+        // Use Bearer token in header, don't add API key to query
+        url.setQuery(query);
+    } else {
+        // Add API key to query parameters
+        query.addQueryItem("api_key", m_apiKey);
+        url.setQuery(query);
+    }
+    
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    
+    // Add Bearer token to header if applicable
+    if (m_apiKey.startsWith("Bearer ") || m_apiKey.length() > 100) {
+        QString bearerToken = m_apiKey.startsWith("Bearer ") ? m_apiKey : "Bearer " + m_apiKey;
+        request.setRawHeader("Authorization", bearerToken.toUtf8());
+    }
+    
+    QEventLoop loop;
+    QNetworkReply* reply = m_networkManager->get(request);
+    
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    
+    if (reply->error() != QNetworkReply::NoError) {
+        int httpStatusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        
+        if (httpStatusCode == 429) {
+            qDebug() << "VP_ShowsTMDB: Rate limit exceeded. Please wait before searching again.";
+        } else if (httpStatusCode == 401) {
+            qDebug() << "VP_ShowsTMDB: Authentication failed. Please check your API key.";
+        } else {
+            qDebug() << "VP_ShowsTMDB: Search request failed (" << httpStatusCode << "):" << reply->errorString();
+        }
+        
+        reply->deleteLater();
+        return shows;
+    }
+    
+    QByteArray data = reply->readAll();
+    reply->deleteLater();
+    
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (doc.isNull() || !doc.isObject()) {
+        qDebug() << "VP_ShowsTMDB: Invalid search response";
+        return shows;
+    }
+    
+    QJsonObject response = doc.object();
+    QJsonArray results = response["results"].toArray();
+    
+    if (results.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: No results found for" << sanitizedName;
+        return shows;
+    }
+    
+    // Process up to maxResults shows
+    int count = qMin(results.size(), maxResults);
+    for (int i = 0; i < count; ++i) {
+        QJsonObject showObj = results[i].toObject();
+        
+        ShowInfo show;
+        show.tmdbId = showObj["id"].toInt();
+        show.showName = showObj["name"].toString();
+        show.overview = showObj["overview"].toString();
+        show.posterPath = showObj["poster_path"].toString();
+        show.backdropPath = showObj["backdrop_path"].toString();
+        show.firstAirDate = showObj["first_air_date"].toString();
+        
+        shows.append(show);
+        
+        qDebug() << "VP_ShowsTMDB: Found show #" << (i+1) << ":" << show.showName << "ID:" << show.tmdbId;
+    }
+    
+    qDebug() << "VP_ShowsTMDB: Found total of" << shows.size() << "shows for search:" << sanitizedName;
+    
+    return shows;
+}
+
 bool VP_ShowsTMDB::getEpisodeInfo(int tmdbId, int season, int episode, EpisodeInfo& episodeInfo)
 {
     if (tmdbId <= 0 || season <= 0 || episode <= 0) {
