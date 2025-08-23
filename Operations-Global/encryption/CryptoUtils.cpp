@@ -9,7 +9,11 @@ namespace CryptoUtils {
 
 // Constants
 const int SALT_SIZE = 16; // 16 bytes (128 bits) salt
-const int PBKDF2_ITERATIONS = 1000000; // Number of iterations for PBKDF2
+#ifdef QT_DEBUG
+const int PBKDF2_ITERATIONS = 500; // Number of iterations for PBKDF2 in debug mode
+#else
+const int PBKDF2_ITERATIONS = 1000000; // Number of iterations for PBKDF2 in release mode
+#endif
 
 QByteArray generateSalt() {
     QByteArray salt;
