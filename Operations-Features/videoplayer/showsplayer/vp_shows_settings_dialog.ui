@@ -31,35 +31,35 @@
       </layout>
      </item>
      <item>
-      <widget class="QCheckBox" name="checkBox_2">
+      <widget class="QCheckBox" name="checkBox_Autoplay">
        <property name="text">
         <string>Autoplay</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="checkBox_3">
+      <widget class="QCheckBox" name="checkBox_SkipContent">
        <property name="text">
         <string>Skip Intro/Outro</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="checkBox">
+      <widget class="QCheckBox" name="checkBox_UseTMDB">
        <property name="text">
         <string>Use TMDB to retrieve show data</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="pushButton">
+      <widget class="QPushButton" name="pushButton_ResetWatchHistory">
        <property name="text">
         <string>Reset Watch History</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="pushButton_2">
+      <widget class="QPushButton" name="pushButton_ReacquireShowData">
        <property name="text">
         <string>Re-acquire show data from TMDB</string>
        </property>
