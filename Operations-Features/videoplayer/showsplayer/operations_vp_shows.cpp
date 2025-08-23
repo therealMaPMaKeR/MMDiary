@@ -1448,8 +1448,7 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
                 // Add season to language item
                 languageItem->addChild(seasonItem);
                 
-                // Expand the season by default
-                seasonItem->setExpanded(true);
+                // Don't expand by default - will be handled by expandToLastWatchedEpisode()
             }
         }
         
@@ -1469,7 +1468,7 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
                 // Add error category to language item (it will appear alongside seasons)
                 languageItem->addChild(errorCategory);
                 
-                // Expand the error category so users can see the problematic episodes
+                // Always expand error category so users can see the problematic episodes
                 errorCategory->setExpanded(true);
                 
                 qDebug() << "Operations_VP_Shows: Added" << errorEpisodes.size() 
@@ -1486,8 +1485,7 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         // Add language item to tree widget
         m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->addTopLevelItem(languageItem);
         
-        // Expand the language item by default
-        languageItem->setExpanded(true);
+        // Don't expand by default - will be handled by expandToLastWatchedEpisode()
     }
     
     // Refresh episode colors to ensure watched state is shown
@@ -3928,6 +3926,9 @@ void Operations_VP_Shows::refreshEpisodeTreeColors()
     for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
         refreshItemColors(treeWidget->topLevelItem(i), watchedColor);
     }
+    
+    // Expand to show the last watched episode location
+    expandToLastWatchedEpisode();
 }
 
 // Helper function to recursively refresh colors for an item and its children
@@ -3979,6 +3980,110 @@ void Operations_VP_Shows::refreshItemColors(QTreeWidgetItem* item, const QColor&
         }
     }
 }
+
+// Helper function to expand tree to show last watched episode
+void Operations_VP_Shows::expandToLastWatchedEpisode()
+{
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+        return;
+    }
+    
+    if (!m_watchHistory || m_currentShowFolder.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Cannot expand to last watched - no watch history or show folder";
+        return;
+    }
+    
+    // Get the last watched episode from watch history
+    QString lastWatchedEpisode = m_watchHistory->getLastWatchedEpisode();
+    bool findingLastWatched = !lastWatchedEpisode.isEmpty();
+    
+    if (!findingLastWatched) {
+        qDebug() << "Operations_VP_Shows: No last watched episode, will expand to first unwatched episode";
+    }
+    
+    if (findingLastWatched) {
+        qDebug() << "Operations_VP_Shows: Expanding tree to show last watched episode:" << lastWatchedEpisode;
+    }
+    
+    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+    QColor watchedColor(128, 128, 128); // Grey color for watched items
+    
+    // Function to recursively search for an episode and expand parents
+    std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&, bool)> findAndExpandToEpisode;
+    findAndExpandToEpisode = [&findAndExpandToEpisode, treeWidget, &watchedColor](QTreeWidgetItem* parent, const QString& episodePath, bool findUnwatched) -> QTreeWidgetItem* {
+        for (int i = 0; i < parent->childCount(); ++i) {
+            QTreeWidgetItem* child = parent->child(i);
+            
+            // Check if this is an episode item (no children)
+            if (child->childCount() == 0) {
+                QString itemPath = child->data(0, Qt::UserRole).toString();
+                if (!itemPath.isEmpty()) {
+                    bool shouldSelect = false;
+                    
+                    if (findUnwatched) {
+                        // Looking for first unwatched episode
+                        if (child->foreground(0).color() != watchedColor) {
+                            shouldSelect = true;
+                        }
+                    } else {
+                        // Looking for specific episode by path
+                        QFileInfo itemInfo(itemPath);
+                        QFileInfo episodeInfo(episodePath);
+                        if (itemInfo.fileName() == episodeInfo.fileName()) {
+                            shouldSelect = true;
+                        }
+                    }
+                    
+                    if (shouldSelect) {
+                        // Found the target episode - expand all parent items
+                        QTreeWidgetItem* current = child->parent();
+                        while (current) {
+                            current->setExpanded(true);
+                            current = current->parent();
+                        }
+                        
+                        // Also ensure the episode is visible by scrolling to it
+                        treeWidget->scrollToItem(child, QAbstractItemView::PositionAtCenter);
+                        
+                        qDebug() << "Operations_VP_Shows: Found and expanded to episode:" << child->text(0);
+                        return child;
+                    }
+                }
+            } else {
+                // Recursively search children
+                QTreeWidgetItem* found = findAndExpandToEpisode(child, episodePath, findUnwatched);
+                if (found) {
+                    return found;
+                }
+            }
+        }
+        return nullptr;
+    };
+    
+    // First try to find the last watched episode if we have one
+    if (findingLastWatched) {
+        for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* found = findAndExpandToEpisode(treeWidget->topLevelItem(i), lastWatchedEpisode, false);
+            if (found) {
+                // Successfully found and expanded to the last watched episode
+                return;
+            }
+        }
+        qDebug() << "Operations_VP_Shows: Could not find last watched episode in tree widget";
+    }
+    
+    // If no last watched episode or couldn't find it, expand to first unwatched episode
+    for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* found = findAndExpandToEpisode(treeWidget->topLevelItem(i), QString(), true);
+        if (found) {
+            qDebug() << "Operations_VP_Shows: Expanded to first unwatched episode";
+            return;
+        }
+    }
+    
+    qDebug() << "Operations_VP_Shows: No unwatched episodes found, tree remains collapsed";
+}
+
 // =================
 // CONTEXT MENU ACTION
 // =================

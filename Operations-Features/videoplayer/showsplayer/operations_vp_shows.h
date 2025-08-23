@@ -83,6 +83,7 @@ private:
     void setWatchedStateForItem(QTreeWidgetItem* item, bool watched);
     void refreshEpisodeTreeColors();
     void refreshItemColors(QTreeWidgetItem* item, const QColor& watchedColor);
+    void expandToLastWatchedEpisode();
 
 
 public:
