@@ -32,9 +32,10 @@ void Operations_VP_Shows::loadShowSettings(const QString& showFolderPath)
     // Store the loaded settings
     m_currentShowSettings = settings;
     
-    // Update the checkboxes without triggering state change signals
-    // We need to block signals temporarily to avoid saving the settings again
+    // Checkboxes have been moved to the settings dialog
+    // The settings are now only used internally for autoplay and skip intro/outro functionality
     
+    /* REMOVED - Checkboxes moved to settings dialog
     if (m_mainWindow->ui->checkBox_VP_Shows_Display_SkipContent) {
         bool oldBlockState = m_mainWindow->ui->checkBox_VP_Shows_Display_SkipContent->blockSignals(true);
         m_mainWindow->ui->checkBox_VP_Shows_Display_SkipContent->setChecked(settings.skipIntroOutro);
@@ -48,8 +49,10 @@ void Operations_VP_Shows::loadShowSettings(const QString& showFolderPath)
         m_mainWindow->ui->checkBox_VP_Shows_Display_Autoplay->blockSignals(oldBlockState);
         qDebug() << "Operations_VP_Shows: Set autoplay checkbox to:" << settings.autoplay;
     }
+    */
     
-    qDebug() << "Operations_VP_Shows: Finished loading show settings";
+    qDebug() << "Operations_VP_Shows: Finished loading show settings - Autoplay:" << settings.autoplay
+             << "SkipIntroOutro:" << settings.skipIntroOutro << "UseTMDB:" << settings.useTMDB;
 }
 
 void Operations_VP_Shows::saveShowSettings()
@@ -76,6 +79,9 @@ void Operations_VP_Shows::saveShowSettings()
     }
 }
 
+// REMOVED - Checkbox handlers moved to settings dialog
+// Settings are now updated only from the VP_ShowsSettingsDialog
+/*
 void Operations_VP_Shows::onSkipContentCheckboxChanged(int state)
 {
     qDebug() << "Operations_VP_Shows: Skip intro/outro checkbox changed to state:" << state;
@@ -101,3 +107,4 @@ void Operations_VP_Shows::onAutoplayCheckboxChanged(int state)
     
     qDebug() << "Operations_VP_Shows: Autoplay setting updated to:" << m_currentShowSettings.autoplay;
 }
+*/

@@ -123,7 +123,9 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
         qDebug() << "Operations_VP_Shows: Connected show settings button";
     }
     
-    // Connect checkbox state changes for show settings
+    // REMOVED - Checkbox connections moved to settings dialog
+    // Checkboxes are no longer on the display page
+    /*
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->checkBox_VP_Shows_Display_SkipContent) {
         connect(m_mainWindow->ui->checkBox_VP_Shows_Display_SkipContent, &QCheckBox::stateChanged,
                 this, &Operations_VP_Shows::onSkipContentCheckboxChanged);
@@ -135,6 +137,7 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
                 this, &Operations_VP_Shows::onAutoplayCheckboxChanged);
         qDebug() << "Operations_VP_Shows: Connected autoplay checkbox";
     }
+    */
     
     // Load the TV shows list on initialization
     // We use a small delay to ensure the UI is fully initialized
@@ -964,6 +967,9 @@ void Operations_VP_Shows::openShowSettings()
         
         // Reload show settings to apply any changes
         loadShowSettings(m_currentShowFolder);
+        
+        // Also reload the show display to reflect any name changes
+        displayShowDetails(m_currentShowFolder);
     } else {
         qDebug() << "Operations_VP_Shows: Show settings dialog cancelled";
     }

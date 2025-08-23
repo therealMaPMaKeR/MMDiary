@@ -10,7 +10,8 @@ public:
     // Structure to hold show-specific settings
     struct ShowSettings {
         bool skipIntroOutro = false;
-        bool autoplay = false;
+        bool autoplay = true;  // Changed default to true
+        bool useTMDB = true;   // New field for TMDB usage
         
         // Additional settings can be added here in the future
         // For example:

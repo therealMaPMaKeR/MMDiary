@@ -119,6 +119,7 @@ QString VP_ShowsSettings::serializeSettings(const ShowSettings& settings) const
     // Simple key-value format for settings
     data += QString("skipIntroOutro=%1\n").arg(settings.skipIntroOutro ? "true" : "false");
     data += QString("autoplay=%1\n").arg(settings.autoplay ? "true" : "false");
+    data += QString("useTMDB=%1\n").arg(settings.useTMDB ? "true" : "false");
     
     // Add more settings here as needed in the future
     
@@ -143,6 +144,8 @@ bool VP_ShowsSettings::deserializeSettings(const QString& data, ShowSettings& se
             settings.skipIntroOutro = (value == "true");
         } else if (key == "autoplay") {
             settings.autoplay = (value == "true");
+        } else if (key == "useTMDB") {
+            settings.useTMDB = (value == "true");
         }
         // Add more settings parsing here as needed
     }

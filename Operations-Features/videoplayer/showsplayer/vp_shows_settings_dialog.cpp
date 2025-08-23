@@ -2,6 +2,7 @@
 #include "ui_vp_shows_settings_dialog.h"
 #include "vp_shows_config.h"
 #include "vp_shows_metadata.h"
+#include "vp_shows_settings.h"
 #include "inputvalidation.h"
 #include "operations_files.h"
 #include "CryptoUtils.h"
@@ -18,6 +19,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>
+#include <QMessageBox>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -76,7 +78,8 @@ VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QS
     // Initialize autofill functionality
     setupAutofillUI();
     
-    // TODO: Load show-specific settings here
+    // Load show-specific settings
+    loadShowSettings();
 }
 
 VP_ShowsSettingsDialog::~VP_ShowsSettingsDialog()
@@ -754,6 +757,188 @@ void VP_ShowsSettingsDialog::onImageDownloadFinished(QNetworkReply* reply)
     // This slot can be used for direct network downloads if needed
     // Currently, we're using the TMDB API's downloadImage method
     reply->deleteLater();
+}
+
+void VP_ShowsSettingsDialog::loadShowSettings()
+{
+    qDebug() << "VP_ShowsSettingsDialog: Loading show settings";
+    
+    // Get parent MainWindow to access encryption key and username
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsSettingsDialog: Parent is not MainWindow";
+        return;
+    }
+    
+    // Get encryption key and username
+    QByteArray encryptionKey = mainWindow->user_Key;
+    QString username = mainWindow->user_Username;
+    
+    if (encryptionKey.isEmpty() || username.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Encryption key or username is empty";
+        return;
+    }
+    
+    // Create settings manager
+    VP_ShowsSettings settingsManager(encryptionKey, username);
+    
+    // Load settings for this show
+    if (!settingsManager.loadShowSettings(m_showPath, m_currentSettings)) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to load show settings, using defaults";
+        // loadShowSettings returns true even when file doesn't exist (uses defaults)
+        // So this block only executes on actual errors
+    }
+    
+    // Update UI with loaded settings
+    ui->checkBox_Autoplay->setChecked(m_currentSettings.autoplay);
+    ui->checkBox_SkipContent->setChecked(m_currentSettings.skipIntroOutro);
+    ui->checkBox_UseTMDB->setChecked(m_currentSettings.useTMDB);
+    
+    qDebug() << "VP_ShowsSettingsDialog: Settings loaded - Autoplay:" << m_currentSettings.autoplay
+             << "SkipIntroOutro:" << m_currentSettings.skipIntroOutro
+             << "UseTMDB:" << m_currentSettings.useTMDB;
+}
+
+void VP_ShowsSettingsDialog::saveShowSettings()
+{
+    qDebug() << "VP_ShowsSettingsDialog: Saving show settings";
+    
+    // Get parent MainWindow to access encryption key and username
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsSettingsDialog: Parent is not MainWindow";
+        return;
+    }
+    
+    // Get encryption key and username
+    QByteArray encryptionKey = mainWindow->user_Key;
+    QString username = mainWindow->user_Username;
+    
+    if (encryptionKey.isEmpty() || username.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Encryption key or username is empty";
+        return;
+    }
+    
+    // Update settings from UI
+    m_currentSettings.autoplay = ui->checkBox_Autoplay->isChecked();
+    m_currentSettings.skipIntroOutro = ui->checkBox_SkipContent->isChecked();
+    m_currentSettings.useTMDB = ui->checkBox_UseTMDB->isChecked();
+    
+    qDebug() << "VP_ShowsSettingsDialog: Settings to save - Autoplay:" << m_currentSettings.autoplay
+             << "SkipIntroOutro:" << m_currentSettings.skipIntroOutro
+             << "UseTMDB:" << m_currentSettings.useTMDB;
+    
+    // Create settings manager
+    VP_ShowsSettings settingsManager(encryptionKey, username);
+    
+    // Save the settings
+    if (!settingsManager.saveShowSettings(m_showPath, m_currentSettings)) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to save show settings";
+        QMessageBox::warning(this, tr("Settings Error"), 
+                           tr("Failed to save show settings."));
+    } else {
+        qDebug() << "VP_ShowsSettingsDialog: Show settings saved successfully";
+    }
+}
+
+void VP_ShowsSettingsDialog::updateAllVideosMetadata()
+{
+    qDebug() << "VP_ShowsSettingsDialog: Updating metadata for all videos in show folder";
+    
+    // Get the new show name from the UI
+    QString newShowName = ui->lineEdit_ShowName->text().trimmed();
+    if (newShowName.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Show name is empty, not updating metadata";
+        return;
+    }
+    
+    // Get parent MainWindow to access encryption key and username
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsSettingsDialog: Parent is not MainWindow";
+        return;
+    }
+    
+    // Get encryption key and username
+    QByteArray encryptionKey = mainWindow->user_Key;
+    QString username = mainWindow->user_Username;
+    
+    if (encryptionKey.isEmpty() || username.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Encryption key or username is empty";
+        return;
+    }
+    
+    // Find all video files in the show folder
+    QDir showDir(m_showPath);
+    QStringList videoExtensions;
+    videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
+                   << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+    showDir.setNameFilters(videoExtensions);
+    QStringList videoFiles = showDir.entryList(QDir::Files);
+    
+    qDebug() << "VP_ShowsSettingsDialog: Found" << videoFiles.size() << "video files to update";
+    
+    // Create metadata manager
+    VP_ShowsMetadata metadataManager(encryptionKey, username);
+    
+    int successCount = 0;
+    int failCount = 0;
+    
+    // Update metadata for each video file
+    for (const QString& videoFile : videoFiles) {
+        QString videoPath = showDir.absoluteFilePath(videoFile);
+        qDebug() << "VP_ShowsSettingsDialog: Updating metadata for:" << videoFile;
+        
+        // Read existing metadata
+        VP_ShowsMetadata::ShowMetadata metadata;
+        if (metadataManager.readMetadataFromFile(videoPath, metadata)) {
+            // Update only the show name, preserve episode-specific data
+            metadata.showName = newShowName;
+            
+            // Write updated metadata back
+            if (metadataManager.writeMetadataToFile(videoPath, metadata)) {
+                qDebug() << "VP_ShowsSettingsDialog: Successfully updated metadata for:" << videoFile;
+                successCount++;
+            } else {
+                qDebug() << "VP_ShowsSettingsDialog: Failed to write metadata for:" << videoFile;
+                failCount++;
+            }
+        } else {
+            qDebug() << "VP_ShowsSettingsDialog: Failed to read metadata for:" << videoFile;
+            // Try to create new metadata with just the show name
+            metadata.showName = newShowName;
+            if (metadataManager.writeMetadataToFile(videoPath, metadata)) {
+                qDebug() << "VP_ShowsSettingsDialog: Created new metadata for:" << videoFile;
+                successCount++;
+            } else {
+                qDebug() << "VP_ShowsSettingsDialog: Failed to create metadata for:" << videoFile;
+                failCount++;
+            }
+        }
+    }
+    
+    qDebug() << "VP_ShowsSettingsDialog: Metadata update complete - Success:" << successCount 
+             << "Failed:" << failCount;
+    
+    if (failCount > 0) {
+        QMessageBox::warning(this, tr("Metadata Update"), 
+                           tr("Some video files could not be updated. Successfully updated %1 of %2 files.")
+                           .arg(successCount).arg(videoFiles.size()));
+    }
+}
+
+void VP_ShowsSettingsDialog::accept()
+{
+    qDebug() << "VP_ShowsSettingsDialog: OK button pressed, processing changes";
+    
+    // First update all video metadata with the new show name
+    updateAllVideosMetadata();
+    
+    // Then save the settings
+    saveShowSettings();
+    
+    // Finally, call the base class accept to close the dialog
+    QDialog::accept();
 }
 
 bool VP_ShowsSettingsDialog::eventFilter(QObject* obj, QEvent* event)

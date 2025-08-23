@@ -198,9 +198,9 @@ public:
     // Current show settings
     VP_ShowsSettings::ShowSettings m_currentShowSettings;
     
-    // Handle checkbox state changes
-    void onSkipContentCheckboxChanged(int state);
-    void onAutoplayCheckboxChanged(int state);
+    // REMOVED - Checkbox handlers moved to settings dialog
+    // void onSkipContentCheckboxChanged(int state);
+    // void onAutoplayCheckboxChanged(int state);
     
     // Autoplay functionality
     QStringList getAllAvailableEpisodes() const;  // Get all episodes in playback order

@@ -8,6 +8,7 @@
 #include <QNetworkReply>
 #include <memory>
 #include "vp_shows_tmdb.h"
+#include "vp_shows_settings.h"
 
 namespace Ui {
 class VP_ShowsSettingsDialog;
@@ -21,6 +22,10 @@ public:
     explicit VP_ShowsSettingsDialog(const QString& showName, const QString& showPath, QWidget *parent = nullptr);
     ~VP_ShowsSettingsDialog();
 
+public slots:
+    // Override accept to handle OK button
+    void accept() override;
+
 private slots:
     // Autofill/Search functionality slots
     void onShowNameTextChanged(const QString& text);
@@ -32,6 +37,11 @@ private slots:
     // Other existing slots
     void onLineEditFocusOut();
     void hideSuggestions(bool itemWasSelected = false);
+    
+    // Settings related slots
+    void loadShowSettings();
+    void saveShowSettings();
+    void updateAllVideosMetadata();
 
 private:
     // UI setup and initialization
@@ -54,6 +64,9 @@ private:
     // Load show metadata from encrypted files
     QString loadActualShowName();  // Get show name from video metadata
     void loadAndDisplayOriginalShowData();  // Load and display original poster/description
+    
+    // Settings management
+    VP_ShowsSettings::ShowSettings m_currentSettings;
     
 private:
     Ui::VP_ShowsSettingsDialog *ui;
