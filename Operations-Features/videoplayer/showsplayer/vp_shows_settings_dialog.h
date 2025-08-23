@@ -31,7 +31,7 @@ private slots:
     
     // Other existing slots
     void onLineEditFocusOut();
-    void hideSuggestions();
+    void hideSuggestions(bool itemWasSelected = false);
 
 private:
     // UI setup and initialization
@@ -49,6 +49,7 @@ private:
     
     // Event handling
     bool eventFilter(QObject* obj, QEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
     
     // Load show metadata from encrypted files
     QString loadActualShowName();  // Get show name from video metadata
@@ -95,6 +96,7 @@ private:
     // State tracking
     bool m_isShowingSuggestions;
     int m_hoveredItemIndex;  // Track hovered item index separately from selection
+    bool m_itemJustSelected;  // Flag to prevent restoration after selection
     
     // Constants
     static constexpr int SEARCH_DELAY_MS = 500;  // Debounce delay for search

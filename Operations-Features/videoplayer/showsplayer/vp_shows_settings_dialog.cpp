@@ -11,6 +11,7 @@
 #include <QListView>
 #include <QEvent>
 #include <QFocusEvent>
+#include <QKeyEvent>
 #include <QPixmap>
 #include <QMessageBox>
 #include <QVBoxLayout>
@@ -44,6 +45,7 @@ VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QS
     , m_currentCacheSize(0)
     , m_isShowingSuggestions(false)
     , m_hoveredItemIndex(-1)
+    , m_itemJustSelected(false)
 {
     ui->setupUi(this);
     
@@ -237,7 +239,7 @@ void VP_ShowsSettingsDialog::onShowNameTextChanged(const QString& text)
         qDebug() << "VP_ShowsSettingsDialog: Text too short (< 2 chars), clearing suggestions";
         if (m_isShowingSuggestions) {
             clearSuggestions();
-            hideSuggestions();
+            hideSuggestions(false);  // false = restore original values
         }
         return;
     }
@@ -298,7 +300,7 @@ void VP_ShowsSettingsDialog::performTMDBSearch(const QString& searchText)
     } else {
         qDebug() << "VP_ShowsSettingsDialog: No results found for:" << searchText;
         clearSuggestions();
-        hideSuggestions();
+        hideSuggestions(false);  // false = restore original values when no results
     }
 }
 
@@ -316,7 +318,7 @@ void VP_ShowsSettingsDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowIn
     
     if (shows.isEmpty()) {
         qDebug() << "VP_ShowsSettingsDialog: Shows list is empty, hiding suggestions";
-        hideSuggestions();
+        hideSuggestions(false);  // false = restore original values when empty
         return;
     }
     
@@ -376,6 +378,7 @@ void VP_ShowsSettingsDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowIn
     
     // Reset hover index and clear selection when showing new suggestions
     m_hoveredItemIndex = -1;
+    m_itemJustSelected = false;  // Clear the selection flag
     m_suggestionsList->clearSelection();
     m_suggestionsList->setCurrentItem(nullptr);
     
@@ -411,13 +414,14 @@ void VP_ShowsSettingsDialog::clearSuggestions()
     // m_currentSuggestions.clear();  // REMOVED - this was causing the bug
 }
 
-void VP_ShowsSettingsDialog::hideSuggestions()
+void VP_ShowsSettingsDialog::hideSuggestions(bool itemWasSelected)
 {
-    qDebug() << "VP_ShowsSettingsDialog: hideSuggestions() called";
+    qDebug() << "VP_ShowsSettingsDialog: hideSuggestions() called, itemWasSelected:" << itemWasSelected;
     
-    // Clear the flag and hover index
+    // Clear the flags and hover index
     m_isShowingSuggestions = false;
     m_hoveredItemIndex = -1;
+    // Note: We don't clear m_itemJustSelected here because it needs to be checked in the mouse leave event
     
     if (m_suggestionsList) {
         // Clear selection before hiding
@@ -426,13 +430,18 @@ void VP_ShowsSettingsDialog::hideSuggestions()
         m_suggestionsList->hide();
     }
     
-    // Restore original poster and description when hiding suggestions
-    if (!m_originalPoster.isNull()) {
-        ui->label_ShowPoster->setPixmap(m_originalPoster);
-    } else {
-        ui->label_ShowPoster->setText("No Poster Available");
+    // Only restore original poster and description if no item was selected
+    // Note: We don't restore the show name field - user can type freely
+    if (!itemWasSelected) {
+        // Restore original poster and description
+        if (!m_originalPoster.isNull()) {
+            ui->label_ShowPoster->setPixmap(m_originalPoster);
+        } else {
+            ui->label_ShowPoster->setText("No Poster Available");
+        }
+        ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
     }
-    ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
+    // If an item was selected, keep the selected item's poster and description
     
     // Clear the current suggestions when hiding
     m_currentSuggestions.clear();
@@ -572,8 +581,11 @@ void VP_ShowsSettingsDialog::onSuggestionItemClicked(QListWidgetItem* item)
         m_searchTimer->stop();
     }
     
-    // Hide suggestions
-    hideSuggestions();
+    // Set flag to prevent restoration on mouse leave
+    m_itemJustSelected = true;
+    
+    // Hide suggestions (pass true to indicate an item was selected)
+    hideSuggestions(true);
 }
 
 void VP_ShowsSettingsDialog::downloadAndDisplayPoster(const QString& posterPath)
@@ -787,18 +799,23 @@ bool VP_ShowsSettingsDialog::eventFilter(QObject* obj, QEvent* event)
             return false;
         }
         else if (event->type() == QEvent::Leave) {
-            qDebug() << "VP_ShowsSettingsDialog: Mouse left suggestions viewport, restoring original display";
+            // Check if an item was just selected - if so, don't restore originals
+            if (m_itemJustSelected) {
+                qDebug() << "VP_ShowsSettingsDialog: Mouse left suggestions viewport after selection, keeping selected values";
+                m_itemJustSelected = false;  // Clear the flag
+            } else {
+                qDebug() << "VP_ShowsSettingsDialog: Mouse left suggestions viewport, restoring original display";
+                // Restore original poster and description when mouse leaves suggestions
+                if (!m_originalPoster.isNull()) {
+                    ui->label_ShowPoster->setPixmap(m_originalPoster);
+                } else {
+                    ui->label_ShowPoster->setText("No Poster Available");
+                }
+                ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
+            }
+            
             m_hoveredItemIndex = -1;
             m_suggestionsList->clearSelection();
-            
-            // Restore original poster and description when mouse leaves suggestions
-            if (!m_originalPoster.isNull()) {
-                ui->label_ShowPoster->setPixmap(m_originalPoster);
-            } else {
-                ui->label_ShowPoster->setText("No Poster Available");
-            }
-            ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
-            
             return false;
         }
         else if (event->type() == QEvent::Enter) {
@@ -841,7 +858,7 @@ bool VP_ShowsSettingsDialog::eventFilter(QObject* obj, QEvent* event)
                 qDebug() << "VP_ShowsSettingsDialog: Click outside suggestions at pos:" << pos;
                 qDebug() << "VP_ShowsSettingsDialog: Suggestions rect:" << suggestionsRect;
                 qDebug() << "VP_ShowsSettingsDialog: LineEdit rect:" << lineEditRect;
-                hideSuggestions();
+                hideSuggestions(false);  // false = restore original values when clicking outside
             }
         }
         return false;
@@ -854,6 +871,22 @@ void VP_ShowsSettingsDialog::onLineEditFocusOut()
 {
     // Additional handling for focus out if needed
     qDebug() << "VP_ShowsSettingsDialog: Line edit lost focus";
+}
+
+void VP_ShowsSettingsDialog::keyPressEvent(QKeyEvent* event)
+{
+    // Handle ESC key to close suggestions and restore original values
+    if (event->key() == Qt::Key_Escape) {
+        if (m_suggestionsList && m_suggestionsList->isVisible()) {
+            qDebug() << "VP_ShowsSettingsDialog: ESC pressed, hiding suggestions and restoring original values";
+            hideSuggestions(false);  // false = no item was selected, restore originals
+            event->accept();
+            return;
+        }
+    }
+    
+    // Pass to base class for default handling
+    QDialog::keyPressEvent(event);
 }
 
 void VP_ShowsSettingsDialog::displayShowInfo(const VP_ShowsTMDB::ShowInfo& showInfo)
