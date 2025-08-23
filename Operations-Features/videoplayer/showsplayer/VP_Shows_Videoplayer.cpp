@@ -9,6 +9,7 @@
 #include <QApplication>
 #include <QScreen>
 #include <QTimer>
+#include <QFocusEvent>
 
 // Custom clickable slider class for seeking in video
 class VP_Shows_Videoplayer::ClickableSlider : public QSlider
@@ -168,21 +169,25 @@ void VP_Shows_Videoplayer::createControls()
     m_playButton = new QPushButton(this);
     m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
     m_playButton->setToolTip(tr("Play"));
+    m_playButton->setFocusPolicy(Qt::NoFocus);  // Prevent button from taking keyboard focus
     
     // Stop button
     m_stopButton = new QPushButton(this);
     m_stopButton->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
     m_stopButton->setToolTip(tr("Stop"));
+    m_stopButton->setFocusPolicy(Qt::NoFocus);  // Prevent button from taking keyboard focus
     
     // Fullscreen button
     m_fullScreenButton = new QPushButton(this);
     m_fullScreenButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarMaxButton));
     m_fullScreenButton->setToolTip(tr("Full Screen (F11)"));
+    m_fullScreenButton->setFocusPolicy(Qt::NoFocus);  // Prevent button from taking keyboard focus
     
     // Position slider - use custom clickable slider
     m_positionSlider = createClickableSlider();
     m_positionSlider->setRange(0, 0);
     m_positionSlider->setToolTip(tr("Click to seek"));
+    m_positionSlider->setFocusPolicy(Qt::ClickFocus);  // Only take focus when clicked, and give it up easily
     
     // Volume slider - use custom clickable slider, extended range to 150%
     m_volumeSlider = createClickableSlider();
@@ -190,6 +195,7 @@ void VP_Shows_Videoplayer::createControls()
     m_volumeSlider->setValue(70);
     m_volumeSlider->setMaximumWidth(100);
     m_volumeSlider->setToolTip(tr("Volume (up to 150%)"));
+    m_volumeSlider->setFocusPolicy(Qt::ClickFocus);  // Only take focus when clicked, and give it up easily
     
     // Labels
     m_positionLabel = new QLabel("00:00", this);
@@ -423,6 +429,9 @@ void VP_Shows_Videoplayer::setPosition(qint64 position)
 {
     qDebug() << "VP_Shows_Videoplayer: Setting position to" << position;
     m_mediaPlayer->setPosition(position);
+    
+    // Force update the slider position when manually setting position (e.g., for resume)
+    forceUpdateSliderPosition(position);
 }
 
 void VP_Shows_Videoplayer::startInFullScreen()
@@ -780,6 +789,9 @@ void VP_Shows_Videoplayer::on_playButton_clicked()
     } else {
         play();
     }
+    
+    // Return focus to main widget for keyboard shortcuts
+    ensureKeyboardFocus();
 }
 
 void VP_Shows_Videoplayer::on_positionSlider_sliderMoved(int position)
@@ -798,18 +810,26 @@ void VP_Shows_Videoplayer::on_positionSlider_sliderReleased()
 {
     qDebug() << "VP_Shows_Videoplayer: Position slider released";
     m_isSliderBeingMoved = false;
+    
+    // Return focus to main widget for keyboard shortcuts after a small delay
+    // This prevents focus fighting while user is still interacting
+    QTimer::singleShot(100, this, &VP_Shows_Videoplayer::ensureKeyboardFocus);
 }
 
 void VP_Shows_Videoplayer::on_volumeSlider_sliderMoved(int position)
 {
     qDebug() << "VP_Shows_Videoplayer: Volume slider moved to" << position << "%";
     setVolume(position);
+    // Don't steal focus while user is adjusting volume
 }
 
 void VP_Shows_Videoplayer::on_fullScreenButton_clicked()
 {
     qDebug() << "VP_Shows_Videoplayer: Fullscreen button clicked";
     toggleFullScreen();
+    
+    // Return focus to main widget for keyboard shortcuts
+    ensureKeyboardFocus();
 }
 
 void VP_Shows_Videoplayer::updatePosition(qint64 position)
@@ -819,6 +839,21 @@ void VP_Shows_Videoplayer::updatePosition(qint64 position)
     }
     m_positionLabel->setText(formatTime(position));
     emit positionChanged(position);
+}
+
+void VP_Shows_Videoplayer::forceUpdateSliderPosition(qint64 position)
+{
+    qDebug() << "VP_Shows_Videoplayer: Force updating slider position to" << position;
+    // Temporarily disable the flag to force update
+    bool wasBeingMoved = m_isSliderBeingMoved;
+    m_isSliderBeingMoved = false;
+    
+    // Update the slider
+    m_positionSlider->setValue(static_cast<int>(position));
+    m_positionLabel->setText(formatTime(position));
+    
+    // Restore the flag
+    m_isSliderBeingMoved = wasBeingMoved;
 }
 
 void VP_Shows_Videoplayer::updateDuration(qint64 duration)
@@ -1005,6 +1040,24 @@ void VP_Shows_Videoplayer::saveWatchProgress()
     m_watchHistory->updateWatchProgress(m_episodePath, currentPosition, duration, m_episodeIdentifier);
     m_watchHistory->saveHistory();
     m_lastSavedPosition = currentPosition;
+}
+
+void VP_Shows_Videoplayer::ensureKeyboardFocus()
+{
+    qDebug() << "VP_Shows_Videoplayer: Ensuring keyboard focus";
+    
+    // Set focus to the main widget to ensure keyboard shortcuts work
+    setFocus(Qt::OtherFocusReason);
+    
+    // Also raise and activate the window to be safe
+    raise();
+    activateWindow();
+}
+
+void VP_Shows_Videoplayer::focusInEvent(QFocusEvent *event)
+{
+    qDebug() << "VP_Shows_Videoplayer: Focus in event, reason:" << event->reason();
+    QWidget::focusInEvent(event);
 }
 
 void VP_Shows_Videoplayer::initializeWatchProgress()

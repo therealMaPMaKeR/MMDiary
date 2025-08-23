@@ -1801,6 +1801,14 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                     if (resumePosition > 1000) { // Only resume if more than 1 second
                         qDebug() << "Operations_VP_Shows: Resuming playback from:" << resumePosition << "ms";
                         m_episodePlayer->setPosition(resumePosition);
+                        
+                        // Add a small delay to ensure the slider updates properly during autoplay resume
+                        QTimer::singleShot(50, [this, resumePosition]() {
+                            if (m_episodePlayer) {
+                                qDebug() << "Operations_VP_Shows: Forcing slider update for autoplay resume";
+                                m_episodePlayer->forceUpdateSliderPosition(resumePosition);
+                            }
+                        });
                     }
                 }
                 

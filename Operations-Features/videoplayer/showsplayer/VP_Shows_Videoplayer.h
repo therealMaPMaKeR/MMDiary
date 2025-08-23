@@ -49,6 +49,8 @@ public:
     void setWatchHistoryManager(VP_ShowsWatchHistory* watchHistory);
     void setEpisodeInfo(const QString& showPath, const QString& episodePath, const QString& episodeIdentifier = QString());
 
+    void forceUpdateSliderPosition(qint64 position);
+
 signals:
     void errorOccurred(const QString& error);
     void playbackStateChanged(QMediaPlayer::PlaybackState state);
@@ -78,6 +80,7 @@ protected:
     void wheelEvent(QWheelEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void focusInEvent(QFocusEvent *event) override;
 
 private:
     void setupUI();
@@ -137,6 +140,9 @@ private:
     void initializeWatchProgress();
     void finalizeWatchProgress();
     bool shouldUpdateProgress(qint64 currentPosition) const;
+    
+    // Focus management
+    void ensureKeyboardFocus();
 };
 
 #endif // VP_SHOWS_VIDEOPLAYER_H
