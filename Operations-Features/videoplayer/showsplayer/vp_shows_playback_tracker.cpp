@@ -16,8 +16,19 @@ VP_ShowsPlaybackTracker::VP_ShowsPlaybackTracker(Operations_VP_Shows* parent)
     qDebug() << "VP_ShowsPlaybackTracker: Initializing playback tracker";
     
     // Setup progress update timer
-    m_progressTimer->setInterval(VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS * 1000);
-    connect(m_progressTimer, &QTimer::timeout, this, &VP_ShowsPlaybackTracker::updateProgress);
+    int intervalMs = VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS * 1000;
+    m_progressTimer->setInterval(intervalMs);
+    qDebug() << "VP_ShowsPlaybackTracker: Timer interval set to:" << intervalMs << "ms (" << VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS << "seconds)";
+    
+    QMetaObject::Connection timerConnection = connect(m_progressTimer, &QTimer::timeout, this, &VP_ShowsPlaybackTracker::updateProgress);
+    if (timerConnection) {
+        qDebug() << "VP_ShowsPlaybackTracker: Successfully connected timer to updateProgress";
+    } else {
+        qDebug() << "VP_ShowsPlaybackTracker: ERROR - Failed to connect timer to updateProgress!";
+    }
+    
+    // Verify COMPLETION_THRESHOLD_MS value
+    qDebug() << "VP_ShowsPlaybackTracker: COMPLETION_THRESHOLD_MS =" << VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS << "ms (" << (VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS / 1000) << "seconds)";
 }
 
 VP_ShowsPlaybackTracker::~VP_ShowsPlaybackTracker()
@@ -124,8 +135,14 @@ void VP_ShowsPlaybackTracker::startTracking(const QString& episodePath, VP_Shows
     
     // Capture initial position
     qint64 initialPosition = player->position();
+    qint64 initialDuration = player->duration();
     m_lastSavedPosition = initialPosition;
     qDebug() << "VP_ShowsPlaybackTracker: Initial position captured:" << initialPosition << "ms";
+    qDebug() << "VP_ShowsPlaybackTracker: Initial duration:" << initialDuration << "ms";
+    
+    if (initialDuration <= 0) {
+        qDebug() << "VP_ShowsPlaybackTracker: WARNING - Duration not yet available at start of tracking";
+    }
     
     // Check for resume position
     qint64 resumePosition = getResumePosition(episodePath);
@@ -151,12 +168,21 @@ void VP_ShowsPlaybackTracker::startTracking(const QString& episodePath, VP_Shows
     m_progressTimer->setInterval(2000);  // 2 seconds for first save
     m_progressTimer->start();
     
+    if (m_progressTimer->isActive()) {
+        qDebug() << "VP_ShowsPlaybackTracker: Timer successfully started and is active";
+    } else {
+        qDebug() << "VP_ShowsPlaybackTracker: ERROR - Timer failed to start!";
+    }
+    
     // After first save, switch to normal interval
     QTimer::singleShot(2100, [this]() {
         if (m_progressTimer->isActive()) {
-            m_progressTimer->setInterval(VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS * 1000);
+            int normalInterval = VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS * 1000;
+            m_progressTimer->setInterval(normalInterval);
             qDebug() << "VP_ShowsPlaybackTracker: Switched to normal save interval:" 
-                     << VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS << "seconds";
+                     << normalInterval << "ms (" << VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS << "seconds)";
+        } else {
+            qDebug() << "VP_ShowsPlaybackTracker: Timer not active when trying to switch interval";
         }
     });
     
@@ -226,9 +252,14 @@ void VP_ShowsPlaybackTracker::stopTracking(qint64 finalPosition)
     m_lastSavedPosition = 0;
     
     // Emit tracking stopped signal
-    emit trackingStopped(episodePath, finalPosition >= 0 ? finalPosition : m_lastSavedPosition);
+    qint64 emittedPosition = finalPosition >= 0 ? finalPosition : m_lastSavedPosition;
+    emit trackingStopped(episodePath, emittedPosition);
     
     qDebug() << "VP_ShowsPlaybackTracker: Tracking stopped successfully";
+    qDebug() << "VP_ShowsPlaybackTracker: === TRACKING SUMMARY ===";
+    qDebug() << "VP_ShowsPlaybackTracker:   Episode:" << episodePath;
+    qDebug() << "VP_ShowsPlaybackTracker:   Final position:" << emittedPosition << "ms";
+    qDebug() << "VP_ShowsPlaybackTracker:   Timer was active:" << (m_progressTimer && m_progressTimer->isActive());
 }
 
 qint64 VP_ShowsPlaybackTracker::getResumePosition(const QString& episodePath) const
@@ -349,13 +380,16 @@ bool VP_ShowsPlaybackTracker::saveHistory()
 void VP_ShowsPlaybackTracker::markCurrentEpisodeCompleted()
 {
     if (!m_watchHistory || m_currentEpisodePath.isEmpty()) {
+        qDebug() << "VP_ShowsPlaybackTracker: Cannot mark episode completed - missing components";
         return;
     }
     
-    qDebug() << "VP_ShowsPlaybackTracker: Marking episode as completed:" << m_currentEpisodePath;
+    qDebug() << "VP_ShowsPlaybackTracker: *** MARKING EPISODE AS COMPLETED ***";
+    qDebug() << "VP_ShowsPlaybackTracker: Episode:" << m_currentEpisodePath;
     m_watchHistory->markEpisodeCompleted(m_currentEpisodePath);
     m_watchHistory->saveHistory();
     
+    qDebug() << "VP_ShowsPlaybackTracker: Emitting episodeCompleted signal";
     emit episodeCompleted(m_currentEpisodePath);
 }
 
@@ -442,18 +476,35 @@ int VP_ShowsPlaybackTracker::getCompletedEpisodeCount() const
 
 void VP_ShowsPlaybackTracker::updateProgress()
 {
-    qDebug() << "VP_ShowsPlaybackTracker: updateProgress called";
+    static int updateCallCount = 0;
+    updateCallCount++;
+    qDebug() << "VP_ShowsPlaybackTracker: === updateProgress called (call #" << updateCallCount << ") ===";
     
     if (!m_isTracking || !m_currentPlayer || !m_watchHistory || m_currentEpisodePath.isEmpty()) {
         qDebug() << "VP_ShowsPlaybackTracker: Cannot update progress - missing required components";
+        qDebug() << "VP_ShowsPlaybackTracker:   - m_isTracking:" << m_isTracking;
+        qDebug() << "VP_ShowsPlaybackTracker:   - m_currentPlayer:" << (m_currentPlayer != nullptr);
+        qDebug() << "VP_ShowsPlaybackTracker:   - m_watchHistory:" << (m_watchHistory != nullptr);
+        qDebug() << "VP_ShowsPlaybackTracker:   - m_currentEpisodePath:" << m_currentEpisodePath;
         return;
     }
+    
+    qDebug() << "VP_ShowsPlaybackTracker: All components present, getting player position...";
     
     // Get current position and duration from player
     qint64 position = m_currentPlayer->position();
     qint64 duration = m_currentPlayer->duration();
     
-    qDebug() << "VP_ShowsPlaybackTracker: Player position:" << position << "ms, duration:" << duration << "ms";
+    qDebug() << "VP_ShowsPlaybackTracker: Got position:" << position << "ms, duration:" << duration << "ms";
+    qDebug() << "VP_ShowsPlaybackTracker: Last saved position:" << m_lastSavedPosition << "ms";
+    qDebug() << "VP_ShowsPlaybackTracker: Player state valid:" << (m_currentPlayer != nullptr);
+    
+    // Check if we have valid duration
+    if (duration <= 0) {
+        qDebug() << "VP_ShowsPlaybackTracker: ERROR - Duration is invalid:" << duration << "ms";
+        qDebug() << "VP_ShowsPlaybackTracker: Cannot proceed without valid duration";
+        return;
+    }
     
     // Special case: if position is 0 but we have a saved position, don't overwrite
     if (position == 0 && m_lastSavedPosition > 0) {
@@ -463,49 +514,66 @@ void VP_ShowsPlaybackTracker::updateProgress()
     
     // Skip if position hasn't changed significantly
     if (position > 0 && qAbs(position - m_lastSavedPosition) < 1000) {
-        qDebug() << "VP_ShowsPlaybackTracker: Position change too small, skipping save";
+        qDebug() << "VP_ShowsPlaybackTracker: Position change too small (" << qAbs(position - m_lastSavedPosition) << "ms), skipping save";
         return;
     }
+    
+    qDebug() << "VP_ShowsPlaybackTracker: Position change is significant, proceeding with update";
     
     // Update last saved position
     m_lastSavedPosition = position;
     
     // Update watch progress
-    qDebug() << "VP_ShowsPlaybackTracker: Updating progress for episode:" << m_currentEpisodePath;
     m_watchHistory->updateWatchProgress(m_currentEpisodePath, position, duration);
     
     // Check for completion - emit signal when near end
     if (duration > 0) {
         qint64 remaining = duration - position;
         
-        // Log when getting close to threshold
-        if (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS + 30000) { // Within 2.5 minutes
-            qDebug() << "VP_ShowsPlaybackTracker: Near threshold - Position:" << position 
-                     << "Duration:" << duration << "Remaining:" << remaining << "ms"
-                     << "Threshold:" << VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS << "ms";
+        // Only log position info when getting close (within 3 minutes)
+        if (remaining <= 180000) { // 3 minutes in ms
+            qDebug() << "VP_ShowsPlaybackTracker: === POSITION CHECK (near end) ===";
+            qDebug() << "VP_ShowsPlaybackTracker:   Position:" << position << "ms (" << (position/1000) << "s)";
+            qDebug() << "VP_ShowsPlaybackTracker:   Duration:" << duration << "ms (" << (duration/1000) << "s)";
+            qDebug() << "VP_ShowsPlaybackTracker:   Remaining:" << remaining << "ms (" << (remaining/1000) << "s)";
+            qDebug() << "VP_ShowsPlaybackTracker:   Threshold:" << VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS << "ms (" << (VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS/1000) << "s)";
+            qDebug() << "VP_ShowsPlaybackTracker:   Is within threshold?" << (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS);
         }
         
         // Check if near end (within 2 minutes)
         if (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && remaining > 0) {
             // Only emit once per episode - use a simple flag approach
             static QString lastNearCompletionEpisode;
+            qDebug() << "VP_ShowsPlaybackTracker: Near end condition MET!";
+            qDebug() << "VP_ShowsPlaybackTracker: Last completion episode:" << lastNearCompletionEpisode;
+            qDebug() << "VP_ShowsPlaybackTracker: Current episode:" << m_currentEpisodePath;
+            qDebug() << "VP_ShowsPlaybackTracker: Are they different?" << (lastNearCompletionEpisode != m_currentEpisodePath);
+            
             if (lastNearCompletionEpisode != m_currentEpisodePath) {
                 qDebug() << "VP_ShowsPlaybackTracker: *** EPISODE NEAR COMPLETION ***";
                 qDebug() << "VP_ShowsPlaybackTracker: Episode path:" << m_currentEpisodePath;
                 qDebug() << "VP_ShowsPlaybackTracker: Remaining time:" << remaining << "ms";
-                qDebug() << "VP_ShowsPlaybackTracker: Emitting episodeNearCompletion signal";
+                qDebug() << "VP_ShowsPlaybackTracker: About to emit episodeNearCompletion signal";
                 emit episodeNearCompletion(m_currentEpisodePath);
+                qDebug() << "VP_ShowsPlaybackTracker: Signal emitted!";
                 lastNearCompletionEpisode = m_currentEpisodePath;
+                qDebug() << "VP_ShowsPlaybackTracker: Updated lastNearCompletionEpisode to:" << lastNearCompletionEpisode;
+            } else {
+                qDebug() << "VP_ShowsPlaybackTracker: Signal already emitted for this episode";
             }
             
             // If within 10 seconds of end, mark as completed
             if (remaining <= 10000) {
+                qDebug() << "VP_ShowsPlaybackTracker: Within 10 seconds of end, marking as completed";
                 markCurrentEpisodeCompleted();
             }
         }
+    } else {
+        qDebug() << "VP_ShowsPlaybackTracker: Duration is 0 or negative:" << duration;
     }
     
     // Save to disk
+    qDebug() << "VP_ShowsPlaybackTracker: About to save history to disk...";
     if (m_watchHistory->saveHistory()) {
         qDebug() << "VP_ShowsPlaybackTracker: History saved successfully";
         emit progressSaved();
@@ -518,27 +586,48 @@ void VP_ShowsPlaybackTracker::updateProgress()
 
 void VP_ShowsPlaybackTracker::connectPlayerSignals(VP_Shows_Videoplayer* player)
 {
-    if (!player) return;
+    if (!player) {
+        qDebug() << "VP_ShowsPlaybackTracker: ERROR - Player is null, cannot connect signals";
+        return;
+    }
     
     qDebug() << "VP_ShowsPlaybackTracker: Connecting to player signals";
+    qDebug() << "VP_ShowsPlaybackTracker: Player pointer:" << player;
     
     // Connect to position changed for continuous tracking
-    connect(player, &VP_Shows_Videoplayer::positionChanged,
+    QMetaObject::Connection posConnection = connect(player, &VP_Shows_Videoplayer::positionChanged,
             this, [this](qint64 position) {
                 if (m_isTracking && position > 0) {
                     // Track the latest position but don't save every time
                     m_lastSavedPosition = position;
+                    // Add periodic debug to see position updates
+                    static int posUpdateCounter = 0;
+                    if (++posUpdateCounter % 10 == 0) { // Log every 10th update
+                        qDebug() << "VP_ShowsPlaybackTracker: Position update #" << posUpdateCounter << ": " << position << "ms";
+                    }
                 }
             });
     
+    if (posConnection) {
+        qDebug() << "VP_ShowsPlaybackTracker: Successfully connected to positionChanged signal";
+    } else {
+        qDebug() << "VP_ShowsPlaybackTracker: ERROR - Failed to connect to positionChanged signal";
+    }
+    
     // Connect to aboutToClose signal to capture final position
-    connect(player, &VP_Shows_Videoplayer::aboutToClose,
+    QMetaObject::Connection closeConnection = connect(player, &VP_Shows_Videoplayer::aboutToClose,
             this, [this](qint64 finalPosition) {
                 qDebug() << "VP_ShowsPlaybackTracker: Received aboutToClose signal with position:" << finalPosition << "ms";
                 if (m_isTracking) {
                     stopTracking(finalPosition);
                 }
             }, Qt::DirectConnection);
+    
+    if (closeConnection) {
+        qDebug() << "VP_ShowsPlaybackTracker: Successfully connected to aboutToClose signal";
+    } else {
+        qDebug() << "VP_ShowsPlaybackTracker: ERROR - Failed to connect to aboutToClose signal";
+    }
 }
 
 void VP_ShowsPlaybackTracker::disconnectPlayerSignals()

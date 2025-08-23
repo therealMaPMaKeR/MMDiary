@@ -51,6 +51,10 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
 {
     qDebug() << "Operations_VP_Shows: Constructor called";
     qDebug() << "Operations_VP_Shows: Autoplay system initialized";
+    qDebug() << "Operations_VP_Shows: === CONFIGURATION ===";
+    qDebug() << "Operations_VP_Shows:   COMPLETION_THRESHOLD_MS:" << VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS << "ms (" << (VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS/1000) << "seconds)";
+    qDebug() << "Operations_VP_Shows:   SAVE_INTERVAL_SECONDS:" << VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS << "seconds";
+    qDebug() << "Operations_VP_Shows:   Initial near-completion flag:" << m_episodeWasNearCompletion;
     
     // Set username for operations_files functions
     if (m_mainWindow && !m_mainWindow->user_Username.isEmpty()) {
@@ -1536,8 +1540,10 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     qDebug() << "Operations_VP_Shows: Stored current playing episode path:" << m_currentPlayingEpisodePath;
     
     // Reset the near-completion flag for the new episode
+    qDebug() << "Operations_VP_Shows: Current near-completion flag value:" << m_episodeWasNearCompletion;
     m_episodeWasNearCompletion = false;
-    qDebug() << "Operations_VP_Shows: Reset near-completion flag for new episode";
+    qDebug() << "Operations_VP_Shows: Reset near-completion flag to false for new episode";
+    qDebug() << "Operations_VP_Shows: Flag is now:" << m_episodeWasNearCompletion;
     
     // Clean up any existing temp file first
     cleanupTempFile();
@@ -1581,15 +1587,26 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             qDebug() << "Operations_VP_Shows: Playback tracker initialized successfully";
             
             // Connect the episodeNearCompletion signal to set our flag
-            connect(m_playbackTracker.get(), &VP_ShowsPlaybackTracker::episodeNearCompletion,
+            qDebug() << "Operations_VP_Shows: About to connect episodeNearCompletion signal";
+            qDebug() << "Operations_VP_Shows: Playback tracker pointer:" << m_playbackTracker.get();
+            
+            QMetaObject::Connection connection = connect(m_playbackTracker.get(), &VP_ShowsPlaybackTracker::episodeNearCompletion,
                     this, [this](const QString& episodePath) {
                 qDebug() << "Operations_VP_Shows: *** NEAR COMPLETION SIGNAL RECEIVED ***";
                 qDebug() << "Operations_VP_Shows: Episode near completion signal received for:" << episodePath;
+                qDebug() << "Operations_VP_Shows: Current flag value before setting:" << m_episodeWasNearCompletion;
                 qDebug() << "Operations_VP_Shows: Setting m_episodeWasNearCompletion flag to true";
                 m_episodeWasNearCompletion = true;
                 qDebug() << "Operations_VP_Shows: Flag is now:" << m_episodeWasNearCompletion;
+                qDebug() << "Operations_VP_Shows: Signal handler completed";
             });
-            qDebug() << "Operations_VP_Shows: Connected episodeNearCompletion signal";
+            
+            if (connection) {
+                qDebug() << "Operations_VP_Shows: Successfully connected episodeNearCompletion signal";
+            } else {
+                qDebug() << "Operations_VP_Shows: ERROR - Failed to connect episodeNearCompletion signal!";
+            }
+            qDebug() << "Operations_VP_Shows: Current m_episodeWasNearCompletion flag:" << m_episodeWasNearCompletion;
             
             // Calculate relative path of episode within show folder
             QDir showDir(m_currentShowFolder);
