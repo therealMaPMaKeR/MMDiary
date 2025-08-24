@@ -2433,187 +2433,16 @@ void Operations_VP_Shows::onPlayContinueClicked()
 {
     qDebug() << "Operations_VP_Shows: Play/Continue button clicked";
     
-    // Check if we have the tree widget and a current show folder
-    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
-        qDebug() << "Operations_VP_Shows: Tree widget not available";
+    // Use the helper function to determine which episode to play
+    QTreeWidgetItem* episodeToPlay = determineEpisodeToPlay();
+    
+    if (!episodeToPlay) {
+        qDebug() << "Operations_VP_Shows: No episode to play";
         return;
     }
     
-    if (m_currentShowFolder.isEmpty()) {
-        qDebug() << "Operations_VP_Shows: No current show folder set";
-        return;
-    }
-    
-    // Try to use watch history to find the last watched episode
-    QString lastWatchedEpisode;
-    
-    // Create temporary watch history to check for last watched episode
-    VP_ShowsWatchHistory tempWatchHistory(m_currentShowFolder, 
-                                          m_mainWindow->user_Key,
-                                          m_mainWindow->user_Username);
-    
-    if (tempWatchHistory.loadHistory()) {
-        lastWatchedEpisode = tempWatchHistory.getLastWatchedEpisode();
-        qDebug() << "Operations_VP_Shows: Last watched episode from history:" << lastWatchedEpisode;
-    }
-    
-    // If we have a last watched episode, try to find and play it
-    if (!lastWatchedEpisode.isEmpty()) {
-        // Search for this episode in the tree widget
-        QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
-        
-        // Function to recursively search for an episode by its file path
-        std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findEpisodeItem;
-        findEpisodeItem = [&findEpisodeItem](QTreeWidgetItem* parent, const QString& episodePath) -> QTreeWidgetItem* {
-            for (int i = 0; i < parent->childCount(); ++i) {
-                QTreeWidgetItem* child = parent->child(i);
-                
-                // Check if this item has the episode path
-                QString itemPath = child->data(0, Qt::UserRole).toString();
-                if (!itemPath.isEmpty()) {
-                    // Extract just the filename from both paths for comparison
-                    QFileInfo itemInfo(itemPath);
-                    QFileInfo episodeInfo(episodePath);
-                    if (itemInfo.fileName() == episodeInfo.fileName()) {
-                        return child;
-                    }
-                }
-                
-                // Recursively search children
-                if (child->childCount() > 0) {
-                    QTreeWidgetItem* found = findEpisodeItem(child, episodePath);
-                    if (found) return found;
-                }
-            }
-            return nullptr;
-        };
-        
-        // Search through all top-level items
-        for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* found = findEpisodeItem(treeWidget->topLevelItem(i), lastWatchedEpisode);
-            if (found) {
-                qDebug() << "Operations_VP_Shows: Found last watched episode in tree, playing it";
-                onEpisodeDoubleClicked(found, 0);
-                return;
-            }
-        }
-        
-        qDebug() << "Operations_VP_Shows: Could not find last watched episode in tree widget";
-    }
-    
-    qDebug() << "Operations_VP_Shows: No watch history found, looking for first episode";
-    // If no watch history or episode not found, play the first episode
-    // Skip Extra/Movies/OVA categories and prioritize Episode 1 or S01E01
-    
-    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
-    
-    QTreeWidgetItem* firstEpisodeToPlay = nullptr;
-    QTreeWidgetItem* fallbackEpisode = nullptr;
-    
-    // Search through all language versions
-    for (int langIndex = 0; langIndex < treeWidget->topLevelItemCount(); ++langIndex) {
-        QTreeWidgetItem* languageItem = treeWidget->topLevelItem(langIndex);
-        
-        // Search through all categories under this language
-        for (int catIndex = 0; catIndex < languageItem->childCount(); ++catIndex) {
-            QTreeWidgetItem* categoryItem = languageItem->child(catIndex);
-            QString categoryText = categoryItem->text(0);
-            
-            // Skip special categories
-            if (categoryText.startsWith("Extra") || 
-                categoryText.startsWith("Movies") || 
-                categoryText.startsWith("OVA") ||
-                categoryText.contains("Error")) {
-                qDebug() << "Operations_VP_Shows: Skipping category:" << categoryText;
-                continue;
-            }
-            
-            // Check if this is "Episodes" (absolute numbering) or "Season" category
-            if (categoryText == tr("Episodes")) {
-                // This is absolute numbering, look for Episode 1
-                qDebug() << "Operations_VP_Shows: Found Episodes category (absolute numbering)";
-                if (categoryItem->childCount() > 0) {
-                    QTreeWidgetItem* firstEp = categoryItem->child(0);
-                    
-                    // Check if this is Episode 1
-                    QString epText = firstEp->text(0);
-                    if (epText.contains("Episode 1") || epText.contains("Ep. 1") || 
-                        epText.contains("E1 ") || epText == "1") {
-                        qDebug() << "Operations_VP_Shows: Found Episode 1 in absolute numbering";
-                        firstEpisodeToPlay = firstEp;
-                        break;
-                    }
-                    
-                    // Store as fallback if we don't find Episode 1
-                    if (!fallbackEpisode) {
-                        fallbackEpisode = firstEp;
-                        qDebug() << "Operations_VP_Shows: Storing first absolute episode as fallback:" << epText;
-                    }
-                }
-            } else if (categoryText.startsWith(tr("Season"))) {
-                // This is a season, check if it's Season 1
-                if (categoryText == tr("Season 1") || categoryText == tr("Season %1").arg(1)) {
-                    qDebug() << "Operations_VP_Shows: Found Season 1";
-                    if (categoryItem->childCount() > 0) {
-                        QTreeWidgetItem* firstEp = categoryItem->child(0);
-                        
-                        // Check if this is Episode 1 of Season 1
-                        QString epText = firstEp->text(0);
-                        if (epText.contains("Episode 1") || epText.contains("Ep. 1") || 
-                            epText.contains("E01") || epText.contains("E1 ")) {
-                            qDebug() << "Operations_VP_Shows: Found S01E01";
-                            firstEpisodeToPlay = firstEp;
-                            break;
-                        }
-                        
-                        // Store as fallback if we don't find Episode 1
-                        if (!fallbackEpisode) {
-                            fallbackEpisode = firstEp;
-                            qDebug() << "Operations_VP_Shows: Storing first episode of Season 1 as fallback:" << epText;
-                        }
-                    }
-                } else if (!fallbackEpisode && categoryItem->childCount() > 0) {
-                    // Store first episode of any other season as last resort fallback
-                    fallbackEpisode = categoryItem->child(0);
-                    qDebug() << "Operations_VP_Shows: Storing first episode of" << categoryText << "as last resort fallback";
-                }
-            }
-        }
-        
-        // If we found the first episode to play, stop searching
-        if (firstEpisodeToPlay) {
-            break;
-        }
-    }
-    
-    // Play the episode we found
-    QTreeWidgetItem* episodeToPlay = firstEpisodeToPlay ? firstEpisodeToPlay : fallbackEpisode;
-    
-    if (episodeToPlay) {
-        qDebug() << "Operations_VP_Shows: Playing episode:" << episodeToPlay->text(0);
-        onEpisodeDoubleClicked(episodeToPlay, 0);
-    } else {
-        // As a last resort, try to find ANY episode that's not in special categories
-        qDebug() << "Operations_VP_Shows: No regular episodes found, looking for any available episode";
-        
-        for (int langIndex = 0; langIndex < treeWidget->topLevelItemCount(); ++langIndex) {
-            QTreeWidgetItem* languageItem = treeWidget->topLevelItem(langIndex);
-            for (int catIndex = 0; catIndex < languageItem->childCount(); ++catIndex) {
-                QTreeWidgetItem* categoryItem = languageItem->child(catIndex);
-                if (categoryItem->childCount() > 0) {
-                    episodeToPlay = categoryItem->child(0);
-                    qDebug() << "Operations_VP_Shows: Found fallback episode:" << episodeToPlay->text(0);
-                    onEpisodeDoubleClicked(episodeToPlay, 0);
-                    return;
-                }
-            }
-        }
-        
-        qDebug() << "Operations_VP_Shows: No episodes found in tree widget";
-        QMessageBox::information(m_mainWindow,
-                               tr("No Episodes"),
-                               tr("This show has no episodes to play."));
-    }
+    // Play the selected episode
+    onEpisodeDoubleClicked(episodeToPlay, 0);
 }
 
 void Operations_VP_Shows::setupContextMenu()
@@ -4644,6 +4473,167 @@ void Operations_VP_Shows::refreshItemColors(QTreeWidgetItem* item, const QColor&
     }
 }
 
+// Helper function to determine which episode should be played
+QTreeWidgetItem* Operations_VP_Shows::determineEpisodeToPlay()
+{
+    qDebug() << "Operations_VP_Shows: Determining episode to play";
+    
+    // Check if we have the tree widget and a current show folder
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+        qDebug() << "Operations_VP_Shows: Tree widget not available";
+        return nullptr;
+    }
+    
+    if (m_currentShowFolder.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No current show folder set";
+        return nullptr;
+    }
+    
+    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+    
+    // Try to use watch history to find the last watched episode
+    QString lastWatchedEpisode;
+    
+    if (m_watchHistory) {
+        lastWatchedEpisode = m_watchHistory->getLastWatchedEpisode();
+        qDebug() << "Operations_VP_Shows: Last watched episode from history:" << lastWatchedEpisode;
+    }
+    
+    // If we have a last watched episode, try to find it
+    if (!lastWatchedEpisode.isEmpty()) {
+        // Function to recursively search for an episode by its file path
+        std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findEpisodeItem;
+        findEpisodeItem = [&findEpisodeItem](QTreeWidgetItem* parent, const QString& episodePath) -> QTreeWidgetItem* {
+            for (int i = 0; i < parent->childCount(); ++i) {
+                QTreeWidgetItem* child = parent->child(i);
+                
+                // Check if this item has the episode path
+                QString itemPath = child->data(0, Qt::UserRole).toString();
+                if (!itemPath.isEmpty()) {
+                    // Extract just the filename from both paths for comparison
+                    QFileInfo itemInfo(itemPath);
+                    QFileInfo episodeInfo(episodePath);
+                    if (itemInfo.fileName() == episodeInfo.fileName()) {
+                        return child;
+                    }
+                }
+                
+                // Recursively search children
+                if (child->childCount() > 0) {
+                    QTreeWidgetItem* found = findEpisodeItem(child, episodePath);
+                    if (found) return found;
+                }
+            }
+            return nullptr;
+        };
+        
+        // Search through all top-level items
+        for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* found = findEpisodeItem(treeWidget->topLevelItem(i), lastWatchedEpisode);
+            if (found) {
+                qDebug() << "Operations_VP_Shows: Found last watched episode in tree";
+                return found;
+            }
+        }
+        
+        qDebug() << "Operations_VP_Shows: Could not find last watched episode in tree widget";
+    }
+    
+    qDebug() << "Operations_VP_Shows: No watch history found, looking for first episode";
+    // If no watch history or episode not found, find the first episode
+    // Skip Extra/Movies/OVA categories and prioritize Episode 1 or S01E01
+    
+    QTreeWidgetItem* firstEpisodeToPlay = nullptr;
+    QTreeWidgetItem* fallbackEpisode = nullptr;
+    
+    // Search through all language versions
+    for (int langIndex = 0; langIndex < treeWidget->topLevelItemCount(); ++langIndex) {
+        QTreeWidgetItem* languageItem = treeWidget->topLevelItem(langIndex);
+        
+        // Search through all categories under this language
+        for (int catIndex = 0; catIndex < languageItem->childCount(); ++catIndex) {
+            QTreeWidgetItem* categoryItem = languageItem->child(catIndex);
+            QString categoryText = categoryItem->text(0);
+            
+            // Skip special categories
+            if (categoryText.startsWith("Extra") || 
+                categoryText.startsWith("Movies") || 
+                categoryText.startsWith("OVA") ||
+                categoryText.contains("Error")) {
+                qDebug() << "Operations_VP_Shows: Skipping category:" << categoryText;
+                continue;
+            }
+            
+            // Check if this is "Episodes" (absolute numbering) or "Season" category
+            if (categoryText == tr("Episodes")) {
+                // This is absolute numbering, look for Episode 1
+                qDebug() << "Operations_VP_Shows: Found Episodes category (absolute numbering)";
+                if (categoryItem->childCount() > 0) {
+                    QTreeWidgetItem* firstEp = categoryItem->child(0);
+                    
+                    // Check if this is Episode 1
+                    QString epText = firstEp->text(0);
+                    if (epText.contains("Episode 1") || epText.contains("Ep. 1") || 
+                        epText.contains("E1 ") || epText == "1") {
+                        qDebug() << "Operations_VP_Shows: Found Episode 1 in absolute numbering";
+                        firstEpisodeToPlay = firstEp;
+                        break;
+                    }
+                    
+                    // Store as fallback if we don't find Episode 1
+                    if (!fallbackEpisode) {
+                        fallbackEpisode = firstEp;
+                        qDebug() << "Operations_VP_Shows: Storing first absolute episode as fallback:" << epText;
+                    }
+                }
+            } else if (categoryText.startsWith(tr("Season"))) {
+                // This is a season, check if it's Season 1
+                if (categoryText == tr("Season 1") || categoryText == tr("Season %1").arg(1)) {
+                    qDebug() << "Operations_VP_Shows: Found Season 1";
+                    if (categoryItem->childCount() > 0) {
+                        QTreeWidgetItem* firstEp = categoryItem->child(0);
+                        
+                        // Check if this is Episode 1 of Season 1
+                        QString epText = firstEp->text(0);
+                        if (epText.contains("Episode 1") || epText.contains("Ep. 1") || 
+                            epText.contains("E01") || epText.contains("E1 ")) {
+                            qDebug() << "Operations_VP_Shows: Found S01E01";
+                            firstEpisodeToPlay = firstEp;
+                            break;
+                        }
+                        
+                        // Store as fallback if we don't find Episode 1
+                        if (!fallbackEpisode) {
+                            fallbackEpisode = firstEp;
+                            qDebug() << "Operations_VP_Shows: Storing first episode of Season 1 as fallback:" << epText;
+                        }
+                    }
+                } else if (!fallbackEpisode && categoryItem->childCount() > 0) {
+                    // Store first episode of any other season as last resort fallback
+                    fallbackEpisode = categoryItem->child(0);
+                    qDebug() << "Operations_VP_Shows: Storing first episode of" << categoryText << "as last resort fallback";
+                }
+            }
+        }
+        
+        // If we found the first episode to play, stop searching
+        if (firstEpisodeToPlay) {
+            break;
+        }
+    }
+    
+    // Return the episode we found
+    QTreeWidgetItem* episodeToPlay = firstEpisodeToPlay ? firstEpisodeToPlay : fallbackEpisode;
+    
+    if (episodeToPlay) {
+        qDebug() << "Operations_VP_Shows: Episode to play:" << episodeToPlay->text(0);
+    } else {
+        qDebug() << "Operations_VP_Shows: No episode found to play";
+    }
+    
+    return episodeToPlay;
+}
+
 // Helper function to expand tree to show last watched episode
 void Operations_VP_Shows::expandToLastWatchedEpisode()
 {
@@ -4651,100 +4641,28 @@ void Operations_VP_Shows::expandToLastWatchedEpisode()
         return;
     }
     
-    if (!m_watchHistory || m_currentShowFolder.isEmpty()) {
-        qDebug() << "Operations_VP_Shows: Cannot expand to last watched - no watch history or show folder";
+    qDebug() << "Operations_VP_Shows: Expanding tree to show episode that would be played";
+    
+    // Use the same logic as Play button to determine which episode to expand to
+    QTreeWidgetItem* episodeToExpand = determineEpisodeToPlay();
+    
+    if (!episodeToExpand) {
+        qDebug() << "Operations_VP_Shows: No episode to expand to";
         return;
     }
     
-    // Get the last watched episode from watch history
-    QString lastWatchedEpisode = m_watchHistory->getLastWatchedEpisode();
-    bool findingLastWatched = !lastWatchedEpisode.isEmpty();
-    
-    if (!findingLastWatched) {
-        qDebug() << "Operations_VP_Shows: No last watched episode, will expand to first unwatched episode";
+    // Expand all parent items to make the episode visible
+    QTreeWidgetItem* current = episodeToExpand->parent();
+    while (current) {
+        current->setExpanded(true);
+        current = current->parent();
     }
     
-    if (findingLastWatched) {
-        qDebug() << "Operations_VP_Shows: Expanding tree to show last watched episode:" << lastWatchedEpisode;
-    }
-    
+    // Scroll to the episode
     QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
-    QColor watchedColor(128, 128, 128); // Grey color for watched items
+    treeWidget->scrollToItem(episodeToExpand, QAbstractItemView::PositionAtCenter);
     
-    // Function to recursively search for an episode and expand parents
-    std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&, bool)> findAndExpandToEpisode;
-    findAndExpandToEpisode = [&findAndExpandToEpisode, treeWidget, &watchedColor](QTreeWidgetItem* parent, const QString& episodePath, bool findUnwatched) -> QTreeWidgetItem* {
-        for (int i = 0; i < parent->childCount(); ++i) {
-            QTreeWidgetItem* child = parent->child(i);
-            
-            // Check if this is an episode item (no children)
-            if (child->childCount() == 0) {
-                QString itemPath = child->data(0, Qt::UserRole).toString();
-                if (!itemPath.isEmpty()) {
-                    bool shouldSelect = false;
-                    
-                    if (findUnwatched) {
-                        // Looking for first unwatched episode
-                        if (child->foreground(0).color() != watchedColor) {
-                            shouldSelect = true;
-                        }
-                    } else {
-                        // Looking for specific episode by path
-                        QFileInfo itemInfo(itemPath);
-                        QFileInfo episodeInfo(episodePath);
-                        if (itemInfo.fileName() == episodeInfo.fileName()) {
-                            shouldSelect = true;
-                        }
-                    }
-                    
-                    if (shouldSelect) {
-                        // Found the target episode - expand all parent items
-                        QTreeWidgetItem* current = child->parent();
-                        while (current) {
-                            current->setExpanded(true);
-                            current = current->parent();
-                        }
-                        
-                        // Also ensure the episode is visible by scrolling to it
-                        treeWidget->scrollToItem(child, QAbstractItemView::PositionAtCenter);
-                        
-                        qDebug() << "Operations_VP_Shows: Found and expanded to episode:" << child->text(0);
-                        return child;
-                    }
-                }
-            } else {
-                // Recursively search children
-                QTreeWidgetItem* found = findAndExpandToEpisode(child, episodePath, findUnwatched);
-                if (found) {
-                    return found;
-                }
-            }
-        }
-        return nullptr;
-    };
-    
-    // First try to find the last watched episode if we have one
-    if (findingLastWatched) {
-        for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* found = findAndExpandToEpisode(treeWidget->topLevelItem(i), lastWatchedEpisode, false);
-            if (found) {
-                // Successfully found and expanded to the last watched episode
-                return;
-            }
-        }
-        qDebug() << "Operations_VP_Shows: Could not find last watched episode in tree widget";
-    }
-    
-    // If no last watched episode or couldn't find it, expand to first unwatched episode
-    for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* found = findAndExpandToEpisode(treeWidget->topLevelItem(i), QString(), true);
-        if (found) {
-            qDebug() << "Operations_VP_Shows: Expanded to first unwatched episode";
-            return;
-        }
-    }
-    
-    qDebug() << "Operations_VP_Shows: No unwatched episodes found, tree remains collapsed";
+    qDebug() << "Operations_VP_Shows: Expanded tree to show episode:" << episodeToExpand->text(0);
 }
 
 

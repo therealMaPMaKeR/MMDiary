@@ -84,6 +84,7 @@ private:
     void refreshEpisodeTreeColors();
     void refreshItemColors(QTreeWidgetItem* item, const QColor& watchedColor);
     void expandToLastWatchedEpisode();
+    QTreeWidgetItem* determineEpisodeToPlay();
 
 
 public:
