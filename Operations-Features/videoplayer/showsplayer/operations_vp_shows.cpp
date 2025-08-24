@@ -3355,6 +3355,9 @@ void Operations_VP_Shows::setupEpisodeContextMenu()
         return;
     }
     
+    // Enable multi-selection for the tree widget
+    m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    
     // Enable context menu for the tree widget
     m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->setContextMenuPolicy(Qt::CustomContextMenu);
     
@@ -3362,7 +3365,7 @@ void Operations_VP_Shows::setupEpisodeContextMenu()
     connect(m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList, &QTreeWidget::customContextMenuRequested,
             this, &Operations_VP_Shows::showEpisodeContextMenu);
     
-    qDebug() << "Operations_VP_Shows: Episode context menu setup complete";
+    qDebug() << "Operations_VP_Shows: Episode context menu setup complete with multi-selection enabled";
 }
 
 void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
@@ -3375,59 +3378,104 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
     
     QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
     
-    // Get the item at the position
-    QTreeWidgetItem* item = treeWidget->itemAt(pos);
+    // Get all selected items
+    QList<QTreeWidgetItem*> selectedItems = treeWidget->selectedItems();
     
-    if (!item) {
-        qDebug() << "Operations_VP_Shows: No item at context menu position";
+    if (selectedItems.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No items selected";
         return;
     }
     
-    // Store the selected item for context menu actions
-    m_contextMenuTreeItem = item;
+    qDebug() << "Operations_VP_Shows: Number of selected items:" << selectedItems.size();
     
-    // Determine what type of item this is (Language, Season, or Episode)
-    QString itemType;
+    // Store the clicked item (for single item operations)
+    QTreeWidgetItem* clickedItem = treeWidget->itemAt(pos);
+    if (!clickedItem) {
+        qDebug() << "Operations_VP_Shows: No item at click position";
+        return;
+    }
+    
+    // Make sure the clicked item is among the selected items
+    if (!selectedItems.contains(clickedItem)) {
+        // If the clicked item is not in selection, make it the only selection
+        treeWidget->clearSelection();
+        clickedItem->setSelected(true);
+        selectedItems.clear();
+        selectedItems.append(clickedItem);
+    }
+    
+    // Store the primary item for context menu actions
+    m_contextMenuTreeItem = clickedItem;
+    
+    // Determine selection type and collect episode paths
+    bool isMultiSelection = selectedItems.size() > 1;
+    bool hasCategories = false;
+    bool hasEpisodes = false;
     QString description;
     
     // Clear previous episode paths
     m_contextMenuEpisodePaths.clear();
+    m_contextMenuEpisodePath.clear();
     
-    // Check the item level and collect episode paths
-    if (item->childCount() > 0) {
-        // This is either a language/translation item or a season item
-        QTreeWidgetItem* parent = item->parent();
-        
-        if (parent == nullptr) {
-            // Top-level item (Language/Translation)
-            itemType = "language";
-            description = item->text(0); // e.g., "English Dubbed"
-            qDebug() << "Operations_VP_Shows: Context menu on language/translation:" << description;
+    // Process all selected items
+    for (QTreeWidgetItem* item : selectedItems) {
+        if (item->childCount() > 0) {
+            // This is a category (language, season, etc.)
+            hasCategories = true;
+            collectEpisodesFromTreeItem(item, m_contextMenuEpisodePaths);
+            
+            if (!isMultiSelection) {
+                // For single category selection, get detailed description
+                QTreeWidgetItem* parent = item->parent();
+                if (parent == nullptr) {
+                    // Top-level item (Language/Translation)
+                    description = item->text(0);
+                    qDebug() << "Operations_VP_Shows: Context menu on language/translation:" << description;
+                } else {
+                    // Second-level item (Season)
+                    description = item->text(0);
+                    QString language = parent->text(0);
+                    description = QString("%1 - %2").arg(language).arg(description);
+                    qDebug() << "Operations_VP_Shows: Context menu on season:" << description;
+                }
+            }
         } else {
-            // Second-level item (Season)
-            itemType = "season";
-            description = item->text(0); // e.g., "Season 1"
-            QString language = parent->text(0);
-            description = QString("%1 - %2").arg(language).arg(description);
-            qDebug() << "Operations_VP_Shows: Context menu on season:" << description;
+            // This is an episode item
+            hasEpisodes = true;
+            QString videoPath = item->data(0, Qt::UserRole).toString();
+            if (!videoPath.isEmpty()) {
+                m_contextMenuEpisodePaths.append(videoPath);
+                if (!isMultiSelection) {
+                    m_contextMenuEpisodePath = videoPath; // Store single episode path
+                    description = item->text(0);
+                    qDebug() << "Operations_VP_Shows: Context menu on episode:" << description;
+                }
+            }
         }
-        
-        // Collect all episode paths under this item
-        collectEpisodesFromTreeItem(item, m_contextMenuEpisodePaths);
-        
+    }
+    
+    // Determine the item type for menu construction
+    QString itemType;
+    if (isMultiSelection) {
+        // Multi-selection
+        if (hasCategories && hasEpisodes) {
+            itemType = "mixed";
+            description = tr("%1 items selected").arg(selectedItems.size());
+        } else if (hasCategories) {
+            itemType = "categories";
+            description = tr("%1 categories selected").arg(selectedItems.size());
+        } else {
+            itemType = "episodes";
+            description = tr("%1 episodes selected").arg(selectedItems.size());
+        }
+        qDebug() << "Operations_VP_Shows: Multi-selection context menu:" << description;
     } else {
-        // This is an episode item
-        itemType = "episode";
-        description = item->text(0); // Episode name
-        
-        // Get the video path from the item's data
-        QString videoPath = item->data(0, Qt::UserRole).toString();
-        if (!videoPath.isEmpty()) {
-            m_contextMenuEpisodePaths.append(videoPath);
-            m_contextMenuEpisodePath = videoPath; // Store single episode path
+        // Single selection
+        if (hasCategories) {
+            itemType = clickedItem->parent() == nullptr ? "language" : "season";
+        } else {
+            itemType = "episode";
         }
-        
-        qDebug() << "Operations_VP_Shows: Context menu on episode:" << description;
     }
     
     if (m_contextMenuEpisodePaths.isEmpty()) {
@@ -3441,8 +3489,23 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
     // Mark as Watched/Unwatched action
     QAction* markWatchedAction = nullptr;
     if (m_watchHistory) {
-        // Determine the current watch state
-        WatchState watchState = getItemWatchState(item);
+        // For multi-selection or categories, use category watch state logic
+        WatchState watchState;
+        if (isMultiSelection || hasCategories) {
+            // For multiple items, check if all are watched
+            watchState = WatchState::Watched;
+            for (const QString& episodePath : m_contextMenuEpisodePaths) {
+                QDir showDir(m_currentShowFolder);
+                QString relativePath = showDir.relativeFilePath(episodePath);
+                if (!m_watchHistory->hasEpisodeBeenWatched(relativePath)) {
+                    watchState = WatchState::NotWatched;
+                    break;
+                }
+            }
+        } else {
+            // Single episode selection
+            watchState = getItemWatchState(clickedItem);
+        }
 
         // Choose the appropriate icon and text based on state
         QString actionText;
@@ -3457,6 +3520,12 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
             actionText = tr("Mark as Watched ◉");
             break;
         }
+        
+        // Add appropriate suffix for multiple items or categories
+        if (isMultiSelection || hasCategories) {
+            int episodeCount = m_contextMenuEpisodePaths.size();
+            actionText += tr(" (%1 episode%2)").arg(episodeCount).arg(episodeCount > 1 ? "s" : "");
+        }
 
         markWatchedAction = contextMenu->addAction(actionText);
         connect(markWatchedAction, &QAction::triggered, this, &Operations_VP_Shows::toggleWatchedStateFromContextMenu);
@@ -3465,22 +3534,26 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
         contextMenu->addSeparator();
     }
 
-    // Play action
-    QAction* playAction;
-    if (itemType == "episode") {
-        playAction = contextMenu->addAction(tr("Play"));
-    } else {
-        playAction = contextMenu->addAction(tr("Play First Episode"));
+    // Play action (only for single episode selection)
+    if (itemType == "episode" && !isMultiSelection) {
+        QAction* playAction = contextMenu->addAction(tr("Play"));
+        connect(playAction, &QAction::triggered, this, &Operations_VP_Shows::playEpisodeFromContextMenu);
+    } else if (hasCategories && !isMultiSelection) {
+        // Play first episode for single category selection
+        QAction* playAction = contextMenu->addAction(tr("Play First Episode"));
+        connect(playAction, &QAction::triggered, this, &Operations_VP_Shows::playEpisodeFromContextMenu);
     }
-    connect(playAction, &QAction::triggered, this, &Operations_VP_Shows::playEpisodeFromContextMenu);
+    // No play action for multi-selection
     
-    // Add Episodes action - always show this regardless of item type
-    QAction* addEpisodesAction = contextMenu->addAction(tr("Add Episodes"));
-    connect(addEpisodesAction, &QAction::triggered, this, &Operations_VP_Shows::addEpisodesToShow);
+    // Add Episodes action - show for categories or mixed selection, but not for pure episode selection
+    if (hasCategories || (isMultiSelection && itemType != "episodes")) {
+        QAction* addEpisodesAction = contextMenu->addAction(tr("Add Episodes"));
+        connect(addEpisodesAction, &QAction::triggered, this, &Operations_VP_Shows::addEpisodesToShow);
+    }
     
     // Decrypt and Export action
     QAction* exportAction;
-    if (itemType == "episode") {
+    if (itemType == "episode" && !isMultiSelection) {
         exportAction = contextMenu->addAction(tr("Decrypt and Export"));
     } else {
         int episodeCount = m_contextMenuEpisodePaths.size();
@@ -3490,7 +3563,7 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
     
     // Delete action
     QAction* deleteAction;
-    if (itemType == "episode") {
+    if (itemType == "episode" && !isMultiSelection) {
         deleteAction = contextMenu->addAction(tr("Delete"));
     } else {
         int episodeCount = m_contextMenuEpisodePaths.size();
@@ -4387,6 +4460,71 @@ void Operations_VP_Shows::countWatchedEpisodes(QTreeWidgetItem* item, int& watch
     }
 }
 
+// Helper function to set watched state for a list of episode paths
+void Operations_VP_Shows::setWatchedStateForEpisodes(const QStringList& episodePaths, bool watched)
+{
+    if (!m_watchHistory || episodePaths.isEmpty()) return;
+
+    qDebug() << "Operations_VP_Shows: Setting" << episodePaths.size()
+             << "episodes to watched state:" << watched;
+
+    // Convert absolute paths to relative paths and update watch history
+    QDir showDir(m_currentShowFolder);
+    for (const QString& absolutePath : episodePaths) {
+        QString relativePath = showDir.relativeFilePath(absolutePath);
+        
+        if (watched) {
+            // Mark as watched
+            m_watchHistory->setEpisodeWatched(relativePath, true);
+        } else {
+            // Mark as unwatched AND reset playback position
+            m_watchHistory->setEpisodeWatched(relativePath, false);
+            m_watchHistory->resetEpisodePosition(relativePath);
+            
+            // If this was the last watched episode, update it
+            if (m_watchHistory->getLastWatchedEpisode() == relativePath) {
+                qDebug() << "Operations_VP_Shows: Clearing last watched episode as it was marked unwatched";
+                
+                // Find the next most recently watched episode
+                QString newLastWatched;
+                QDateTime latestTime;
+                
+                // Check all episodes in watch history to find the most recent one that's still watched
+                for (const QString& videoFile : m_episodeFileMapping.values()) {
+                    QString relPath = showDir.relativeFilePath(videoFile);
+                    if (relPath != relativePath && m_watchHistory->hasEpisodeBeenWatched(relPath)) {
+                        EpisodeWatchInfo info = m_watchHistory->getEpisodeWatchInfo(relPath);
+                        if (info.completed && info.lastWatched > latestTime) {
+                            latestTime = info.lastWatched;
+                            newLastWatched = relPath;
+                        }
+                    }
+                }
+                
+                // Update the last watched episode
+                if (newLastWatched.isEmpty()) {
+                    m_watchHistory->clearLastWatchedEpisode();
+                    qDebug() << "Operations_VP_Shows: No other watched episodes found, cleared last watched";
+                } else {
+                    m_watchHistory->setLastWatchedEpisode(newLastWatched);
+                    qDebug() << "Operations_VP_Shows: Updated last watched episode to:" << newLastWatched;
+                }
+            }
+        }
+    }
+
+    // Save the history once after all updates
+    if (!episodePaths.isEmpty()) {
+        m_watchHistory->saveHistory();
+    }
+
+    // Refresh the tree widget to show updated states
+    refreshEpisodeTreeColors();
+    
+    // Update the Play/Resume button text
+    updatePlayButtonText();
+}
+
 // Helper function to set watched state for all episodes under an item
 void Operations_VP_Shows::setWatchedStateForItem(QTreeWidgetItem* item, bool watched)
 {
@@ -4727,35 +4865,57 @@ void Operations_VP_Shows::expandToLastWatchedEpisode()
 // Slot for handling the mark as watched/unwatched action
 void Operations_VP_Shows::toggleWatchedStateFromContextMenu()
 {
-    if (!m_contextMenuTreeItem || !m_watchHistory) {
-        qDebug() << "Operations_VP_Shows: Cannot toggle watched state - no item selected or watch history not available";
+    if (!m_watchHistory) {
+        qDebug() << "Operations_VP_Shows: Cannot toggle watched state - watch history not available";
         return;
     }
 
-    // Get current watch state
-    WatchState currentState = getItemWatchState(m_contextMenuTreeItem);
+    // Get all selected items
+    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+    QList<QTreeWidgetItem*> selectedItems = treeWidget->selectedItems();
+    
+    if (selectedItems.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No items selected for watch state toggle";
+        return;
+    }
+    
+    // Determine if we're marking as watched or unwatched
+    // Check if all selected episodes are already watched
+    bool allWatched = true;
+    for (const QString& episodePath : m_contextMenuEpisodePaths) {
+        QDir showDir(m_currentShowFolder);
+        QString relativePath = showDir.relativeFilePath(episodePath);
+        if (!m_watchHistory->hasEpisodeBeenWatched(relativePath)) {
+            allWatched = false;
+            break;
+        }
+    }
+    
+    bool markAsWatched = !allWatched;
+    
+    qDebug() << "Operations_VP_Shows: Toggling watched state for" << m_contextMenuEpisodePaths.size() 
+             << "episodes. Marking as watched:" << markAsWatched;
 
-    // Determine the new state
-    bool markAsWatched = (currentState != WatchState::Watched);
-
-    QString itemDescription = m_contextMenuTreeItem->text(0);
-    qDebug() << "Operations_VP_Shows: Toggling watched state for:" << itemDescription
-             << "Current state:" << static_cast<int>(currentState)
-             << "New watched state:" << markAsWatched;
-
-    // Set the new state
-    setWatchedStateForItem(m_contextMenuTreeItem, markAsWatched);
+    // Apply the watch state to all selected items
+    if (selectedItems.size() > 1) {
+        // Multiple selection - treat like a category
+        setWatchedStateForEpisodes(m_contextMenuEpisodePaths, markAsWatched);
+    } else {
+        // Single selection - use existing logic
+        setWatchedStateForItem(m_contextMenuTreeItem, markAsWatched);
+    }
 
     // Show feedback to user
     QString message;
-    if (m_contextMenuTreeItem->childCount() == 0) {
+    int episodeCount = m_contextMenuEpisodePaths.size();
+    
+    if (selectedItems.size() == 1 && m_contextMenuTreeItem->childCount() == 0) {
         // Single episode
         message = markAsWatched ?
-                      tr("Episode \"%1\" marked as watched").arg(itemDescription) :
-                      tr("Episode \"%1\" marked as unwatched").arg(itemDescription);
+                      tr("Episode \"%1\" marked as watched").arg(m_contextMenuTreeItem->text(0)) :
+                      tr("Episode \"%1\" marked as unwatched").arg(m_contextMenuTreeItem->text(0));
     } else {
-        // Category with multiple episodes
-        int episodeCount = m_contextMenuEpisodePaths.size();
+        // Multiple episodes or category
         message = markAsWatched ?
                       tr("Marked %1 episode%2 as watched").arg(episodeCount).arg(episodeCount > 1 ? "s" : "") :
                       tr("Marked %1 episode%2 as unwatched").arg(episodeCount).arg(episodeCount > 1 ? "s" : "");

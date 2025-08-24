@@ -180,6 +180,7 @@ public:
     void collectEpisodesFromTreeItem(QTreeWidgetItem* item, QStringList& episodePaths);
     bool deleteEpisodesWithConfirmation(const QStringList& episodePaths, const QString& description);
     bool exportEpisodes(const QStringList& episodePaths, const QString& exportPath, const QString& showName);
+    void setWatchedStateForEpisodes(const QStringList& episodePaths, bool watched);
     void performEpisodeExportWithWorker(const QStringList& episodePaths, const QString& exportPath, const QString& description);
     
     // Currently selected tree item for episode context menu
