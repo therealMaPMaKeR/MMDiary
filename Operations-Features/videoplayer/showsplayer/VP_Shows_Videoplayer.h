@@ -118,10 +118,13 @@ private:
     
     // Mouse cursor auto-hide
     QTimer* m_cursorTimer;
+    QTimer* m_mouseCheckTimer;  // Timer to check for mouse movement
+    QPoint m_lastMousePos;       // Last known mouse position
     void startCursorTimer();
     void stopCursorTimer();
     void hideCursor();
     void showCursor();
+    void checkMouseMovement();   // Check if mouse has moved
     
     // Custom position slider for clickable seeking
     class ClickableSlider;

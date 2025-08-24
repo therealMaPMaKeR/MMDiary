@@ -140,6 +140,8 @@ VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
     , m_isSliderBeingMoved(false)
     , m_isFullScreen(false)
     , m_cursorTimer(nullptr)
+    , m_mouseCheckTimer(nullptr)
+    , m_lastMousePos(QPoint(-1, -1))
     , m_watchHistory(nullptr)
     , m_progressSaveTimer(nullptr)
     , m_lastSavedPosition(0)
@@ -163,8 +165,15 @@ VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
     // Setup cursor timer for auto-hide
     m_cursorTimer = new QTimer(this);
     m_cursorTimer->setSingleShot(true);
-    m_cursorTimer->setInterval(1000); // 1 second
+    m_cursorTimer->setInterval(2000); // 2 seconds (increased from 1)
     connect(m_cursorTimer, &QTimer::timeout, this, &VP_Shows_Videoplayer::hideCursor);
+    
+    // Setup mouse check timer for movement detection
+    m_mouseCheckTimer = new QTimer(this);
+    m_mouseCheckTimer->setInterval(100); // Check every 100ms
+    connect(m_mouseCheckTimer, &QTimer::timeout, this, &VP_Shows_Videoplayer::checkMouseMovement);
+    
+    qDebug() << "VP_Shows_Videoplayer: Mouse tracking timers initialized";
     
     // Note: Progress save timer is not needed since Operations_VP_Shows_WatchHistory handles it
     m_progressSaveTimer = nullptr;
@@ -296,6 +305,14 @@ void VP_Shows_Videoplayer::createLayouts()
     
     // Create a widget to hold all controls (for fullscreen mode)
     m_controlsWidget = new QWidget(this);
+    
+    // Enable mouse tracking on controls widget to detect mouse movement
+    m_controlsWidget->setMouseTracking(true);
+    
+    // Install event filter on controls widget for mouse tracking
+    m_controlsWidget->installEventFilter(this);
+    
+    qDebug() << "VP_Shows_Videoplayer: Mouse tracking enabled on controls widget";
     
     // Control layout (buttons)
     m_controlLayout = new QHBoxLayout();
@@ -573,8 +590,14 @@ void VP_Shows_Videoplayer::startInFullScreen()
             }
         });
         
-        // Start cursor timer for auto-hide
+        // Start cursor timer for auto-hide and mouse check timer
         startCursorTimer();
+        
+        // Start mouse movement check timer
+        if (m_mouseCheckTimer) {
+            m_mouseCheckTimer->start();
+            qDebug() << "VP_Shows_Videoplayer: Started mouse movement check timer";
+        }
         
         // Ensure we have focus for keyboard input
         setFocus();
@@ -622,6 +645,12 @@ void VP_Shows_Videoplayer::toggleFullScreen()
         // Start cursor timer for auto-hide
         startCursorTimer();
         
+        // Start mouse movement check timer
+        if (m_mouseCheckTimer) {
+            m_mouseCheckTimer->start();
+            qDebug() << "VP_Shows_Videoplayer: Started mouse movement check timer";
+        }
+        
         // Ensure we have focus for keyboard input
         setFocus();
         raise();
@@ -646,7 +675,7 @@ void VP_Shows_Videoplayer::exitFullScreen()
     if (m_isFullScreen) {
         qDebug() << "VP_Shows_Videoplayer: Exiting fullscreen mode";
         
-        // Stop cursor timer and restore cursor
+        // Stop both timers and restore cursor
         stopCursorTimer();
         showCursor();
         
@@ -900,19 +929,32 @@ bool VP_Shows_Videoplayer::eventFilter(QObject *watched, QEvent *event)
         }
     }
     
-    // Handle mouse movement on video widget in fullscreen mode
-    if (watched == m_videoWidget && m_isFullScreen && event->type() == QEvent::MouseMove) {
-        // Show cursor
-        showCursor();
+    // Handle mouse movement on video widget OR controls widget in fullscreen mode
+    if ((watched == m_videoWidget || watched == m_controlsWidget) && m_isFullScreen && event->type() == QEvent::MouseMove) {
+        QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+        QPoint globalPos = mouseEvent->globalPosition().toPoint();
         
-        // Show controls if hidden
-        if (!m_controlsWidget->isVisible()) {
-            qDebug() << "VP_Shows_Videoplayer: Mouse movement on video widget - showing controls";
-            m_controlsWidget->setVisible(true);
+        // Only process if position actually changed
+        if (globalPos != m_lastMousePos) {
+            qDebug() << "VP_Shows_Videoplayer: Mouse movement detected on" 
+                     << (watched == m_videoWidget ? "video widget" : "controls widget")
+                     << "at global position" << globalPos;
+            
+            // Update last position
+            m_lastMousePos = globalPos;
+            
+            // Show cursor
+            showCursor();
+            
+            // Show controls if hidden
+            if (!m_controlsWidget->isVisible()) {
+                qDebug() << "VP_Shows_Videoplayer: Showing controls due to mouse movement";
+                m_controlsWidget->setVisible(true);
+            }
+            
+            // Restart the cursor timer
+            startCursorTimer();
         }
-        
-        // Restart the cursor timer
-        startCursorTimer();
         
         // Don't return true here, let the event propagate
     }
@@ -1206,17 +1248,28 @@ void VP_Shows_Videoplayer::wheelEvent(QWheelEvent *event)
 void VP_Shows_Videoplayer::mouseMoveEvent(QMouseEvent *event)
 {
     if (m_isFullScreen) {
-        // Show cursor and controls
-        showCursor();
+        // Update last mouse position to global position
+        QPoint globalPos = mapToGlobal(event->pos());
         
-        // Show controls if hidden
-        if (!m_controlsWidget->isVisible()) {
-            qDebug() << "VP_Shows_Videoplayer: Mouse movement detected - showing controls";
-            m_controlsWidget->setVisible(true);
+        // Only process if position actually changed
+        if (globalPos != m_lastMousePos) {
+            qDebug() << "VP_Shows_Videoplayer: Mouse movement detected on main widget at global position" << globalPos;
+            
+            // Update last position
+            m_lastMousePos = globalPos;
+            
+            // Show cursor
+            showCursor();
+            
+            // Show controls if hidden
+            if (!m_controlsWidget->isVisible()) {
+                qDebug() << "VP_Shows_Videoplayer: Showing controls due to main widget mouse movement";
+                m_controlsWidget->setVisible(true);
+            }
+            
+            // Restart the timer
+            startCursorTimer();
         }
-        
-        // Restart the timer
-        startCursorTimer();
     }
     
     // Call base class implementation
@@ -1360,9 +1413,12 @@ bool VP_Shows_Videoplayer::shouldUpdateProgress(qint64 currentPosition) const
 void VP_Shows_Videoplayer::startCursorTimer()
 {
     if (m_isFullScreen && m_cursorTimer) {
-        qDebug() << "VP_Shows_Videoplayer: Starting cursor timer";
+        qDebug() << "VP_Shows_Videoplayer: Starting cursor timer for auto-hide";
         m_cursorTimer->stop();
         m_cursorTimer->start();
+        
+        // Also record current mouse position
+        m_lastMousePos = QCursor::pos();
     }
 }
 
@@ -1372,6 +1428,10 @@ void VP_Shows_Videoplayer::stopCursorTimer()
         qDebug() << "VP_Shows_Videoplayer: Stopping cursor timer";
         m_cursorTimer->stop();
     }
+    if (m_mouseCheckTimer) {
+        qDebug() << "VP_Shows_Videoplayer: Stopping mouse check timer";
+        m_mouseCheckTimer->stop();
+    }
 }
 
 void VP_Shows_Videoplayer::hideCursor()
@@ -1379,9 +1439,10 @@ void VP_Shows_Videoplayer::hideCursor()
     if (m_isFullScreen && !m_controlsWidget->underMouse()) {
         qDebug() << "VP_Shows_Videoplayer: Hiding cursor and controls";
         
-        // Hide cursor on both widgets
+        // Hide cursor on all widgets
         setCursor(Qt::BlankCursor);
         m_videoWidget->setCursor(Qt::BlankCursor);
+        m_controlsWidget->setCursor(Qt::BlankCursor);
         
         // Hide controls
         m_controlsWidget->setVisible(false);
@@ -1397,13 +1458,44 @@ void VP_Shows_Videoplayer::showCursor()
     if (cursor().shape() == Qt::BlankCursor || QApplication::overrideCursor()) {
         qDebug() << "VP_Shows_Videoplayer: Showing cursor";
         
-        // Restore cursor on both widgets
+        // Restore cursor on all widgets
         setCursor(Qt::ArrowCursor);
         m_videoWidget->setCursor(Qt::ArrowCursor);
+        m_controlsWidget->setCursor(Qt::ArrowCursor);
         
         // Remove any override cursor
         while (QApplication::overrideCursor()) {
             QApplication::restoreOverrideCursor();
         }
+    }
+}
+
+void VP_Shows_Videoplayer::checkMouseMovement()
+{
+    if (!m_isFullScreen) {
+        return;  // Only check in fullscreen mode
+    }
+    
+    QPoint currentPos = QCursor::pos();
+    
+    // Check if mouse has moved
+    if (currentPos != m_lastMousePos) {
+        // Mouse has moved
+        qDebug() << "VP_Shows_Videoplayer: Mouse movement detected via check timer - from" 
+                 << m_lastMousePos << "to" << currentPos;
+        
+        // Show cursor and controls
+        showCursor();
+        
+        if (!m_controlsWidget->isVisible()) {
+            qDebug() << "VP_Shows_Videoplayer: Showing controls due to detected movement";
+            m_controlsWidget->setVisible(true);
+        }
+        
+        // Restart the hide timer
+        startCursorTimer();
+        
+        // Update last position
+        m_lastMousePos = currentPos;
     }
 }
