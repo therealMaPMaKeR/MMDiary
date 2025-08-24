@@ -2779,29 +2779,53 @@ bool Operations_VP_Shows::exportShowEpisodes(const QString& showFolderPath, cons
         QString languagePath = showExportDir.absoluteFilePath(languageFolderName);
         QDir languageDir(languagePath);
         
-        // Create season folder with zero-padded number
-        QString seasonFolderName = QString("Season %1").arg(seasonNum, 2, 10, QChar('0'));
-        if (!languageDir.exists(seasonFolderName)) {
-            if (!languageDir.mkdir(seasonFolderName)) {
-                qDebug() << "Operations_VP_Shows: Failed to create season folder:" << seasonFolderName;
-                allSuccess = false;
-                processed++;
-                progress.setValue(processed);
-                continue;
+        // Check if using absolute numbering
+        QString episodeFolderPath;
+        if (metadata.isAbsoluteNumbering() || seasonNum == 0) {
+            // For absolute numbering, create "Episodes" folder instead of season folder
+            QString episodesFolderName = "Episodes";
+            if (!languageDir.exists(episodesFolderName)) {
+                if (!languageDir.mkdir(episodesFolderName)) {
+                    qDebug() << "Operations_VP_Shows: Failed to create episodes folder:" << episodesFolderName;
+                    allSuccess = false;
+                    processed++;
+                    progress.setValue(processed);
+                    continue;
+                }
             }
+            episodeFolderPath = languageDir.absoluteFilePath(episodesFolderName);
+        } else {
+            // Traditional season folder structure
+            QString seasonFolderName = QString("Season %1").arg(seasonNum, 2, 10, QChar('0'));
+            if (!languageDir.exists(seasonFolderName)) {
+                if (!languageDir.mkdir(seasonFolderName)) {
+                    qDebug() << "Operations_VP_Shows: Failed to create season folder:" << seasonFolderName;
+                    allSuccess = false;
+                    processed++;
+                    progress.setValue(processed);
+                    continue;
+                }
+            }
+            episodeFolderPath = languageDir.absoluteFilePath(seasonFolderName);
         }
-        
-        QString seasonPath = languageDir.absoluteFilePath(seasonFolderName);
         
         // Generate output filename
         // episodeNum was already extracted above
         QString outputFileName;
         
         if (episodeNum > 0) {
-            outputFileName = QString("%1_S%2E%3")
-                           .arg(showName)
-                           .arg(seasonNum, 2, 10, QChar('0'))
-                           .arg(episodeNum, 2, 10, QChar('0'));
+            if (metadata.isAbsoluteNumbering() || seasonNum == 0) {
+                // For absolute numbering, use E## format
+                outputFileName = QString("%1_E%2")
+                               .arg(showName)
+                               .arg(episodeNum, 3, 10, QChar('0')); // Use 3 digits for absolute numbering
+            } else {
+                // Traditional S##E## format
+                outputFileName = QString("%1_S%2E%3")
+                               .arg(showName)
+                               .arg(seasonNum, 2, 10, QChar('0'))
+                               .arg(episodeNum, 2, 10, QChar('0'));
+            }
             
             if (!metadata.EPName.isEmpty()) {
                 outputFileName += "_" + metadata.EPName;
@@ -2819,7 +2843,7 @@ bool Operations_VP_Shows::exportShowEpisodes(const QString& showFolderPath, cons
         QFileInfo sourceInfo(sourceFilePath);
         outputFileName += "." + sourceInfo.suffix();
         
-        QString outputFilePath = QDir(seasonPath).absoluteFilePath(outputFileName);
+        QString outputFilePath = QDir(episodeFolderPath).absoluteFilePath(outputFileName);
         
         // Update label with file and size info
         QFileInfo sourceFileInfo(sourceFilePath);
@@ -2917,25 +2941,46 @@ void Operations_VP_Shows::performExportWithWorker(const QString& showFolderPath,
         QString languagePath = showExportDir.absoluteFilePath(languageFolderName);
         QDir languageDir(languagePath);
         
-        // Create season folder path with zero-padded number
-        QString seasonFolderName = QString("Season %1").arg(seasonNum, 2, 10, QChar('0'));
-        if (!languageDir.exists(seasonFolderName)) {
-            if (!languageDir.mkdir(seasonFolderName)) {
-                qDebug() << "Operations_VP_Shows: Failed to create season folder:" << seasonFolderName;
-                continue;
+        // Check if using absolute numbering
+        QString episodeFolderPath;
+        if (metadata.isAbsoluteNumbering() || seasonNum == 0) {
+            // For absolute numbering, create "Episodes" folder instead of season folder
+            QString episodesFolderName = "Episodes";
+            if (!languageDir.exists(episodesFolderName)) {
+                if (!languageDir.mkdir(episodesFolderName)) {
+                    qDebug() << "Operations_VP_Shows: Failed to create episodes folder:" << episodesFolderName;
+                    continue;
+                }
             }
+            episodeFolderPath = languageDir.absoluteFilePath(episodesFolderName);
+        } else {
+            // Traditional season folder structure
+            QString seasonFolderName = QString("Season %1").arg(seasonNum, 2, 10, QChar('0'));
+            if (!languageDir.exists(seasonFolderName)) {
+                if (!languageDir.mkdir(seasonFolderName)) {
+                    qDebug() << "Operations_VP_Shows: Failed to create season folder:" << seasonFolderName;
+                    continue;
+                }
+            }
+            episodeFolderPath = languageDir.absoluteFilePath(seasonFolderName);
         }
-        
-        QString seasonPath = languageDir.absoluteFilePath(seasonFolderName);
         
         // Generate output filename
         QString outputFileName;
         
         if (episodeNum > 0) {
-            outputFileName = QString("%1_S%2E%3")
-                           .arg(showName)
-                           .arg(seasonNum, 2, 10, QChar('0'))
-                           .arg(episodeNum, 2, 10, QChar('0'));
+            if (metadata.isAbsoluteNumbering() || seasonNum == 0) {
+                // For absolute numbering, use E## format
+                outputFileName = QString("%1_E%2")
+                               .arg(showName)
+                               .arg(episodeNum, 3, 10, QChar('0')); // Use 3 digits for absolute numbering
+            } else {
+                // Traditional S##E## format
+                outputFileName = QString("%1_S%2E%3")
+                               .arg(showName)
+                               .arg(seasonNum, 2, 10, QChar('0'))
+                               .arg(episodeNum, 2, 10, QChar('0'));
+            }
             
             if (!metadata.EPName.isEmpty()) {
                 outputFileName += "_" + metadata.EPName;
@@ -2953,7 +2998,7 @@ void Operations_VP_Shows::performExportWithWorker(const QString& showFolderPath,
         QFileInfo sourceInfo(sourceFilePath);
         outputFileName += "." + sourceInfo.suffix();
         
-        QString outputFilePath = QDir(seasonPath).absoluteFilePath(outputFileName);
+        QString outputFilePath = QDir(episodeFolderPath).absoluteFilePath(outputFileName);
         
         // Create export info
         VP_ShowsExportWorker::ExportFileInfo fileInfo;
@@ -3859,25 +3904,46 @@ void Operations_VP_Shows::performEpisodeExportWithWorker(const QStringList& epis
         QString languagePath = showExportDir.absoluteFilePath(languageFolderName);
         QDir languageDir(languagePath);
         
-        // Create season folder path with zero-padded number
-        QString seasonFolderName = QString("Season %1").arg(seasonNum, 2, 10, QChar('0'));
-        if (!languageDir.exists(seasonFolderName)) {
-            if (!languageDir.mkdir(seasonFolderName)) {
-                qDebug() << "Operations_VP_Shows: Failed to create season folder:" << seasonFolderName;
-                continue;
+        // Check if using absolute numbering
+        QString episodeFolderPath;
+        if (metadata.isAbsoluteNumbering() || seasonNum == 0) {
+            // For absolute numbering, create "Episodes" folder instead of season folder
+            QString episodesFolderName = "Episodes";
+            if (!languageDir.exists(episodesFolderName)) {
+                if (!languageDir.mkdir(episodesFolderName)) {
+                    qDebug() << "Operations_VP_Shows: Failed to create episodes folder:" << episodesFolderName;
+                    continue;
+                }
             }
+            episodeFolderPath = languageDir.absoluteFilePath(episodesFolderName);
+        } else {
+            // Traditional season folder structure
+            QString seasonFolderName = QString("Season %1").arg(seasonNum, 2, 10, QChar('0'));
+            if (!languageDir.exists(seasonFolderName)) {
+                if (!languageDir.mkdir(seasonFolderName)) {
+                    qDebug() << "Operations_VP_Shows: Failed to create season folder:" << seasonFolderName;
+                    continue;
+                }
+            }
+            episodeFolderPath = languageDir.absoluteFilePath(seasonFolderName);
         }
-        
-        QString seasonPath = languageDir.absoluteFilePath(seasonFolderName);
         
         // Generate output filename
         QString outputFileName;
         
         if (episodeNum > 0) {
-            outputFileName = QString("%1_S%2E%3")
-                           .arg(showName)
-                           .arg(seasonNum, 2, 10, QChar('0'))
-                           .arg(episodeNum, 2, 10, QChar('0'));
+            if (metadata.isAbsoluteNumbering() || seasonNum == 0) {
+                // For absolute numbering, use E## format
+                outputFileName = QString("%1_E%2")
+                               .arg(showName)
+                               .arg(episodeNum, 3, 10, QChar('0')); // Use 3 digits for absolute numbering
+            } else {
+                // Traditional S##E## format
+                outputFileName = QString("%1_S%2E%3")
+                               .arg(showName)
+                               .arg(seasonNum, 2, 10, QChar('0'))
+                               .arg(episodeNum, 2, 10, QChar('0'));
+            }
             
             if (!metadata.EPName.isEmpty()) {
                 outputFileName += "_" + metadata.EPName;
@@ -3895,7 +3961,7 @@ void Operations_VP_Shows::performEpisodeExportWithWorker(const QStringList& epis
         QFileInfo sourceInfo(episodePath);
         outputFileName += "." + sourceInfo.suffix();
         
-        QString outputFilePath = QDir(seasonPath).absoluteFilePath(outputFileName);
+        QString outputFilePath = QDir(episodeFolderPath).absoluteFilePath(outputFileName);
         
         // Create export info
         VP_ShowsExportWorker::ExportFileInfo fileInfo;
