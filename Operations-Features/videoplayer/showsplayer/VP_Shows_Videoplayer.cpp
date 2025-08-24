@@ -11,6 +11,7 @@
 #include <QTimer>
 #include <QFocusEvent>
 #include <QDateTime>
+#include <climits>
 
 // Custom clickable slider class for seeking in video
 class VP_Shows_Videoplayer::ClickableSlider : public QSlider
@@ -25,16 +26,69 @@ protected:
         if (event->button() == Qt::LeftButton)
         {
             m_isPressed = true;
-            // Calculate position based on click
-            int value;
-            if (orientation() == Qt::Horizontal) {
-                value = minimum() + ((maximum() - minimum()) * event->x()) / width();
-            } else {
-                value = minimum() + ((maximum() - minimum()) * (height() - event->y())) / height();
+            
+            // Get widget dimensions
+            int widgetWidth = width();
+            int widgetHeight = height();
+            int mouseX = event->x();
+            int mouseY = event->y();
+            
+            // Check if widget is properly sized
+            if (widgetWidth <= 0 || widgetHeight <= 0) {
+                qDebug() << "VP_Shows_Videoplayer::ClickableSlider: WARNING - Widget has invalid dimensions:" << widgetWidth << "x" << widgetHeight;
+                // Fall back to default behavior
+                QSlider::mousePressEvent(event);
+                return;
             }
             
-            setValue(value);
-            emit sliderMoved(value);
+            // Debug logging for fullscreen issues
+            static bool debugLogged = false;
+            if (!debugLogged || (widgetWidth > 1000)) { // Log in fullscreen (wider widgets)
+                qDebug() << "VP_Shows_Videoplayer::ClickableSlider: Mouse press at" << mouseX << "," << mouseY;
+                qDebug() << "VP_Shows_Videoplayer::ClickableSlider: Widget dimensions:" << widgetWidth << "x" << widgetHeight;
+                qDebug() << "VP_Shows_Videoplayer::ClickableSlider: Slider range:" << minimum() << "to" << maximum();
+                debugLogged = true;
+            }
+            
+            // Clamp mouse position to widget bounds
+            mouseX = qBound(0, mouseX, widgetWidth);
+            mouseY = qBound(0, mouseY, widgetHeight);
+            
+            // Calculate position based on click using qint64 to prevent overflow
+            qint64 value;
+            if (orientation() == Qt::Horizontal) {
+                // Use qint64 for calculation to prevent overflow
+                qint64 range = static_cast<qint64>(maximum()) - static_cast<qint64>(minimum());
+                qint64 clickPos = static_cast<qint64>(mouseX);
+                qint64 widgetSize = static_cast<qint64>(widgetWidth);
+                
+                // Prevent division by zero
+                if (widgetSize > 0) {
+                    value = minimum() + (range * clickPos) / widgetSize;
+                } else {
+                    value = minimum();
+                }
+            } else {
+                // Vertical slider
+                qint64 range = static_cast<qint64>(maximum()) - static_cast<qint64>(minimum());
+                qint64 clickPos = static_cast<qint64>(widgetHeight - mouseY);
+                qint64 widgetSize = static_cast<qint64>(widgetHeight);
+                
+                // Prevent division by zero
+                if (widgetSize > 0) {
+                    value = minimum() + (range * clickPos) / widgetSize;
+                } else {
+                    value = minimum();
+                }
+            }
+            
+            // Clamp the value to valid range
+            value = qBound(static_cast<qint64>(minimum()), value, static_cast<qint64>(maximum()));
+            
+            qDebug() << "VP_Shows_Videoplayer::ClickableSlider: Calculated value:" << value;
+            
+            setValue(static_cast<int>(value));
+            emit sliderMoved(static_cast<int>(value));
             emit sliderPressed();
             
             // Continue with normal slider behavior
@@ -461,6 +515,17 @@ void VP_Shows_Videoplayer::setVolume(int volume)
 void VP_Shows_Videoplayer::setPosition(qint64 position)
 {
     qDebug() << "VP_Shows_Videoplayer: Setting position to" << position;
+    
+    // Validate position is within valid range
+    qint64 duration = m_mediaPlayer->duration();
+    if (duration > 0) {
+        position = qBound(qint64(0), position, duration);
+        if (position < 0) {
+            qDebug() << "VP_Shows_Videoplayer: WARNING - Attempted to set negative position, clamping to 0";
+            position = 0;
+        }
+    }
+    
     m_mediaPlayer->setPosition(position);
     
     // Force update the slider position when manually setting position (e.g., for resume)
@@ -561,6 +626,18 @@ void VP_Shows_Videoplayer::toggleFullScreen()
         setFocus();
         raise();
         activateWindow();
+        
+        // Force a layout update to ensure slider is properly sized
+        QTimer::singleShot(100, [this]() {
+            if (m_controlsWidget && m_positionSlider) {
+                qDebug() << "VP_Shows_Videoplayer: Fullscreen layout update - slider width:" << m_positionSlider->width();
+                qDebug() << "VP_Shows_Videoplayer: Fullscreen layout update - controls width:" << m_controlsWidget->width();
+                qDebug() << "VP_Shows_Videoplayer: Fullscreen layout update - window width:" << width();
+                // Force the slider to update its geometry
+                m_positionSlider->updateGeometry();
+                m_controlsWidget->updateGeometry();
+            }
+        });
     }
 }
 
@@ -861,6 +938,13 @@ void VP_Shows_Videoplayer::on_positionSlider_sliderMoved(int position)
 {
     qDebug() << "VP_Shows_Videoplayer: Position slider moved to" << position;
     
+    // Additional debug info in fullscreen
+    if (m_isFullScreen) {
+        qDebug() << "VP_Shows_Videoplayer: [FULLSCREEN] Slider moved to position:" << position;
+        qDebug() << "VP_Shows_Videoplayer: [FULLSCREEN] Slider max:" << m_positionSlider->maximum();
+        qDebug() << "VP_Shows_Videoplayer: [FULLSCREEN] Media duration:" << m_mediaPlayer->duration();
+    }
+    
     // Check if we're near the end of the video
     qint64 duration = m_mediaPlayer->duration();
     if (duration > 0) {
@@ -868,6 +952,12 @@ void VP_Shows_Videoplayer::on_positionSlider_sliderMoved(int position)
         if (remaining <= 120000) { // Within 2 minutes of end
             qDebug() << "VP_Shows_Videoplayer: Slider moved to near end position - remaining:" << remaining << "ms";
         }
+    }
+    
+    // Validate position before setting
+    if (position < 0) {
+        qDebug() << "VP_Shows_Videoplayer: WARNING - Slider moved to negative position:" << position << "- clamping to 0";
+        position = 0;
     }
     
     setPosition(position);
@@ -967,9 +1057,17 @@ void VP_Shows_Videoplayer::updateDuration(qint64 duration)
 {
     qDebug() << "VP_Shows_Videoplayer: Duration changed to" << duration;
     
+    // Check if duration would overflow int
+    if (duration > INT_MAX) {
+        qDebug() << "VP_Shows_Videoplayer: WARNING - Duration exceeds INT_MAX, clamping to INT_MAX";
+        duration = INT_MAX;
+    }
+    
     m_positionSlider->setRange(0, static_cast<int>(duration));
     m_durationLabel->setText(formatTime(duration));
     emit durationChanged(duration);
+    
+    qDebug() << "VP_Shows_Videoplayer: Slider range set to 0 -" << m_positionSlider->maximum();
 }
 
 void VP_Shows_Videoplayer::handleError(QMediaPlayer::Error error, const QString &errorString)
@@ -1046,6 +1144,13 @@ void VP_Shows_Videoplayer::handlePlaybackStateChanged(QMediaPlayer::PlaybackStat
 
 QString VP_Shows_Videoplayer::formatTime(qint64 milliseconds) const
 {
+    // Handle negative values (which shouldn't happen but do in the bug)
+    bool isNegative = milliseconds < 0;
+    if (isNegative) {
+        milliseconds = -milliseconds;
+        qDebug() << "VP_Shows_Videoplayer: WARNING - formatTime called with negative value:" << -milliseconds;
+    }
+    
     int seconds = static_cast<int>(milliseconds / 1000);
     int minutes = seconds / 60;
     int hours = minutes / 60;
@@ -1053,16 +1158,24 @@ QString VP_Shows_Videoplayer::formatTime(qint64 milliseconds) const
     seconds %= 60;
     minutes %= 60;
     
+    QString timeStr;
     if (hours > 0) {
-        return QString("%1:%2:%3")
+        timeStr = QString("%1:%2:%3")
             .arg(hours, 2, 10, QChar('0'))
             .arg(minutes, 2, 10, QChar('0'))
             .arg(seconds, 2, 10, QChar('0'));
     } else {
-        return QString("%1:%2")
+        timeStr = QString("%1:%2")
             .arg(minutes, 2, 10, QChar('0'))
             .arg(seconds, 2, 10, QChar('0'));
     }
+    
+    // Prepend minus sign if it was negative
+    if (isNegative) {
+        return QString("-%1").arg(timeStr);
+    }
+    
+    return timeStr;
 }
 
 void VP_Shows_Videoplayer::wheelEvent(QWheelEvent *event)
