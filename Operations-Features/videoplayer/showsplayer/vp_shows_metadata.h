@@ -22,13 +22,13 @@ public:
         QDateTime encryptionDateTime; // When the file was encrypted
         
         // Default constructor
-        ShowMetadata() : language("English"), translation("Dubbed"), airDate(QString()) {}
+        ShowMetadata() : language("English"), translation("Dubbed") {}
         
         // Constructor with basic fields
         ShowMetadata(const QString& fname, const QString& show, 
                     const QString& seas = QString(), const QString& ep = QString())
             : filename(fname), showName(show), season(seas), episode(ep),
-              language("English"), translation("Dubbed"), airDate(QString())
+              language("English"), translation("Dubbed")
         {
             encryptionDateTime = QDateTime::currentDateTime();
         }

@@ -116,16 +116,16 @@ QByteArray VP_ShowsMetadata::createMetadataChunk(const ShowMetadata& metadata)
     QDataStream stream(&chunk, QIODevice::WriteOnly);
     stream.setVersion(QDataStream::Qt_5_15);
     
-    // Write metadata fields
+    // Write all metadata fields in order
     stream << metadata.filename;
     stream << metadata.showName;
     stream << metadata.season;
     stream << metadata.episode;
-    stream << metadata.EPName;      // TMDB episode name
-    stream << metadata.EPImage;     // TMDB episode image
-    stream << metadata.language;    // Language field
-    stream << metadata.translation; // Translation mode field
-    stream << metadata.airDate;     // Episode air date field
+    stream << metadata.EPName;
+    stream << metadata.EPImage;
+    stream << metadata.language;
+    stream << metadata.translation;
+    stream << metadata.airDate;
     stream << metadata.encryptionDateTime;
     
     return chunk;
@@ -141,58 +141,22 @@ bool VP_ShowsMetadata::parseMetadataChunk(const QByteArray& chunk, ShowMetadata&
     QDataStream stream(chunk);
     stream.setVersion(QDataStream::Qt_5_15);
     
-    // Read metadata fields that are always present
+    // Read all metadata fields in order
     stream >> metadata.filename;
     stream >> metadata.showName;
     stream >> metadata.season;
     stream >> metadata.episode;
-    stream >> metadata.EPName;      // TMDB episode name
-    stream >> metadata.EPImage;     // TMDB episode image
+    stream >> metadata.EPName;
+    stream >> metadata.EPImage;
+    stream >> metadata.language;
+    stream >> metadata.translation;
+    stream >> metadata.airDate;
+    stream >> metadata.encryptionDateTime;
     
-    // Initialize defaults for optional fields
-    metadata.language = "English";
-    metadata.translation = "Dubbed";
-    metadata.airDate = QString();
-    metadata.encryptionDateTime = QDateTime::currentDateTime();
-    
-    // Try to read optional fields if they exist
-    if (!stream.atEnd()) {
-        stream >> metadata.language;
+    if (stream.status() != QDataStream::Ok) {
+        qDebug() << "VP_ShowsMetadata: Failed to parse metadata chunk";
+        return false;
     }
-    
-    if (!stream.atEnd()) {
-        stream >> metadata.translation;
-    }
-    
-    // For the remaining fields, we need to be more careful
-    // The next field could be either airDate (QString) or encryptionDateTime (QDateTime)
-    if (!stream.atEnd()) {
-        // Save current position
-        qint64 currentPos = stream.device()->pos();
-        
-        // Try to read as QString first
-        QString testString;
-        stream >> testString;
-        
-        // Check if this looks like an airDate (YYYY-MM-DD format) or is empty
-        if (testString.isEmpty() || (testString.length() == 10 && testString.contains("-"))) {
-            // This is likely the airDate field
-            metadata.airDate = testString;
-            
-            // Try to read encryptionDateTime if available
-            if (!stream.atEnd()) {
-                stream >> metadata.encryptionDateTime;
-            }
-        } else {
-            // This doesn't look like airDate, so it's probably an old format
-            // Restore position and try to read as QDateTime
-            stream.device()->seek(currentPos);
-            stream >> metadata.encryptionDateTime;
-        }
-    }
-    
-    // Don't check stream status here as it might fail for valid old-format files
-    // The important fields have been read successfully if we got this far
     
     return true;
 }
