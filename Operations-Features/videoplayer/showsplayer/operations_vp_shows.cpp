@@ -1967,6 +1967,31 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
 {
     qDebug() << "Operations_VP_Shows: Starting decryption and playback for:" << episodeName;
     
+    // Check if there's already a video player open and close it before decryption
+    if (m_episodePlayer) {
+        qDebug() << "Operations_VP_Shows: Existing video player detected - closing it before starting new playback";
+        
+        // Stop playback tracking if active
+        if (m_playbackTracker && m_playbackTracker->isTracking()) {
+            qDebug() << "Operations_VP_Shows: Stopping active playback tracking";
+            m_playbackTracker->stopTracking();
+        }
+        
+        // Force release the video file and clean up
+        forceReleaseVideoFile();
+        
+        // Close and reset the player
+        if (m_episodePlayer->isVisible()) {
+            m_episodePlayer->close();
+        }
+        m_episodePlayer.reset();
+        
+        // Clean up any existing temp file
+        cleanupTempFile();
+        
+        qDebug() << "Operations_VP_Shows: Previous video player closed and cleaned up";
+    }
+    
     // Store the current playing episode path for autoplay
     m_currentPlayingEpisodePath = encryptedFilePath;
     qDebug() << "Operations_VP_Shows: Stored current playing episode path:" << m_currentPlayingEpisodePath;
@@ -2398,18 +2423,29 @@ void Operations_VP_Shows::cleanupTempFile()
                             QFile::ReadUser | QFile::WriteUser);
 #endif
         
-        // Use regular delete for temp file
-        if (QFile::remove(m_currentTempFile)) {
-            qDebug() << "Operations_VP_Shows: Successfully deleted temp file";
+        // Use secure delete for temp file (3 passes for decrypted video content)
+        // Set allowExternalFiles to false since this should be in Data/username/temp
+        if (OperationsFiles::secureDelete(m_currentTempFile, 3, false)) {
+            qDebug() << "Operations_VP_Shows: Successfully securely deleted temp file";
         } else {
-            qDebug() << "Operations_VP_Shows: Failed to delete temp file";
-            // Schedule another attempt later
-            QTimer::singleShot(2000, this, [this]() {
-                if (!m_currentTempFile.isEmpty() && QFile::exists(m_currentTempFile)) {
-                    qDebug() << "Operations_VP_Shows: Retry deleting temp file";
-                    QFile::remove(m_currentTempFile);
-                }
-            });
+            qDebug() << "Operations_VP_Shows: Failed to securely delete temp file, trying regular delete";
+            // Try regular delete as fallback
+            if (QFile::remove(m_currentTempFile)) {
+                qDebug() << "Operations_VP_Shows: Successfully deleted temp file with regular delete";
+            } else {
+                qDebug() << "Operations_VP_Shows: Failed to delete temp file with regular delete";
+                // Schedule another attempt later with secure delete
+                QTimer::singleShot(2000, this, [this]() {
+                    if (!m_currentTempFile.isEmpty() && QFile::exists(m_currentTempFile)) {
+                        qDebug() << "Operations_VP_Shows: Retry secure deleting temp file";
+                        if (!OperationsFiles::secureDelete(m_currentTempFile, 3, false)) {
+                            // Final attempt with regular delete
+                            qDebug() << "Operations_VP_Shows: Secure delete retry failed, trying regular delete";
+                            QFile::remove(m_currentTempFile);
+                        }
+                    }
+                });
+            }
         }
     }
     
