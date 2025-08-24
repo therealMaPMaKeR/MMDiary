@@ -69,6 +69,7 @@ private:
     bool m_tmdbDataAvailable;
     QString m_showImagePath;  // Path to encrypted show image
     QMap<int, VP_ShowsTMDB::EpisodeMapping> m_episodeMap;  // Absolute number -> season/episode mapping
+    QStringList m_movieTitles;  // List of movie titles for content detection
     
     // Track existing episodes to detect duplicates
     QSet<QString> m_existingEpisodes;  // Set of "S##E##" strings from existing files

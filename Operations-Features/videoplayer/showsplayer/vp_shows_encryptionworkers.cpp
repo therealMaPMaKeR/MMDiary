@@ -305,6 +305,12 @@ bool VP_ShowsEncryptionWorker::fetchTMDBShowData()
             qDebug() << "VP_ShowsEncryptionWorker: Building episode map for absolute numbering...";
             m_episodeMap = m_tmdbManager->buildEpisodeMap(m_showInfo.tmdbId);
             qDebug() << "VP_ShowsEncryptionWorker: Episode map built with" << m_episodeMap.size() << "episodes";
+            
+            // Fetch movie titles for content detection
+            m_movieTitles = m_tmdbManager->getShowMovieTitles(m_showInfo.tmdbId);
+            if (!m_movieTitles.isEmpty()) {
+                qDebug() << "VP_ShowsEncryptionWorker: Found" << m_movieTitles.size() << "related movies";
+            }
         }
     } else {
         qDebug() << "VP_ShowsEncryptionWorker: No TMDB data found for show:" << m_showName;
@@ -417,6 +423,20 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     metadata.language = m_language;
     metadata.translation = m_translation;
     
+    // Detect content type from filename
+    metadata.contentType = VP_ShowsMetadata::detectContentType(filename, m_movieTitles);
+    
+    // Check if this is a movie that should also appear in regular episodes (dual display)
+    // This is for movies that are part of the series continuity
+    if (metadata.contentType == VP_ShowsMetadata::Movie) {
+        // Check if it has episode numbering (indicates it's part of the series)
+        int tempSeason, tempEpisode;
+        if (VP_ShowsTMDB::parseEpisodeFromFilename(filename, tempSeason, tempEpisode) && tempEpisode > 0) {
+            metadata.isDualDisplay = true;
+            qDebug() << "VP_ShowsEncryptionWorker: Movie with episode numbering detected - will display in both categories";
+        }
+    }
+    
     // Try to parse season and episode from filename
     int season = 0, episode = 0;
     bool parsedSuccessfully = VP_ShowsTMDB::parseEpisodeFromFilename(filename, season, episode);
@@ -448,6 +468,12 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 .arg(mapping.episode, 2, 10, QChar('0'))
                 .arg(m_language)
                 .arg(m_translation);
+            
+            // Check if the mapped season is 0 (specials) - override content type
+            if (mapping.season == 0 && metadata.contentType == VP_ShowsMetadata::Regular) {
+                metadata.contentType = VP_ShowsMetadata::Extra;
+                qDebug() << "VP_ShowsEncryptionWorker: Episode mapped to Season 0 - marking as Extra content";
+            }
         } else {
             episodeKey = QString("S%1E%2_%3_%4")
                 .arg(season, 2, 10, QChar('0'))

@@ -802,6 +802,83 @@ QList<VP_ShowsTMDB::EpisodeInfo> VP_ShowsTMDB::getSeasonEpisodes(int tmdbId, int
     return episodes;
 }
 
+QList<VP_ShowsTMDB::EpisodeInfo> VP_ShowsTMDB::getShowSpecials(int tmdbId)
+{
+    // Season 0 contains specials in TMDB
+    return getSeasonEpisodes(tmdbId, 0);
+}
+
+QList<VP_ShowsTMDB::MovieInfo> VP_ShowsTMDB::getShowMovies(int tmdbId)
+{
+    QList<MovieInfo> movies;
+    
+    if (tmdbId <= 0) {
+        qDebug() << "VP_ShowsTMDB: Invalid TMDB ID for getting movies";
+        return movies;
+    }
+    
+    // Search for movies related to the show
+    // TMDB doesn't have a direct endpoint for TV show movies, 
+    // so we use the search endpoint with the show name
+    QString showEndpoint = QString("/tv/%1").arg(tmdbId);
+    QJsonObject showDetails = makeApiRequest(showEndpoint);
+    
+    if (showDetails.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Failed to get show details for movie search";
+        return movies;
+    }
+    
+    QString showName = showDetails["name"].toString();
+    if (showName.isEmpty()) {
+        return movies;
+    }
+    
+    // Search for movies with the show name
+    QString searchEndpoint = QString("/search/movie?query=%1").arg(QUrl::toPercentEncoding(showName));
+    QJsonObject searchResults = makeApiRequest(searchEndpoint);
+    
+    if (searchResults.isEmpty()) {
+        qDebug() << "VP_ShowsTMDB: Failed to search for movies";
+        return movies;
+    }
+    
+    QJsonArray results = searchResults["results"].toArray();
+    
+    // Filter results to find movies that are likely related to the show
+    for (const QJsonValue& value : results) {
+        QJsonObject movieObj = value.toObject();
+        QString movieTitle = movieObj["title"].toString();
+        
+        // Check if movie title contains the show name
+        if (movieTitle.contains(showName, Qt::CaseInsensitive)) {
+            MovieInfo movie;
+            movie.tmdbId = movieObj["id"].toInt();
+            movie.title = movieTitle;
+            movie.overview = movieObj["overview"].toString();
+            movie.releaseDate = movieObj["release_date"].toString();
+            movie.posterPath = movieObj["poster_path"].toString();
+            
+            movies.append(movie);
+            qDebug() << "VP_ShowsTMDB: Found related movie:" << movie.title;
+        }
+    }
+    
+    qDebug() << "VP_ShowsTMDB: Found" << movies.size() << "movies related to show";
+    return movies;
+}
+
+QStringList VP_ShowsTMDB::getShowMovieTitles(int tmdbId)
+{
+    QStringList titles;
+    QList<MovieInfo> movies = getShowMovies(tmdbId);
+    
+    for (const MovieInfo& movie : movies) {
+        titles.append(movie.title);
+    }
+    
+    return titles;
+}
+
 QMap<int, VP_ShowsTMDB::EpisodeMapping> VP_ShowsTMDB::buildEpisodeMap(int tmdbId)
 {
     QMap<int, EpisodeMapping> episodeMap;

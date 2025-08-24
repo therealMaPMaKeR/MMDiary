@@ -76,6 +76,26 @@ public:
     // Get all episodes for a specific season
     QList<EpisodeInfo> getSeasonEpisodes(int tmdbId, int seasonNumber);
     
+    // Get Season 0 (specials) for a show
+    QList<EpisodeInfo> getShowSpecials(int tmdbId);
+    
+    // Movie information structure
+    struct MovieInfo {
+        QString title;
+        QString overview;
+        QString releaseDate;
+        QString posterPath;
+        int tmdbId;
+        
+        MovieInfo() : tmdbId(0) {}
+    };
+    
+    // Get movies related to a TV show
+    QList<MovieInfo> getShowMovies(int tmdbId);
+    
+    // Get list of movie titles for a show (for content detection)
+    QStringList getShowMovieTitles(int tmdbId);
+    
     // Download image from TMDB to temporary file
     // Available sizes:
     // - Posters: w92, w154, w185, w342, w500, w780, original

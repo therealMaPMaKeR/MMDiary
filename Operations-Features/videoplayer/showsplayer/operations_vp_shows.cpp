@@ -1358,6 +1358,11 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     // Key: "Language Translation" (e.g., "English Dubbed"), Value: map of seasons
     QMap<QString, QMap<int, QList<QPair<int, QTreeWidgetItem*>>>> languageVersions;
     
+    // Maps for special content types per language/translation
+    QMap<QString, QList<QTreeWidgetItem*>> moviesByLanguage;    // Movies
+    QMap<QString, QList<QTreeWidgetItem*>> ovasByLanguage;      // OVAs
+    QMap<QString, QList<QTreeWidgetItem*>> extrasByLanguage;    // Extras
+    
     // Map to hold error episodes per language/translation
     // Key: "Language Translation", Value: list of error episode items
     QMap<QString, QList<QTreeWidgetItem*>> errorEpisodesByLanguage;
@@ -1398,7 +1403,68 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             continue;
         }
         
-        // Parse season and episode numbers
+        // Create language/translation key (e.g., "English Dubbed")
+        QString languageKey = QString("%1 %2").arg(metadata.language).arg(metadata.translation);
+        
+        // Check content type and handle accordingly
+        if (metadata.contentType == VP_ShowsMetadata::Movie ||
+            metadata.contentType == VP_ShowsMetadata::OVA ||
+            metadata.contentType == VP_ShowsMetadata::Extra) {
+            
+            // Create special content item
+            QTreeWidgetItem* specialItem = new QTreeWidgetItem();
+            
+            // Format the name based on content type
+            QString itemName;
+            QFileInfo fileInfo(metadata.filename);
+            QString baseName = fileInfo.completeBaseName();
+            
+            if (!metadata.EPName.isEmpty()) {
+                itemName = metadata.EPName;
+            } else {
+                itemName = baseName;
+            }
+            
+            specialItem->setText(0, itemName);
+            specialItem->setData(0, Qt::UserRole, videoPath);
+            
+            // Check if watched
+            if (historyLoaded) {
+                QString relativeEpisodePath = showDir.relativeFilePath(videoPath);
+                if (m_watchHistory->isEpisodeCompleted(relativeEpisodePath)) {
+                    specialItem->setForeground(0, QBrush(watchedColor));
+                    qDebug() << "Operations_VP_Shows: Special content marked as watched:" << itemName;
+                }
+            }
+            
+            // Add to appropriate category
+            switch (metadata.contentType) {
+                case VP_ShowsMetadata::Movie:
+                    moviesByLanguage[languageKey].append(specialItem);
+                    qDebug() << "Operations_VP_Shows: Added movie:" << itemName << "to" << languageKey;
+                    break;
+                case VP_ShowsMetadata::OVA:
+                    ovasByLanguage[languageKey].append(specialItem);
+                    qDebug() << "Operations_VP_Shows: Added OVA:" << itemName << "to" << languageKey;
+                    break;
+                case VP_ShowsMetadata::Extra:
+                    extrasByLanguage[languageKey].append(specialItem);
+                    qDebug() << "Operations_VP_Shows: Added extra:" << itemName << "to" << languageKey;
+                    break;
+                default:
+                    break;
+            }
+            
+            // If dual display (movie that's part of series), also add to regular episodes
+            if (metadata.isDualDisplay) {
+                // Continue processing as regular episode below
+                qDebug() << "Operations_VP_Shows: Movie has dual display - also adding to regular episodes";
+            } else {
+                continue;  // Skip regular episode processing
+            }
+        }
+        
+        // Parse season and episode numbers for regular episodes or dual-display movies
         int seasonNum = metadata.season.toInt();
         int episodeNum = metadata.episode.toInt();
         
@@ -1411,9 +1477,6 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         if (seasonNum == 0) {
             seasonNum = 1;
         }
-        
-        // Create language/translation key (e.g., "English Dubbed")
-        QString languageKey = QString("%1 %2").arg(metadata.language).arg(metadata.translation);
         
         // Create episode item
         QTreeWidgetItem* episodeItem = new QTreeWidgetItem();
@@ -1559,6 +1622,130 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
                 
                 // Don't expand by default - will be handled by expandToLastWatchedEpisode()
             }
+        }
+        
+        // Add Movies category if there are any
+        if (moviesByLanguage.contains(languageKey) && !moviesByLanguage[languageKey].isEmpty()) {
+            QTreeWidgetItem* moviesCategory = new QTreeWidgetItem();
+            moviesCategory->setText(0, tr("Movies (%1)").arg(moviesByLanguage[languageKey].size()));
+            
+            // Sort movies by release date if available, then by name
+            QList<QTreeWidgetItem*>& movies = moviesByLanguage[languageKey];
+            std::sort(movies.begin(), movies.end(), [&metadataManager](QTreeWidgetItem* a, QTreeWidgetItem* b) {
+                QString pathA = a->data(0, Qt::UserRole).toString();
+                QString pathB = b->data(0, Qt::UserRole).toString();
+                VP_ShowsMetadata::ShowMetadata metaA, metaB;
+                
+                bool hasDateA = false, hasDateB = false;
+                if (metadataManager.readMetadataFromFile(pathA, metaA) && !metaA.airDate.isEmpty()) {
+                    hasDateA = true;
+                }
+                if (metadataManager.readMetadataFromFile(pathB, metaB) && !metaB.airDate.isEmpty()) {
+                    hasDateB = true;
+                }
+                
+                // If both have dates, sort by date
+                if (hasDateA && hasDateB) {
+                    return metaA.airDate < metaB.airDate;
+                }
+                // If only one has date, it comes first
+                if (hasDateA && !hasDateB) return true;
+                if (!hasDateA && hasDateB) return false;
+                // Neither has date, keep original order
+                return false;
+            });
+            
+            // Add sorted movies to category
+            for (QTreeWidgetItem* movieItem : movies) {
+                moviesCategory->addChild(movieItem);
+            }
+            
+            languageItem->addChild(moviesCategory);
+            qDebug() << "Operations_VP_Shows: Added" << movies.size() << "movies for" << languageKey;
+        }
+        
+        // Add OVA category if there are any
+        if (ovasByLanguage.contains(languageKey) && !ovasByLanguage[languageKey].isEmpty()) {
+            QTreeWidgetItem* ovaCategory = new QTreeWidgetItem();
+            ovaCategory->setText(0, tr("OVA (%1)").arg(ovasByLanguage[languageKey].size()));
+            
+            // Sort OVAs similar to movies
+            QList<QTreeWidgetItem*>& ovas = ovasByLanguage[languageKey];
+            std::sort(ovas.begin(), ovas.end(), [&metadataManager](QTreeWidgetItem* a, QTreeWidgetItem* b) {
+                QString pathA = a->data(0, Qt::UserRole).toString();
+                QString pathB = b->data(0, Qt::UserRole).toString();
+                VP_ShowsMetadata::ShowMetadata metaA, metaB;
+                
+                // Try to get episode numbers first
+                int epA = 0, epB = 0;
+                if (metadataManager.readMetadataFromFile(pathA, metaA)) {
+                    epA = metaA.episode.toInt();
+                }
+                if (metadataManager.readMetadataFromFile(pathB, metaB)) {
+                    epB = metaB.episode.toInt();
+                }
+                
+                // If both have episode numbers, sort by episode
+                if (epA > 0 && epB > 0) {
+                    return epA < epB;
+                }
+                // Then by date if available
+                if (!metaA.airDate.isEmpty() && !metaB.airDate.isEmpty()) {
+                    return metaA.airDate < metaB.airDate;
+                }
+                // Keep original order
+                return false;
+            });
+            
+            // Add sorted OVAs to category
+            for (QTreeWidgetItem* ovaItem : ovas) {
+                ovaCategory->addChild(ovaItem);
+            }
+            
+            languageItem->addChild(ovaCategory);
+            qDebug() << "Operations_VP_Shows: Added" << ovas.size() << "OVAs for" << languageKey;
+        }
+        
+        // Add Extra category if there are any
+        if (extrasByLanguage.contains(languageKey) && !extrasByLanguage[languageKey].isEmpty()) {
+            QTreeWidgetItem* extraCategory = new QTreeWidgetItem();
+            extraCategory->setText(0, tr("Extra (%1)").arg(extrasByLanguage[languageKey].size()));
+            
+            // Sort extras similar to OVAs
+            QList<QTreeWidgetItem*>& extras = extrasByLanguage[languageKey];
+            std::sort(extras.begin(), extras.end(), [&metadataManager](QTreeWidgetItem* a, QTreeWidgetItem* b) {
+                QString pathA = a->data(0, Qt::UserRole).toString();
+                QString pathB = b->data(0, Qt::UserRole).toString();
+                VP_ShowsMetadata::ShowMetadata metaA, metaB;
+                
+                // Try to get episode numbers first
+                int epA = 0, epB = 0;
+                if (metadataManager.readMetadataFromFile(pathA, metaA)) {
+                    epA = metaA.episode.toInt();
+                }
+                if (metadataManager.readMetadataFromFile(pathB, metaB)) {
+                    epB = metaB.episode.toInt();
+                }
+                
+                // If both have episode numbers, sort by episode
+                if (epA > 0 && epB > 0) {
+                    return epA < epB;
+                }
+                // Then by date if available
+                if (!metaA.airDate.isEmpty() && !metaB.airDate.isEmpty()) {
+                    return metaA.airDate < metaB.airDate;
+                }
+                // Keep original order
+                return false;
+            });
+            
+            // Add sorted extras to category
+            for (QTreeWidgetItem* extraItem : extras) {
+                extraCategory->addChild(extraItem);
+            }
+            
+            languageItem->addChild(extraCategory);
+            qDebug() << "Operations_VP_Shows: Added" << extras.size() << "extras for" << languageKey;
         }
         
         // Add error episodes category for this language if there are any
@@ -3581,12 +3768,16 @@ QStringList Operations_VP_Shows::getAllAvailableEpisodes() const
             continue;
         }
         
-        // Iterate through all seasons in this language
+        // Iterate through all children of language item
         for (int seasonIndex = 0; seasonIndex < languageItem->childCount(); ++seasonIndex) {
             QTreeWidgetItem* seasonItem = languageItem->child(seasonIndex);
             
-            // Skip if this is an error category nested under language
-            if (seasonItem->text(0).contains("Error - Duplicate Episodes")) {
+            // Skip special categories (Movies, OVA, Extra, Error)
+            QString categoryText = seasonItem->text(0);
+            if (categoryText.contains("Error - Duplicate Episodes") ||
+                categoryText.startsWith("Movies") ||
+                categoryText.startsWith("OVA") ||
+                categoryText.startsWith("Extra")) {
                 continue;
             }
             

@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QDataStream>
 #include <QDebug>
+#include <QRegularExpression>
 
 // Initialize the reserved size constant
 const int VP_ShowsMetadata::METADATA_RESERVED_SIZE;
@@ -126,6 +127,8 @@ QByteArray VP_ShowsMetadata::createMetadataChunk(const ShowMetadata& metadata)
     stream << metadata.language;
     stream << metadata.translation;
     stream << metadata.airDate;
+    stream << static_cast<qint32>(metadata.contentType);  // Write content type as int
+    stream << metadata.isDualDisplay;
     stream << metadata.encryptionDateTime;
     
     return chunk;
@@ -151,6 +154,19 @@ bool VP_ShowsMetadata::parseMetadataChunk(const QByteArray& chunk, ShowMetadata&
     stream >> metadata.language;
     stream >> metadata.translation;
     stream >> metadata.airDate;
+    
+    // Try to read new fields (for backward compatibility)
+    if (!stream.atEnd()) {
+        qint32 contentTypeInt;
+        stream >> contentTypeInt;
+        metadata.contentType = static_cast<ContentType>(contentTypeInt);
+        stream >> metadata.isDualDisplay;
+    } else {
+        // Default values for old files
+        metadata.contentType = Regular;
+        metadata.isDualDisplay = false;
+    }
+    
     stream >> metadata.encryptionDateTime;
     
     if (stream.status() != QDataStream::Ok) {
@@ -292,4 +308,104 @@ bool VP_ShowsMetadata::safeRead(const char* data, int& pos, int totalSize, void*
     memcpy(dest, data + pos, size);
     pos += size;
     return true;
+}
+
+// Content type detection implementation
+VP_ShowsMetadata::ContentType VP_ShowsMetadata::detectContentType(const QString& filename, const QStringList& tmdbMovieTitles)
+{
+    // Check for OVA first (most specific)
+    if (isOVAContent(filename)) {
+        return OVA;
+    }
+    
+    // Check for movie content
+    if (isMovieContent(filename, tmdbMovieTitles)) {
+        return Movie;
+    }
+    
+    // Check for extra/special content
+    if (isExtraContent(filename)) {
+        return Extra;
+    }
+    
+    // Default to regular episode
+    return Regular;
+}
+
+bool VP_ShowsMetadata::isMovieContent(const QString& filename, const QStringList& tmdbMovieTitles)
+{
+    QString lowerFilename = filename.toLower();
+    
+    // Direct movie indicators
+    if (lowerFilename.contains("movie") || lowerFilename.contains("film")) {
+        return true;
+    }
+    
+    // Check against TMDB movie titles if provided
+    if (!tmdbMovieTitles.isEmpty()) {
+        for (const QString& movieTitle : tmdbMovieTitles) {
+            // Normalize the movie title for comparison
+            QString normalizedTitle = movieTitle.toLower();
+            normalizedTitle.remove(QRegExp("[^a-z0-9 ]"));  // Remove special characters
+            normalizedTitle.replace(" ", "");  // Remove spaces
+            
+            // Normalize filename for comparison
+            QString normalizedFilename = lowerFilename;
+            normalizedFilename.remove(QRegExp("[^a-z0-9 ]"));
+            normalizedFilename.replace(" ", "");
+            
+            // Also check with underscores replaced
+            QString underscoreVersion = movieTitle.toLower();
+            underscoreVersion.replace(" ", "_");
+            
+            if (normalizedFilename.contains(normalizedTitle) || 
+                lowerFilename.contains(underscoreVersion)) {
+                qDebug() << "VP_ShowsMetadata: Detected movie content from TMDB title match:" << movieTitle;
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+bool VP_ShowsMetadata::isOVAContent(const QString& filename)
+{
+    QString lowerFilename = filename.toLower();
+    
+    // Check for OVA/OAD indicators
+    if (lowerFilename.contains("ova") || 
+        lowerFilename.contains("oad") ||
+        lowerFilename.contains("original") && lowerFilename.contains("animation") ||
+        lowerFilename.contains("original") && lowerFilename.contains("video")) {
+        return true;
+    }
+    
+    return false;
+}
+
+bool VP_ShowsMetadata::isExtraContent(const QString& filename)
+{
+    QString lowerFilename = filename.toLower();
+    
+    // Check for special/extra content indicators
+    if (lowerFilename.contains("special") ||
+        lowerFilename.contains("extra") ||
+        lowerFilename.contains("bonus") ||
+        lowerFilename.contains("behind") && lowerFilename.contains("scenes") ||
+        lowerFilename.contains("deleted") && lowerFilename.contains("scene") ||
+        lowerFilename.contains("interview") ||
+        lowerFilename.contains("preview") ||
+        lowerFilename.contains("recap") ||
+        lowerFilename.contains("crossover")) {
+        return true;
+    }
+    
+    // Check for Season 0 indicators (TMDB specials)
+    QRegExp seasonZeroRegex("s(eason)?[\\s_-]?0", Qt::CaseInsensitive);
+    if (seasonZeroRegex.indexIn(filename) != -1) {
+        return true;
+    }
+    
+    return false;
 }

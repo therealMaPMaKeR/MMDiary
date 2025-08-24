@@ -8,6 +8,14 @@
 class VP_ShowsMetadata
 {
 public:
+    // Content type enumeration for different types of show content
+    enum ContentType {
+        Regular = 0,    // Regular episode
+        Movie = 1,      // Movie related to the show
+        OVA = 2,        // Original Video Animation/OAD
+        Extra = 3       // Specials, crossovers, behind-the-scenes, etc.
+    };
+    
     // Metadata structure for encrypted TV show video files
     struct ShowMetadata {
         QString filename;       // Original filename with extension
@@ -19,16 +27,18 @@ public:
         QString language;       // Language of the episode (e.g., "English")
         QString translation;    // Translation mode ("Dubbed" or "Subbed")
         QString airDate;        // Episode air date from TMDB (format: YYYY-MM-DD)
+        ContentType contentType; // Type of content (regular/movie/ova/extra)
+        bool isDualDisplay;     // True if this should appear in both regular episodes and its category
         QDateTime encryptionDateTime; // When the file was encrypted
         
         // Default constructor
-        ShowMetadata() : language("English"), translation("Dubbed") {}
+        ShowMetadata() : language("English"), translation("Dubbed"), contentType(Regular), isDualDisplay(false) {}
         
         // Constructor with basic fields
         ShowMetadata(const QString& fname, const QString& show, 
                     const QString& seas = QString(), const QString& ep = QString())
             : filename(fname), showName(show), season(seas), episode(ep),
-              language("English"), translation("Dubbed")
+              language("English"), translation("Dubbed"), contentType(Regular), isDualDisplay(false)
         {
             encryptionDateTime = QDateTime::currentDateTime();
         }
@@ -38,10 +48,10 @@ public:
                     const QString& seas, const QString& ep,
                     const QString& epName, const QByteArray& epImage,
                     const QString& lang = "English", const QString& trans = "Dubbed",
-                    const QString& aDate = QString())
+                    const QString& aDate = QString(), ContentType cType = Regular, bool dual = false)
             : filename(fname), showName(show), season(seas), episode(ep),
               EPName(epName), EPImage(epImage), language(lang), translation(trans),
-              airDate(aDate)
+              airDate(aDate), contentType(cType), isDualDisplay(dual)
         {
             encryptionDateTime = QDateTime::currentDateTime();
         }
@@ -49,6 +59,17 @@ public:
         // Helper function to check if using absolute numbering
         bool isAbsoluteNumbering() const {
             return season.isEmpty() || season == "0";
+        }
+        
+        // Helper function to get content type as string
+        QString getContentTypeString() const {
+            switch(contentType) {
+                case Movie: return "Movie";
+                case OVA: return "OVA";
+                case Extra: return "Extra";
+                case Regular:
+                default: return "Regular";
+            }
         }
     };
     
@@ -73,6 +94,12 @@ public:
     // Static validation methods
     static bool isValidShowName(const QString& showName);
     static bool isValidFilename(const QString& filename);
+    
+    // Content type detection from filename
+    static ContentType detectContentType(const QString& filename, const QStringList& tmdbMovieTitles = QStringList());
+    static bool isMovieContent(const QString& filename, const QStringList& tmdbMovieTitles = QStringList());
+    static bool isOVAContent(const QString& filename);
+    static bool isExtraContent(const QString& filename);
     
     // Constants for validation limits
     static const int MAX_SHOW_NAME_LENGTH = 100;
