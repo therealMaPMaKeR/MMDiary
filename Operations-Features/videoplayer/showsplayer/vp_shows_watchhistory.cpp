@@ -417,6 +417,25 @@ void VP_ShowsWatchHistory::resetEpisodePosition(const QString& episodePath) {
     m_isDirty = true;
 }
 
+void VP_ShowsWatchHistory::clearLastWatchedEpisode() {
+    qDebug() << "VP_ShowsWatchHistory: Clearing last watched episode";
+    m_watchData->lastWatchedEpisode.clear();
+    m_isDirty = true;
+}
+
+void VP_ShowsWatchHistory::setLastWatchedEpisode(const QString& episodePath) {
+    QString validPath = validateEpisodePath(episodePath);
+    if (validPath.isEmpty()) {
+        qDebug() << "VP_ShowsWatchHistory: Invalid episode path for setLastWatchedEpisode:" << episodePath;
+        return;
+    }
+    
+    qDebug() << "VP_ShowsWatchHistory: Setting last watched episode to:" << validPath;
+    m_watchData->lastWatchedEpisode = validPath;
+    m_watchData->lastWatchedTime = QDateTime::currentDateTime();
+    m_isDirty = true;
+}
+
 EpisodeWatchInfo VP_ShowsWatchHistory::getEpisodeWatchInfo(const QString& episodePath) const {
     QString validPath = validateEpisodePath(episodePath);
     if (validPath.isEmpty() || !m_watchData->watchHistory.contains(validPath)) {

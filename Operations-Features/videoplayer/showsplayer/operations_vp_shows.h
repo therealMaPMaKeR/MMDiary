@@ -123,6 +123,9 @@ public:
     // Display show details page
     void displayShowDetails(const QString& showName);
     
+    // Update Play/Resume button text based on watch history
+    void updatePlayButtonText();
+    
     // Handle show list double-click
     void onShowListItemDoubleClicked(QListWidgetItem* item);
     

@@ -2128,6 +2128,9 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                         
                         // Now refresh the episode list with updated watch states
                         loadShowEpisodes(m_currentShowFolder);
+                        
+                        // Update the Play/Resume button text after refreshing
+                        updatePlayButtonText();
                     });
                 }
             }
@@ -4434,7 +4437,45 @@ void Operations_VP_Shows::setWatchedStateForItem(QTreeWidgetItem* item, bool wat
     QDir showDir(m_currentShowFolder);
     for (const QString& absolutePath : episodePaths) {
         QString relativePath = showDir.relativeFilePath(absolutePath);
-        m_watchHistory->setEpisodeWatched(relativePath, watched);
+        
+        if (watched) {
+            // Mark as watched
+            m_watchHistory->setEpisodeWatched(relativePath, true);
+        } else {
+            // Mark as unwatched AND reset playback position
+            m_watchHistory->setEpisodeWatched(relativePath, false);
+            m_watchHistory->resetEpisodePosition(relativePath);
+            
+            // If this was the last watched episode, update it
+            if (m_watchHistory->getLastWatchedEpisode() == relativePath) {
+                qDebug() << "Operations_VP_Shows: Clearing last watched episode as it was marked unwatched";
+                
+                // Find the next most recently watched episode
+                QString newLastWatched;
+                QDateTime latestTime;
+                
+                // Check all episodes in watch history to find the most recent one that's still watched
+                for (const QString& videoFile : m_episodeFileMapping.values()) {
+                    QString relPath = showDir.relativeFilePath(videoFile);
+                    if (relPath != relativePath && m_watchHistory->hasEpisodeBeenWatched(relPath)) {
+                        EpisodeWatchInfo info = m_watchHistory->getEpisodeWatchInfo(relPath);
+                        if (info.completed && info.lastWatched > latestTime) {
+                            latestTime = info.lastWatched;
+                            newLastWatched = relPath;
+                        }
+                    }
+                }
+                
+                // Update the last watched episode
+                if (newLastWatched.isEmpty()) {
+                    m_watchHistory->clearLastWatchedEpisode();
+                    qDebug() << "Operations_VP_Shows: No other watched episodes found, cleared last watched";
+                } else {
+                    m_watchHistory->setLastWatchedEpisode(newLastWatched);
+                    qDebug() << "Operations_VP_Shows: Updated last watched episode to:" << newLastWatched;
+                }
+            }
+        }
     }
 
     // Save the history once after all updates
@@ -4444,6 +4485,9 @@ void Operations_VP_Shows::setWatchedStateForItem(QTreeWidgetItem* item, bool wat
 
     // Refresh the tree widget to show updated states
     refreshEpisodeTreeColors();
+    
+    // Update the Play/Resume button text
+    updatePlayButtonText();
 }
 
 // Helper function to refresh the tree widget colors based on watch states
@@ -4616,6 +4660,10 @@ void Operations_VP_Shows::expandToLastWatchedEpisode()
     }
     
     qDebug() << "Operations_VP_Shows: No unwatched episodes found, tree remains collapsed";
+}
+
+void Operations_VP_Shows::updatePlayButtonText() {
+
 }
 
 // =================

@@ -170,6 +170,17 @@ public:
     void resetEpisodePosition(const QString& episodePath);
     
     /**
+     * @brief Clear the last watched episode (used when marking it as unwatched)
+     */
+    void clearLastWatchedEpisode();
+    
+    /**
+     * @brief Set the last watched episode
+     * @param episodePath Relative path to the episode
+     */
+    void setLastWatchedEpisode(const QString& episodePath);
+    
+    /**
      * @brief Get watch info for a specific episode
      * @param episodePath Relative path to the episode
      * @return Episode watch info, or empty info if not found
