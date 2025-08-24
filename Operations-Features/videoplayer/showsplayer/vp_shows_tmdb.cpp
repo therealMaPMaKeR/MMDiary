@@ -879,6 +879,34 @@ QStringList VP_ShowsTMDB::getShowMovieTitles(int tmdbId)
     return titles;
 }
 
+QStringList VP_ShowsTMDB::getShowOvaTitles(int tmdbId)
+{
+    QStringList titles;
+    
+    if (tmdbId <= 0) {
+        qDebug() << "VP_ShowsTMDB: Invalid TMDB ID for getting OVA titles";
+        return titles;
+    }
+    
+    // Get Season 0 (specials) which often contains OVAs
+    QList<EpisodeInfo> specials = getShowSpecials(tmdbId);
+    
+    for (const EpisodeInfo& special : specials) {
+        if (!special.episodeName.isEmpty()) {
+            // Check if this special is likely an OVA based on its name
+            QString lowerName = special.episodeName.toLower();
+            if (lowerName.contains("ova") || lowerName.contains("oad") || 
+                lowerName.contains("original") || lowerName.contains("special")) {
+                titles.append(special.episodeName);
+                qDebug() << "VP_ShowsTMDB: Found OVA/Special title:" << special.episodeName;
+            }
+        }
+    }
+    
+    qDebug() << "VP_ShowsTMDB: Found" << titles.size() << "OVA/special titles";
+    return titles;
+}
+
 QMap<int, VP_ShowsTMDB::EpisodeMapping> VP_ShowsTMDB::buildEpisodeMap(int tmdbId)
 {
     QMap<int, EpisodeMapping> episodeMap;

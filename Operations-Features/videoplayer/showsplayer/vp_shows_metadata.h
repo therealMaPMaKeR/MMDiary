@@ -96,9 +96,11 @@ public:
     static bool isValidFilename(const QString& filename);
     
     // Content type detection from filename
-    static ContentType detectContentType(const QString& filename, const QStringList& tmdbMovieTitles = QStringList());
+    static ContentType detectContentType(const QString& filename, 
+                                        const QStringList& tmdbMovieTitles = QStringList(),
+                                        const QStringList& tmdbOvaTitles = QStringList());
     static bool isMovieContent(const QString& filename, const QStringList& tmdbMovieTitles = QStringList());
-    static bool isOVAContent(const QString& filename);
+    static bool isOVAContent(const QString& filename, const QStringList& tmdbOvaTitles = QStringList());
     static bool isExtraContent(const QString& filename);
     
     // Constants for validation limits

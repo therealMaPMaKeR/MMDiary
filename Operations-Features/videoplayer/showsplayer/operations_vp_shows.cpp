@@ -1378,6 +1378,10 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             continue;
         }
         
+        qDebug() << "Operations_VP_Shows: Read metadata - ContentType:" << metadata.contentType 
+                 << "Season:" << metadata.season << "Episode:" << metadata.episode
+                 << "for file:" << videoFile;
+        
         // Check if this is an error episode (duplicate detected during import)
         if (metadata.season == "error" || metadata.episode == "error") {
             qDebug() << "Operations_VP_Shows: Found error episode:" << metadata.filename;
@@ -1473,7 +1477,19 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             VP_ShowsTMDB::parseEpisodeFromFilename(metadata.filename, seasonNum, episodeNum);
         }
         
-        // Default to season 1 if still no season number
+        // Skip regular episode processing if it's not a regular episode or dual-display content
+        if (metadata.contentType != VP_ShowsMetadata::Regular && !metadata.isDualDisplay) {
+            qDebug() << "Operations_VP_Shows: Content is not a regular episode, skipping regular processing";
+            continue;
+        }
+        
+        // If we still don't have a valid episode number, skip regular episode processing
+        if (episodeNum == 0) {
+            qDebug() << "Operations_VP_Shows: No valid episode number found for:" << metadata.filename;
+            continue;
+        }
+        
+        // Default to season 1 if still no season number but we have an episode number
         if (seasonNum == 0) {
             seasonNum = 1;
         }

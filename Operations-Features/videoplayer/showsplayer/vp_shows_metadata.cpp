@@ -155,18 +155,11 @@ bool VP_ShowsMetadata::parseMetadataChunk(const QByteArray& chunk, ShowMetadata&
     stream >> metadata.translation;
     stream >> metadata.airDate;
     
-    // Try to read new fields (for backward compatibility)
-    if (!stream.atEnd()) {
-        qint32 contentTypeInt;
-        stream >> contentTypeInt;
-        metadata.contentType = static_cast<ContentType>(contentTypeInt);
-        stream >> metadata.isDualDisplay;
-    } else {
-        // Default values for old files
-        metadata.contentType = Regular;
-        metadata.isDualDisplay = false;
-    }
-    
+    // Read content type and dual display fields
+    qint32 contentTypeInt;
+    stream >> contentTypeInt;
+    metadata.contentType = static_cast<VP_ShowsMetadata::ContentType>(contentTypeInt);
+    stream >> metadata.isDualDisplay;
     stream >> metadata.encryptionDateTime;
     
     if (stream.status() != QDataStream::Ok) {
@@ -311,25 +304,27 @@ bool VP_ShowsMetadata::safeRead(const char* data, int& pos, int totalSize, void*
 }
 
 // Content type detection implementation
-VP_ShowsMetadata::ContentType VP_ShowsMetadata::detectContentType(const QString& filename, const QStringList& tmdbMovieTitles)
+VP_ShowsMetadata::ContentType VP_ShowsMetadata::detectContentType(const QString& filename, 
+                                                                  const QStringList& tmdbMovieTitles,
+                                                                  const QStringList& tmdbOvaTitles)
 {
     // Check for OVA first (most specific)
-    if (isOVAContent(filename)) {
-        return OVA;
+    if (isOVAContent(filename, tmdbOvaTitles)) {
+        return VP_ShowsMetadata::OVA;
     }
     
     // Check for movie content
     if (isMovieContent(filename, tmdbMovieTitles)) {
-        return Movie;
+        return VP_ShowsMetadata::Movie;
     }
     
     // Check for extra/special content
     if (isExtraContent(filename)) {
-        return Extra;
+        return VP_ShowsMetadata::Extra;
     }
     
     // Default to regular episode
-    return Regular;
+    return VP_ShowsMetadata::Regular;
 }
 
 bool VP_ShowsMetadata::isMovieContent(const QString& filename, const QStringList& tmdbMovieTitles)
@@ -346,12 +341,12 @@ bool VP_ShowsMetadata::isMovieContent(const QString& filename, const QStringList
         for (const QString& movieTitle : tmdbMovieTitles) {
             // Normalize the movie title for comparison
             QString normalizedTitle = movieTitle.toLower();
-            normalizedTitle.remove(QRegExp("[^a-z0-9 ]"));  // Remove special characters
+            normalizedTitle.remove(QRegularExpression("[^a-z0-9 ]"));  // Remove special characters
             normalizedTitle.replace(" ", "");  // Remove spaces
             
             // Normalize filename for comparison
             QString normalizedFilename = lowerFilename;
-            normalizedFilename.remove(QRegExp("[^a-z0-9 ]"));
+            normalizedFilename.remove(QRegularExpression("[^a-z0-9 ]"));
             normalizedFilename.replace(" ", "");
             
             // Also check with underscores replaced
@@ -369,16 +364,41 @@ bool VP_ShowsMetadata::isMovieContent(const QString& filename, const QStringList
     return false;
 }
 
-bool VP_ShowsMetadata::isOVAContent(const QString& filename)
+bool VP_ShowsMetadata::isOVAContent(const QString& filename, const QStringList& tmdbOvaTitles)
 {
     QString lowerFilename = filename.toLower();
     
-    // Check for OVA/OAD indicators
+    // Direct OVA/OAD indicators
     if (lowerFilename.contains("ova") || 
         lowerFilename.contains("oad") ||
-        lowerFilename.contains("original") && lowerFilename.contains("animation") ||
-        lowerFilename.contains("original") && lowerFilename.contains("video")) {
+        (lowerFilename.contains("original") && lowerFilename.contains("animation")) ||
+        (lowerFilename.contains("original") && lowerFilename.contains("video"))) {
         return true;
+    }
+    
+    // Check against TMDB OVA/special titles if provided
+    if (!tmdbOvaTitles.isEmpty()) {
+        for (const QString& ovaTitle : tmdbOvaTitles) {
+            // Normalize the OVA title for comparison
+            QString normalizedTitle = ovaTitle.toLower();
+            normalizedTitle.remove(QRegularExpression("[^a-z0-9 ]"));  // Remove special characters
+            normalizedTitle.replace(" ", "");  // Remove spaces
+            
+            // Normalize filename for comparison
+            QString normalizedFilename = lowerFilename;
+            normalizedFilename.remove(QRegularExpression("[^a-z0-9 ]"));
+            normalizedFilename.replace(" ", "");
+            
+            // Also check with underscores replaced
+            QString underscoreVersion = ovaTitle.toLower();
+            underscoreVersion.replace(" ", "_");
+            
+            if (normalizedFilename.contains(normalizedTitle) || 
+                lowerFilename.contains(underscoreVersion)) {
+                qDebug() << "VP_ShowsMetadata: Detected OVA content from TMDB title match:" << ovaTitle;
+                return true;
+            }
+        }
     }
     
     return false;
@@ -402,8 +422,8 @@ bool VP_ShowsMetadata::isExtraContent(const QString& filename)
     }
     
     // Check for Season 0 indicators (TMDB specials)
-    QRegExp seasonZeroRegex("s(eason)?[\\s_-]?0", Qt::CaseInsensitive);
-    if (seasonZeroRegex.indexIn(filename) != -1) {
+    QRegularExpression seasonZeroRegex("s(eason)?[\\s_-]?0", QRegularExpression::CaseInsensitiveOption);
+    if (seasonZeroRegex.match(filename).hasMatch()) {
         return true;
     }
     

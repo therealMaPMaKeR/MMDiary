@@ -96,6 +96,9 @@ public:
     // Get list of movie titles for a show (for content detection)
     QStringList getShowMovieTitles(int tmdbId);
     
+    // Get list of OVA/special titles for a show (for content detection)
+    QStringList getShowOvaTitles(int tmdbId);
+    
     // Download image from TMDB to temporary file
     // Available sizes:
     // - Posters: w92, w154, w185, w342, w500, w780, original

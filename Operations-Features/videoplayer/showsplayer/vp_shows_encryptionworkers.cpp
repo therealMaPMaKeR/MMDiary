@@ -311,6 +311,26 @@ bool VP_ShowsEncryptionWorker::fetchTMDBShowData()
             if (!m_movieTitles.isEmpty()) {
                 qDebug() << "VP_ShowsEncryptionWorker: Found" << m_movieTitles.size() << "related movies";
             }
+            
+            // Fetch OVA/special titles from Season 0 that are likely actual OVAs
+            // Only include titles with OVA/OAD keywords to avoid false matches
+            QList<VP_ShowsTMDB::EpisodeInfo> specials = m_tmdbManager->getShowSpecials(m_showInfo.tmdbId);
+            for (const auto& special : specials) {
+                if (!special.episodeName.isEmpty()) {
+                    QString lowerName = special.episodeName.toLower();
+                    // Only add if it has OVA/OAD indicators or is clearly a special
+                    if (lowerName.contains("ova") || lowerName.contains("oad") || 
+                        lowerName.contains("special") || lowerName.contains("short") ||
+                        lowerName.contains("bonus") || lowerName.contains("extra")) {
+                        m_ovaTitles.append(special.episodeName);
+                        qDebug() << "VP_ShowsEncryptionWorker: Added OVA/Special for matching:" << special.episodeName;
+                    }
+                }
+            }
+            
+            if (!m_ovaTitles.isEmpty()) {
+                qDebug() << "VP_ShowsEncryptionWorker: Found" << m_ovaTitles.size() << "special/OVA titles for matching";
+            }
         }
     } else {
         qDebug() << "VP_ShowsEncryptionWorker: No TMDB data found for show:" << m_showName;
@@ -423,23 +443,33 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     metadata.language = m_language;
     metadata.translation = m_translation;
     
-    // Detect content type from filename
-    metadata.contentType = VP_ShowsMetadata::detectContentType(filename, m_movieTitles);
+    // Try to parse season and episode from filename FIRST
+    int season = 0, episode = 0;
+    bool parsedSuccessfully = VP_ShowsTMDB::parseEpisodeFromFilename(filename, season, episode);
+    
+    // If we successfully parsed season/episode numbers (and it's not Season 0), 
+    // it's a regular episode - skip content type detection
+    if (parsedSuccessfully && episode > 0 && season > 0) {
+        metadata.contentType = VP_ShowsMetadata::Regular;
+        qDebug() << "VP_ShowsEncryptionWorker: Valid S" << season << "E" << episode 
+                 << "found - marking as Regular episode";
+    } else if (parsedSuccessfully && episode > 0 && season == 0) {
+        // Season 0 episodes are always Extra (specials)
+        metadata.contentType = VP_ShowsMetadata::Extra;
+        qDebug() << "VP_ShowsEncryptionWorker: Season 0 episode detected - marking as Extra";
+    } else {
+        // Only detect content type for files without valid episode numbers
+        metadata.contentType = VP_ShowsMetadata::detectContentType(filename, m_movieTitles, m_ovaTitles);
+        qDebug() << "VP_ShowsEncryptionWorker: No valid episode numbers - detected content type:" 
+                 << metadata.contentType;
+    }
     
     // Check if this is a movie that should also appear in regular episodes (dual display)
     // This is for movies that are part of the series continuity
-    if (metadata.contentType == VP_ShowsMetadata::Movie) {
-        // Check if it has episode numbering (indicates it's part of the series)
-        int tempSeason, tempEpisode;
-        if (VP_ShowsTMDB::parseEpisodeFromFilename(filename, tempSeason, tempEpisode) && tempEpisode > 0) {
-            metadata.isDualDisplay = true;
-            qDebug() << "VP_ShowsEncryptionWorker: Movie with episode numbering detected - will display in both categories";
-        }
+    if (metadata.contentType == VP_ShowsMetadata::Movie && parsedSuccessfully && episode > 0) {
+        metadata.isDualDisplay = true;
+        qDebug() << "VP_ShowsEncryptionWorker: Movie with episode numbering detected - will display in both categories";
     }
-    
-    // Try to parse season and episode from filename
-    int season = 0, episode = 0;
-    bool parsedSuccessfully = VP_ShowsTMDB::parseEpisodeFromFilename(filename, season, episode);
     
     if (parsedSuccessfully && episode > 0) {  // Note: season can be 0 for absolute numbering
         qDebug() << "VP_ShowsEncryptionWorker: Parsed episode from filename:" << filename
@@ -470,7 +500,7 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 .arg(m_translation);
             
             // Check if the mapped season is 0 (specials) - override content type
-            if (mapping.season == 0 && metadata.contentType == VP_ShowsMetadata::Regular) {
+            if (mapping.season == 0) {
                 metadata.contentType = VP_ShowsMetadata::Extra;
                 qDebug() << "VP_ShowsEncryptionWorker: Episode mapped to Season 0 - marking as Extra content";
             }
@@ -482,6 +512,8 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 .arg(m_translation);
         }
         m_processedEpisodes.insert(episodeKey);
+        
+        qDebug() << "VP_ShowsEncryptionWorker: Final content type before saving:" << metadata.contentType;
         
         // If we couldn't parse a season number, use absolute numbering
         if (season == 0) {
@@ -589,6 +621,15 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
         }
     } else {
         qDebug() << "VP_ShowsEncryptionWorker: Could not parse episode info from filename:" << filename;
+        
+        // If we couldn't parse valid episode numbers and it's not Movie or OVA, mark it as Extra
+        if (metadata.contentType != VP_ShowsMetadata::Movie && 
+            metadata.contentType != VP_ShowsMetadata::OVA) {
+            qDebug() << "VP_ShowsEncryptionWorker: No valid episode number found, marking as Extra content";
+            metadata.contentType = VP_ShowsMetadata::Extra;
+            metadata.season = "0";
+            metadata.episode = "0";
+        }
     }
     
     return metadata;
