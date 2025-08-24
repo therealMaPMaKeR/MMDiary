@@ -84,7 +84,7 @@ bool VP_ShowsPlaybackTracker::initializeForShow(const QString& showFolderPath,
         if (!m_watchHistory->loadHistory()) {
             qDebug() << "VP_ShowsPlaybackTracker: No existing history, starting fresh";
             // Try to save initial empty history
-            if (m_watchHistory->saveHistory()) {
+            if (m_watchHistory->saveHistoryWithBackup()) {
                 qDebug() << "VP_ShowsPlaybackTracker: Initial empty history saved successfully";
             } else {
                 qDebug() << "VP_ShowsPlaybackTracker: WARNING - Failed to save initial history";
@@ -240,11 +240,11 @@ void VP_ShowsPlaybackTracker::stopTracking(qint64 finalPosition)
         if (position > 0) {
             qDebug() << "VP_ShowsPlaybackTracker: Saving final position:" << position << "ms";
             m_watchHistory->updateWatchProgress(m_currentEpisodePath, position, duration);
-            m_watchHistory->saveHistory();
+            m_watchHistory->saveHistoryWithBackup();
         } else {
             // Just ensure any pending changes are persisted
-            qDebug() << "VP_ShowsPlaybackTracker: Ensuring history is saved";
-            m_watchHistory->saveHistory();
+            qDebug() << "VP_ShowsPlaybackTracker: Ensuring history is saved with backup";
+            m_watchHistory->saveHistoryWithBackup();
         }
     }
     
@@ -340,7 +340,7 @@ void VP_ShowsPlaybackTracker::setAutoplayEnabled(bool enabled)
     
     qDebug() << "VP_ShowsPlaybackTracker: Setting autoplay to:" << enabled;
     m_watchHistory->setAutoplayEnabled(enabled);
-    m_watchHistory->saveHistory();
+    m_watchHistory->saveHistoryWithBackup();
 }
 
 TVShowSettings VP_ShowsPlaybackTracker::getShowSettings() const
@@ -360,7 +360,7 @@ void VP_ShowsPlaybackTracker::updateShowSettings(const TVShowSettings& settings)
     
     qDebug() << "VP_ShowsPlaybackTracker: Updating show settings";
     m_watchHistory->updateSettings(settings);
-    m_watchHistory->saveHistory();
+    m_watchHistory->saveHistoryWithBackup();
 }
 
 bool VP_ShowsPlaybackTracker::clearHistory()
@@ -379,8 +379,8 @@ bool VP_ShowsPlaybackTracker::saveHistory()
         return false;
     }
     
-    qDebug() << "VP_ShowsPlaybackTracker: Manually saving history";
-    return m_watchHistory->saveHistory();
+    qDebug() << "VP_ShowsPlaybackTracker: Manually saving history with backup";
+    return m_watchHistory->saveHistoryWithBackup();
 }
 
 void VP_ShowsPlaybackTracker::markCurrentEpisodeCompleted()
@@ -393,7 +393,7 @@ void VP_ShowsPlaybackTracker::markCurrentEpisodeCompleted()
     qDebug() << "VP_ShowsPlaybackTracker: *** MARKING EPISODE AS COMPLETED ***";
     qDebug() << "VP_ShowsPlaybackTracker: Episode:" << m_currentEpisodePath;
     m_watchHistory->markEpisodeCompleted(m_currentEpisodePath);
-    m_watchHistory->saveHistory();
+    m_watchHistory->saveHistoryWithBackup();
     
     qDebug() << "VP_ShowsPlaybackTracker: Emitting episodeCompleted signal";
     emit episodeCompleted(m_currentEpisodePath);
@@ -408,7 +408,7 @@ void VP_ShowsPlaybackTracker::setEpisodeWatched(const QString& episodePath, bool
     
     qDebug() << "VP_ShowsPlaybackTracker: Setting episode" << episodePath << "watched status to:" << watched;
     m_watchHistory->setEpisodeWatched(episodePath, watched);
-    m_watchHistory->saveHistory();
+    m_watchHistory->saveHistoryWithBackup();
     
     if (watched) {
         emit episodeCompleted(episodePath);
@@ -424,7 +424,7 @@ void VP_ShowsPlaybackTracker::markEpisodeWatched(const QString& episodePath)
     
     qDebug() << "VP_ShowsPlaybackTracker: Marking episode as watched:" << episodePath;
     m_watchHistory->markEpisodeCompleted(episodePath);
-    m_watchHistory->saveHistory();
+    m_watchHistory->saveHistoryWithBackup();
     
     emit episodeCompleted(episodePath);
 }
@@ -438,7 +438,7 @@ void VP_ShowsPlaybackTracker::markEpisodeUnwatched(const QString& episodePath)
     
     qDebug() << "VP_ShowsPlaybackTracker: Marking episode as unwatched:" << episodePath;
     m_watchHistory->markEpisodeUnwatched(episodePath);
-    m_watchHistory->saveHistory();
+    m_watchHistory->saveHistoryWithBackup();
 }
 
 void VP_ShowsPlaybackTracker::resetEpisodePosition(const QString& episodePath)
@@ -450,7 +450,7 @@ void VP_ShowsPlaybackTracker::resetEpisodePosition(const QString& episodePath)
     
     qDebug() << "VP_ShowsPlaybackTracker: Resetting position for episode:" << episodePath;
     m_watchHistory->resetEpisodePosition(episodePath);
-    m_watchHistory->saveHistory();
+    m_watchHistory->saveHistoryWithBackup();
 }
 
 qint64 VP_ShowsPlaybackTracker::getTotalWatchTime() const
@@ -552,8 +552,8 @@ void VP_ShowsPlaybackTracker::updateProgress()
         }
     }
     
-    // Save to disk
-    if (!m_watchHistory->saveHistory()) {
+    // Save to disk with backup for safety
+    if (!m_watchHistory->saveHistoryWithBackup()) {
         qDebug() << "VP_ShowsPlaybackTracker: WARNING - Failed to save history";
     } else {
         emit progressSaved();

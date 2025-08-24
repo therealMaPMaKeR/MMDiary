@@ -3508,12 +3508,13 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
         // For multi-selection or categories, use category watch state logic
         WatchState watchState;
         if (isMultiSelection || hasCategories) {
-            // For multiple items, check if all are watched
+            // For multiple items, check if all are watched (completed)
             watchState = WatchState::Watched;
             for (const QString& episodePath : m_contextMenuEpisodePaths) {
                 QDir showDir(m_currentShowFolder);
                 QString relativePath = showDir.relativeFilePath(episodePath);
-                if (!m_watchHistory->hasEpisodeBeenWatched(relativePath)) {
+                // Use isEpisodeCompleted to check actual watched status
+                if (!m_watchHistory->isEpisodeCompleted(relativePath)) {
                     watchState = WatchState::NotWatched;
                     break;
                 }
@@ -4484,55 +4485,64 @@ void Operations_VP_Shows::setWatchedStateForEpisodes(const QStringList& episodeP
     qDebug() << "Operations_VP_Shows: Setting" << episodePaths.size()
              << "episodes to watched state:" << watched;
 
-    // Convert absolute paths to relative paths and update watch history
+    // Convert absolute paths to relative paths
     QDir showDir(m_currentShowFolder);
+    QStringList relativePaths;
+    relativePaths.reserve(episodePaths.size());
+    
     for (const QString& absolutePath : episodePaths) {
         QString relativePath = showDir.relativeFilePath(absolutePath);
-        
-        if (watched) {
-            // Mark as watched
-            m_watchHistory->setEpisodeWatched(relativePath, true);
-        } else {
-            // Mark as unwatched AND reset playback position
-            m_watchHistory->setEpisodeWatched(relativePath, false);
+        if (!relativePath.isEmpty()) {
+            relativePaths.append(relativePath);
+        }
+    }
+    
+    // Use batch operation for efficiency and safety
+    m_watchHistory->batchSetEpisodesWatched(relativePaths, watched);
+    
+    // If marking as unwatched, also reset positions
+    if (!watched) {
+        for (const QString& relativePath : relativePaths) {
             m_watchHistory->resetEpisodePosition(relativePath);
+        }
+    }
+    
+    // Update last watched episode if necessary
+    if (!watched) {
+        QString currentLastWatched = m_watchHistory->getLastWatchedEpisode();
+        if (relativePaths.contains(currentLastWatched)) {
+            qDebug() << "Operations_VP_Shows: Last watched episode was marked unwatched, finding new one";
             
-            // If this was the last watched episode, update it
-            if (m_watchHistory->getLastWatchedEpisode() == relativePath) {
-                qDebug() << "Operations_VP_Shows: Clearing last watched episode as it was marked unwatched";
-                
-                // Find the next most recently watched episode
-                QString newLastWatched;
-                QDateTime latestTime;
-                
-                // Check all episodes in watch history to find the most recent one that's still watched
-                for (const QString& videoFile : m_episodeFileMapping.values()) {
-                    QString relPath = showDir.relativeFilePath(videoFile);
-                    if (relPath != relativePath && m_watchHistory->hasEpisodeBeenWatched(relPath)) {
-                        EpisodeWatchInfo info = m_watchHistory->getEpisodeWatchInfo(relPath);
-                        if (info.completed && info.lastWatched > latestTime) {
-                            latestTime = info.lastWatched;
-                            newLastWatched = relPath;
-                        }
+            // Find the next most recently watched episode
+            QString newLastWatched;
+            QDateTime latestTime;
+            
+            // Check all episodes in watch history to find the most recent one that's still watched
+            for (const QString& videoFile : m_episodeFileMapping.values()) {
+                QString relPath = showDir.relativeFilePath(videoFile);
+                // Check if episode is completed (actually watched)
+                if (!relativePaths.contains(relPath) && m_watchHistory->isEpisodeCompleted(relPath)) {
+                    EpisodeWatchInfo info = m_watchHistory->getEpisodeWatchInfo(relPath);
+                    if (info.lastWatched > latestTime) {
+                        latestTime = info.lastWatched;
+                        newLastWatched = relPath;
                     }
                 }
-                
-                // Update the last watched episode
-                if (newLastWatched.isEmpty()) {
-                    m_watchHistory->clearLastWatchedEpisode();
-                    qDebug() << "Operations_VP_Shows: No other watched episodes found, cleared last watched";
-                } else {
-                    m_watchHistory->setLastWatchedEpisode(newLastWatched);
-                    qDebug() << "Operations_VP_Shows: Updated last watched episode to:" << newLastWatched;
-                }
+            }
+            
+            // Update the last watched episode
+            if (newLastWatched.isEmpty()) {
+                m_watchHistory->clearLastWatchedEpisode();
+                qDebug() << "Operations_VP_Shows: No other watched episodes found, cleared last watched";
+            } else {
+                m_watchHistory->setLastWatchedEpisode(newLastWatched);
+                qDebug() << "Operations_VP_Shows: Updated last watched episode to:" << newLastWatched;
             }
         }
     }
 
-    // Save the history once after all updates
-    if (!episodePaths.isEmpty()) {
-        m_watchHistory->saveHistory();
-    }
+    // Save the history with backup
+    m_watchHistory->saveHistoryWithBackup();
 
     // Refresh the tree widget to show updated states
     refreshEpisodeTreeColors();
@@ -4576,9 +4586,10 @@ void Operations_VP_Shows::setWatchedStateForItem(QTreeWidgetItem* item, bool wat
                 // Check all episodes in watch history to find the most recent one that's still watched
                 for (const QString& videoFile : m_episodeFileMapping.values()) {
                     QString relPath = showDir.relativeFilePath(videoFile);
-                    if (relPath != relativePath && m_watchHistory->hasEpisodeBeenWatched(relPath)) {
+                    // Check if episode is completed (actually watched)
+                    if (relPath != relativePath && m_watchHistory->isEpisodeCompleted(relPath)) {
                         EpisodeWatchInfo info = m_watchHistory->getEpisodeWatchInfo(relPath);
-                        if (info.completed && info.lastWatched > latestTime) {
+                        if (info.lastWatched > latestTime) {
                             latestTime = info.lastWatched;
                             newLastWatched = relPath;
                         }
@@ -4597,9 +4608,9 @@ void Operations_VP_Shows::setWatchedStateForItem(QTreeWidgetItem* item, bool wat
         }
     }
 
-    // Save the history once after all updates
+    // Save the history with backup after all updates
     if (!episodePaths.isEmpty()) {
-        m_watchHistory->saveHistory();
+        m_watchHistory->saveHistoryWithBackup();
     }
 
     // Refresh the tree widget to show updated states
@@ -4896,12 +4907,15 @@ void Operations_VP_Shows::toggleWatchedStateFromContextMenu()
     }
     
     // Determine if we're marking as watched or unwatched
-    // Check if all selected episodes are already watched
+    // Check if all selected episodes are already watched (completed)
     bool allWatched = true;
     for (const QString& episodePath : m_contextMenuEpisodePaths) {
         QDir showDir(m_currentShowFolder);
         QString relativePath = showDir.relativeFilePath(episodePath);
-        if (!m_watchHistory->hasEpisodeBeenWatched(relativePath)) {
+        // Use isEpisodeCompleted instead of hasEpisodeBeenWatched
+        // because hasEpisodeBeenWatched only checks if episode exists in history,
+        // not if it's actually marked as watched/completed
+        if (!m_watchHistory->isEpisodeCompleted(relativePath)) {
             allWatched = false;
             break;
         }

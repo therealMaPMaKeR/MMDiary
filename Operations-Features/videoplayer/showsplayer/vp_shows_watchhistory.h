@@ -89,6 +89,8 @@ class VP_ShowsWatchHistory
 public:
     // Constants
     static constexpr const char* HISTORY_FILENAME = ".show_history.encrypted";
+    static constexpr const char* BACKUP_FILENAME = ".show_history.backup.encrypted";
+    static constexpr int MAX_BATCH_SIZE = 100; // Maximum episodes to process in one batch
     static constexpr qint64 COMPLETION_THRESHOLD_MS = 120000; // 2 minutes in milliseconds
     static constexpr qint64 RESUME_THRESHOLD_MS = 60000; // 1 minute in milliseconds - if within this of end, start from beginning
     static constexpr int SAVE_INTERVAL_SECONDS = 10; // Save progress every 10 seconds
@@ -121,6 +123,32 @@ public:
      * @return true if successfully saved, false otherwise
      */
     bool saveHistory();
+    
+    /**
+     * @brief Save history with automatic backup creation
+     * @return true if successfully saved, false otherwise
+     */
+    bool saveHistoryWithBackup();
+    
+    /**
+     * @brief Restore history from backup if main file is corrupted
+     * @return true if successfully restored, false otherwise
+     */
+    bool restoreFromBackup();
+    
+    /**
+     * @brief Validate JSON content before saving
+     * @param jsonContent JSON string to validate
+     * @return true if valid, false otherwise
+     */
+    bool validateJsonContent(const QString& jsonContent) const;
+    
+    /**
+     * @brief Batch update multiple episodes efficiently
+     * @param episodePaths List of episode paths
+     * @param watched Whether to mark as watched or unwatched
+     */
+    void batchSetEpisodesWatched(const QStringList& episodePaths, bool watched);
     
     /**
      * @brief Clear all watch history for this show
@@ -188,11 +216,21 @@ public:
     EpisodeWatchInfo getEpisodeWatchInfo(const QString& episodePath) const;
     
     /**
-     * @brief Check if an episode has been watched
+     * @brief Check if an episode exists in watch history (regardless of watched status)
      * @param episodePath Relative path to the episode
-     * @return true if episode has been watched, false otherwise
+     * @return true if episode exists in history, false otherwise
+     * @note This does NOT check if episode is marked as watched/completed.
+     *       Use isEpisodeCompleted() to check if actually watched.
      */
     bool hasEpisodeBeenWatched(const QString& episodePath) const;
+    
+    /**
+     * @brief Check if an episode exists in the watch history
+     * @param episodePath Relative path to the episode
+     * @return true if episode is in history, false otherwise
+     * @note Alias for hasEpisodeBeenWatched() with clearer naming
+     */
+    bool isEpisodeInHistory(const QString& episodePath) const;
     
     /**
      * @brief Check if an episode is completed
@@ -287,6 +325,7 @@ private:
     QByteArray m_encryptionKey;
     QString m_username;
     QString m_historyFilePath;
+    QString m_backupFilePath;
     
     // Watch data
     std::unique_ptr<TVShowWatchData> m_watchData;

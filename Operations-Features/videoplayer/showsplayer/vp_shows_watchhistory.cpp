@@ -104,6 +104,7 @@ VP_ShowsWatchHistory::VP_ShowsWatchHistory(const QString& showFolderPath,
     , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_historyFilePath(QDir(showFolderPath).absolutePath() + "/" + HISTORY_FILENAME)  // Use absolute path
+    , m_backupFilePath(QDir(showFolderPath).absolutePath() + "/" + BACKUP_FILENAME)  // Backup file path
     , m_watchData(std::make_unique<TVShowWatchData>())
     , m_isDirty(false)
 {
@@ -129,8 +130,12 @@ VP_ShowsWatchHistory::VP_ShowsWatchHistory(const QString& showFolderPath,
     
     // Try to load existing history
     if (!loadHistory()) {
-        qDebug() << "VP_ShowsWatchHistory: No existing history found, creating new data";
-        initializeEmptyData();
+        qDebug() << "VP_ShowsWatchHistory: No existing history found, trying backup...";
+        // Try to restore from backup if main file failed
+        if (!restoreFromBackup()) {
+            qDebug() << "VP_ShowsWatchHistory: No backup found either, creating new data";
+            initializeEmptyData();
+        }
     }
 }
 
@@ -166,6 +171,12 @@ bool VP_ShowsWatchHistory::loadHistory() {
     }
     
     qDebug() << "VP_ShowsWatchHistory: Successfully read encrypted file, content length:" << jsonContent.length();
+    
+    // Validate JSON content first
+    if (!validateJsonContent(jsonContent)) {
+        qDebug() << "VP_ShowsWatchHistory: History file contains invalid JSON, will attempt recovery from backup";
+        return false;
+    }
     
     // Parse JSON
     QJsonParseError parseError;
@@ -219,9 +230,9 @@ bool VP_ShowsWatchHistory::saveHistory() {
     
     qDebug() << "VP_ShowsWatchHistory: JSON content length:" << jsonContent.length();
     
-    // Validate JSON content is not empty
-    if (jsonContent.isEmpty()) {
-        qDebug() << "VP_ShowsWatchHistory: Empty JSON content, not saving";
+    // Validate JSON content before saving
+    if (!validateJsonContent(jsonContent)) {
+        qDebug() << "VP_ShowsWatchHistory: JSON validation failed, not saving";
         return false;
     }
     
@@ -450,6 +461,11 @@ bool VP_ShowsWatchHistory::hasEpisodeBeenWatched(const QString& episodePath) con
     return !validPath.isEmpty() && m_watchData->watchHistory.contains(validPath);
 }
 
+bool VP_ShowsWatchHistory::isEpisodeInHistory(const QString& episodePath) const {
+    // Alias for hasEpisodeBeenWatched() with clearer naming
+    return hasEpisodeBeenWatched(episodePath);
+}
+
 bool VP_ShowsWatchHistory::isEpisodeCompleted(const QString& episodePath) const {
     QString validPath = validateEpisodePath(episodePath);
     if (validPath.isEmpty() || !m_watchData->watchHistory.contains(validPath)) {
@@ -608,6 +624,178 @@ void VP_ShowsWatchHistory::initializeEmptyData() {
     m_watchData->settings = TVShowSettings();
     
     qDebug() << "VP_ShowsWatchHistory: Initialized empty data with show name:" << m_watchData->showName;
+}
+
+bool VP_ShowsWatchHistory::saveHistoryWithBackup() {
+    qDebug() << "VP_ShowsWatchHistory: Saving history with backup";
+    
+    // First, create a backup of the current history file if it exists
+    if (QFile::exists(m_historyFilePath)) {
+        qDebug() << "VP_ShowsWatchHistory: Creating backup of existing history file";
+        
+        // Remove old backup if it exists
+        if (QFile::exists(m_backupFilePath)) {
+            QFile::remove(m_backupFilePath);
+        }
+        
+        // Copy current history to backup
+        if (!QFile::copy(m_historyFilePath, m_backupFilePath)) {
+            qDebug() << "VP_ShowsWatchHistory: WARNING - Failed to create backup, but continuing with save";
+        } else {
+            qDebug() << "VP_ShowsWatchHistory: Backup created successfully";
+        }
+    }
+    
+    // Now save the history
+    return saveHistory();
+}
+
+bool VP_ShowsWatchHistory::restoreFromBackup() {
+    qDebug() << "VP_ShowsWatchHistory: Attempting to restore from backup:" << m_backupFilePath;
+    
+    // Check if backup file exists
+    if (!QFile::exists(m_backupFilePath)) {
+        qDebug() << "VP_ShowsWatchHistory: Backup file does not exist";
+        return false;
+    }
+    
+    qDebug() << "VP_ShowsWatchHistory: Backup file found, attempting to read...";
+    
+    // Read encrypted backup file
+    QString jsonContent;
+    if (!OperationsFiles::readEncryptedFile(m_backupFilePath, m_encryptionKey, jsonContent)) {
+        qDebug() << "VP_ShowsWatchHistory: Failed to read encrypted backup file";
+        return false;
+    }
+    
+    // Validate JSON content
+    if (!validateJsonContent(jsonContent)) {
+        qDebug() << "VP_ShowsWatchHistory: Backup file contains invalid JSON";
+        return false;
+    }
+    
+    // Parse JSON
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8(), &parseError);
+    if (doc.isNull() || !doc.isObject()) {
+        qDebug() << "VP_ShowsWatchHistory: Failed to parse backup JSON:" << parseError.errorString();
+        return false;
+    }
+    
+    // Load watch data from backup
+    try {
+        *m_watchData = TVShowWatchData::fromJson(doc.object());
+        qDebug() << "VP_ShowsWatchHistory: Successfully restored from backup with" 
+                 << m_watchData->watchHistory.size() << "episodes";
+        
+        // Save the restored data to the main file
+        saveHistory();
+        return true;
+    } catch (const std::exception& e) {
+        qDebug() << "VP_ShowsWatchHistory: Exception restoring from backup:" << e.what();
+        return false;
+    }
+}
+
+bool VP_ShowsWatchHistory::validateJsonContent(const QString& jsonContent) const {
+    // Check if content is empty
+    if (jsonContent.isEmpty()) {
+        qDebug() << "VP_ShowsWatchHistory: Validation failed - empty JSON content";
+        return false;
+    }
+    
+    // Try to parse the JSON
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8(), &parseError);
+    
+    if (parseError.error != QJsonParseError::NoError) {
+        qDebug() << "VP_ShowsWatchHistory: Validation failed - JSON parse error:" << parseError.errorString();
+        return false;
+    }
+    
+    if (!doc.isObject()) {
+        qDebug() << "VP_ShowsWatchHistory: Validation failed - JSON is not an object";
+        return false;
+    }
+    
+    // Check for required fields
+    QJsonObject json = doc.object();
+    if (!json.contains("showName") || !json.contains("watchHistory") || !json.contains("settings")) {
+        qDebug() << "VP_ShowsWatchHistory: Validation failed - missing required fields";
+        return false;
+    }
+    
+    // Validate watchHistory is an object
+    if (!json["watchHistory"].isObject()) {
+        qDebug() << "VP_ShowsWatchHistory: Validation failed - watchHistory is not an object";
+        return false;
+    }
+    
+    qDebug() << "VP_ShowsWatchHistory: JSON validation passed";
+    return true;
+}
+
+void VP_ShowsWatchHistory::batchSetEpisodesWatched(const QStringList& episodePaths, bool watched) {
+    qDebug() << "VP_ShowsWatchHistory: Batch setting" << episodePaths.size() << "episodes to watched:" << watched;
+    
+    if (episodePaths.isEmpty()) {
+        qDebug() << "VP_ShowsWatchHistory: No episodes to process";
+        return;
+    }
+    
+    // Process episodes in batches to avoid memory issues
+    int totalProcessed = 0;
+    int batchStart = 0;
+    
+    while (batchStart < episodePaths.size()) {
+        int batchEnd = qMin(batchStart + MAX_BATCH_SIZE, episodePaths.size());
+        int batchSize = batchEnd - batchStart;
+        
+        qDebug() << "VP_ShowsWatchHistory: Processing batch" << (totalProcessed / MAX_BATCH_SIZE + 1)
+                 << "- Episodes" << batchStart << "to" << (batchEnd - 1);
+        
+        // Process this batch
+        for (int i = batchStart; i < batchEnd; ++i) {
+            QString validPath = validateEpisodePath(episodePaths[i]);
+            if (validPath.isEmpty()) {
+                qDebug() << "VP_ShowsWatchHistory: Skipping invalid path:" << episodePaths[i];
+                continue;
+            }
+            
+            // Get or create episode info
+            EpisodeWatchInfo& info = m_watchData->watchHistory[validPath];
+            info.completed = watched;
+            info.lastWatched = QDateTime::currentDateTime();
+            
+            // Initialize new entries
+            if (info.episodePath.isEmpty()) {
+                info.episodePath = validPath;
+                info.episodeIdentifier = parseEpisodeIdentifier(validPath);
+                info.watchCount = watched ? 1 : 0;
+            } else if (watched && info.watchCount == 0) {
+                info.watchCount = 1;
+            }
+        }
+        
+        totalProcessed += batchSize;
+        batchStart = batchEnd;
+        
+        // Mark as dirty after each batch
+        m_isDirty = true;
+        
+        // Save after each batch to avoid losing too much data if something fails
+        if (batchStart < episodePaths.size()) {
+            qDebug() << "VP_ShowsWatchHistory: Saving intermediate batch results";
+            saveHistoryWithBackup();
+        }
+    }
+    
+    qDebug() << "VP_ShowsWatchHistory: Batch processing complete. Processed" << totalProcessed << "episodes";
+    
+    // Final save with backup
+    if (m_isDirty) {
+        saveHistoryWithBackup();
+    }
 }
 
 QString VP_ShowsWatchHistory::validateEpisodePath(const QString& episodePath) const {
