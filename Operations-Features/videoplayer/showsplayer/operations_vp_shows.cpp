@@ -3417,12 +3417,23 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
     m_contextMenuEpisodePaths.clear();
     m_contextMenuEpisodePath.clear();
     
+    // Use a QSet to collect unique episode paths to avoid duplicates
+    QSet<QString> uniqueEpisodePaths;
+    
     // Process all selected items
     for (QTreeWidgetItem* item : selectedItems) {
         if (item->childCount() > 0) {
             // This is a category (language, season, etc.)
             hasCategories = true;
-            collectEpisodesFromTreeItem(item, m_contextMenuEpisodePaths);
+            
+            // Collect episodes from this category into a temporary list
+            QStringList categoryEpisodes;
+            collectEpisodesFromTreeItem(item, categoryEpisodes);
+            
+            // Add to the unique set
+            for (const QString& episodePath : categoryEpisodes) {
+                uniqueEpisodePaths.insert(episodePath);
+            }
             
             if (!isMultiSelection) {
                 // For single category selection, get detailed description
@@ -3444,7 +3455,7 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
             hasEpisodes = true;
             QString videoPath = item->data(0, Qt::UserRole).toString();
             if (!videoPath.isEmpty()) {
-                m_contextMenuEpisodePaths.append(videoPath);
+                uniqueEpisodePaths.insert(videoPath);
                 if (!isMultiSelection) {
                     m_contextMenuEpisodePath = videoPath; // Store single episode path
                     description = item->text(0);
@@ -3453,6 +3464,11 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
             }
         }
     }
+    
+    // Convert the unique set back to the list
+    m_contextMenuEpisodePaths = uniqueEpisodePaths.values();
+    
+    qDebug() << "Operations_VP_Shows: Collected" << m_contextMenuEpisodePaths.size() << "unique episodes from" << selectedItems.size() << "selected items";
     
     // Determine the item type for menu construction
     QString itemType;
