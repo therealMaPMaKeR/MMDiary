@@ -7,8 +7,10 @@
 #include "vp_shows_tmdbsetup.h"
 #include "vp_shows_settings_dialog.h"
 #include "vp_shows_add_dialog.h"
+#include "vp_shows_edit_metadata_dialog.h"
 #include "vp_shows_tmdb.h"
 #include "vp_shows_settings.h"  // Add show settings
+#include "inputvalidation.cpp"
 #include "operations_files.h"  // Add operations_files for secure file operations
 #include "CryptoUtils.h"
 #include "vp_shows_watchhistory.h"  // Core watch history data management
@@ -1639,11 +1641,26 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     }
     
     // Create language/translation items, then season items, then add episodes
-    // First, get all unique language keys (from both regular episodes and error episodes)
+    // First, get all unique language keys from ALL content types
     QSet<QString> allLanguageKeys;
     
     // Add keys from regular episodes
     for (const QString& key : languageVersions.keys()) {
+        allLanguageKeys.insert(key);
+    }
+    
+    // Add keys from Movies
+    for (const QString& key : moviesByLanguage.keys()) {
+        allLanguageKeys.insert(key);
+    }
+    
+    // Add keys from OVAs
+    for (const QString& key : ovasByLanguage.keys()) {
+        allLanguageKeys.insert(key);
+    }
+    
+    // Add keys from Extras
+    for (const QString& key : extrasByLanguage.keys()) {
         allLanguageKeys.insert(key);
     }
     
@@ -3578,6 +3595,14 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
     }
     connect(exportAction, &QAction::triggered, this, &Operations_VP_Shows::decryptAndExportEpisodeFromContextMenu);
     
+    // Edit metadata action - only for single episode
+    if (itemType == "episode" && !isMultiSelection) {
+        contextMenu->addSeparator();
+        QAction* editMetadataAction = contextMenu->addAction(tr("Edit metadata"));
+        connect(editMetadataAction, &QAction::triggered, this, &Operations_VP_Shows::editEpisodeMetadata);
+        contextMenu->addSeparator();
+    }
+    
     // Delete action
     QAction* deleteAction;
     if (itemType == "episode" && !isMultiSelection) {
@@ -3767,6 +3792,149 @@ void Operations_VP_Shows::decryptAndExportEpisodeFromContextMenu()
     
     // Perform the export
     performEpisodeExportWithWorker(m_contextMenuEpisodePaths, exportPath, description);
+}
+
+void Operations_VP_Shows::editEpisodeMetadata()
+{
+    qDebug() << "Operations_VP_Shows: Edit episode metadata from context menu";
+    
+    // Ensure we have exactly one episode selected
+    if (m_contextMenuEpisodePaths.isEmpty() || m_contextMenuEpisodePaths.size() > 1) {
+        qDebug() << "Operations_VP_Shows: Invalid selection for metadata editing";
+        return;
+    }
+    
+    // Get the video file path
+    QString videoFilePath = m_contextMenuEpisodePaths.first();
+    qDebug() << "Operations_VP_Shows: Editing metadata for:" << videoFilePath;
+    
+    // Validate file path using operations_files security
+    InputValidation::ValidationResult pathValidation = 
+        InputValidation::validateInput(videoFilePath, InputValidation::InputType::FilePath);
+    if (!pathValidation.isValid) {
+        qDebug() << "Operations_VP_Shows: Invalid file path:" << pathValidation.errorMessage;
+        QMessageBox::warning(m_mainWindow, tr("Invalid Path"),
+                           tr("The video file path is invalid."));
+        return;
+    }
+    
+    // Check if file exists
+    if (!QFile::exists(videoFilePath)) {
+        qDebug() << "Operations_VP_Shows: Video file does not exist:" << videoFilePath;
+        QMessageBox::warning(m_mainWindow, tr("File Not Found"),
+                           tr("The video file could not be found."));
+        return;
+    }
+    
+    // Store the current episode item for later expansion
+    QTreeWidgetItem* currentEpisodeItem = m_contextMenuTreeItem;
+    QString originalEpisodeText = currentEpisodeItem ? currentEpisodeItem->text(0) : QString();
+    
+    // Create and show the edit metadata dialog
+    // The dialog will handle reading the current metadata internally
+    VP_ShowsEditMetadataDialog dialog(videoFilePath, m_mainWindow->user_Key, m_mainWindow->user_Username, m_mainWindow);
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        // Get the updated metadata
+        VP_ShowsMetadata::ShowMetadata updatedMetadata = dialog.getMetadata();
+        
+        qDebug() << "Operations_VP_Shows: User accepted metadata changes";
+        qDebug() << "Operations_VP_Shows: Updated metadata - Show:" << updatedMetadata.showName
+                 << "Season:" << updatedMetadata.season
+                 << "Episode:" << updatedMetadata.episode
+                 << "Name:" << updatedMetadata.EPName;
+        
+        // Validate the updated metadata fields using inputvalidation
+        InputValidation::ValidationResult showNameValidation = 
+            InputValidation::validateInput(updatedMetadata.showName, InputValidation::InputType::PlainText, 100);
+        if (!showNameValidation.isValid) {
+            qDebug() << "Operations_VP_Shows: Invalid show name:" << showNameValidation.errorMessage;
+            QMessageBox::warning(m_mainWindow, tr("Invalid Show Name"),
+                               tr("The show name is invalid: %1").arg(showNameValidation.errorMessage));
+            return;
+        }
+        
+        // Create metadata manager for saving
+        VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+        
+        // Write updated metadata back to file
+        if (!metadataManager.writeMetadataToFile(videoFilePath, updatedMetadata)) {
+            qDebug() << "Operations_VP_Shows: Failed to write metadata to file";
+            QMessageBox::critical(m_mainWindow, tr("Save Error"),
+                                tr("Failed to save metadata changes to the video file."));
+            return;
+        }
+        
+        qDebug() << "Operations_VP_Shows: Metadata successfully updated";
+        
+        // Refresh the tree widget to show updated metadata
+        loadShowEpisodes(m_currentShowFolder);
+        
+        // Try to find and expand to the edited episode
+        if (!videoFilePath.isEmpty()) {
+            // Search for the episode in the refreshed tree by file path
+            QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+            QTreeWidgetItem* foundItem = nullptr;
+            
+            // Search through all items in the tree
+            for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+                QTreeWidgetItem* languageItem = treeWidget->topLevelItem(i);
+                
+                // Search within this language version
+                for (int j = 0; j < languageItem->childCount(); ++j) {
+                    QTreeWidgetItem* child = languageItem->child(j);
+                    
+                    // Check direct children (might be episodes or seasons)
+                    if (child->childCount() == 0) {
+                        // It's an episode
+                        if (child->data(0, Qt::UserRole).toString() == videoFilePath) {
+                            foundItem = child;
+                            break;
+                        }
+                    } else {
+                        // It's a season or category, check its children
+                        for (int k = 0; k < child->childCount(); ++k) {
+                            QTreeWidgetItem* episode = child->child(k);
+                            if (episode->data(0, Qt::UserRole).toString() == videoFilePath) {
+                                foundItem = episode;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (foundItem) break;
+                }
+                
+                if (foundItem) break;
+            }
+            
+            // If found, expand to show it
+            if (foundItem) {
+                qDebug() << "Operations_VP_Shows: Found edited episode, expanding to show it";
+                
+                // Expand all parent items
+                QTreeWidgetItem* parent = foundItem->parent();
+                while (parent) {
+                    parent->setExpanded(true);
+                    parent = parent->parent();
+                }
+                
+                // Scroll to the item
+                treeWidget->scrollToItem(foundItem, QAbstractItemView::PositionAtCenter);
+                
+                // Select the item
+                treeWidget->setCurrentItem(foundItem);
+                foundItem->setSelected(true);
+            } else {
+                qDebug() << "Operations_VP_Shows: Could not find edited episode in refreshed tree";
+            }
+        }
+        
+        QMessageBox::information(m_mainWindow, tr("Success"),
+                               tr("Metadata has been successfully updated."));
+    } else {
+        qDebug() << "Operations_VP_Shows: User cancelled metadata editing";
+    }
 }
 
 void Operations_VP_Shows::deleteEpisodeFromContextMenu()

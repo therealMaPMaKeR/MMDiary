@@ -175,6 +175,7 @@ public:
     void playEpisodeFromContextMenu();
     void decryptAndExportEpisodeFromContextMenu();
     void deleteEpisodeFromContextMenu();
+    void editEpisodeMetadata();
     
     // Helper functions for episode operations
     void collectEpisodesFromTreeItem(QTreeWidgetItem* item, QStringList& episodePaths);

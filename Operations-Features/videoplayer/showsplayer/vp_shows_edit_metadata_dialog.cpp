@@ -65,7 +65,7 @@ VP_ShowsEditMetadataDialog::VP_ShowsEditMetadataDialog(const QString& videoFileP
     connect(ui->dateEdit_AirDate, &QDateEdit::dateChanged,
             this, &VP_ShowsEditMetadataDialog::onFieldChanged);
     connect(ui->checkBox_DualDisplay, &QCheckBox::stateChanged,
-            this, &VP_ShowsEditMetadataDialog::onFieldChanged);
+            this, &VP_ShowsEditMetadataDialog::onDualDisplayChanged);
     
     // Connect image buttons
     connect(ui->pushButton_SelectImage, &QPushButton::clicked,
@@ -121,6 +121,8 @@ void VP_ShowsEditMetadataDialog::populateUI()
     // Basic information
     ui->lineEdit_Filename->setText(m_metadata.filename);
     ui->lineEdit_ShowName->setText(m_metadata.showName);
+    ui->lineEdit_ShowName->setReadOnly(true);  // Show name should not be editable
+    ui->lineEdit_ShowName->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #404040; }");  // Visual indication with dark grey text
     ui->lineEdit_Season->setText(m_metadata.season);
     ui->lineEdit_Episode->setText(m_metadata.episode);
     ui->lineEdit_EPName->setText(m_metadata.EPName);
@@ -132,6 +134,23 @@ void VP_ShowsEditMetadataDialog::populateUI()
     // Content settings
     ui->comboBox_ContentType->setCurrentIndex(static_cast<int>(m_metadata.contentType));
     ui->checkBox_DualDisplay->setChecked(m_metadata.isDualDisplay);
+    
+    // Apply proper state to season/episode fields based on content type and dual display
+    bool isSpecialContent = (m_metadata.contentType != VP_ShowsMetadata::Regular);
+    if (isSpecialContent) {
+        ui->checkBox_DualDisplay->setEnabled(true);
+        
+        // If it's special content without dual display, disable season/episode fields
+        if (!m_metadata.isDualDisplay) {
+            ui->lineEdit_Season->setEnabled(false);
+            ui->lineEdit_Episode->setEnabled(false);
+            ui->lineEdit_Season->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #404040; }");
+            ui->lineEdit_Episode->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #404040; }");
+        }
+    } else {
+        // Regular episodes don't use dual display
+        ui->checkBox_DualDisplay->setEnabled(false);
+    }
     
     // Air date
     if (!m_metadata.airDate.isEmpty()) {
@@ -190,10 +209,45 @@ void VP_ShowsEditMetadataDialog::onContentTypeChanged(int index)
     bool isSpecialContent = (index != 0); // Not Regular Episode
     
     if (!isSpecialContent) {
+        // Regular episodes don't need dual display option
         ui->checkBox_DualDisplay->setChecked(false);
+        ui->checkBox_DualDisplay->setEnabled(false);
         ui->checkBox_DualDisplay->setToolTip(tr("Only applicable for special content types"));
+        
+        // Re-enable season and episode fields for regular episodes
+        ui->lineEdit_Season->setEnabled(true);
+        ui->lineEdit_Episode->setEnabled(true);
+        ui->lineEdit_Season->setStyleSheet("");  // Reset style
+        ui->lineEdit_Episode->setStyleSheet("");  // Reset style
+        
+        // If fields are empty (switching from special content), set defaults
+        if (ui->lineEdit_Season->text().isEmpty()) {
+            ui->lineEdit_Season->setText("1");
+        }
+        if (ui->lineEdit_Episode->text().isEmpty()) {
+            ui->lineEdit_Episode->setText("1");
+        }
     } else {
+        // Movies, OVAs, and Extras can use dual display
+        ui->checkBox_DualDisplay->setEnabled(true);
         ui->checkBox_DualDisplay->setToolTip(tr("Show this content in both regular episodes and its special category"));
+        
+        // If dual display is NOT checked, clear and disable season/episode fields
+        // This ensures special content appears in the correct category
+        if (!ui->checkBox_DualDisplay->isChecked()) {
+            ui->lineEdit_Season->clear();
+            ui->lineEdit_Episode->clear();
+            ui->lineEdit_Season->setEnabled(false);
+            ui->lineEdit_Episode->setEnabled(false);
+            ui->lineEdit_Season->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #404040; }");
+            ui->lineEdit_Episode->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #404040; }");
+        } else {
+            // If dual display IS checked, keep season/episode enabled
+            ui->lineEdit_Season->setEnabled(true);
+            ui->lineEdit_Episode->setEnabled(true);
+            ui->lineEdit_Season->setStyleSheet("");
+            ui->lineEdit_Episode->setStyleSheet("");
+        }
     }
     
     onFieldChanged();
@@ -269,6 +323,43 @@ void VP_ShowsEditMetadataDialog::onRemoveImageClicked()
     onFieldChanged();
 }
 
+void VP_ShowsEditMetadataDialog::onDualDisplayChanged(int state)
+{
+    qDebug() << "VP_ShowsEditMetadataDialog: Dual display changed to:" << (state == Qt::Checked);
+    
+    // Only handle this for special content types (Movies, OVAs, Extras)
+    int contentTypeIndex = ui->comboBox_ContentType->currentIndex();
+    bool isSpecialContent = (contentTypeIndex != 0); // Not Regular Episode
+    
+    if (isSpecialContent) {
+        if (state == Qt::Checked) {
+            // If dual display is checked, enable season/episode fields
+            ui->lineEdit_Season->setEnabled(true);
+            ui->lineEdit_Episode->setEnabled(true);
+            ui->lineEdit_Season->setStyleSheet("");
+            ui->lineEdit_Episode->setStyleSheet("");
+            
+            // If fields are empty, set defaults
+            if (ui->lineEdit_Season->text().isEmpty()) {
+                ui->lineEdit_Season->setText("1");
+            }
+            if (ui->lineEdit_Episode->text().isEmpty()) {
+                ui->lineEdit_Episode->setText("1");
+            }
+        } else {
+            // If dual display is unchecked, clear and disable season/episode fields
+            ui->lineEdit_Season->clear();
+            ui->lineEdit_Episode->clear();
+            ui->lineEdit_Season->setEnabled(false);
+            ui->lineEdit_Episode->setEnabled(false);
+            ui->lineEdit_Season->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #404040; }");
+            ui->lineEdit_Episode->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #404040; }");
+        }
+    }
+    
+    onFieldChanged();
+}
+
 void VP_ShowsEditMetadataDialog::onFieldChanged()
 {
     // Mark that a field has changed (actual comparison done in checkForModifications)
@@ -299,21 +390,8 @@ bool VP_ShowsEditMetadataDialog::validateInput()
         return false;
     }
     
-    // Validate show name
-    QString showName = ui->lineEdit_ShowName->text().trimmed();
-    if (showName.isEmpty()) {
-        QMessageBox::warning(this, tr("Validation Error"), 
-                           tr("Show name cannot be empty."));
-        ui->lineEdit_ShowName->setFocus();
-        return false;
-    }
-    
-    if (!VP_ShowsMetadata::isValidShowName(showName)) {
-        QMessageBox::warning(this, tr("Validation Error"), 
-                           tr("Show name is too long (maximum 100 characters)."));
-        ui->lineEdit_ShowName->setFocus();
-        return false;
-    }
+    // Show name validation is skipped since it's read-only
+    // The show name should not be changed for individual episodes
     
     // Validate episode number if provided
     QString episode = ui->lineEdit_Episode->text().trimmed();
@@ -347,7 +425,8 @@ void VP_ShowsEditMetadataDialog::updateMetadataFromUI()
     
     // Basic information
     m_metadata.filename = ui->lineEdit_Filename->text().trimmed();
-    m_metadata.showName = ui->lineEdit_ShowName->text().trimmed();
+    // Show name is read-only, keep the original value
+    m_metadata.showName = m_originalMetadata.showName;
     m_metadata.season = ui->lineEdit_Season->text().trimmed();
     m_metadata.episode = ui->lineEdit_Episode->text().trimmed();
     m_metadata.EPName = ui->lineEdit_EPName->text().trimmed();
@@ -382,10 +461,7 @@ void VP_ShowsEditMetadataDialog::checkForModifications()
         qDebug() << "VP_ShowsEditMetadataDialog: Filename changed";
         m_wasModified = true;
     }
-    if (m_metadata.showName != m_originalMetadata.showName) {
-        qDebug() << "VP_ShowsEditMetadataDialog: Show name changed";
-        m_wasModified = true;
-    }
+    // Show name comparison skipped since it's read-only
     if (m_metadata.season != m_originalMetadata.season) {
         qDebug() << "VP_ShowsEditMetadataDialog: Season changed";
         m_wasModified = true;

@@ -172,7 +172,7 @@ void VP_ShowsAddDialog::setShowNameReadOnly(bool readOnly)
     
     // If read-only, also change the style to indicate it's disabled
     if (readOnly) {
-        ui->lineEdit_ShowName->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #666666; }");
+        ui->lineEdit_ShowName->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #404040; }");
     } else {
         ui->lineEdit_ShowName->setStyleSheet("");  // Reset to default style
     }

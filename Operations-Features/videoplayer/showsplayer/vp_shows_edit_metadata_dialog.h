@@ -38,6 +38,9 @@ private slots:
     // Handle content type changes
     void onContentTypeChanged(int index);
     
+    // Handle dual display checkbox changes
+    void onDualDisplayChanged(int state);
+    
     // Handle episode image operations
     void onSelectImageClicked();
     void onRemoveImageClicked();
