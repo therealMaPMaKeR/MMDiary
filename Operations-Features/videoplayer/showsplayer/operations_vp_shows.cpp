@@ -1645,11 +1645,11 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     m_currentPlayingEpisodePath = encryptedFilePath;
     qDebug() << "Operations_VP_Shows: Stored current playing episode path:" << m_currentPlayingEpisodePath;
     
-    // Reset the near-completion flag for the new episode
-    qDebug() << "Operations_VP_Shows: Current near-completion flag value:" << m_episodeWasNearCompletion;
-    m_episodeWasNearCompletion = false;
-    qDebug() << "Operations_VP_Shows: Reset near-completion flag to false for new episode";
-    qDebug() << "Operations_VP_Shows: Flag is now:" << m_episodeWasNearCompletion;
+    // Note: We no longer use the m_episodeWasNearCompletion flag for autoplay decisions
+    // Autoplay is now determined by checking the actual playback position when the player closes
+    // This prevents the bug where seeking away from near-end would still trigger autoplay
+    qDebug() << "Operations_VP_Shows: Using position-based autoplay (not flag-based)";
+    m_episodeWasNearCompletion = false;  // Reset for consistency, though not used for autoplay anymore
     
     // Clean up any existing temp file first
     cleanupTempFile();
@@ -1692,10 +1692,11 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         if (initSuccess) {
             qDebug() << "Operations_VP_Shows: Playback tracker initialized successfully";
             
-            // Connect the episodeNearCompletion signal to set our flag
-            qDebug() << "Operations_VP_Shows: About to connect episodeNearCompletion signal";
-            qDebug() << "Operations_VP_Shows: Playback tracker pointer:" << m_playbackTracker.get();
+            // NOTE: We no longer need to connect the episodeNearCompletion signal to set a flag
+            // The autoplay decision is now made based on the actual position when the player closes
+            // This prevents the bug where seeking away from the end would still trigger autoplay
             
+            /* REMOVED - Old flag-based approach that caused autoplay bug
             QMetaObject::Connection connection = connect(m_playbackTracker.get(), &VP_ShowsPlaybackTracker::episodeNearCompletion,
                     this, [this](const QString& episodePath) {
                 qDebug() << "Operations_VP_Shows: *** NEAR COMPLETION SIGNAL RECEIVED ***";
@@ -1706,13 +1707,9 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 qDebug() << "Operations_VP_Shows: Flag is now:" << m_episodeWasNearCompletion;
                 qDebug() << "Operations_VP_Shows: Signal handler completed";
             });
+            */
             
-            if (connection) {
-                qDebug() << "Operations_VP_Shows: Successfully connected episodeNearCompletion signal";
-            } else {
-                qDebug() << "Operations_VP_Shows: ERROR - Failed to connect episodeNearCompletion signal!";
-            }
-            qDebug() << "Operations_VP_Shows: Current m_episodeWasNearCompletion flag:" << m_episodeWasNearCompletion;
+            qDebug() << "Operations_VP_Shows: Using position-based autoplay detection instead of flag-based approach";
             
             // Calculate relative path of episode within show folder
             QDir showDir(m_currentShowFolder);
@@ -1827,23 +1824,42 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             if (state == QMediaPlayer::StoppedState) {
                 qDebug() << "Operations_VP_Shows: Playback stopped, scheduling cleanup";
                 
+                // Get the current position and duration BEFORE stopping the tracker
+                qint64 currentPosition = 0;
+                qint64 duration = 0;
+                bool shouldAutoplay = false;
+                
+                if (m_episodePlayer) {
+                    currentPosition = m_episodePlayer->position();
+                    duration = m_episodePlayer->duration();
+                    qDebug() << "Operations_VP_Shows: Final position:" << currentPosition << "ms, Duration:" << duration << "ms";
+                    
+                    // Check if we're actually near completion RIGHT NOW (not based on old flag)
+                    if (duration > 0) {
+                        qint64 remaining = duration - currentPosition;
+                        shouldAutoplay = (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && remaining >= 0);
+                        qDebug() << "Operations_VP_Shows: Remaining time:" << remaining << "ms";
+                        qDebug() << "Operations_VP_Shows: Should autoplay based on current position:" << shouldAutoplay;
+                    }
+                }
+                
                 // Stop playback tracking to save final position
                 if (m_playbackTracker) {
                     qDebug() << "Operations_VP_Shows: Stopping playback tracking";
                     m_playbackTracker->stopTracking();
                 }
                 
-                // Trigger autoplay if enabled AND episode was near completion
+                // Trigger autoplay if enabled AND currently at near completion position
                 qDebug() << "Operations_VP_Shows: Checking autoplay conditions:";
                 qDebug() << "Operations_VP_Shows:   - Autoplay enabled:" << m_currentShowSettings.autoplay;
                 qDebug() << "Operations_VP_Shows:   - Autoplay not in progress:" << !m_isAutoplayInProgress;
-                qDebug() << "Operations_VP_Shows:   - Episode was near completion:" << m_episodeWasNearCompletion;
+                qDebug() << "Operations_VP_Shows:   - Should autoplay (based on current position):" << shouldAutoplay;
                 
-                if (m_currentShowSettings.autoplay && !m_isAutoplayInProgress && m_episodeWasNearCompletion) {
+                if (m_currentShowSettings.autoplay && !m_isAutoplayInProgress && shouldAutoplay) {
                     qDebug() << "Operations_VP_Shows: All conditions met - triggering autoplay";
                     autoplayNextEpisode();
-                } else if (m_currentShowSettings.autoplay && !m_episodeWasNearCompletion) {
-                    qDebug() << "Operations_VP_Shows: Autoplay enabled but episode was not near completion, skipping autoplay";
+                } else if (m_currentShowSettings.autoplay && !shouldAutoplay) {
+                    qDebug() << "Operations_VP_Shows: Autoplay enabled but playback position not near completion, skipping autoplay";
                 } else {
                     qDebug() << "Operations_VP_Shows: Autoplay conditions not met, skipping";
                 }
@@ -3703,7 +3719,7 @@ void Operations_VP_Shows::autoplayNextEpisode()
     // Set the flag to prevent multiple autoplay triggers
     m_isAutoplayInProgress = true;
     
-    // Reset the near-completion flag for the next episode
+    // Reset the near-completion flag for consistency (not used for autoplay decision anymore)
     m_episodeWasNearCompletion = false;
     
     // Get episode name from the tree widget for display purposes
