@@ -771,9 +771,10 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
             successMessage = tr("TV show imported successfully!\n%1").arg(message);
         }
         
-        QMessageBox::information(m_mainWindow,
-                               tr("Import Successful"),
-                               successMessage);
+        // Success dialog removed - absence of error dialog indicates success
+        // QMessageBox::information(m_mainWindow,
+        //                        tr("Import Successful"),
+        //                        successMessage);
         
         // Refresh the show list in the UI
         refreshTVShowsList();
@@ -2652,9 +2653,10 @@ void Operations_VP_Shows::deleteShow()
         }
     }
     
-    QMessageBox::information(m_mainWindow,
-                           tr("Show Deleted"),
-                           tr("The show \"%1\" has been deleted from your library.").arg(m_contextMenuShowName));
+    // Success dialog removed - absence of error dialog indicates success
+    // QMessageBox::information(m_mainWindow,
+    //                        tr("Show Deleted"),
+    //                        tr("The show \"%1\" has been deleted from your library.").arg(m_contextMenuShowName));
 }
 
 qint64 Operations_VP_Shows::calculateShowSize(const QString& showFolderPath)
@@ -3028,9 +3030,10 @@ void Operations_VP_Shows::performExportWithWorker(const QString& showFolderPath,
         qDebug() << "Operations_VP_Shows: Export complete. Success:" << success;
         
         if (success) {
-            QMessageBox::information(m_mainWindow,
-                                   tr("Export Complete"),
-                                   tr("The show \"%1\" has been successfully exported.").arg(showName));
+            // Success dialog removed - absence of error dialog indicates success
+            // QMessageBox::information(m_mainWindow,
+            //                        tr("Export Complete"),
+            //                        tr("The show \"%1\" has been successfully exported.").arg(showName));
         } else {
             QString detailedMessage = message;
             if (!failedFiles.isEmpty()) {
@@ -3446,9 +3449,10 @@ void Operations_VP_Shows::deleteEpisodeFromContextMenu()
                 refreshTVShowsList();
                 
                 if (!showName.isEmpty()) {
-                    QMessageBox::information(m_mainWindow,
-                                           tr("Show Deleted"),
-                                           tr("All episodes have been deleted. The show \"%1\" has been removed from your library.").arg(showName));
+                    // Success dialog removed - absence of error dialog indicates success
+                    // QMessageBox::information(m_mainWindow,
+                    //                        tr("Show Deleted"),
+                    //                        tr("All episodes have been deleted. The show \"%1\" has been removed from your library.").arg(showName));
                 }
             } else {
                 // Some episodes remain, just refresh the episode list
@@ -3533,11 +3537,12 @@ bool Operations_VP_Shows::deleteEpisodesWithConfirmation(const QStringList& epis
     }
     
     if (allDeleted) {
-        QMessageBox::information(m_mainWindow,
-                               tr("Episodes Deleted"),
-                               tr("%1 episode%2 deleted successfully.")
-                               .arg(deletedCount)
-                               .arg(deletedCount > 1 ? "s have been" : " has been"));
+        // Success dialog removed - absence of error dialog indicates success
+        // QMessageBox::information(m_mainWindow,
+        //                        tr("Episodes Deleted"),
+        //                        tr("%1 episode%2 deleted successfully.")
+        //                        .arg(deletedCount)
+        //                        .arg(deletedCount > 1 ? "s have been" : " has been"));
     } else {
         QMessageBox::warning(m_mainWindow,
                            tr("Partial Deletion"),
@@ -3991,11 +3996,12 @@ void Operations_VP_Shows::performEpisodeExportWithWorker(const QStringList& epis
         qDebug() << "Operations_VP_Shows: Episode export complete. Success:" << success;
         
         if (success) {
-            QMessageBox::information(m_mainWindow,
-                                   tr("Export Complete"),
-                                   tr("Successfully exported %1 episode%2.")
-                                   .arg(successfulFiles.size())
-                                   .arg(successfulFiles.size() > 1 ? "s" : ""));
+            // Success dialog removed - absence of error dialog indicates success
+            // QMessageBox::information(m_mainWindow,
+            //                        tr("Export Complete"),
+            //                        tr("Successfully exported %1 episode%2.")
+            //                        .arg(successfulFiles.size())
+            //                        .arg(successfulFiles.size() > 1 ? "s" : ""));
         } else {
             QString detailedMessage = message;
             if (!failedFiles.isEmpty()) {
