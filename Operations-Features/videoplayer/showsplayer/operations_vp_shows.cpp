@@ -2416,32 +2416,115 @@ void Operations_VP_Shows::onPlayContinueClicked()
         qDebug() << "Operations_VP_Shows: Could not find last watched episode in tree widget";
     }
     
-    qDebug() << "Operations_VP_Shows: No watch history found, playing first episode";
+    qDebug() << "Operations_VP_Shows: No watch history found, looking for first episode";
     // If no watch history or episode not found, play the first episode
+    // Skip Extra/Movies/OVA categories and prioritize Episode 1 or S01E01
     
     QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
     
-    // Find the first episode (now it's Language->Season->Episode)
-    if (treeWidget->topLevelItemCount() > 0) {
-        QTreeWidgetItem* firstLanguage = treeWidget->topLevelItem(0);
-        if (firstLanguage && firstLanguage->childCount() > 0) {
-            QTreeWidgetItem* firstSeason = firstLanguage->child(0);
-            if (firstSeason && firstSeason->childCount() > 0) {
-                QTreeWidgetItem* firstEpisode = firstSeason->child(0);
-                if (firstEpisode) {
-                    // Simulate double-click on the first episode
-                    onEpisodeDoubleClicked(firstEpisode, 0);
-                } else {
-                    qDebug() << "Operations_VP_Shows: No episodes found in first season";
-                }
-            } else {
-                qDebug() << "Operations_VP_Shows: First season has no episodes";
+    QTreeWidgetItem* firstEpisodeToPlay = nullptr;
+    QTreeWidgetItem* fallbackEpisode = nullptr;
+    
+    // Search through all language versions
+    for (int langIndex = 0; langIndex < treeWidget->topLevelItemCount(); ++langIndex) {
+        QTreeWidgetItem* languageItem = treeWidget->topLevelItem(langIndex);
+        
+        // Search through all categories under this language
+        for (int catIndex = 0; catIndex < languageItem->childCount(); ++catIndex) {
+            QTreeWidgetItem* categoryItem = languageItem->child(catIndex);
+            QString categoryText = categoryItem->text(0);
+            
+            // Skip special categories
+            if (categoryText.startsWith("Extra") || 
+                categoryText.startsWith("Movies") || 
+                categoryText.startsWith("OVA") ||
+                categoryText.contains("Error")) {
+                qDebug() << "Operations_VP_Shows: Skipping category:" << categoryText;
+                continue;
             }
-        } else {
-            qDebug() << "Operations_VP_Shows: First language version has no seasons";
+            
+            // Check if this is "Episodes" (absolute numbering) or "Season" category
+            if (categoryText == tr("Episodes")) {
+                // This is absolute numbering, look for Episode 1
+                qDebug() << "Operations_VP_Shows: Found Episodes category (absolute numbering)";
+                if (categoryItem->childCount() > 0) {
+                    QTreeWidgetItem* firstEp = categoryItem->child(0);
+                    
+                    // Check if this is Episode 1
+                    QString epText = firstEp->text(0);
+                    if (epText.contains("Episode 1") || epText.contains("Ep. 1") || 
+                        epText.contains("E1 ") || epText == "1") {
+                        qDebug() << "Operations_VP_Shows: Found Episode 1 in absolute numbering";
+                        firstEpisodeToPlay = firstEp;
+                        break;
+                    }
+                    
+                    // Store as fallback if we don't find Episode 1
+                    if (!fallbackEpisode) {
+                        fallbackEpisode = firstEp;
+                        qDebug() << "Operations_VP_Shows: Storing first absolute episode as fallback:" << epText;
+                    }
+                }
+            } else if (categoryText.startsWith(tr("Season"))) {
+                // This is a season, check if it's Season 1
+                if (categoryText == tr("Season 1") || categoryText == tr("Season %1").arg(1)) {
+                    qDebug() << "Operations_VP_Shows: Found Season 1";
+                    if (categoryItem->childCount() > 0) {
+                        QTreeWidgetItem* firstEp = categoryItem->child(0);
+                        
+                        // Check if this is Episode 1 of Season 1
+                        QString epText = firstEp->text(0);
+                        if (epText.contains("Episode 1") || epText.contains("Ep. 1") || 
+                            epText.contains("E01") || epText.contains("E1 ")) {
+                            qDebug() << "Operations_VP_Shows: Found S01E01";
+                            firstEpisodeToPlay = firstEp;
+                            break;
+                        }
+                        
+                        // Store as fallback if we don't find Episode 1
+                        if (!fallbackEpisode) {
+                            fallbackEpisode = firstEp;
+                            qDebug() << "Operations_VP_Shows: Storing first episode of Season 1 as fallback:" << epText;
+                        }
+                    }
+                } else if (!fallbackEpisode && categoryItem->childCount() > 0) {
+                    // Store first episode of any other season as last resort fallback
+                    fallbackEpisode = categoryItem->child(0);
+                    qDebug() << "Operations_VP_Shows: Storing first episode of" << categoryText << "as last resort fallback";
+                }
+            }
         }
+        
+        // If we found the first episode to play, stop searching
+        if (firstEpisodeToPlay) {
+            break;
+        }
+    }
+    
+    // Play the episode we found
+    QTreeWidgetItem* episodeToPlay = firstEpisodeToPlay ? firstEpisodeToPlay : fallbackEpisode;
+    
+    if (episodeToPlay) {
+        qDebug() << "Operations_VP_Shows: Playing episode:" << episodeToPlay->text(0);
+        onEpisodeDoubleClicked(episodeToPlay, 0);
     } else {
-        qDebug() << "Operations_VP_Shows: No language versions found in tree widget";
+        // As a last resort, try to find ANY episode that's not in special categories
+        qDebug() << "Operations_VP_Shows: No regular episodes found, looking for any available episode";
+        
+        for (int langIndex = 0; langIndex < treeWidget->topLevelItemCount(); ++langIndex) {
+            QTreeWidgetItem* languageItem = treeWidget->topLevelItem(langIndex);
+            for (int catIndex = 0; catIndex < languageItem->childCount(); ++catIndex) {
+                QTreeWidgetItem* categoryItem = languageItem->child(catIndex);
+                if (categoryItem->childCount() > 0) {
+                    episodeToPlay = categoryItem->child(0);
+                    qDebug() << "Operations_VP_Shows: Found fallback episode:" << episodeToPlay->text(0);
+                    onEpisodeDoubleClicked(episodeToPlay, 0);
+                    return;
+                }
+            }
+        }
+        
+        qDebug() << "Operations_VP_Shows: No episodes found in tree widget";
         QMessageBox::information(m_mainWindow,
                                tr("No Episodes"),
                                tr("This show has no episodes to play."));
