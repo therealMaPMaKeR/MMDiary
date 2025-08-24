@@ -38,6 +38,8 @@
 #include <QSet>
 #include <QRegularExpression>
 #include <QPushButton>
+#include <QScreen>
+#include <QWindow>
 #include <algorithm>
 #include <functional>
 
@@ -2157,6 +2159,22 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     if (!m_episodePlayer) {
         qDebug() << "Operations_VP_Shows: Creating new VP_Shows_Videoplayer instance for episode playback";
         m_episodePlayer = std::make_unique<VP_Shows_Videoplayer>();
+        
+        // Set the target screen to the same screen as the main window
+        if (m_mainWindow) {
+            QWindow* mainWindowHandle = m_mainWindow->windowHandle();
+            if (mainWindowHandle) {
+                QScreen* mainWindowScreen = mainWindowHandle->screen();
+                if (mainWindowScreen) {
+                    m_episodePlayer->setTargetScreen(mainWindowScreen);
+                    qDebug() << "Operations_VP_Shows: Set video player to open on screen:" << mainWindowScreen->name();
+                } else {
+                    qDebug() << "Operations_VP_Shows: Could not get main window screen";
+                }
+            } else {
+                qDebug() << "Operations_VP_Shows: Main window handle not available";
+            }
+        }
         
         // Connect error signal
         connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::errorOccurred,

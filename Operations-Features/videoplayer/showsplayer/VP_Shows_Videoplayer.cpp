@@ -8,6 +8,7 @@
 #include <QShowEvent>
 #include <QApplication>
 #include <QScreen>
+#include <QWindow>
 #include <QTimer>
 #include <QFocusEvent>
 #include <QDateTime>
@@ -147,6 +148,7 @@ VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
     , m_lastSavedPosition(0)
     , m_hasStartedPlaying(false)
     , m_isClosing(false)
+    , m_targetScreen(nullptr)
 {
     qDebug() << "VP_Shows_Videoplayer: Constructor called";
     
@@ -570,8 +572,16 @@ void VP_Shows_Videoplayer::startInFullScreen()
         showFullScreen();
         m_isFullScreen = true;
         
-        // Ensure we fill the entire screen
-        QScreen *screen = QApplication::primaryScreen();
+        // Ensure we fill the entire screen (use the screen the player is currently on)
+        QScreen *screen = nullptr;
+        if (windowHandle()) {
+            screen = windowHandle()->screen();
+            qDebug() << "VP_Shows_Videoplayer: Going fullscreen on current screen:" << (screen ? screen->name() : "unknown");
+        }
+        if (!screen) {
+            screen = QApplication::primaryScreen();
+            qDebug() << "VP_Shows_Videoplayer: Fallback to primary screen";
+        }
         if (screen) {
             setGeometry(screen->geometry());
         }
@@ -630,8 +640,16 @@ void VP_Shows_Videoplayer::toggleFullScreen()
         showFullScreen();
         m_isFullScreen = true;
         
-        // Ensure we fill the entire screen
-        QScreen *screen = QApplication::primaryScreen();
+        // Ensure we fill the entire screen (use the screen the player is currently on)
+        QScreen *screen = nullptr;
+        if (windowHandle()) {
+            screen = windowHandle()->screen();
+            qDebug() << "VP_Shows_Videoplayer: Toggling fullscreen on current screen:" << (screen ? screen->name() : "unknown");
+        }
+        if (!screen) {
+            screen = QApplication::primaryScreen();
+            qDebug() << "VP_Shows_Videoplayer: Fallback to primary screen";
+        }
         if (screen) {
             setGeometry(screen->geometry());
         }
@@ -698,8 +716,15 @@ void VP_Shows_Videoplayer::exitFullScreen()
             setGeometry(m_normalGeometry);
         } else {
             resize(800, 600);
-            // Center the window on screen
-            QScreen *screen = QApplication::primaryScreen();
+            // Center the window on the screen it was fullscreen on (or current screen)
+            QScreen *screen = nullptr;
+            if (windowHandle()) {
+                screen = windowHandle()->screen();
+            }
+            if (!screen) {
+                // Fallback to target screen or primary
+                screen = m_targetScreen ? m_targetScreen : QApplication::primaryScreen();
+            }
             if (screen) {
                 QRect screenGeometry = screen->availableGeometry();
                 move(screenGeometry.center() - rect().center());
@@ -812,6 +837,16 @@ void VP_Shows_Videoplayer::showEvent(QShowEvent *event)
     // Reset the closing flag when window is shown (for reuse scenarios)
     m_isClosing = false;
     qDebug() << "VP_Shows_Videoplayer: Reset closing flag on show";
+    
+    // If this is the first show and we have a target screen, position on that screen
+    static bool firstShow = true;
+    if (firstShow && m_targetScreen && !m_isFullScreen) {
+        firstShow = false;
+        QRect screenGeometry = m_targetScreen->availableGeometry();
+        // Center on the target screen
+        move(screenGeometry.center() - rect().center());
+        qDebug() << "VP_Shows_Videoplayer: Initial positioning on target screen:" << m_targetScreen->name();
+    }
     
     // Ensure the widget has focus when shown
     setFocus();

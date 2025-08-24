@@ -15,6 +15,7 @@
 #include <QWheelEvent>
 #include <QMargins>
 #include <QTimer>
+#include <QScreen>
 #include <memory>
 #include "vp_shows_watchhistory.h"
 
@@ -146,6 +147,12 @@ private:
     
     // Focus management
     void ensureKeyboardFocus();
+    
+    // Screen management
+    QScreen* m_targetScreen;  // The screen to initially open the player on (only used for initial positioning)
+    
+public:
+    void setTargetScreen(QScreen* screen) { m_targetScreen = screen; }
 };
 
 #endif // VP_SHOWS_VIDEOPLAYER_H
