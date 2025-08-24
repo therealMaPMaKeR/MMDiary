@@ -10,19 +10,21 @@
 #include <QScreen>
 #include <QTimer>
 #include <QFocusEvent>
+#include <QDateTime>
 
 // Custom clickable slider class for seeking in video
 class VP_Shows_Videoplayer::ClickableSlider : public QSlider
 {
 public:
     explicit ClickableSlider(Qt::Orientation orientation, QWidget *parent = nullptr)
-        : QSlider(orientation, parent) {}
+        : QSlider(orientation, parent), m_isPressed(false) {}
 
 protected:
     void mousePressEvent(QMouseEvent *event) override
     {
         if (event->button() == Qt::LeftButton)
         {
+            m_isPressed = true;
             // Calculate position based on click
             int value;
             if (orientation() == Qt::Horizontal) {
@@ -42,6 +44,28 @@ protected:
             QSlider::mousePressEvent(event);
         }
     }
+    
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        if (m_isPressed) {
+            m_isPressed = false;
+            emit sliderReleased();
+        }
+        QSlider::mouseReleaseEvent(event);
+    }
+    
+    void focusOutEvent(QFocusEvent *event) override
+    {
+        // If we lose focus while pressed, emit the release signal
+        if (m_isPressed) {
+            m_isPressed = false;
+            emit sliderReleased();
+        }
+        QSlider::focusOutEvent(event);
+    }
+    
+private:
+    bool m_isPressed;
 };
 
 VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
@@ -275,6 +299,15 @@ void VP_Shows_Videoplayer::connectSignals()
     
     connect(m_positionSlider, &QSlider::sliderReleased,
             this, &VP_Shows_Videoplayer::on_positionSlider_sliderReleased);
+    
+    // Also connect valueChanged to catch direct clicks that don't trigger sliderMoved
+    connect(m_positionSlider, &QSlider::valueChanged, this, [this](int value) {
+        // Only handle if slider is not being actively moved and this is a significant change
+        if (!m_isSliderBeingMoved && qAbs(value - m_mediaPlayer->position()) > 1000) {
+            qDebug() << "VP_Shows_Videoplayer: Slider value changed without move - syncing position to" << value;
+            setPosition(value);
+        }
+    });
     
     connect(m_volumeSlider, &QSlider::sliderMoved,
             this, &VP_Shows_Videoplayer::on_volumeSlider_sliderMoved);
@@ -686,6 +719,15 @@ void VP_Shows_Videoplayer::keyPressEvent(QKeyEvent *event)
 {
     qDebug() << "VP_Shows_Videoplayer: Key pressed:" << event->key();
     
+    // Check if we have focus - if not, try to reclaim it
+    if (!hasFocus()) {
+        qDebug() << "VP_Shows_Videoplayer: Main widget doesn't have focus during keypress - attempting to reclaim";
+        // Clear the slider flag in case it's stuck
+        m_isSliderBeingMoved = false;
+        // Try to reclaim focus
+        ensureKeyboardFocus();
+    }
+    
     switch(event->key()) {
         case Qt::Key_Escape:
             if (m_isFullScreen) {
@@ -703,21 +745,29 @@ void VP_Shows_Videoplayer::keyPressEvent(QKeyEvent *event)
             
         case Qt::Key_Left:
             {
+                // Clear slider flag to ensure position updates work
+                m_isSliderBeingMoved = false;
                 // Seek backward 10 seconds
                 qint64 currentPos = m_mediaPlayer->position();
                 qint64 newPos = qMax(qint64(0), currentPos - 10000);
                 qDebug() << "VP_Shows_Videoplayer: Seeking backward from" << currentPos << "to" << newPos;
                 m_mediaPlayer->setPosition(newPos);
+                // Force slider update
+                forceUpdateSliderPosition(newPos);
             }
             break;
             
         case Qt::Key_Right:
             {
+                // Clear slider flag to ensure position updates work
+                m_isSliderBeingMoved = false;
                 // Seek forward 10 seconds
                 qint64 currentPos = m_mediaPlayer->position();
                 qint64 newPos = qMin(m_mediaPlayer->duration(), currentPos + 10000);
                 qDebug() << "VP_Shows_Videoplayer: Seeking forward from" << currentPos << "to" << newPos;
                 m_mediaPlayer->setPosition(newPos);
+                // Force slider update
+                forceUpdateSliderPosition(newPos);
             }
             break;
             
@@ -760,6 +810,19 @@ bool VP_Shows_Videoplayer::eventFilter(QObject *watched, QEvent *event)
         }
     }
     
+    // Handle single click on video widget to restore focus
+    if (watched == m_videoWidget && event->type() == QEvent::MouseButtonPress) {
+        QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            qDebug() << "VP_Shows_Videoplayer: Click on video widget - restoring focus and clearing slider flag";
+            // Clear the slider being moved flag in case it's stuck
+            m_isSliderBeingMoved = false;
+            // Ensure keyboard focus returns to main widget
+            ensureKeyboardFocus();
+            // Don't consume the event, let it propagate
+        }
+    }
+    
     // Handle mouse movement on video widget in fullscreen mode
     if (watched == m_videoWidget && m_isFullScreen && event->type() == QEvent::MouseMove) {
         // Show cursor
@@ -797,6 +860,16 @@ void VP_Shows_Videoplayer::on_playButton_clicked()
 void VP_Shows_Videoplayer::on_positionSlider_sliderMoved(int position)
 {
     qDebug() << "VP_Shows_Videoplayer: Position slider moved to" << position;
+    
+    // Check if we're near the end of the video
+    qint64 duration = m_mediaPlayer->duration();
+    if (duration > 0) {
+        qint64 remaining = duration - position;
+        if (remaining <= 120000) { // Within 2 minutes of end
+            qDebug() << "VP_Shows_Videoplayer: Slider moved to near end position - remaining:" << remaining << "ms";
+        }
+    }
+    
     setPosition(position);
 }
 
@@ -804,6 +877,16 @@ void VP_Shows_Videoplayer::on_positionSlider_sliderPressed()
 {
     qDebug() << "VP_Shows_Videoplayer: Position slider pressed";
     m_isSliderBeingMoved = true;
+    
+    // Store the current position to detect if we're near the end
+    qint64 currentPos = m_positionSlider->value();
+    qint64 duration = m_mediaPlayer->duration();
+    if (duration > 0) {
+        qint64 remaining = duration - currentPos;
+        if (remaining <= 120000) { // Within 2 minutes of end
+            qDebug() << "VP_Shows_Videoplayer: Slider pressed near end - remaining:" << remaining << "ms";
+        }
+    }
 }
 
 void VP_Shows_Videoplayer::on_positionSlider_sliderReleased()
@@ -811,7 +894,23 @@ void VP_Shows_Videoplayer::on_positionSlider_sliderReleased()
     qDebug() << "VP_Shows_Videoplayer: Position slider released";
     m_isSliderBeingMoved = false;
     
-    // Return focus to main widget for keyboard shortcuts after a small delay
+    // Check if we're near the end of the video
+    qint64 currentPos = m_positionSlider->value();
+    qint64 duration = m_mediaPlayer->duration();
+    bool nearEnd = false;
+    
+    if (duration > 0) {
+        qint64 remaining = duration - currentPos;
+        nearEnd = (remaining <= 120000); // Within 2 minutes of end
+        if (nearEnd) {
+            qDebug() << "VP_Shows_Videoplayer: Slider released near end - forcing immediate focus restore";
+            // Immediately restore focus when near end to prevent focus issues
+            ensureKeyboardFocus();
+            return;
+        }
+    }
+    
+    // Normal case: Return focus to main widget for keyboard shortcuts after a small delay
     // This prevents focus fighting while user is still interacting
     QTimer::singleShot(100, this, &VP_Shows_Videoplayer::ensureKeyboardFocus);
 }
@@ -836,6 +935,14 @@ void VP_Shows_Videoplayer::updatePosition(qint64 position)
 {
     if (!m_isSliderBeingMoved) {
         m_positionSlider->setValue(static_cast<int>(position));
+    } else {
+        // Log when we're skipping slider update due to user interaction
+        static qint64 lastLogTime = 0;
+        qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
+        if (currentTime - lastLogTime > 1000) { // Log at most once per second
+            qDebug() << "VP_Shows_Videoplayer: Skipping slider update - user is moving slider";
+            lastLogTime = currentTime;
+        }
     }
     m_positionLabel->setText(formatTime(position));
     emit positionChanged(position);
@@ -1046,12 +1153,29 @@ void VP_Shows_Videoplayer::ensureKeyboardFocus()
 {
     qDebug() << "VP_Shows_Videoplayer: Ensuring keyboard focus";
     
+    // First, clear focus from any control widgets
+    if (m_positionSlider->hasFocus()) {
+        qDebug() << "VP_Shows_Videoplayer: Clearing focus from position slider";
+        m_positionSlider->clearFocus();
+    }
+    if (m_volumeSlider->hasFocus()) {
+        qDebug() << "VP_Shows_Videoplayer: Clearing focus from volume slider";
+        m_volumeSlider->clearFocus();
+    }
+    
     // Set focus to the main widget to ensure keyboard shortcuts work
     setFocus(Qt::OtherFocusReason);
     
     // Also raise and activate the window to be safe
     raise();
     activateWindow();
+    
+    // Verify focus was set
+    if (hasFocus()) {
+        qDebug() << "VP_Shows_Videoplayer: Focus successfully set to main widget";
+    } else {
+        qDebug() << "VP_Shows_Videoplayer: WARNING - Failed to set focus to main widget";
+    }
 }
 
 void VP_Shows_Videoplayer::focusInEvent(QFocusEvent *event)
