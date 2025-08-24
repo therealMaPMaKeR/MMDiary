@@ -1283,11 +1283,93 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName)
     // Load show-specific settings and update checkboxes
     loadShowSettings(showFolderPath);
     
+    // Update the Play button text based on watch history
+    updatePlayButtonText();
+    
     // Switch to the display page
     if (m_mainWindow->ui->stackedWidget_VP_Shows) {
         m_mainWindow->ui->stackedWidget_VP_Shows->setCurrentIndex(1); // Switch to page_2 (display page)
         qDebug() << "Operations_VP_Shows: Switched to display page";
     }
+}
+
+void Operations_VP_Shows::updatePlayButtonText()
+{
+    qDebug() << "Operations_VP_Shows: Updating Play button text";
+    
+    // Check if we have the Play button
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->pushButton_VP_Shows_Display_Play) {
+        qDebug() << "Operations_VP_Shows: Play button not available";
+        return;
+    }
+    
+    // Default to "Play" text
+    QString buttonText = tr("Play");
+    
+    // Check if we have watch history for this show
+    if (m_watchHistory && !m_currentShowFolder.isEmpty()) {
+        // Get the last watched episode
+        QString lastWatchedEpisode = m_watchHistory->getLastWatchedEpisode();
+        
+        if (!lastWatchedEpisode.isEmpty()) {
+            // Check if this episode has a resume position
+            qint64 resumePosition = m_watchHistory->getResumePosition(lastWatchedEpisode);
+            
+            if (resumePosition > 0) {
+                // We have a resume position, change button text to "Resume"
+                buttonText = tr("Resume");
+                qDebug() << "Operations_VP_Shows: Found resume position for" << lastWatchedEpisode 
+                         << "at" << resumePosition << "ms";
+            } else {
+                qDebug() << "Operations_VP_Shows: Last watched episode completed or at beginning:" << lastWatchedEpisode;
+                
+                // Check if there's a next unwatched episode
+                QStringList allEpisodes = getAllAvailableEpisodes();
+                QString nextEpisode = m_watchHistory->getNextUnwatchedEpisode(lastWatchedEpisode, allEpisodes);
+                
+                if (!nextEpisode.isEmpty()) {
+                    // There's a next episode to play
+                    buttonText = tr("Play Next");
+                    qDebug() << "Operations_VP_Shows: Next unwatched episode available:" << nextEpisode;
+                }
+            }
+        } else {
+            // No watch history, check if any episode has been partially watched
+            QTreeWidget* tree = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+            if (tree) {
+                bool hasResumePosition = false;
+                
+                // Iterate through all episodes to check for resume positions
+                for (int i = 0; i < tree->topLevelItemCount() && !hasResumePosition; ++i) {
+                    QTreeWidgetItem* seasonItem = tree->topLevelItem(i);
+                    for (int j = 0; j < seasonItem->childCount(); ++j) {
+                        QTreeWidgetItem* episodeItem = seasonItem->child(j);
+                        QString episodePath = episodeItem->data(0, Qt::UserRole).toString();
+                        
+                        if (!episodePath.isEmpty()) {
+                            qint64 resumePos = m_watchHistory->getResumePosition(episodePath);
+                            if (resumePos > 0) {
+                                hasResumePosition = true;
+                                buttonText = tr("Resume");
+                                qDebug() << "Operations_VP_Shows: Found episode with resume position:" << episodePath;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if (!hasResumePosition) {
+                    qDebug() << "Operations_VP_Shows: No episodes with resume positions found";
+                }
+            }
+        }
+    } else {
+        qDebug() << "Operations_VP_Shows: No watch history available for current show";
+    }
+    
+    // Update the button text
+    m_mainWindow->ui->pushButton_VP_Shows_Display_Play->setText(buttonText);
+    qDebug() << "Operations_VP_Shows: Set Play button text to:" << buttonText;
 }
 
 void Operations_VP_Shows::onShowListItemDoubleClicked(QListWidgetItem* item)
@@ -4507,6 +4589,9 @@ void Operations_VP_Shows::refreshEpisodeTreeColors()
     
     // Expand to show the last watched episode location
     expandToLastWatchedEpisode();
+    
+    // Update the Play button text after refreshing episode states
+    updatePlayButtonText();
 }
 
 // Helper function to recursively refresh colors for an item and its children
@@ -4662,9 +4747,6 @@ void Operations_VP_Shows::expandToLastWatchedEpisode()
     qDebug() << "Operations_VP_Shows: No unwatched episodes found, tree remains collapsed";
 }
 
-void Operations_VP_Shows::updatePlayButtonText() {
-
-}
 
 // =================
 // CONTEXT MENU ACTION
