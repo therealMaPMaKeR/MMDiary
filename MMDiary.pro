@@ -94,6 +94,7 @@ SOURCES += \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_add_dialog.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_edit_metadata_dialog.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_watchhistory.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_playback_tracker.cpp \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.cpp \
@@ -144,6 +145,7 @@ HEADERS += \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_add_dialog.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_edit_metadata_dialog.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_watchhistory.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_playback_tracker.h \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.h \
@@ -171,6 +173,7 @@ FORMS += \
     HiddenItemsList.ui \
     Operations-Features/passwordmanager/passwordmanager_addpassword.ui \
     Operations-Features/videoplayer/showsplayer/vp_shows_add_dialog.ui \
+    Operations-Features/videoplayer/showsplayer/vp_shows_edit_metadata_dialog.ui \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.ui \
     Operations-Features/tasklists/tasklists_addtask.ui \
     Operations-Global/imageviewer.ui \
