@@ -1580,24 +1580,146 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         int totalEpisodesInLanguage = 0;
         int watchedEpisodesInLanguage = 0;
         
+        // ORDER 1: Add Extra category FIRST if there are any
+        if (extrasByLanguage.contains(languageKey) && !extrasByLanguage[languageKey].isEmpty()) {
+            QTreeWidgetItem* extraCategory = new QTreeWidgetItem();
+            extraCategory->setText(0, tr("Extra (%1)").arg(extrasByLanguage[languageKey].size()));
+            
+            // Sort extras similar to OVAs
+            QList<QTreeWidgetItem*>& extras = extrasByLanguage[languageKey];
+            std::sort(extras.begin(), extras.end(), [&metadataManager](QTreeWidgetItem* a, QTreeWidgetItem* b) {
+                QString pathA = a->data(0, Qt::UserRole).toString();
+                QString pathB = b->data(0, Qt::UserRole).toString();
+                VP_ShowsMetadata::ShowMetadata metaA, metaB;
+                
+                // Try to get episode numbers first
+                int epA = 0, epB = 0;
+                if (metadataManager.readMetadataFromFile(pathA, metaA)) {
+                    epA = metaA.episode.toInt();
+                }
+                if (metadataManager.readMetadataFromFile(pathB, metaB)) {
+                    epB = metaB.episode.toInt();
+                }
+                
+                // If both have episode numbers, sort by episode
+                if (epA > 0 && epB > 0) {
+                    return epA < epB;
+                }
+                // Then by date if available
+                if (!metaA.airDate.isEmpty() && !metaB.airDate.isEmpty()) {
+                    return metaA.airDate < metaB.airDate;
+                }
+                // Keep original order
+                return false;
+            });
+            
+            // Add sorted extras to category
+            for (QTreeWidgetItem* extraItem : extras) {
+                extraCategory->addChild(extraItem);
+            }
+            
+            languageItem->addChild(extraCategory);
+            qDebug() << "Operations_VP_Shows: Added" << extras.size() << "extras for" << languageKey;
+        }
+        
+        // ORDER 2: Add Movies category SECOND if there are any
+        if (moviesByLanguage.contains(languageKey) && !moviesByLanguage[languageKey].isEmpty()) {
+            QTreeWidgetItem* moviesCategory = new QTreeWidgetItem();
+            moviesCategory->setText(0, tr("Movies (%1)").arg(moviesByLanguage[languageKey].size()));
+            
+            // Sort movies by release date if available, then by name
+            QList<QTreeWidgetItem*>& movies = moviesByLanguage[languageKey];
+            std::sort(movies.begin(), movies.end(), [&metadataManager](QTreeWidgetItem* a, QTreeWidgetItem* b) {
+                QString pathA = a->data(0, Qt::UserRole).toString();
+                QString pathB = b->data(0, Qt::UserRole).toString();
+                VP_ShowsMetadata::ShowMetadata metaA, metaB;
+                
+                bool hasDateA = false, hasDateB = false;
+                if (metadataManager.readMetadataFromFile(pathA, metaA) && !metaA.airDate.isEmpty()) {
+                    hasDateA = true;
+                }
+                if (metadataManager.readMetadataFromFile(pathB, metaB) && !metaB.airDate.isEmpty()) {
+                    hasDateB = true;
+                }
+                
+                // If both have dates, sort by date
+                if (hasDateA && hasDateB) {
+                    return metaA.airDate < metaB.airDate;
+                }
+                // If only one has date, it comes first
+                if (hasDateA && !hasDateB) return true;
+                if (!hasDateA && hasDateB) return false;
+                // Neither has date, keep original order
+                return false;
+            });
+            
+            // Add sorted movies to category
+            for (QTreeWidgetItem* movieItem : movies) {
+                moviesCategory->addChild(movieItem);
+            }
+            
+            languageItem->addChild(moviesCategory);
+            qDebug() << "Operations_VP_Shows: Added" << movies.size() << "movies for" << languageKey;
+        }
+        
+        // ORDER 3 & 4: Add Episodes (absolute numbering) THIRD and Seasons FOURTH
         // Get seasons for this language/translation (if any regular episodes exist)
         if (languageVersions.contains(languageKey)) {
             QMap<int, QList<QPair<int, QTreeWidgetItem*>>>& seasons = languageVersions[languageKey];
             QList<int> seasonNumbers = seasons.keys();
             std::sort(seasonNumbers.begin(), seasonNumbers.end());
             
-            for (int seasonNum : seasonNumbers) {
-                // Create season or episodes item based on numbering type
-                QTreeWidgetItem* seasonItem = new QTreeWidgetItem();
+            // First add absolute numbering "Episodes" (season 0) if it exists
+            if (seasonNumbers.contains(0)) {
+                int seasonNum = 0;
+                QTreeWidgetItem* episodesItem = new QTreeWidgetItem();
+                episodesItem->setText(0, tr("Episodes"));
                 
-                // Check if this is absolute numbering (season 0 is our marker)
-                if (seasonNum == 0) {
-                    // This is absolute numbering, use "Episodes" instead of "Season"
-                    seasonItem->setText(0, tr("Episodes"));
-                } else {
-                    // Traditional season numbering
-                    seasonItem->setText(0, tr("Season %1").arg(seasonNum));
+                // Sort episodes by episode number
+                QList<QPair<int, QTreeWidgetItem*>>& episodes = seasons[seasonNum];
+                std::sort(episodes.begin(), episodes.end(), 
+                          [](const QPair<int, QTreeWidgetItem*>& a, const QPair<int, QTreeWidgetItem*>& b) {
+                              return a.first < b.first;
+                          });
+                
+                // Track if all episodes are watched
+                bool allEpisodesWatched = true;
+                int episodesCount = 0;
+                int watchedCount = 0;
+                
+                // Add episodes to the item
+                for (const auto& episode : episodes) {
+                    episodesItem->addChild(episode.second);
+                    episodesCount++;
+                    totalEpisodesInLanguage++;
+                    
+                    // Check if this episode is watched by checking its foreground color
+                    if (episode.second->foreground(0).color() == watchedColor) {
+                        watchedCount++;
+                        watchedEpisodesInLanguage++;
+                    } else {
+                        allEpisodesWatched = false;
+                        allEpisodesInLanguageWatched = false;
+                    }
                 }
+                
+                // If all episodes are watched, grey out the item
+                if (allEpisodesWatched && episodesCount > 0) {
+                    episodesItem->setForeground(0, QBrush(watchedColor));
+                    qDebug() << "Operations_VP_Shows: All absolute episodes watched, greying out Episodes";
+                }
+                
+                // Add Episodes to language item
+                languageItem->addChild(episodesItem);
+            }
+            
+            // Then add regular seasons (season > 0)
+            for (int seasonNum : seasonNumbers) {
+                if (seasonNum == 0) continue; // Skip season 0, already handled above
+                
+                // Create season item
+                QTreeWidgetItem* seasonItem = new QTreeWidgetItem();
+                seasonItem->setText(0, tr("Season %1").arg(seasonNum));
                 
                 // Sort episodes by episode number
                 QList<QPair<int, QTreeWidgetItem*>>& episodes = seasons[seasonNum];
@@ -1640,47 +1762,7 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             }
         }
         
-        // Add Movies category if there are any
-        if (moviesByLanguage.contains(languageKey) && !moviesByLanguage[languageKey].isEmpty()) {
-            QTreeWidgetItem* moviesCategory = new QTreeWidgetItem();
-            moviesCategory->setText(0, tr("Movies (%1)").arg(moviesByLanguage[languageKey].size()));
-            
-            // Sort movies by release date if available, then by name
-            QList<QTreeWidgetItem*>& movies = moviesByLanguage[languageKey];
-            std::sort(movies.begin(), movies.end(), [&metadataManager](QTreeWidgetItem* a, QTreeWidgetItem* b) {
-                QString pathA = a->data(0, Qt::UserRole).toString();
-                QString pathB = b->data(0, Qt::UserRole).toString();
-                VP_ShowsMetadata::ShowMetadata metaA, metaB;
-                
-                bool hasDateA = false, hasDateB = false;
-                if (metadataManager.readMetadataFromFile(pathA, metaA) && !metaA.airDate.isEmpty()) {
-                    hasDateA = true;
-                }
-                if (metadataManager.readMetadataFromFile(pathB, metaB) && !metaB.airDate.isEmpty()) {
-                    hasDateB = true;
-                }
-                
-                // If both have dates, sort by date
-                if (hasDateA && hasDateB) {
-                    return metaA.airDate < metaB.airDate;
-                }
-                // If only one has date, it comes first
-                if (hasDateA && !hasDateB) return true;
-                if (!hasDateA && hasDateB) return false;
-                // Neither has date, keep original order
-                return false;
-            });
-            
-            // Add sorted movies to category
-            for (QTreeWidgetItem* movieItem : movies) {
-                moviesCategory->addChild(movieItem);
-            }
-            
-            languageItem->addChild(moviesCategory);
-            qDebug() << "Operations_VP_Shows: Added" << movies.size() << "movies for" << languageKey;
-        }
-        
-        // Add OVA category if there are any
+        // Add OVA category if there are any (keeping it after regular content)
         if (ovasByLanguage.contains(languageKey) && !ovasByLanguage[languageKey].isEmpty()) {
             QTreeWidgetItem* ovaCategory = new QTreeWidgetItem();
             ovaCategory->setText(0, tr("OVA (%1)").arg(ovasByLanguage[languageKey].size()));
@@ -1720,48 +1802,6 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             
             languageItem->addChild(ovaCategory);
             qDebug() << "Operations_VP_Shows: Added" << ovas.size() << "OVAs for" << languageKey;
-        }
-        
-        // Add Extra category if there are any
-        if (extrasByLanguage.contains(languageKey) && !extrasByLanguage[languageKey].isEmpty()) {
-            QTreeWidgetItem* extraCategory = new QTreeWidgetItem();
-            extraCategory->setText(0, tr("Extra (%1)").arg(extrasByLanguage[languageKey].size()));
-            
-            // Sort extras similar to OVAs
-            QList<QTreeWidgetItem*>& extras = extrasByLanguage[languageKey];
-            std::sort(extras.begin(), extras.end(), [&metadataManager](QTreeWidgetItem* a, QTreeWidgetItem* b) {
-                QString pathA = a->data(0, Qt::UserRole).toString();
-                QString pathB = b->data(0, Qt::UserRole).toString();
-                VP_ShowsMetadata::ShowMetadata metaA, metaB;
-                
-                // Try to get episode numbers first
-                int epA = 0, epB = 0;
-                if (metadataManager.readMetadataFromFile(pathA, metaA)) {
-                    epA = metaA.episode.toInt();
-                }
-                if (metadataManager.readMetadataFromFile(pathB, metaB)) {
-                    epB = metaB.episode.toInt();
-                }
-                
-                // If both have episode numbers, sort by episode
-                if (epA > 0 && epB > 0) {
-                    return epA < epB;
-                }
-                // Then by date if available
-                if (!metaA.airDate.isEmpty() && !metaB.airDate.isEmpty()) {
-                    return metaA.airDate < metaB.airDate;
-                }
-                // Keep original order
-                return false;
-            });
-            
-            // Add sorted extras to category
-            for (QTreeWidgetItem* extraItem : extras) {
-                extraCategory->addChild(extraItem);
-            }
-            
-            languageItem->addChild(extraCategory);
-            qDebug() << "Operations_VP_Shows: Added" << extras.size() << "extras for" << languageKey;
         }
         
         // Add error episodes category for this language if there are any

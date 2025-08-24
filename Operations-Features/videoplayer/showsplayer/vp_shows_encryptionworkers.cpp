@@ -443,30 +443,41 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     metadata.language = m_language;
     metadata.translation = m_translation;
     
+    // Initialize content type to Regular by default
+    metadata.contentType = VP_ShowsMetadata::Regular;
+    qDebug() << "VP_ShowsEncryptionWorker: Starting content type detection for:" << filename;
+    
     // Try to parse season and episode from filename FIRST
     int season = 0, episode = 0;
     bool parsedSuccessfully = VP_ShowsTMDB::parseEpisodeFromFilename(filename, season, episode);
     
-    // If we successfully parsed season/episode numbers (and it's not Season 0), 
-    // it's a regular episode - skip content type detection
-    if (parsedSuccessfully && episode > 0 && season > 0) {
-        metadata.contentType = VP_ShowsMetadata::Regular;
-        qDebug() << "VP_ShowsEncryptionWorker: Valid S" << season << "E" << episode 
-                 << "found - marking as Regular episode";
-    } else if (parsedSuccessfully && episode > 0 && season == 0) {
-        // Season 0 episodes are always Extra (specials)
-        metadata.contentType = VP_ShowsMetadata::Extra;
-        qDebug() << "VP_ShowsEncryptionWorker: Season 0 episode detected - marking as Extra";
+    qDebug() << "VP_ShowsEncryptionWorker: Parse result - Success:" << parsedSuccessfully 
+             << "Season:" << season << "Episode:" << episode;
+    
+    // Determine content type based on parsed results
+    if (parsedSuccessfully && episode > 0) {
+        if (season > 0) {
+            // Valid season and episode - this is ALWAYS a regular episode
+            // No need to check for OVA/Movie patterns
+            metadata.contentType = VP_ShowsMetadata::Regular;
+            qDebug() << "VP_ShowsEncryptionWorker: Valid S" << season << "E" << episode 
+                     << "found - setting as Regular episode (skipping OVA/Movie detection)";
+        } else if (season == 0) {
+            // Season 0 episodes are specials/extras
+            metadata.contentType = VP_ShowsMetadata::Extra;
+            qDebug() << "VP_ShowsEncryptionWorker: Season 0 episode detected - setting as Extra";
+        }
     } else {
         // Only detect content type for files without valid episode numbers
         metadata.contentType = VP_ShowsMetadata::detectContentType(filename, m_movieTitles, m_ovaTitles);
-        qDebug() << "VP_ShowsEncryptionWorker: No valid episode numbers - detected content type:" 
-                 << metadata.contentType;
+        qDebug() << "VP_ShowsEncryptionWorker: No valid episode numbers - auto-detected content type:" 
+                 << metadata.contentType << "(" << metadata.getContentTypeString() << ")";
     }
     
     // Check if this is a movie that should also appear in regular episodes (dual display)
     // This is for movies that are part of the series continuity
-    if (metadata.contentType == VP_ShowsMetadata::Movie && parsedSuccessfully && episode > 0) {
+    // BUT don't apply this if we already determined it's a Regular episode from S##E## parsing
+    if (metadata.contentType == VP_ShowsMetadata::Movie && parsedSuccessfully && episode > 0 && season <= 0) {
         metadata.isDualDisplay = true;
         qDebug() << "VP_ShowsEncryptionWorker: Movie with episode numbering detected - will display in both categories";
     }
@@ -500,9 +511,16 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 .arg(m_translation);
             
             // Check if the mapped season is 0 (specials) - override content type
-            if (mapping.season == 0) {
+            // But ONLY if we didn't already determine it's a Regular episode from standard S##E## parsing
+            if (mapping.season == 0 && metadata.contentType != VP_ShowsMetadata::Regular) {
                 metadata.contentType = VP_ShowsMetadata::Extra;
                 qDebug() << "VP_ShowsEncryptionWorker: Episode mapped to Season 0 - marking as Extra content";
+            } else if (mapping.season > 0 && season == 0) {
+                // Absolute numbering mapped to a regular season - ensure it's marked as Regular
+                metadata.contentType = VP_ShowsMetadata::Regular;
+                qDebug() << "VP_ShowsEncryptionWorker: Absolute episode" << episode 
+                         << "mapped to S" << mapping.season << "E" << mapping.episode 
+                         << "- setting as Regular episode";
             }
         } else {
             episodeKey = QString("S%1E%2_%3_%4")
@@ -513,7 +531,8 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
         }
         m_processedEpisodes.insert(episodeKey);
         
-        qDebug() << "VP_ShowsEncryptionWorker: Final content type before saving:" << metadata.contentType;
+        qDebug() << "VP_ShowsEncryptionWorker: Final content type before saving:" 
+                 << metadata.contentType << "(" << metadata.getContentTypeString() << ")";
         
         // If we couldn't parse a season number, use absolute numbering
         if (season == 0) {
