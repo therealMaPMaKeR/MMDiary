@@ -17,6 +17,7 @@
 #include <QUrl>
 #include <QDateTime>
 #include <QRandomGenerator>
+#include <QApplication>
 
 VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     : QDialog(parent)
@@ -32,6 +33,7 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     , m_parentWidget(parent)
     , m_isCheckingExistingShow(false)
     , m_lastCheckedShowName("")
+    , m_hasTMDBData(false)  // Track if we have TMDB data loaded
 {
     ui->setupUi(this);
     
@@ -54,6 +56,8 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     
     // Store original (empty) poster and description
     m_originalDescription = "No description available.";
+    m_originalPoster = QPixmap();
+    m_hasTMDBData = false;  // Initialize the flag
     ui->textBrowser_ShowDescription->clear();  // Clear any default HTML
     ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
     
@@ -93,6 +97,9 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
                 m_searchTimer->stop();
                 m_searchTimer->start();
             }
+            
+            // Set the TMDB data flag since we're about to show TMDB results
+            m_hasTMDBData = true;
         }
     }
     
@@ -485,6 +492,9 @@ void VP_ShowsAddDialog::onUseTMDBCheckboxToggled(bool checked)
             m_searchTimer->stop();
         }
         
+        // Reset TMDB data flag
+        m_hasTMDBData = false;
+        
         // When adding to existing show, restore the original show poster/description
         // When adding new show, clear the display
         if (m_isAddingToExistingShow) {
@@ -521,19 +531,26 @@ void VP_ShowsAddDialog::onShowNameTextChanged(const QString& text)
     // Check if we need to reset the m_itemJustSelected flag
     // This happens when the user manually edits the text after selecting from TMDB
     static QString lastTextFromSelection;
-    if (m_itemJustSelected && text != lastTextFromSelection) {
-        // User has manually edited the text after selection
-        qDebug() << "VP_ShowsAddDialog: User edited text after TMDB selection, resetting flag";
-        m_itemJustSelected = false;
+    if (m_itemJustSelected) {
+        // We just selected from TMDB, store this text
+        lastTextFromSelection = text;
+        qDebug() << "VP_ShowsAddDialog: Text changed from TMDB selection, storing text:" << text;
+        // Don't reset flags here - keep them set
+    } else if (!lastTextFromSelection.isEmpty() && text != lastTextFromSelection) {
+        // Text changed after a TMDB selection - user is manually editing
+        qDebug() << "VP_ShowsAddDialog: User manually edited text after TMDB selection";
+        qDebug() << "VP_ShowsAddDialog: Resetting m_hasTMDBData from" << m_hasTMDBData << "to false";
+        m_hasTMDBData = false;  // Reset the TMDB data flag
         lastTextFromSelection.clear();
     }
     
     // Don't check for existing show if we just selected a TMDB item
     if (m_itemJustSelected) {
         qDebug() << "VP_ShowsAddDialog: Text changed from TMDB selection, skipping all processing";
-        lastTextFromSelection = text;  // Remember this text for comparison
         m_lastCheckedShowName = text;  // Update the last checked name so future edits will trigger check
         // Don't do any TMDB searching or existing show checking
+        // Reset the flag here after we've used it
+        m_itemJustSelected = false;
         return;  // Return early to prevent any further processing
     } else {
         // Check for existing show with this name (case-insensitive)
@@ -605,8 +622,10 @@ void VP_ShowsAddDialog::performTMDBSearch(const QString& searchText)
     qDebug() << "VP_ShowsAddDialog: Performing TMDB search for:" << searchText;
     
     // Clear previous suggestions before starting new search
+    qDebug() << "VP_ShowsAddDialog: Clearing m_currentSuggestions (had" << m_currentSuggestions.size() << "items)";
     m_currentSuggestions.clear();
     clearSuggestions();
+    // Don't reset m_hasTMDBData here - we're about to load new TMDB data
     
     // Search for TV shows and get multiple results
     m_currentSuggestions = m_tmdbApi->searchTVShows(searchText, MAX_SUGGESTIONS);
@@ -636,6 +655,7 @@ void VP_ShowsAddDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowInfo>& 
     
     // Store the suggestions for later use
     m_currentSuggestions = shows;
+    qDebug() << "VP_ShowsAddDialog: Stored" << m_currentSuggestions.size() << "suggestions in m_currentSuggestions";
     
     // Add items to the list
     for (const VP_ShowsTMDB::ShowInfo& show : shows) {
@@ -647,6 +667,8 @@ void VP_ShowsAddDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowInfo>& 
         QListWidgetItem* item = new QListWidgetItem(displayText);
         item->setData(Qt::UserRole, show.tmdbId);
         m_suggestionsList->addItem(item);
+        
+        qDebug() << "VP_ShowsAddDialog: Added item:" << displayText << "with TMDB ID:" << show.tmdbId;
     }
     
     // Position and show the suggestions list
@@ -671,6 +693,9 @@ void VP_ShowsAddDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowInfo>& 
     if (!m_currentSuggestions.isEmpty()) {
         displayShowInfo(m_currentSuggestions.first());
         m_hoveredItemIndex = 0;
+        // Mark that we're showing TMDB data (from preview)
+        qDebug() << "VP_ShowsAddDialog: Setting m_hasTMDBData to true (from displaySuggestions preview)";
+        m_hasTMDBData = true;
     }
     
     qDebug() << "VP_ShowsAddDialog: Suggestions list shown with" << m_suggestionsList->count() << "items";
@@ -681,11 +706,14 @@ void VP_ShowsAddDialog::clearSuggestions()
     if (m_suggestionsList) {
         m_suggestionsList->clear();
     }
+    // Note: We do NOT clear m_currentSuggestions here - it needs to persist
+    // until after a selection is made or the suggestions are hidden
 }
 
 void VP_ShowsAddDialog::hideSuggestions(bool itemWasSelected)
 {
     qDebug() << "VP_ShowsAddDialog: hideSuggestions() called, itemWasSelected:" << itemWasSelected;
+    qDebug() << "VP_ShowsAddDialog: m_currentSuggestions has" << m_currentSuggestions.size() << "items before hiding";
     
     // Clear the flags and hover index
     m_isShowingSuggestions = false;
@@ -718,8 +746,10 @@ void VP_ShowsAddDialog::hideSuggestions(bool itemWasSelected)
         ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
     }
     
-    // Clear the current suggestions when hiding
-    m_currentSuggestions.clear();
+    // Clear the current suggestions when hiding (but not if an item was selected)
+    if (!itemWasSelected) {
+        m_currentSuggestions.clear();
+    }
 }
 
 void VP_ShowsAddDialog::positionSuggestionsList()
@@ -760,6 +790,13 @@ void VP_ShowsAddDialog::onSuggestionItemClicked(QListWidgetItem* item)
     
     // Get the TMDB ID from the item data
     int tmdbId = item->data(Qt::UserRole).toInt();
+    qDebug() << "VP_ShowsAddDialog: Retrieved TMDB ID from item:" << tmdbId;
+    
+    // Debug: Print all current suggestions
+    qDebug() << "VP_ShowsAddDialog: Current suggestions count:" << m_currentSuggestions.size();
+    for (const VP_ShowsTMDB::ShowInfo& show : m_currentSuggestions) {
+        qDebug() << "VP_ShowsAddDialog:   - Show:" << show.showName << "ID:" << show.tmdbId;
+    }
     
     // Find the corresponding show info
     VP_ShowsTMDB::ShowInfo selectedShow;
@@ -785,6 +822,10 @@ void VP_ShowsAddDialog::onSuggestionItemClicked(QListWidgetItem* item)
     // This ensures they persist as the new baseline
     m_originalDescription = selectedShow.overview.isEmpty() ? "No description available." : selectedShow.overview;
     // Note: m_originalPoster is updated directly in downloadAndDisplayPoster when m_itemJustSelected is true
+    
+    // Mark that we have TMDB data loaded
+    qDebug() << "VP_ShowsAddDialog: Setting m_hasTMDBData to true (from onSuggestionItemClicked)";
+    m_hasTMDBData = true;
     
     // Set the selected show name in the line edit
     // This will trigger onShowNameTextChanged, but m_itemJustSelected flag will prevent existing show check
@@ -1024,6 +1065,9 @@ bool VP_ShowsAddDialog::eventFilter(QObject* obj, QEvent* event)
                 const VP_ShowsTMDB::ShowInfo& hoveredShow = m_currentSuggestions[itemIndex];
                 displayShowInfo(hoveredShow);
                 
+                // Mark that we're showing TMDB data
+                m_hasTMDBData = true;
+                
                 qDebug() << "VP_ShowsAddDialog: Hovering over:" << hoveredShow.showName;
             }
         }
@@ -1046,6 +1090,13 @@ bool VP_ShowsAddDialog::eventFilter(QObject* obj, QEvent* event)
             ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
             
             m_hoveredItemIndex = -1;
+            
+            // Clear TMDB data flag since we're restoring to original (non-TMDB) content
+            // unless the original content is also from TMDB (e.g., from a previous selection)
+            // We can tell by checking if m_originalDescription is not the default
+            if (m_originalDescription == "No description available.") {
+                m_hasTMDBData = false;
+            }
         }
         // Reset the flag after checking
         m_itemJustSelected = false;
@@ -1058,17 +1109,43 @@ bool VP_ShowsAddDialog::eventFilter(QObject* obj, QEvent* event)
         QPoint pos = mouseEvent->pos();  // Position relative to dialog
         
         if (m_suggestionsList && m_suggestionsList->isVisible()) {
-            // Get the geometry of the suggestions list
-            QRect suggestionsRect = m_suggestionsList->geometry();
+            // Get the global position of the click
+            QPoint globalPos = mouseEvent->globalPos();
             
-            // Get the geometry of the line edit relative to the dialog
-            QRect lineEditRect = ui->lineEdit_ShowName->geometry();
-            QPoint lineEditPos = ui->lineEdit_ShowName->mapTo(this, QPoint(0, 0));
-            lineEditRect.moveTo(lineEditPos);
+            // Check if the click is within the suggestions list widget or its children
+            QWidget* clickedWidget = QApplication::widgetAt(globalPos);
             
-            if (!suggestionsRect.contains(pos) && !lineEditRect.contains(pos)) {
+            qDebug() << "VP_ShowsAddDialog: Clicked widget:" << (clickedWidget ? clickedWidget->metaObject()->className() : "null");
+            
+            // Check if the clicked widget is the suggestions list or one of its children
+            bool clickedOnSuggestions = false;
+            QWidget* widget = clickedWidget;
+            while (widget) {
+                if (widget == m_suggestionsList || widget == m_suggestionsList->viewport()) {
+                    clickedOnSuggestions = true;
+                    break;
+                }
+                widget = widget->parentWidget();
+            }
+            
+            // Also check if click is on the line edit
+            bool clickedOnLineEdit = false;
+            widget = clickedWidget;
+            while (widget) {
+                if (widget == ui->lineEdit_ShowName) {
+                    clickedOnLineEdit = true;
+                    break;
+                }
+                widget = widget->parentWidget();
+            }
+            
+            if (!clickedOnSuggestions && !clickedOnLineEdit) {
                 qDebug() << "VP_ShowsAddDialog: Click outside suggestions";
                 hideSuggestions(false);  // false = restore original values
+                // Clear TMDB data flag if we're restoring to non-TMDB content
+                if (m_originalDescription == "No description available.") {
+                    m_hasTMDBData = false;
+                }
             }
         }
         return false;
@@ -1091,6 +1168,7 @@ void VP_ShowsAddDialog::keyPressEvent(QKeyEvent* event)
                 // Update preview for newly selected item
                 if (m_hoveredItemIndex < m_currentSuggestions.size()) {
                     displayShowInfo(m_currentSuggestions[m_hoveredItemIndex]);
+                    m_hasTMDBData = true;  // Mark that we're showing TMDB data
                 }
             }
             // Keep focus on the text field
@@ -1107,6 +1185,7 @@ void VP_ShowsAddDialog::keyPressEvent(QKeyEvent* event)
                 // Update preview for newly selected item
                 if (m_hoveredItemIndex >= 0 && m_hoveredItemIndex < m_currentSuggestions.size()) {
                     displayShowInfo(m_currentSuggestions[m_hoveredItemIndex]);
+                    m_hasTMDBData = true;  // Mark that we're showing TMDB data
                 }
             }
             // Keep focus on the text field
@@ -1125,6 +1204,10 @@ void VP_ShowsAddDialog::keyPressEvent(QKeyEvent* event)
             // Hide suggestions and restore original values
             qDebug() << "VP_ShowsAddDialog: ESC pressed, hiding suggestions and restoring original values";
             hideSuggestions(false);  // false = no item was selected, restore originals
+            // Clear TMDB data flag if we're restoring to non-TMDB content
+            if (m_originalDescription == "No description available.") {
+                m_hasTMDBData = false;
+            }
             event->accept();
             return;
         }
@@ -1236,6 +1319,9 @@ void VP_ShowsAddDialog::checkForExistingShow(const QString& showName)
                 // Update the last checked name to the correctly cased version
                 m_lastCheckedShowName = metadata.showName;
                 
+                // Clear TMDB data flag since this is existing show data, not TMDB data
+                m_hasTMDBData = false;
+                
                 return; // Found a match, no need to continue
             }
         }
@@ -1243,7 +1329,16 @@ void VP_ShowsAddDialog::checkForExistingShow(const QString& showName)
     
     // No existing show found, check if we need to clear previously loaded data
     // Only clear if we had previously loaded data for a different show
+    // Don't clear if we have TMDB data loaded
     if (!m_originalPoster.isNull() || m_originalDescription != "No description available.") {
+        // If we have TMDB data loaded, don't clear it
+        qDebug() << "VP_ShowsAddDialog: Checking m_hasTMDBData flag:" << m_hasTMDBData;
+        if (m_hasTMDBData) {
+            qDebug() << "VP_ShowsAddDialog: No existing show found, but keeping TMDB data";
+            // Don't reset the flag here - let it persist until user manually edits
+            return;
+        }
+        
         qDebug() << "VP_ShowsAddDialog: No existing show found, clearing previously loaded data";
         
         // Reset to default empty state

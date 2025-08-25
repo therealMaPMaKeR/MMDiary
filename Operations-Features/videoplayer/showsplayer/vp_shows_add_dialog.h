@@ -69,6 +69,7 @@ private:
     void checkForExistingShow(const QString& showName);
     bool m_isCheckingExistingShow;  // Flag to prevent recursive checks
     QString m_lastCheckedShowName;  // Cache to avoid redundant checks
+    bool m_hasTMDBData;  // Track if we have TMDB data loaded
     
     // TMDB autofill functionality
     void setupAutofillUI();
