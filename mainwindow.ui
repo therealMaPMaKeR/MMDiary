@@ -2033,12 +2033,12 @@ li.checked::marker { content: &quot;\2612&quot;; }
                    <widget class="QComboBox" name="comboBox_VP_Shows_ListViewMode">
                     <item>
                      <property name="text">
-                      <string>List</string>
+                      <string>Icons</string>
                      </property>
                     </item>
                     <item>
                      <property name="text">
-                      <string>Icons</string>
+                      <string>List</string>
                      </property>
                     </item>
                    </widget>

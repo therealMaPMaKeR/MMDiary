@@ -53,10 +53,20 @@ private:
     int m_originalEpisodeCount = 0;
     int m_newEpisodeCount = 0;
     
+    // View mode tracking
+    bool m_isIconViewMode = false;
+    QMap<QString, QPixmap> m_posterCache;  // Cache for loaded posters to improve performance
+    
     // Helper functions
     QString selectVideoFile();
     bool isValidVideoFile(const QString& filePath);
     QStringList findVideoFiles(const QString& folderPath, bool recursive = true);
+    
+    // View mode helper functions
+    QPixmap loadShowPoster(const QString& showFolderPath, const QSize& targetSize);
+    void setupListViewMode();
+    void setupIconViewMode();
+    void refreshShowListItem(QListWidgetItem* item, const QString& showName, const QString& folderPath);
     QString generateRandomFileName(const QString& extension);
     bool createShowFolderStructure(QString& outputPath);
     
@@ -236,6 +246,9 @@ public slots:
     void onEncryptionComplete(bool success, const QString& message,
                              const QStringList& successfulFiles,
                              const QStringList& failedFiles);
+    
+    // Slot for view mode change
+    void onViewModeChanged(int index);
 
 private slots:
     void toggleWatchedStateFromContextMenu();

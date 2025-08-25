@@ -43,6 +43,10 @@
 #include <QPushButton>
 #include <QScreen>
 #include <QWindow>
+#include <QComboBox>
+#include <QListView>
+#include <QPainter>
+#include <QFont>
 #include <algorithm>
 #include <functional>
 
@@ -90,6 +94,17 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
         
         // Setup context menu for the list widget
         setupContextMenu();
+    }
+    
+    // Connect the view mode combo box
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->comboBox_VP_Shows_ListViewMode) {
+        connect(m_mainWindow->ui->comboBox_VP_Shows_ListViewMode, 
+                QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, &Operations_VP_Shows::onViewModeChanged);
+        qDebug() << "Operations_VP_Shows: Connected view mode combo box";
+        
+        // Set initial view mode based on combo box
+        onViewModeChanged(m_mainWindow->ui->comboBox_VP_Shows_ListViewMode->currentIndex());
     }
     
     // Connect back to list button on display page
@@ -953,6 +968,7 @@ void Operations_VP_Shows::loadTVShowsList()
     // Clear the list widget and the mapping first
     m_mainWindow->ui->listWidget_VP_List_List->clear();
     m_showFolderMapping.clear();
+    m_posterCache.clear();  // Clear poster cache when reloading
     
     // Build the path to the shows directory
     QString basePath = QDir::current().absoluteFilePath("Data");
@@ -1010,13 +1026,16 @@ void Operations_VP_Shows::loadTVShowsList()
                 qDebug() << "Operations_VP_Shows: Found show:" << metadata.showName;
                 
                 // Add the show name to the list widget
-                QListWidgetItem* item = new QListWidgetItem(metadata.showName);
+                QListWidgetItem* item = new QListWidgetItem();
                 
                 // Store the folder path as user data for later use (when playing videos)
                 item->setData(Qt::UserRole, folderPath);
                 
                 // Store the mapping in RAM for quick access
                 m_showFolderMapping[metadata.showName] = folderPath;
+                
+                // Set up the item based on current view mode
+                refreshShowListItem(item, metadata.showName, folderPath);
                 
                 m_mainWindow->ui->listWidget_VP_List_List->addItem(item);
             } else {
@@ -1040,6 +1059,201 @@ void Operations_VP_Shows::refreshTVShowsList()
     
     // Simply call loadTVShowsList to reload the entire list
     loadTVShowsList();
+}
+
+void Operations_VP_Shows::onViewModeChanged(int index)
+{
+    qDebug() << "Operations_VP_Shows: View mode changed to index:" << index;
+    
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->listWidget_VP_List_List) {
+        qDebug() << "Operations_VP_Shows: UI elements not available for view mode change";
+        return;
+    }
+    
+    // Index 0 = List view, Index 1 = Icon view
+    m_isIconViewMode = (index == 1);
+    
+    if (m_isIconViewMode) {
+        qDebug() << "Operations_VP_Shows: Switching to Icon view mode";
+        setupIconViewMode();
+    } else {
+        qDebug() << "Operations_VP_Shows: Switching to List view mode";
+        setupListViewMode();
+    }
+    
+    // Refresh all items with the new view mode
+    for (int i = 0; i < m_mainWindow->ui->listWidget_VP_List_List->count(); ++i) {
+        QListWidgetItem* item = m_mainWindow->ui->listWidget_VP_List_List->item(i);
+        if (item) {
+            QString folderPath = item->data(Qt::UserRole).toString();
+            QString showName = item->text();
+            
+            // Find the actual show name if we have it in the mapping
+            for (auto it = m_showFolderMapping.begin(); it != m_showFolderMapping.end(); ++it) {
+                if (it.value() == folderPath) {
+                    showName = it.key();
+                    break;
+                }
+            }
+            
+            refreshShowListItem(item, showName, folderPath);
+        }
+    }
+}
+
+void Operations_VP_Shows::setupListViewMode()
+{
+    qDebug() << "Operations_VP_Shows: Setting up List view mode";
+    
+    QListWidget* listWidget = m_mainWindow->ui->listWidget_VP_List_List;
+    
+    // Set to list mode
+    listWidget->setViewMode(QListView::ListMode);
+    listWidget->setResizeMode(QListView::Fixed);
+    listWidget->setSpacing(2);
+    listWidget->setUniformItemSizes(false);
+    
+    // Reset icon size to default for list mode
+    listWidget->setIconSize(QSize(16, 16));
+    
+    // Set layout mode
+    listWidget->setFlow(QListView::TopToBottom);
+    listWidget->setWrapping(false);
+    
+    qDebug() << "Operations_VP_Shows: List view mode configured";
+}
+
+void Operations_VP_Shows::setupIconViewMode()
+{
+    qDebug() << "Operations_VP_Shows: Setting up Icon view mode";
+    
+    QListWidget* listWidget = m_mainWindow->ui->listWidget_VP_List_List;
+    
+    // Set to icon mode
+    listWidget->setViewMode(QListView::IconMode);
+    listWidget->setResizeMode(QListView::Adjust);
+    listWidget->setSpacing(10);
+    listWidget->setUniformItemSizes(true);
+    
+    // Set larger icon size for posters (aspect ratio approximately 2:3 for movie posters)
+    listWidget->setIconSize(QSize(100, 150));
+    
+    // Set grid size to accommodate icon + text
+    listWidget->setGridSize(QSize(120, 190));
+    
+    // Set layout mode
+    listWidget->setFlow(QListView::LeftToRight);
+    listWidget->setWrapping(true);
+    
+    // Enable word wrap for long show names
+    listWidget->setWordWrap(true);
+    
+    qDebug() << "Operations_VP_Shows: Icon view mode configured";
+}
+
+void Operations_VP_Shows::refreshShowListItem(QListWidgetItem* item, const QString& showName, const QString& folderPath)
+{
+    if (!item) {
+        qDebug() << "Operations_VP_Shows: Invalid item provided to refreshShowListItem";
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Refreshing item for show:" << showName;
+    
+    // Always set the text
+    item->setText(showName);
+    
+    if (m_isIconViewMode) {
+        // Load and set the poster icon
+        QSize iconSize = m_mainWindow->ui->listWidget_VP_List_List->iconSize();
+        QPixmap poster = loadShowPoster(folderPath, iconSize);
+        
+        if (!poster.isNull()) {
+            item->setIcon(QIcon(poster));
+            qDebug() << "Operations_VP_Shows: Set poster icon for show:" << showName;
+        } else {
+            // Set a placeholder icon
+            QPixmap placeholder(iconSize);
+            placeholder.fill(Qt::darkGray);
+            
+            // Draw text on placeholder
+            QPainter painter(&placeholder);
+            painter.setPen(Qt::white);
+            painter.setFont(QFont("Arial", 10, QFont::Bold));
+            painter.drawText(placeholder.rect(), Qt::AlignCenter | Qt::TextWordWrap, "No\nPoster");
+            
+            item->setIcon(QIcon(placeholder));
+            qDebug() << "Operations_VP_Shows: Set placeholder icon for show:" << showName;
+        }
+        
+        // Set text alignment for icon mode
+        item->setTextAlignment(Qt::AlignHCenter | Qt::AlignTop);
+    } else {
+        // In list mode, clear the icon or set a small one
+        item->setIcon(QIcon());  // Clear icon in list mode
+        item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    }
+}
+
+QPixmap Operations_VP_Shows::loadShowPoster(const QString& showFolderPath, const QSize& targetSize)
+{
+    qDebug() << "Operations_VP_Shows: Loading poster for show folder:" << showFolderPath;
+    
+    // Check cache first
+    if (m_posterCache.contains(showFolderPath)) {
+        qDebug() << "Operations_VP_Shows: Found poster in cache";
+        return m_posterCache[showFolderPath];
+    }
+    
+    // Get the obfuscated folder name
+    QDir showDir(showFolderPath);
+    QString obfuscatedName = showDir.dirName();
+    
+    // Look for showimage_ file
+    QString imageFileName = QString("showimage_%1").arg(obfuscatedName);
+    QString imageFilePath = showDir.absoluteFilePath(imageFileName);
+    
+    qDebug() << "Operations_VP_Shows: Looking for poster file:" << imageFilePath;
+    
+    if (!QFile::exists(imageFilePath)) {
+        qDebug() << "Operations_VP_Shows: No poster file found";
+        return QPixmap();
+    }
+    
+    // Read and decrypt the poster
+    QFile file(imageFilePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qDebug() << "Operations_VP_Shows: Failed to open poster file";
+        return QPixmap();
+    }
+    
+    QByteArray encryptedData = file.readAll();
+    file.close();
+    
+    // Decrypt the image data
+    QByteArray decryptedData = CryptoUtils::Encryption_DecryptBArray(
+        m_mainWindow->user_Key, encryptedData);
+    
+    if (decryptedData.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Failed to decrypt poster data";
+        return QPixmap();
+    }
+    
+    // Load the decrypted image
+    QPixmap poster;
+    if (!poster.loadFromData(decryptedData)) {
+        qDebug() << "Operations_VP_Shows: Failed to load poster from decrypted data";
+        return QPixmap();
+    }
+    
+    // Scale to target size
+    QPixmap scaledPoster = poster.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    
+    // Cache the scaled poster
+    m_posterCache[showFolderPath] = scaledPoster;
+    
+    qDebug() << "Operations_VP_Shows: Successfully loaded and cached poster, size:" << scaledPoster.size();
+    return scaledPoster;
 }
 
 void Operations_VP_Shows::openSettings()
