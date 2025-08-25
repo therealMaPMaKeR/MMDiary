@@ -28,10 +28,10 @@ public:
     QString getTranslationMode() const;
     
     // Getters for custom poster and description
-    QPixmap getCustomPoster() const { return m_customPoster; }
-    QString getCustomDescription() const { return m_customDescription; }
-    bool hasCustomPoster() const { return !m_customPoster.isNull(); }
-    bool hasCustomDescription() const { return m_hasCustomDescription; }
+    QPixmap getCustomPoster() const;
+    QString getCustomDescription() const;
+    bool hasCustomPoster() const;
+    bool hasCustomDescription() const;
     bool isUsingTMDB() const;  // Check if TMDB checkbox is checked
     
     // Validation

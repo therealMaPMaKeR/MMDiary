@@ -78,8 +78,10 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     connect(ui->pushButton_UseCustomDescription, &QPushButton::clicked,
             this, &VP_ShowsAddDialog::onUseCustomDescriptionClicked);
     
-    // Initialize custom data flags
+    // Initialize custom data flags EARLY before any checks
     m_hasCustomDescription = false;
+    m_customPoster = QPixmap();  // Explicitly initialize as null
+    m_customDescription = QString();  // Explicitly initialize as empty
     
     // Initialize TMDB autofill functionality
     setupAutofillUI();
@@ -150,7 +152,38 @@ QString VP_ShowsAddDialog::getTranslationMode() const
 
 bool VP_ShowsAddDialog::isUsingTMDB() const
 {
-    return ui->checkBox_UseTMDB->isChecked();
+    bool usingTMDB = ui->checkBox_UseTMDB->isChecked();
+    qDebug() << "VP_ShowsAddDialog::isUsingTMDB() returning:" << usingTMDB;
+    return usingTMDB;
+}
+
+QPixmap VP_ShowsAddDialog::getCustomPoster() const
+{
+    qDebug() << "VP_ShowsAddDialog::getCustomPoster() - poster null:" << m_customPoster.isNull()
+             << "size:" << m_customPoster.size();
+    return m_customPoster;
+}
+
+QString VP_ShowsAddDialog::getCustomDescription() const
+{
+    qDebug() << "VP_ShowsAddDialog::getCustomDescription() - description length:" << m_customDescription.length()
+             << "preview:" << m_customDescription.left(50);
+    return m_customDescription;
+}
+
+bool VP_ShowsAddDialog::hasCustomPoster() const
+{
+    bool hasPoster = !m_customPoster.isNull();
+    qDebug() << "VP_ShowsAddDialog::hasCustomPoster() returning:" << hasPoster
+             << "(poster null:" << m_customPoster.isNull() << "size:" << m_customPoster.size() << ")";
+    return hasPoster;
+}
+
+bool VP_ShowsAddDialog::hasCustomDescription() const
+{
+    qDebug() << "VP_ShowsAddDialog::hasCustomDescription() returning:" << m_hasCustomDescription
+             << "(description length:" << m_customDescription.length() << ")";
+    return m_hasCustomDescription;
 }
 
 bool VP_ShowsAddDialog::validateInputs()
@@ -503,6 +536,8 @@ void VP_ShowsAddDialog::setupAutofillUI()
 void VP_ShowsAddDialog::onUseTMDBCheckboxToggled(bool checked)
 {
     qDebug() << "VP_ShowsAddDialog: UseTMDB checkbox toggled to:" << checked;
+    qDebug() << "VP_ShowsAddDialog: Current custom poster null:" << m_customPoster.isNull();
+    qDebug() << "VP_ShowsAddDialog: Has custom description:" << m_hasCustomDescription;
     
     // Update button states - enable custom buttons when TMDB is off, disable when on
     // But only if we're not adding to an existing show
@@ -513,6 +548,7 @@ void VP_ShowsAddDialog::onUseTMDBCheckboxToggled(bool checked)
     }
     
     if (!checked) {
+        // TMDB disabled - show custom data if available
         // Clear any existing suggestions when TMDB is disabled
         if (m_isShowingSuggestions) {
             clearSuggestions();
@@ -527,7 +563,7 @@ void VP_ShowsAddDialog::onUseTMDBCheckboxToggled(bool checked)
         // Reset TMDB data flag
         m_hasTMDBData = false;
         
-        // Check if we have custom data to display
+        // Display custom data if available, otherwise show originals
         if (!m_customPoster.isNull()) {
             ui->label_ShowPoster->setPixmap(m_customPoster);
             qDebug() << "VP_ShowsAddDialog: Displaying custom poster";
@@ -537,7 +573,7 @@ void VP_ShowsAddDialog::onUseTMDBCheckboxToggled(bool checked)
             ui->label_ShowPoster->setText("No Poster Available");
         }
         
-        if (m_hasCustomDescription) {
+        if (m_hasCustomDescription && !m_customDescription.isEmpty()) {
             ui->textBrowser_ShowDescription->clear();
             ui->textBrowser_ShowDescription->setPlainText(m_customDescription);
             qDebug() << "VP_ShowsAddDialog: Displaying custom description";
@@ -546,13 +582,13 @@ void VP_ShowsAddDialog::onUseTMDBCheckboxToggled(bool checked)
             ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
         }
         
-        qDebug() << "VP_ShowsAddDialog: TMDB disabled - cleared suggestions and reset display";
+        qDebug() << "VP_ShowsAddDialog: TMDB disabled - displaying custom/original data";
     } else {
-        // When TMDB is enabled, don't clear custom data - just restore display to original/TMDB data
-        // The custom data is preserved in case user toggles back
-        qDebug() << "VP_ShowsAddDialog: TMDB enabled - preserving custom data but displaying original/TMDB data";
+        // TMDB enabled - preserve custom data internally but show TMDB/original display
+        // Custom data remains stored for if user toggles back
+        qDebug() << "VP_ShowsAddDialog: TMDB enabled - custom data preserved internally";
         
-        // Restore original poster and description for display
+        // Show original/default display (not custom)
         if (!m_originalPoster.isNull()) {
             ui->label_ShowPoster->setPixmap(m_originalPoster);
         } else {
@@ -1336,6 +1372,8 @@ void VP_ShowsAddDialog::onUseCustomPosterClicked()
     
     qDebug() << "VP_ShowsAddDialog: Custom poster loaded and displayed";
     qDebug() << "VP_ShowsAddDialog: Original size:" << poster.size() << "Scaled size:" << m_customPoster.size();
+    qDebug() << "VP_ShowsAddDialog: m_customPoster.isNull() =" << m_customPoster.isNull();
+    qDebug() << "VP_ShowsAddDialog: hasCustomPoster() would return:" << !m_customPoster.isNull();
 }
 
 void VP_ShowsAddDialog::onUseCustomDescriptionClicked()
@@ -1389,6 +1427,9 @@ void VP_ShowsAddDialog::onUseCustomDescriptionClicked()
     
     qDebug() << "VP_ShowsAddDialog: Custom description set";
     qDebug() << "VP_ShowsAddDialog: Description length:" << m_customDescription.length();
+    qDebug() << "VP_ShowsAddDialog: m_hasCustomDescription =" << m_hasCustomDescription;
+    qDebug() << "VP_ShowsAddDialog: hasCustomDescription() would return:" << m_hasCustomDescription;
+    qDebug() << "VP_ShowsAddDialog: Description preview:" << m_customDescription.left(100);
 }
 
 void VP_ShowsAddDialog::keyPressEvent(QKeyEvent* event)
@@ -1460,6 +1501,12 @@ void VP_ShowsAddDialog::checkForExistingShow(const QString& showName)
     
     // Prevent recursive calls
     if (m_isCheckingExistingShow) {
+        return;
+    }
+    
+    // If we have custom data set, don't overwrite it with existing show data
+    if (!m_customPoster.isNull() || m_hasCustomDescription) {
+        qDebug() << "VP_ShowsAddDialog: Custom data already set, skipping existing show check";
         return;
     }
     

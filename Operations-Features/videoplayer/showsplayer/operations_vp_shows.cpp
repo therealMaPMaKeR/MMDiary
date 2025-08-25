@@ -359,10 +359,42 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
                 this, &Operations_VP_Shows::onEncryptionComplete);
     }
     
-    // Get TMDB preference from the dialog
+    // Get TMDB preference and custom data from the dialog
     bool useTMDB = addDialog.isUsingTMDB();
-    QPixmap customPoster;  // Empty pixmap (not used when adding to existing show)
-    QString customDescription;  // Empty string (not used when adding to existing show)
+    QPixmap customPoster;
+    QString customDescription;
+    
+    qDebug() << "Operations_VP_Shows: Dialog returned - Using TMDB:" << useTMDB;
+    qDebug() << "Operations_VP_Shows: Checking for custom data...";
+    
+    if (!useTMDB) {
+        qDebug() << "Operations_VP_Shows: TMDB disabled, checking for custom data";
+        qDebug() << "Operations_VP_Shows: Calling hasCustomPoster()...";
+        bool hasPoster = addDialog.hasCustomPoster();
+        qDebug() << "Operations_VP_Shows: hasCustomPoster() returned:" << hasPoster;
+        
+        if (hasPoster) {
+            customPoster = addDialog.getCustomPoster();
+            qDebug() << "Operations_VP_Shows: Using custom poster, size:" << customPoster.size();
+            qDebug() << "Operations_VP_Shows: Custom poster is null:" << customPoster.isNull();
+        } else {
+            qDebug() << "Operations_VP_Shows: No custom poster set";
+        }
+        
+        qDebug() << "Operations_VP_Shows: Calling hasCustomDescription()...";
+        bool hasDesc = addDialog.hasCustomDescription();
+        qDebug() << "Operations_VP_Shows: hasCustomDescription() returned:" << hasDesc;
+        
+        if (hasDesc) {
+            customDescription = addDialog.getCustomDescription();
+            qDebug() << "Operations_VP_Shows: Using custom description, length:" << customDescription.length();
+            qDebug() << "Operations_VP_Shows: Description preview:" << customDescription.left(100);
+        } else {
+            qDebug() << "Operations_VP_Shows: No custom description set";
+        }
+    } else {
+        qDebug() << "Operations_VP_Shows: Using TMDB, not retrieving custom data";
+    }
     
     // Start encryption with language and translation info
     m_encryptionDialog->startEncryption(filesToImport, targetFiles, showName, encryptionKey, username, 
@@ -414,16 +446,31 @@ void Operations_VP_Shows::importTVShow()
     QPixmap customPoster;
     QString customDescription;
     
+    qDebug() << "Operations_VP_Shows: Dialog returned - Using TMDB:" << useTMDB;
+    qDebug() << "Operations_VP_Shows: Checking for custom data...";
+    
     if (!useTMDB) {
-        if (addDialog.hasCustomPoster()) {
+        qDebug() << "Operations_VP_Shows: TMDB disabled, checking for custom data";
+        qDebug() << "Operations_VP_Shows: Calling hasCustomPoster()...";
+        bool hasPoster = addDialog.hasCustomPoster();
+        qDebug() << "Operations_VP_Shows: hasCustomPoster() returned:" << hasPoster;
+        
+        if (hasPoster) {
             customPoster = addDialog.getCustomPoster();
             qDebug() << "Operations_VP_Shows: Using custom poster, size:" << customPoster.size();
+            qDebug() << "Operations_VP_Shows: Custom poster is null:" << customPoster.isNull();
         } else {
             qDebug() << "Operations_VP_Shows: No custom poster set";
         }
-        if (addDialog.hasCustomDescription()) {
+        
+        qDebug() << "Operations_VP_Shows: Calling hasCustomDescription()...";
+        bool hasDesc = addDialog.hasCustomDescription();
+        qDebug() << "Operations_VP_Shows: hasCustomDescription() returned:" << hasDesc;
+        
+        if (hasDesc) {
             customDescription = addDialog.getCustomDescription();
             qDebug() << "Operations_VP_Shows: Using custom description, length:" << customDescription.length();
+            qDebug() << "Operations_VP_Shows: Description preview:" << customDescription.left(100);
         } else {
             qDebug() << "Operations_VP_Shows: No custom description set";
         }
