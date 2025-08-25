@@ -1,4 +1,8 @@
 #include "VP_Shows_Videoplayer.h"
+#include <QGuiApplication>
+
+// Initialize static member for last used screen
+QScreen* VP_Shows_Videoplayer::s_lastUsedScreen = nullptr;
 #include <QAudioOutput>
 #include <QDebug>
 #include <QFileInfo>
@@ -565,23 +569,32 @@ void VP_Shows_Videoplayer::startInFullScreen()
         // Remove all margins for fullscreen
         m_mainLayout->setContentsMargins(0, 0, 0, 0);
         
-        // Remove window frame for true fullscreen
-        setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
-        
-        // Set fullscreen
-        showFullScreen();
-        m_isFullScreen = true;
-        
-        // Ensure we fill the entire screen (use the screen the player is currently on)
-        QScreen *screen = nullptr;
-        if (windowHandle()) {
-            screen = windowHandle()->screen();
-            qDebug() << "VP_Shows_Videoplayer: Going fullscreen on current screen:" << (screen ? screen->name() : "unknown");
-        }
+        // Get the screen the player is currently on BEFORE changing window flags
+        QScreen *screen = getCurrentScreen();
         if (!screen) {
             screen = QApplication::primaryScreen();
             qDebug() << "VP_Shows_Videoplayer: Fallback to primary screen";
         }
+        
+        if (screen) {
+            // Remember this screen for when we close
+            s_lastUsedScreen = screen;
+            qDebug() << "VP_Shows_Videoplayer: Going fullscreen on screen:" << screen->name();
+            
+            // Move window to the target screen BEFORE going fullscreen
+            // This ensures fullscreen happens on the correct monitor
+            QRect screenGeometry = screen->geometry();
+            move(screenGeometry.topLeft());
+        }
+        
+        // Remove window frame for true fullscreen
+        setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+        
+        // Now show fullscreen - it will use the screen we just moved to
+        showFullScreen();
+        m_isFullScreen = true;
+        
+        // Set geometry to fill the entire screen
         if (screen) {
             setGeometry(screen->geometry());
         }
@@ -633,23 +646,32 @@ void VP_Shows_Videoplayer::toggleFullScreen()
         // Remove all margins for fullscreen
         m_mainLayout->setContentsMargins(0, 0, 0, 0);
         
-        // Remove window frame for true fullscreen
-        setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
-        
-        // Set fullscreen
-        showFullScreen();
-        m_isFullScreen = true;
-        
-        // Ensure we fill the entire screen (use the screen the player is currently on)
-        QScreen *screen = nullptr;
-        if (windowHandle()) {
-            screen = windowHandle()->screen();
-            qDebug() << "VP_Shows_Videoplayer: Toggling fullscreen on current screen:" << (screen ? screen->name() : "unknown");
-        }
+        // Get the screen the player is currently on BEFORE changing window flags
+        QScreen *screen = getCurrentScreen();
         if (!screen) {
             screen = QApplication::primaryScreen();
             qDebug() << "VP_Shows_Videoplayer: Fallback to primary screen";
         }
+        
+        if (screen) {
+            // Remember this screen for when we close
+            s_lastUsedScreen = screen;
+            qDebug() << "VP_Shows_Videoplayer: Toggling fullscreen on screen:" << screen->name();
+            
+            // Move window to the target screen BEFORE going fullscreen
+            // This ensures fullscreen happens on the correct monitor
+            QRect screenGeometry = screen->geometry();
+            move(screenGeometry.topLeft());
+        }
+        
+        // Remove window frame for true fullscreen
+        setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+        
+        // Now show fullscreen - it will use the screen we just moved to
+        showFullScreen();
+        m_isFullScreen = true;
+        
+        // Set geometry to fill the entire screen
         if (screen) {
             setGeometry(screen->geometry());
         }
@@ -782,6 +804,13 @@ void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
 {
     qDebug() << "VP_Shows_Videoplayer: Window closing, stopping playback. m_isClosing =" << m_isClosing;
     
+    // Remember the screen we're closing on (stored in RAM via static variable)
+    QScreen* currentScreen = getCurrentScreen();
+    if (currentScreen) {
+        s_lastUsedScreen = currentScreen;
+        qDebug() << "VP_Shows_Videoplayer: Remembering last used screen:" << currentScreen->name();
+    }
+    
     // The m_isClosing flag is already set by handlePlaybackStateChanged if this is an auto-close
     // We don't need to set it here anymore
     
@@ -838,14 +867,31 @@ void VP_Shows_Videoplayer::showEvent(QShowEvent *event)
     m_isClosing = false;
     qDebug() << "VP_Shows_Videoplayer: Reset closing flag on show";
     
-    // If this is the first show and we have a target screen, position on that screen
-    static bool firstShow = true;
-    if (firstShow && m_targetScreen && !m_isFullScreen) {
-        firstShow = false;
-        QRect screenGeometry = m_targetScreen->availableGeometry();
-        // Center on the target screen
+    // Determine which screen to use
+    QScreen* screenToUse = nullptr;
+    
+    // Priority: 1) Last used screen (if available), 2) Target screen, 3) Current mouse screen
+    if (s_lastUsedScreen && QGuiApplication::screens().contains(s_lastUsedScreen)) {
+        screenToUse = s_lastUsedScreen;
+        qDebug() << "VP_Shows_Videoplayer: Using last remembered screen:" << screenToUse->name();
+    } else if (m_targetScreen && QGuiApplication::screens().contains(m_targetScreen)) {
+        screenToUse = m_targetScreen;
+        qDebug() << "VP_Shows_Videoplayer: Using target screen (no remembered screen):" << screenToUse->name();
+    } else {
+        // Fallback to screen at mouse position for first-time launch
+        screenToUse = QGuiApplication::screenAt(QCursor::pos());
+        if (!screenToUse) {
+            screenToUse = QGuiApplication::primaryScreen();
+        }
+        qDebug() << "VP_Shows_Videoplayer: Using screen at mouse position:" << (screenToUse ? screenToUse->name() : "primary");
+    }
+    
+    // Position on the chosen screen if not fullscreen
+    if (screenToUse && !m_isFullScreen) {
+        QRect screenGeometry = screenToUse->availableGeometry();
+        // Center on the chosen screen
         move(screenGeometry.center() - rect().center());
-        qDebug() << "VP_Shows_Videoplayer: Initial positioning on target screen:" << m_targetScreen->name();
+        qDebug() << "VP_Shows_Videoplayer: Positioned on screen:" << screenToUse->name();
     }
     
     // Ensure the widget has focus when shown
@@ -971,24 +1017,34 @@ bool VP_Shows_Videoplayer::eventFilter(QObject *watched, QEvent *event)
         
         // Only process if position actually changed
         if (globalPos != m_lastMousePos) {
-            qDebug() << "VP_Shows_Videoplayer: Mouse movement detected on" 
-                     << (watched == m_videoWidget ? "video widget" : "controls widget")
-                     << "at global position" << globalPos;
+            // Get the screen the player is on and the screen the mouse is on
+            QScreen* playerScreen = getCurrentScreen();
+            QScreen* mouseScreen = QGuiApplication::screenAt(globalPos);
             
-            // Update last position
-            m_lastMousePos = globalPos;
-            
-            // Show cursor
-            showCursor();
-            
-            // Show controls if hidden
-            if (!m_controlsWidget->isVisible()) {
-                qDebug() << "VP_Shows_Videoplayer: Showing controls due to mouse movement";
-                m_controlsWidget->setVisible(true);
+            // Only respond if mouse is on the same screen as the player
+            if (playerScreen && mouseScreen && playerScreen == mouseScreen) {
+                qDebug() << "VP_Shows_Videoplayer: Mouse movement detected on" 
+                         << (watched == m_videoWidget ? "video widget" : "controls widget")
+                         << "at global position" << globalPos << " on same screen";
+                
+                // Show cursor
+                showCursor();
+                
+                // Show controls if hidden
+                if (!m_controlsWidget->isVisible()) {
+                    qDebug() << "VP_Shows_Videoplayer: Showing controls due to mouse movement on same screen";
+                    m_controlsWidget->setVisible(true);
+                }
+                
+                // Restart the cursor timer
+                startCursorTimer();
+            } else if (playerScreen && mouseScreen && playerScreen != mouseScreen) {
+                // Mouse is on a different screen, log but don't show controls
+                qDebug() << "VP_Shows_Videoplayer: Mouse movement on different screen - ignoring";
             }
             
-            // Restart the cursor timer
-            startCursorTimer();
+            // Always update last position to track movement
+            m_lastMousePos = globalPos;
         }
         
         // Don't return true here, let the event propagate
@@ -1288,22 +1344,33 @@ void VP_Shows_Videoplayer::mouseMoveEvent(QMouseEvent *event)
         
         // Only process if position actually changed
         if (globalPos != m_lastMousePos) {
-            qDebug() << "VP_Shows_Videoplayer: Mouse movement detected on main widget at global position" << globalPos;
+            // Get the screen the player is on and the screen the mouse is on
+            QScreen* playerScreen = getCurrentScreen();
+            QScreen* mouseScreen = QGuiApplication::screenAt(globalPos);
             
-            // Update last position
-            m_lastMousePos = globalPos;
-            
-            // Show cursor
-            showCursor();
-            
-            // Show controls if hidden
-            if (!m_controlsWidget->isVisible()) {
-                qDebug() << "VP_Shows_Videoplayer: Showing controls due to main widget mouse movement";
-                m_controlsWidget->setVisible(true);
+            // Only respond if mouse is on the same screen as the player
+            if (playerScreen && mouseScreen && playerScreen == mouseScreen) {
+                qDebug() << "VP_Shows_Videoplayer: Mouse movement detected on main widget at global position" 
+                         << globalPos << " on same screen";
+                
+                // Show cursor
+                showCursor();
+                
+                // Show controls if hidden
+                if (!m_controlsWidget->isVisible()) {
+                    qDebug() << "VP_Shows_Videoplayer: Showing controls due to main widget mouse movement on same screen";
+                    m_controlsWidget->setVisible(true);
+                }
+                
+                // Restart the timer
+                startCursorTimer();
+            } else if (playerScreen && mouseScreen && playerScreen != mouseScreen) {
+                // Mouse is on a different screen, log but don't show controls
+                qDebug() << "VP_Shows_Videoplayer: Mouse movement on different screen (main widget) - ignoring";
             }
             
-            // Restart the timer
-            startCursorTimer();
+            // Always update last position to track movement
+            m_lastMousePos = globalPos;
         }
     }
     
@@ -1505,6 +1572,22 @@ void VP_Shows_Videoplayer::showCursor()
     }
 }
 
+QScreen* VP_Shows_Videoplayer::getCurrentScreen() const
+{
+    // Get the screen this window is currently on
+    if (windowHandle() && windowHandle()->screen()) {
+        return windowHandle()->screen();
+    }
+    
+    // Fallback: get screen based on geometry
+    QPoint center = geometry().center();
+    if (parentWidget()) {
+        center = mapToGlobal(center);
+    }
+    
+    return QGuiApplication::screenAt(center);
+}
+
 void VP_Shows_Videoplayer::checkMouseMovement()
 {
     if (!m_isFullScreen) {
@@ -1515,22 +1598,34 @@ void VP_Shows_Videoplayer::checkMouseMovement()
     
     // Check if mouse has moved
     if (currentPos != m_lastMousePos) {
-        // Mouse has moved
-        qDebug() << "VP_Shows_Videoplayer: Mouse movement detected via check timer - from" 
-                 << m_lastMousePos << "to" << currentPos;
+        // Get the screen the player is currently on
+        QScreen* playerScreen = getCurrentScreen();
         
-        // Show cursor and controls
-        showCursor();
+        // Get the screen the mouse is currently on
+        QScreen* mouseScreen = QGuiApplication::screenAt(currentPos);
         
-        if (!m_controlsWidget->isVisible()) {
-            qDebug() << "VP_Shows_Videoplayer: Showing controls due to detected movement";
-            m_controlsWidget->setVisible(true);
+        // Only respond if the mouse is on the same screen as the player
+        if (playerScreen && mouseScreen && playerScreen == mouseScreen) {
+            // Mouse has moved on the same screen
+            qDebug() << "VP_Shows_Videoplayer: Mouse movement detected on player screen - from" 
+                     << m_lastMousePos << "to" << currentPos;
+            
+            // Show cursor and controls
+            showCursor();
+            
+            if (!m_controlsWidget->isVisible()) {
+                qDebug() << "VP_Shows_Videoplayer: Showing controls due to detected movement on same screen";
+                m_controlsWidget->setVisible(true);
+            }
+            
+            // Restart the hide timer
+            startCursorTimer();
+        } else {
+            // Mouse is on a different screen, do not show controls
+            qDebug() << "VP_Shows_Videoplayer: Mouse movement on different screen - ignoring";
         }
         
-        // Restart the hide timer
-        startCursorTimer();
-        
-        // Update last position
+        // Always update last position to track movement
         m_lastMousePos = currentPos;
     }
 }

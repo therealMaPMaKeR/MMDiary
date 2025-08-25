@@ -150,6 +150,10 @@ private:
     
     // Screen management
     QScreen* m_targetScreen;  // The screen to initially open the player on (only used for initial positioning)
+    static QScreen* s_lastUsedScreen;  // Static variable to remember last used screen (stored in RAM)
+    
+    // Helper function to get the screen the player is currently on
+    QScreen* getCurrentScreen() const;
     
 public:
     void setTargetScreen(QScreen* screen) { m_targetScreen = screen; }
