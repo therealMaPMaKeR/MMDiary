@@ -359,11 +359,10 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
                 this, &Operations_VP_Shows::onEncryptionComplete);
     }
     
-    // When adding episodes to library, we always use TMDB (true) and no custom data
-    // since we're not changing the show's poster/description
-    bool useTMDB = true;
-    QPixmap customPoster;  // Empty pixmap
-    QString customDescription;  // Empty string
+    // Get TMDB preference from the dialog
+    bool useTMDB = addDialog.isUsingTMDB();
+    QPixmap customPoster;  // Empty pixmap (not used when adding to existing show)
+    QString customDescription;  // Empty string (not used when adding to existing show)
     
     // Start encryption with language and translation info
     m_encryptionDialog->startEncryption(filesToImport, targetFiles, showName, encryptionKey, username, 
@@ -2767,10 +2766,9 @@ void Operations_VP_Shows::addEpisodesToShow()
                 this, &Operations_VP_Shows::onEncryptionComplete);
     }
     
-    // When adding episodes to existing show, we use TMDB (true) and no custom data
-    // since we're not changing the show's poster/description
-    bool useTMDB = true;
-    QPixmap customPoster;  // Empty pixmap
+    // Get TMDB preference from the dialog
+    bool useTMDB = addDialog.isUsingTMDB();
+    QPixmap customPoster;  // Empty pixmap (not used when adding to existing show)
     QString customDescription;  // Empty string
     
     // Start encryption with the show name and metadata
