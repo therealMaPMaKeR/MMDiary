@@ -54,6 +54,9 @@ private:
     QString m_originalDescription;  // Store original description
     QPixmap m_originalPoster;  // Store original poster
     
+    // Parent widget for accessing operations
+    QWidget* m_parentWidget;
+    
     // Helper function to validate and sanitize input
     bool validateShowName(const QString& showName);
     bool validateLanguage(const QString& language);
@@ -61,6 +64,11 @@ private:
     // Helper functions for existing show mode
     void loadExistingShowData(const QString& showPath, const QByteArray& encryptionKey, const QString& username);
     bool m_isAddingToExistingShow;  // Track if we're adding to an existing show
+    
+    // Check for existing show when name changes
+    void checkForExistingShow(const QString& showName);
+    bool m_isCheckingExistingShow;  // Flag to prevent recursive checks
+    QString m_lastCheckedShowName;  // Cache to avoid redundant checks
     
     // TMDB autofill functionality
     void setupAutofillUI();

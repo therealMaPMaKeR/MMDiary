@@ -5,6 +5,7 @@
 #include "operations_files.h"
 #include "vp_shows_metadata.h"
 #include "CryptoUtils.h"
+#include "mainwindow.h"
 #include <QMessageBox>
 #include <QDebug>
 #include <QRegularExpression>
@@ -28,6 +29,9 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     , m_hoveredItemIndex(-1)
     , m_itemJustSelected(false)
     , m_isAddingToExistingShow(false)
+    , m_parentWidget(parent)
+    , m_isCheckingExistingShow(false)
+    , m_lastCheckedShowName("")
 {
     ui->setupUi(this);
     
@@ -478,6 +482,11 @@ void VP_ShowsAddDialog::onShowNameTextChanged(const QString& text)
     if (m_isAddingToExistingShow) {
         qDebug() << "VP_ShowsAddDialog: Adding to existing show, not searching";
         return;
+    }
+    
+    // Check for existing show with this name (case-insensitive)
+    if (!m_isCheckingExistingShow && text != m_lastCheckedShowName && !text.isEmpty()) {
+        checkForExistingShow(text);
     }
     
     // Check if UseTMDB checkbox is checked
@@ -1012,4 +1021,127 @@ void VP_ShowsAddDialog::keyPressEvent(QKeyEvent* event)
     
     // Pass to base class for default handling
     QDialog::keyPressEvent(event);
+}
+
+void VP_ShowsAddDialog::checkForExistingShow(const QString& showName)
+{
+    qDebug() << "VP_ShowsAddDialog: Checking for existing show:" << showName;
+    
+    // Prevent recursive calls
+    if (m_isCheckingExistingShow) {
+        return;
+    }
+    
+    // Mark that we're checking this show name
+    m_lastCheckedShowName = showName;
+    
+    // Validate the input first
+    InputValidation::ValidationResult result = 
+        InputValidation::validateInput(showName, InputValidation::InputType::PlainText, 100);
+    
+    if (!result.isValid || showName.trimmed().isEmpty()) {
+        qDebug() << "VP_ShowsAddDialog: Invalid or empty show name, skipping check";
+        return;
+    }
+    
+    // Try to cast parent to MainWindow to get user credentials
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(m_parentWidget);
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsAddDialog: Could not cast parent to MainWindow";
+        return;
+    }
+    
+    // Get user credentials
+    QString username = mainWindow->user_Username;
+    QByteArray encryptionKey = mainWindow->user_Key;
+    
+    if (username.isEmpty() || encryptionKey.isEmpty()) {
+        qDebug() << "VP_ShowsAddDialog: Username or encryption key not available";
+        return;
+    }
+    
+    // Build the path to the shows directory
+    QString basePath = QDir::current().absoluteFilePath("Data");
+    QString userPath = QDir(basePath).absoluteFilePath(username);
+    QString videoplayerPath = QDir(userPath).absoluteFilePath("Videoplayer");
+    QString showsPath = QDir(videoplayerPath).absoluteFilePath("Shows");
+    
+    QDir showsDir(showsPath);
+    if (!showsDir.exists()) {
+        qDebug() << "VP_ShowsAddDialog: Shows directory does not exist yet";
+        return;
+    }
+    
+    // Get all subdirectories in the shows folder
+    QStringList showFolders = showsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    
+    if (showFolders.isEmpty()) {
+        qDebug() << "VP_ShowsAddDialog: No show folders found";
+        return;
+    }
+    
+    // Create metadata manager for reading show metadata
+    VP_ShowsMetadata metadataManager(encryptionKey, username);
+    
+    // Check each show folder
+    for (const QString& folderName : showFolders) {
+        QString folderPath = showsDir.absoluteFilePath(folderName);
+        QDir showFolder(folderPath);
+        
+        // Find the first video file in this folder to read its metadata
+        QStringList videoExtensions;
+        videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
+                       << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+        
+        showFolder.setNameFilters(videoExtensions);
+        QStringList videoFiles = showFolder.entryList(QDir::Files);
+        
+        if (videoFiles.isEmpty()) {
+            continue;
+        }
+        
+        // Read metadata from the first video file
+        QString firstVideoPath = showFolder.absoluteFilePath(videoFiles.first());
+        VP_ShowsMetadata::ShowMetadata metadata;
+        
+        if (metadataManager.readMetadataFromFile(firstVideoPath, metadata)) {
+            // Check if this show name matches (case-insensitive)
+            if (metadata.showName.compare(showName, Qt::CaseInsensitive) == 0) {
+                qDebug() << "VP_ShowsAddDialog: Found existing show:" << metadata.showName;
+                qDebug() << "VP_ShowsAddDialog: Show folder path:" << folderPath;
+                
+                // Set flag to prevent recursive calls
+                m_isCheckingExistingShow = true;
+                
+                // Update the show name field with the exact case from the existing show
+                ui->lineEdit_ShowName->setText(metadata.showName);
+                
+                // Load the existing show's poster and description
+                loadExistingShowData(folderPath, encryptionKey, username);
+                
+                // Reset flag
+                m_isCheckingExistingShow = false;
+                
+                // Update the last checked name to the correctly cased version
+                m_lastCheckedShowName = metadata.showName;
+                
+                return; // Found a match, no need to continue
+            }
+        }
+    }
+    
+    // No existing show found, check if we need to clear previously loaded data
+    // Only clear if we had previously loaded data for a different show
+    if (!m_originalPoster.isNull() || m_originalDescription != "No description available.") {
+        qDebug() << "VP_ShowsAddDialog: No existing show found, clearing previously loaded data";
+        
+        // Reset to default empty state
+        ui->label_ShowPoster->setText("No Poster Available");
+        ui->textBrowser_ShowDescription->clear();
+        ui->textBrowser_ShowDescription->setPlainText("No description available.");
+        
+        // Reset the stored originals
+        m_originalPoster = QPixmap();
+        m_originalDescription = "No description available.";
+    }
 }
