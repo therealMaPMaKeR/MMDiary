@@ -4,6 +4,7 @@
 #include "vp_shows_config.h"
 #include "operations_files.h"
 #include "vp_shows_metadata.h"
+#include "vp_shows_settings.h"
 #include "CryptoUtils.h"
 #include "mainwindow.h"
 #include <QMessageBox>
@@ -26,17 +27,20 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     : QDialog(parent)
     , ui(new Ui::VP_ShowsAddDialog)
     , m_folderName(folderName)
-    , m_suggestionsList(nullptr)
-    , m_searchTimer(nullptr)
-    , m_currentCacheSize(0)
-    , m_isShowingSuggestions(false)
-    , m_hoveredItemIndex(-1)
-    , m_itemJustSelected(false)
-    , m_isAddingToExistingShow(false)
     , m_parentWidget(parent)
+    , m_isAddingToExistingShow(false)
     , m_isCheckingExistingShow(false)
     , m_lastCheckedShowName("")
-    , m_hasTMDBData(false)  // Track if we have TMDB data loaded
+    , m_hasTMDBData(false)
+    , m_settingsLoaded(false)
+    , m_existingAutoplay(true)
+    , m_existingSkipIntroOutro(false)
+    , m_suggestionsList(nullptr)
+    , m_searchTimer(nullptr)
+    , m_currentCacheSize(0)  // Track if we have TMDB data loaded
+    , m_isShowingSuggestions(false)
+    , m_hoveredItemIndex(-1)  // Default to true
+    , m_itemJustSelected(false)  // Default to false
 {
     ui->setupUi(this);
     
@@ -155,6 +159,20 @@ bool VP_ShowsAddDialog::isUsingTMDB() const
     bool usingTMDB = ui->checkBox_UseTMDB->isChecked();
     qDebug() << "VP_ShowsAddDialog::isUsingTMDB() returning:" << usingTMDB;
     return usingTMDB;
+}
+
+bool VP_ShowsAddDialog::isAutoplayEnabled() const
+{
+    bool autoplay = ui->checkBox_Autoplay->isChecked();
+    qDebug() << "VP_ShowsAddDialog::isAutoplayEnabled() returning:" << autoplay;
+    return autoplay;
+}
+
+bool VP_ShowsAddDialog::isSkipIntroOutroEnabled() const
+{
+    bool skipIntroOutro = ui->checkBox_SkipIntroOutro->isChecked();
+    qDebug() << "VP_ShowsAddDialog::isSkipIntroOutroEnabled() returning:" << skipIntroOutro;
+    return skipIntroOutro;
 }
 
 QPixmap VP_ShowsAddDialog::getCustomPoster() const
@@ -337,6 +355,9 @@ void VP_ShowsAddDialog::initializeForExistingShow(const QString& showPath, const
     
     // Load the existing show's poster and description
     loadExistingShowData(showPath, encryptionKey, username);
+    
+    // Load the existing show's settings
+    loadShowSettings(showPath, encryptionKey, username);
 }
 
 void VP_ShowsAddDialog::loadExistingShowData(const QString& showPath, const QByteArray& encryptionKey, const QString& username)
@@ -348,88 +369,91 @@ void VP_ShowsAddDialog::loadExistingShowData(const QString& showPath, const QByt
     QString obfuscatedName = showDir.dirName();
     
     // Load show description from showdesc_[obfuscated] file
-    QString descriptionFileName = QString("showdesc_%1").arg(obfuscatedName);
-    QString descriptionFilePath = showDir.absoluteFilePath(descriptionFileName);
+    QString descFileName = QString("showdesc_%1").arg(obfuscatedName);
+    QString descFilePath = showDir.absoluteFilePath(descFileName);
     
-    if (QFile::exists(descriptionFilePath)) {
-        // Read the encrypted description file
-        QFile file(descriptionFilePath);
-        if (file.open(QIODevice::ReadOnly)) {
-            QByteArray encryptedData = file.readAll();
-            file.close();
-            
-            // Decrypt the description
-            QByteArray decryptedData = CryptoUtils::Encryption_DecryptBArray(encryptionKey, encryptedData);
-            
-            if (!decryptedData.isEmpty()) {
-                QString description = QString::fromUtf8(decryptedData);
-                // Clear any existing HTML content first
-                ui->textBrowser_ShowDescription->clear();
-                ui->textBrowser_ShowDescription->setPlainText(description);
-                m_originalDescription = description;
-                qDebug() << "VP_ShowsAddDialog: Loaded and displayed show description";
-                qDebug() << "VP_ShowsAddDialog: Description preview:" << description.left(100);
-            } else {
-                qDebug() << "VP_ShowsAddDialog: Failed to decrypt description data";
-                m_originalDescription = "No description available.";
-                ui->textBrowser_ShowDescription->clear();
-                ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
-            }
-        } else {
-            qDebug() << "VP_ShowsAddDialog: Failed to open description file";
-            m_originalDescription = "No description available.";
+    if (QFile::exists(descFilePath)) {
+        QString description;
+        if (OperationsFiles::readEncryptedFile(descFilePath, encryptionKey, description)) {
+            m_originalDescription = description;
             ui->textBrowser_ShowDescription->clear();
-            ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
+            ui->textBrowser_ShowDescription->setPlainText(description);
+            qDebug() << "VP_ShowsAddDialog: Loaded show description";
+        } else {
+            qDebug() << "VP_ShowsAddDialog: Failed to decrypt show description";
         }
     } else {
         qDebug() << "VP_ShowsAddDialog: No description file found";
-        m_originalDescription = "No description available.";
-        ui->textBrowser_ShowDescription->clear();
-        ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
     }
     
-    // Load show poster from showimage_[obfuscated] file
+    // Load show image from showimage_[obfuscated] file
     QString imageFileName = QString("showimage_%1").arg(obfuscatedName);
     QString imageFilePath = showDir.absoluteFilePath(imageFileName);
     
     if (QFile::exists(imageFilePath)) {
-        // Read the encrypted image file
-        QFile file(imageFilePath);
-        if (file.open(QIODevice::ReadOnly)) {
-            QByteArray encryptedData = file.readAll();
-            file.close();
+        QFile imageFile(imageFilePath);
+        if (imageFile.open(QIODevice::ReadOnly)) {
+            QByteArray encryptedData = imageFile.readAll();
+            imageFile.close();
             
             // Decrypt the image data
             QByteArray decryptedData = CryptoUtils::Encryption_DecryptBArray(encryptionKey, encryptedData);
             
             if (!decryptedData.isEmpty()) {
-                // Load the decrypted image into a pixmap
                 QPixmap poster;
                 if (poster.loadFromData(decryptedData)) {
-                    // Scale to fit the label
-                    QSize labelSize = ui->label_ShowPoster->size();
-                    m_originalPoster = poster.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                    ui->label_ShowPoster->setPixmap(m_originalPoster);
-                    qDebug() << "VP_ShowsAddDialog: Loaded and displayed show poster";
+                    m_originalPoster = poster;
+                    ui->label_ShowPoster->setPixmap(poster.scaled(200, 300, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+                    qDebug() << "VP_ShowsAddDialog: Loaded show poster";
                 } else {
                     qDebug() << "VP_ShowsAddDialog: Failed to load poster from decrypted data";
-                    m_originalPoster = QPixmap();
-                    ui->label_ShowPoster->setText("No Poster Available");
                 }
             } else {
-                qDebug() << "VP_ShowsAddDialog: Failed to decrypt poster data";
-                m_originalPoster = QPixmap();
-                ui->label_ShowPoster->setText("No Poster Available");
+                qDebug() << "VP_ShowsAddDialog: Failed to decrypt image data";
             }
         } else {
-            qDebug() << "VP_ShowsAddDialog: Failed to open poster file";
-            m_originalPoster = QPixmap();
-            ui->label_ShowPoster->setText("No Poster Available");
+            qDebug() << "VP_ShowsAddDialog: Failed to open image file";
         }
     } else {
-        qDebug() << "VP_ShowsAddDialog: No poster file found";
-        m_originalPoster = QPixmap();
-        ui->label_ShowPoster->setText("No Poster Available");
+        qDebug() << "VP_ShowsAddDialog: No image file found";
+    }
+    
+    qDebug() << "VP_ShowsAddDialog: Finished loading existing show data";
+}
+
+void VP_ShowsAddDialog::loadShowSettings(const QString& showPath, const QByteArray& encryptionKey, const QString& username)
+{
+    qDebug() << "VP_ShowsAddDialog: Loading show settings from:" << showPath;
+    
+    // Check parameters
+    if (showPath.isEmpty() || encryptionKey.isEmpty() || username.isEmpty()) {
+        qDebug() << "VP_ShowsAddDialog: Invalid parameters for loading settings";
+        return;
+    }
+    
+    // Create settings manager
+    VP_ShowsSettings settingsManager(encryptionKey, username);
+    
+    // Load settings for this show
+    VP_ShowsSettings::ShowSettings settings;
+    if (settingsManager.loadShowSettings(showPath, settings)) {
+        qDebug() << "VP_ShowsAddDialog: Successfully loaded show settings";
+        qDebug() << "VP_ShowsAddDialog: Autoplay:" << settings.autoplay << "SkipIntroOutro:" << settings.skipIntroOutro;
+        
+        // Update checkboxes with loaded settings
+        ui->checkBox_Autoplay->setChecked(settings.autoplay);
+        ui->checkBox_SkipIntroOutro->setChecked(settings.skipIntroOutro);
+        
+        // Store that we loaded settings
+        m_settingsLoaded = true;
+        m_existingAutoplay = settings.autoplay;
+        m_existingSkipIntroOutro = settings.skipIntroOutro;
+    } else {
+        qDebug() << "VP_ShowsAddDialog: No settings file found or failed to load, using defaults";
+        // Keep default values (Autoplay on, Skip Intro/Outro off)
+        ui->checkBox_Autoplay->setChecked(true);
+        ui->checkBox_SkipIntroOutro->setChecked(false);
+        m_settingsLoaded = false;
     }
 }
 

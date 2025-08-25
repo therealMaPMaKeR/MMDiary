@@ -364,6 +364,17 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
     QPixmap customPoster;
     QString customDescription;
     
+    // Get playback settings from the dialog
+    bool autoplay = addDialog.isAutoplayEnabled();
+    bool skipIntroOutro = addDialog.isSkipIntroOutroEnabled();
+    
+    // Store dialog settings for use in onEncryptionComplete
+    m_dialogAutoplay = autoplay;
+    m_dialogSkipIntroOutro = skipIntroOutro;
+    m_dialogUseTMDB = useTMDB;
+    
+    qDebug() << "Operations_VP_Shows: Dialog settings - Autoplay:" << autoplay << "SkipIntroOutro:" << skipIntroOutro;
+    
     qDebug() << "Operations_VP_Shows: Dialog returned - Using TMDB:" << useTMDB;
     qDebug() << "Operations_VP_Shows: Checking for custom data...";
     
@@ -446,6 +457,16 @@ void Operations_VP_Shows::importTVShow()
     QPixmap customPoster;
     QString customDescription;
     
+    // Get playback settings from the dialog
+    bool autoplay = addDialog.isAutoplayEnabled();
+    bool skipIntroOutro = addDialog.isSkipIntroOutroEnabled();
+    
+    // Store dialog settings for use in onEncryptionComplete
+    m_dialogAutoplay = autoplay;
+    m_dialogSkipIntroOutro = skipIntroOutro;
+    m_dialogUseTMDB = useTMDB;
+    
+    qDebug() << "Operations_VP_Shows: Dialog settings - Autoplay:" << autoplay << "SkipIntroOutro:" << skipIntroOutro;
     qDebug() << "Operations_VP_Shows: Dialog returned - Using TMDB:" << useTMDB;
     qDebug() << "Operations_VP_Shows: Checking for custom data...";
     
@@ -828,13 +849,27 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
     m_contextMenuEpisodePath.clear();
     
     if (success && !successfulFiles.isEmpty()) {
-        // After successful encryption, check if we have TMDB data and save show description/image
-        // The show folder path should be the directory of the first target file
-        if (m_encryptionDialog) {
-            // Get the target folder from the first successful encrypted file
-            // Note: We need to get this info from somewhere - let's check if we can extract it
-            // For now, we'll save the description after refreshing the list
-            qDebug() << "Operations_VP_Shows: Import successful, TMDB data may have been saved";
+        // After successful encryption, create or update settings file
+        if (!successfulFiles.isEmpty()) {
+            // Get the show folder from the first successful file
+            QFileInfo firstFileInfo(successfulFiles.first());
+            QString showFolderPath = firstFileInfo.absolutePath();
+            
+            // Create settings manager
+            VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+            
+            // Create settings with values from dialog (stored when dialog was accepted)
+            VP_ShowsSettings::ShowSettings settings;
+            settings.autoplay = m_dialogAutoplay;
+            settings.skipIntroOutro = m_dialogSkipIntroOutro;
+            settings.useTMDB = m_dialogUseTMDB;
+            
+            // Save the settings file
+            if (settingsManager.saveShowSettings(showFolderPath, settings)) {
+                qDebug() << "Operations_VP_Shows: Settings file created/updated successfully";
+            } else {
+                qDebug() << "Operations_VP_Shows: Failed to create/update settings file";
+            }
         }
         
         QString successMessage;
@@ -2823,6 +2858,17 @@ void Operations_VP_Shows::addEpisodesToShow()
     bool useTMDB = addDialog.isUsingTMDB();
     QPixmap customPoster;  // Empty pixmap (not used when adding to existing show)
     QString customDescription;  // Empty string
+    
+    // Get playback settings from the dialog
+    bool autoplay = addDialog.isAutoplayEnabled();
+    bool skipIntroOutro = addDialog.isSkipIntroOutroEnabled();
+    
+    // Store dialog settings for use in onEncryptionComplete
+    m_dialogAutoplay = autoplay;
+    m_dialogSkipIntroOutro = skipIntroOutro;
+    m_dialogUseTMDB = useTMDB;
+    
+    qDebug() << "Operations_VP_Shows: Dialog settings - Autoplay:" << autoplay << "SkipIntroOutro:" << skipIntroOutro;
     
     // Start encryption with the show name and metadata
     m_encryptionDialog->startEncryption(filesToImport, targetFiles, showName, 

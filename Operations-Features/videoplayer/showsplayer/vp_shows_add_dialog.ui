@@ -366,6 +366,43 @@ li.checked::marker { content: &quot;\2612&quot;; }
     </layout>
    </item>
    <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_Settings">
+     <item>
+      <widget class="QCheckBox" name="checkBox_Autoplay">
+       <property name="text">
+        <string>Autoplay</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="checkBox_SkipIntroOutro">
+       <property name="text">
+        <string>Skip Intro/Outro</string>
+       </property>
+       <property name="checked">
+        <bool>false</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_Settings">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
     <widget class="Line" name="line_2">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>

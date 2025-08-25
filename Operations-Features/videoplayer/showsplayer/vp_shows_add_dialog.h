@@ -34,6 +34,13 @@ public:
     bool hasCustomDescription() const;
     bool isUsingTMDB() const;  // Check if TMDB checkbox is checked
     
+    // Getters for playback settings
+    bool isAutoplayEnabled() const;
+    bool isSkipIntroOutroEnabled() const;
+    
+    // Load settings from existing show
+    void loadShowSettings(const QString& showPath, const QByteArray& encryptionKey, const QString& username);
+    
     // Validation
     bool validateInputs();
     
@@ -81,6 +88,11 @@ private:
     bool m_isCheckingExistingShow;  // Flag to prevent recursive checks
     QString m_lastCheckedShowName;  // Cache to avoid redundant checks
     bool m_hasTMDBData;  // Track if we have TMDB data loaded
+    
+    // Settings from existing show
+    bool m_settingsLoaded;
+    bool m_existingAutoplay;
+    bool m_existingSkipIntroOutro;
     
     // TMDB autofill functionality
     void setupAutofillUI();

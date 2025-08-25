@@ -204,6 +204,11 @@ public:
     // Current show settings
     VP_ShowsSettings::ShowSettings m_currentShowSettings;
     
+    // Dialog settings stored for later use
+    bool m_dialogAutoplay;
+    bool m_dialogSkipIntroOutro;
+    bool m_dialogUseTMDB;
+    
     // REMOVED - Checkbox handlers moved to settings dialog
     // void onSkipContentCheckboxChanged(int state);
     // void onAutoplayCheckboxChanged(int state);
