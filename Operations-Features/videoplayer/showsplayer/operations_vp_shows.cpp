@@ -311,6 +311,7 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
         
         qDebug() << "Operations_VP_Shows: Found" << filesToImport.size() << "new episodes to import";
         outputPath = existingShowFolder; // Use existing show folder
+        m_currentImportOutputPath = outputPath; // Store for use in onEncryptionComplete
     } else {
         qDebug() << "Operations_VP_Shows: This is a new show, importing all episodes";
         filesToImport = selectedFiles;
@@ -322,6 +323,7 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
                                 tr("Failed to create the necessary folder structure. Please check permissions and try again."));
             return;
         }
+        m_currentImportOutputPath = outputPath; // Store for use in onEncryptionComplete
     }
     
     // Generate random filenames for each video file to import
@@ -851,24 +853,30 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
     if (success && !successfulFiles.isEmpty()) {
         // After successful encryption, create or update settings file
         if (!successfulFiles.isEmpty()) {
-            // Get the show folder from the first successful file
-            QFileInfo firstFileInfo(successfulFiles.first());
-            QString showFolderPath = firstFileInfo.absolutePath();
+            // Use the stored output path (the encrypted folder in Data/username/Videoplayer/Shows/)
+            // NOT the source folder path
+            QString showFolderPath = m_currentImportOutputPath;
             
-            // Create settings manager
-            VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
-            
-            // Create settings with values from dialog (stored when dialog was accepted)
-            VP_ShowsSettings::ShowSettings settings;
-            settings.autoplay = m_dialogAutoplay;
-            settings.skipIntroOutro = m_dialogSkipIntroOutro;
-            settings.useTMDB = m_dialogUseTMDB;
-            
-            // Save the settings file
-            if (settingsManager.saveShowSettings(showFolderPath, settings)) {
-                qDebug() << "Operations_VP_Shows: Settings file created/updated successfully";
+            if (showFolderPath.isEmpty()) {
+                qDebug() << "Operations_VP_Shows: Warning - No output path stored, cannot save settings";
             } else {
-                qDebug() << "Operations_VP_Shows: Failed to create/update settings file";
+                qDebug() << "Operations_VP_Shows: Saving settings to encrypted folder:" << showFolderPath;
+                
+                // Create settings manager
+                VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+                
+                // Create settings with values from dialog (stored when dialog was accepted)
+                VP_ShowsSettings::ShowSettings settings;
+                settings.autoplay = m_dialogAutoplay;
+                settings.skipIntroOutro = m_dialogSkipIntroOutro;
+                settings.useTMDB = m_dialogUseTMDB;
+                
+                // Save the settings file
+                if (settingsManager.saveShowSettings(showFolderPath, settings)) {
+                    qDebug() << "Operations_VP_Shows: Settings file created/updated successfully";
+                } else {
+                    qDebug() << "Operations_VP_Shows: Failed to create/update settings file";
+                }
             }
         }
         
@@ -2846,6 +2854,7 @@ void Operations_VP_Shows::addEpisodesToShow()
     m_isUpdatingExistingShow = true;
     m_originalEpisodeCount = selectedFiles.size();
     m_newEpisodeCount = filesToImport.size();
+    m_currentImportOutputPath = showPath; // Store the show path for use in onEncryptionComplete
     
     // Create and show progress dialog
     if (!m_encryptionDialog) {

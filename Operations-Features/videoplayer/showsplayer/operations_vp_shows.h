@@ -209,6 +209,9 @@ public:
     bool m_dialogSkipIntroOutro;
     bool m_dialogUseTMDB;
     
+    // Store the import output path for use in onEncryptionComplete
+    QString m_currentImportOutputPath;
+    
     // REMOVED - Checkbox handlers moved to settings dialog
     // void onSkipContentCheckboxChanged(int state);
     // void onAutoplayCheckboxChanged(int state);
