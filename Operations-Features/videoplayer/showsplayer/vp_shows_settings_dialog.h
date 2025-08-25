@@ -47,6 +47,11 @@ private slots:
     void updateAllVideosMetadata();
     void updateShowDescription();
     void updateShowImage();
+    
+    // Button click handlers
+    void onResetWatchHistoryClicked();
+    void onUseCustomPosterClicked();
+    void onUseCustomDescClicked();
 
 private:
     // UI setup and initialization

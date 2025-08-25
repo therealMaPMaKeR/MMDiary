@@ -3,9 +3,13 @@
 #include "vp_shows_config.h"
 #include "vp_shows_metadata.h"
 #include "vp_shows_settings.h"
+#include "vp_shows_watchhistory.h"
 #include "inputvalidation.h"
 #include "operations_files.h"
 #include "CryptoUtils.h"
+#include <QFileDialog>
+#include <QInputDialog>
+#include <QImageReader>
 #include "mainwindow.h"
 #include <QDebug>
 #include <QListWidgetItem>
@@ -85,6 +89,14 @@ VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QS
     // Connect the UseTMDB checkbox to handle button states
     connect(ui->checkBox_UseTMDB, &QCheckBox::toggled,
             this, &VP_ShowsSettingsDialog::onUseTMDBCheckboxToggled);
+    
+    // Connect button click handlers
+    connect(ui->pushButton_ResetWatchHistory, &QPushButton::clicked,
+            this, &VP_ShowsSettingsDialog::onResetWatchHistoryClicked);
+    connect(ui->pushButton_UseCustomPoster, &QPushButton::clicked,
+            this, &VP_ShowsSettingsDialog::onUseCustomPosterClicked);
+    connect(ui->pushButton_UseCustomDesc, &QPushButton::clicked,
+            this, &VP_ShowsSettingsDialog::onUseCustomDescClicked);
     
     // Set initial button states based on checkbox state
     onUseTMDBCheckboxToggled(ui->checkBox_UseTMDB->isChecked());
@@ -1168,6 +1180,280 @@ void VP_ShowsSettingsDialog::updateShowImage()
         qDebug() << "VP_ShowsSettingsDialog: Failed to write complete image data";
     } else {
         qDebug() << "VP_ShowsSettingsDialog: Successfully saved show image";
+}
+
+void VP_ShowsSettingsDialog::onResetWatchHistoryClicked()
+{
+    qDebug() << "VP_ShowsSettingsDialog: Reset Watch History button clicked";
+    
+    // Confirm with the user
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this,
+        tr("Reset Watch History"),
+        tr("Are you sure you want to reset the watch history for this show?\n\n"
+           "This will mark all episodes as unwatched and reset their playback positions to the beginning."),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+    
+    if (reply != QMessageBox::Yes) {
+        qDebug() << "VP_ShowsSettingsDialog: User cancelled reset watch history";
+        return;
+    }
+    
+    // Get parent MainWindow to access encryption key and username
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsSettingsDialog: Parent is not MainWindow";
+        QMessageBox::warning(this, tr("Error"), 
+                           tr("Unable to access main window."));
+        return;
+    }
+    
+    // Create watch history manager
+    VP_ShowsWatchHistory watchHistory(m_showPath, mainWindow->user_Key, mainWindow->user_Username);
+    
+    // Load existing history
+    if (!watchHistory.loadHistory()) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to load watch history";
+        QMessageBox::warning(this, tr("Error"), 
+                           tr("Failed to load watch history."));
+        return;
+    }
+    
+    // Get all episodes from the watch history
+    QStringList allEpisodes = watchHistory.getAllWatchedEpisodes();
+    
+    qDebug() << "VP_ShowsSettingsDialog: Found" << allEpisodes.size() << "episodes in watch history";
+    
+    // Mark each episode as unwatched and reset position
+    for (const QString& episodePath : allEpisodes) {
+        watchHistory.setEpisodeWatched(episodePath, false);
+        watchHistory.resetEpisodePosition(episodePath);
+    }
+    
+    // Clear the last watched episode
+    watchHistory.clearLastWatchedEpisode();
+    
+    // Save the updated history
+    if (watchHistory.saveHistoryWithBackup()) {
+        qDebug() << "VP_ShowsSettingsDialog: Successfully reset watch history";
+        QMessageBox::information(this, tr("Success"), 
+                               tr("Watch history has been reset."));
+    } else {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to save reset watch history";
+        QMessageBox::warning(this, tr("Error"), 
+                           tr("Failed to save the reset watch history."));
+    }
+}
+
+void VP_ShowsSettingsDialog::onUseCustomPosterClicked()
+{
+    qDebug() << "VP_ShowsSettingsDialog: Use Custom Poster button clicked";
+    
+    // Open file dialog to select an image
+    QString selectedFile = QFileDialog::getOpenFileName(
+        this,
+        tr("Select Show Poster Image"),
+        QDir::homePath(),
+        tr("Image Files (*.png *.jpg *.jpeg *.bmp *.gif);;All Files (*.*)")
+    );
+    
+    if (selectedFile.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: No image file selected";
+        return;
+    }
+    
+    qDebug() << "VP_ShowsSettingsDialog: Selected image file:" << selectedFile;
+    
+    // Validate the file path using InputValidation
+    InputValidation::ValidationResult pathResult = InputValidation::validateInput(
+        selectedFile, InputValidation::InputType::ExternalFilePath);
+    
+    if (!pathResult.isValid) {
+        QMessageBox::warning(this, tr("Invalid File"), 
+                           tr("Invalid file path: %1").arg(pathResult.errorMessage));
+        return;
+    }
+    
+    // Check file size (limit to 10MB)
+    QFileInfo fileInfo(selectedFile);
+    if (fileInfo.size() > 10 * 1024 * 1024) {
+        QMessageBox::warning(this, tr("File Too Large"), 
+                           tr("Please select an image smaller than 10MB."));
+        return;
+    }
+    
+    // Load the image
+    QImageReader reader(selectedFile);
+    reader.setAutoTransform(true);  // Handle EXIF orientation
+    
+    QImage image = reader.read();
+    if (image.isNull()) {
+        QMessageBox::warning(this, tr("Invalid Image"), 
+                           tr("Failed to load the selected image file."));
+        return;
+    }
+    
+    // Convert to pixmap and scale to fit the label
+    QPixmap poster = QPixmap::fromImage(image);
+    QSize labelSize = ui->label_ShowPoster->size();
+    QPixmap scaledPoster = poster.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    
+    // Display the custom poster
+    ui->label_ShowPoster->setPixmap(scaledPoster);
+    
+    // Get parent MainWindow to access encryption key and username
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsSettingsDialog: Parent is not MainWindow";
+        QMessageBox::warning(this, tr("Error"), 
+                           tr("Unable to save poster."));
+        return;
+    }
+    
+    // Convert image to byte array for encryption
+    QByteArray imageData;
+    QBuffer buffer(&imageData);
+    buffer.open(QIODevice::WriteOnly);
+    
+    // Save as PNG for quality
+    if (!poster.save(&buffer, "PNG")) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to convert image to byte array";
+        QMessageBox::warning(this, tr("Error"), 
+                           tr("Failed to process the image."));
+        return;
+    }
+    
+    // Generate the obfuscated folder name
+    QDir showDir(m_showPath);
+    QString obfuscatedName = showDir.dirName();
+    
+    // Create the filename with prefix showimage_
+    QString imageFileName = QString("showimage_%1").arg(obfuscatedName);
+    QString imageFilePath = showDir.absoluteFilePath(imageFileName);
+    
+    // Encrypt the image data
+    QByteArray encryptedData = CryptoUtils::Encryption_EncryptBArray(
+        mainWindow->user_Key, imageData, mainWindow->user_Username);
+    
+    if (encryptedData.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to encrypt image data";
+        QMessageBox::warning(this, tr("Error"), 
+                           tr("Failed to encrypt the image."));
+        return;
+    }
+    
+    // Save the encrypted image data to file
+    QFile file(imageFilePath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to open image file for writing:" << file.errorString();
+        QMessageBox::warning(this, tr("Error"), 
+                           tr("Failed to save the image."));
+        return;
+    }
+    
+    qint64 written = file.write(encryptedData);
+    file.close();
+    
+    if (written != encryptedData.size()) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to write complete image data";
+        QMessageBox::warning(this, tr("Error"), 
+                           tr("Failed to save the complete image."));
+        return;
+    }
+    
+    // Update the original poster reference
+    m_originalPoster = scaledPoster;
+    
+    qDebug() << "VP_ShowsSettingsDialog: Successfully saved custom poster";
+    QMessageBox::information(this, tr("Success"), 
+                           tr("Custom poster has been saved."));
+}
+
+void VP_ShowsSettingsDialog::onUseCustomDescClicked()
+{
+    qDebug() << "VP_ShowsSettingsDialog: Use Custom Description button clicked";
+    
+    // Get current description to show as default
+    QString currentDescription = ui->textBrowser_ShowDescription->toPlainText();
+    if (currentDescription == "No description available.") {
+        currentDescription = "";
+    }
+    
+    // Open multi-line input dialog
+    bool ok;
+    QString description = QInputDialog::getMultiLineText(
+        this,
+        tr("Enter Show Description"),
+        tr("Enter a custom description for the show:"),
+        currentDescription,
+        &ok
+    );
+    
+    if (!ok) {
+        qDebug() << "VP_ShowsSettingsDialog: Description input cancelled";
+        return;
+    }
+    
+    // Validate the description using InputValidation
+    if (!description.isEmpty()) {
+        InputValidation::ValidationResult result = InputValidation::validateInput(
+            description, InputValidation::InputType::PlainText, 5000);  // Allow up to 5000 chars
+        
+        if (!result.isValid) {
+            QMessageBox::warning(this, tr("Invalid Description"), 
+                               tr("The description contains invalid characters: %1").arg(result.errorMessage));
+            return;
+        }
+    }
+    
+    // If description is empty, set default text
+    if (description.isEmpty()) {
+        description = "No description available.";
+    }
+    
+    // Update the UI
+    ui->textBrowser_ShowDescription->setPlainText(description);
+    
+    // Get parent MainWindow to access encryption key
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsSettingsDialog: Parent is not MainWindow";
+        QMessageBox::warning(this, tr("Error"), 
+                           tr("Unable to save description."));
+        return;
+    }
+    
+    // Generate the obfuscated folder name
+    QDir showDir(m_showPath);
+    QString obfuscatedName = showDir.dirName();
+    
+    // Create the filename with prefix showdesc_
+    QString descFileName = QString("showdesc_%1").arg(obfuscatedName);
+    QString descFilePath = showDir.absoluteFilePath(descFileName);
+    
+    // If description is the default text and file exists, delete it
+    if (description == "No description available.") {
+        if (QFile::exists(descFilePath)) {
+            if (QFile::remove(descFilePath)) {
+                qDebug() << "VP_ShowsSettingsDialog: Removed empty description file";
+            }
+        }
+        m_originalDescription = description;
+        return;
+    }
+    
+    // Encrypt and save the description using OperationsFiles
+    if (OperationsFiles::writeEncryptedFile(descFilePath, mainWindow->user_Key, description)) {
+        qDebug() << "VP_ShowsSettingsDialog: Successfully saved show description";
+        m_originalDescription = description;
+        QMessageBox::information(this, tr("Success"), 
+                               tr("Custom description has been saved."));
+    } else {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to save show description";
+        QMessageBox::warning(this, tr("Error"), 
+                           tr("Failed to save the description."));
     }
 }
 
