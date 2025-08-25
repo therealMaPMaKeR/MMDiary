@@ -2664,6 +2664,9 @@ void Operations_VP_Shows::addEpisodesToShow()
     addDialog.setShowNameReadOnly(true);
     addDialog.setWindowTitle(tr("Add Episodes to %1").arg(showName));
     
+    // Initialize with existing show data (poster and description)
+    addDialog.initializeForExistingShow(showPath, m_mainWindow->user_Key, m_mainWindow->user_Username);
+    
     if (addDialog.exec() != QDialog::Accepted) {
         qDebug() << "Operations_VP_Shows: Add episodes dialog cancelled";
         return;

@@ -3,6 +3,12 @@
 
 #include <QDialog>
 #include <QString>
+#include <QTimer>
+#include <QListWidget>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <memory>
+#include "vp_shows_tmdb.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class VP_ShowsAddDialog; }
@@ -26,18 +32,86 @@ public:
     
     // Set show name as read-only (for adding episodes to existing show)
     void setShowNameReadOnly(bool readOnly);
+    
+    // Initialize for adding episodes to existing show with path
+    void initializeForExistingShow(const QString& showPath, const QByteArray& encryptionKey, const QString& username);
 
 private slots:
     void on_buttonBox_accepted();
     void on_buttonBox_rejected();
     
+    // TMDB autofill/search functionality slots
+    void onUseTMDBCheckboxToggled(bool checked);
+    void onShowNameTextChanged(const QString& text);
+    void onSearchTimerTimeout();
+    void onSuggestionItemClicked(QListWidgetItem* item);
+    void onImageDownloadFinished(QNetworkReply* reply);
+    void hideSuggestions(bool itemWasSelected = false);
+    
 private:
     Ui::VP_ShowsAddDialog *ui;
     QString m_folderName;
+    QString m_originalDescription;  // Store original description
+    QPixmap m_originalPoster;  // Store original poster
     
     // Helper function to validate and sanitize input
     bool validateShowName(const QString& showName);
     bool validateLanguage(const QString& language);
+    
+    // Helper functions for existing show mode
+    void loadExistingShowData(const QString& showPath, const QByteArray& encryptionKey, const QString& username);
+    bool m_isAddingToExistingShow;  // Track if we're adding to an existing show
+    
+    // TMDB autofill functionality
+    void setupAutofillUI();
+    void positionSuggestionsList();
+    void performTMDBSearch(const QString& searchText);
+    void displaySuggestions(const QList<VP_ShowsTMDB::ShowInfo>& shows);
+    void clearSuggestions();
+    void downloadAndDisplayPoster(const QString& posterPath);
+    void displayShowInfo(const VP_ShowsTMDB::ShowInfo& showInfo);
+    
+    // Event handling
+    bool eventFilter(QObject* obj, QEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    
+    // TMDB components
+    QListWidget* m_suggestionsList;
+    QTimer* m_searchTimer;
+    std::unique_ptr<VP_ShowsTMDB> m_tmdbApi;
+    std::unique_ptr<QNetworkAccessManager> m_networkManager;  // Kept for potential future use
+    
+    // Current search state
+    QString m_currentSearchText;
+    QList<VP_ShowsTMDB::ShowInfo> m_currentSuggestions;
+    
+    // Image cache with scaled posters
+    struct CachedPoster {
+        QPixmap scaledPixmap;  // Pre-scaled to label size
+        QString posterPath;     // Original poster path (for cache key)
+        qint64 sizeInBytes;     // Approximate memory size
+    };
+    
+    QMap<QString, CachedPoster> m_posterCache;  // Key is poster path
+    QList<QString> m_cacheAccessOrder;          // Track access order for LRU
+    qint64 m_currentCacheSize;                  // Current cache size in bytes
+    
+    // Cache management
+    static constexpr qint64 MAX_CACHE_SIZE = 50 * 1024 * 1024;  // 50 MB limit
+    static constexpr int MAX_CACHE_ITEMS = 20;                  // Maximum number of cached posters
+    
+    void addToCache(const QString& posterPath, const QPixmap& scaledPixmap);
+    void enforeCacheLimits();
+    qint64 estimatePixmapSize(const QPixmap& pixmap);
+    
+    // State tracking
+    bool m_isShowingSuggestions;
+    int m_hoveredItemIndex;  // Track hovered item index separately from selection
+    bool m_itemJustSelected;  // Flag to prevent restoration after selection
+    
+    // Constants
+    static constexpr int SEARCH_DELAY_MS = 500;  // Debounce delay for search
+    static constexpr int MAX_SUGGESTIONS = 8;    // Maximum number of suggestions to show
 };
 
 #endif // VP_SHOWS_ADD_DIALOG_H
