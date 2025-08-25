@@ -81,13 +81,10 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
         // Check if a show with this name already exists
         checkForExistingShow(folderName);
         
-        // If no existing show was found (poster and description remain empty),
-        // and TMDB is enabled, trigger the search
-        if (m_originalPoster.isNull() && 
-            m_originalDescription == "No description available." &&
-            ui->checkBox_UseTMDB->isChecked() && 
-            m_tmdbApi) {
-            qDebug() << "VP_ShowsAddDialog: No existing show found, triggering TMDB search for:" << folderName;
+        // After checking for existing show, always trigger TMDB search if enabled
+        // This will auto-load the first match and show suggestions
+        if (ui->checkBox_UseTMDB->isChecked() && m_tmdbApi) {
+            qDebug() << "VP_ShowsAddDialog: Triggering TMDB search for folder name:" << folderName;
             
             // Store the current search text
             m_currentSearchText = folderName;
