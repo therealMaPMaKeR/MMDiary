@@ -585,16 +585,52 @@ void VP_ShowsAddDialog::onUseTMDBCheckboxToggled(bool checked)
     qDebug() << "VP_ShowsAddDialog: Current custom poster null:" << m_customPoster.isNull();
     qDebug() << "VP_ShowsAddDialog: Has custom description:" << m_hasCustomDescription;
     
+    // Define styles for enabled and disabled states (matching showsettings dialog)
+    QString enabledStyle = "";
+    QString disabledStyle = "QPushButton { "
+                           "    color: rgba(255, 255, 255, 0.4); "
+                           "    background-color: rgba(60, 60, 60, 0.3); "
+                           "}";
+    
     // Update button states - enable custom buttons when TMDB is off, disable when on
     // But only if we're not adding to an existing show
     if (!m_isAddingToExistingShow) {
         ui->pushButton_UseCustomPoster->setEnabled(!checked);
         ui->pushButton_UseCustomDescription->setEnabled(!checked);
+        
+        // Apply styles to indicate button state
+        if (checked) {
+            // TMDB enabled - disable custom buttons
+            ui->pushButton_UseCustomPoster->setStyleSheet(disabledStyle);
+            ui->pushButton_UseCustomDescription->setStyleSheet(disabledStyle);
+        } else {
+            // TMDB disabled - enable custom buttons
+            ui->pushButton_UseCustomPoster->setStyleSheet(enabledStyle);
+            ui->pushButton_UseCustomDescription->setStyleSheet(enabledStyle);
+        }
+        
         qDebug() << "VP_ShowsAddDialog: Custom buttons enabled:" << !checked;
     }
     
     if (!checked) {
-        // TMDB disabled - show custom data if available
+        // TMDB disabled - reset poster and description for new shows
+        // Only reset if we're not adding to an existing show and haven't set custom data
+        if (!m_isAddingToExistingShow && !m_hasCustomDescription && m_customPoster.isNull()) {
+            qDebug() << "VP_ShowsAddDialog: TMDB disabled - resetting poster and description to empty state";
+            
+            // Reset the poster to empty state
+            ui->label_ShowPoster->clear();
+            ui->label_ShowPoster->setText("No Poster Available");
+            
+            // Reset the description to empty state
+            ui->textBrowser_ShowDescription->clear();
+            ui->textBrowser_ShowDescription->setPlainText("No description available.");
+            
+            // Clear any TMDB data
+            m_hasTMDBData = false;
+            m_currentSuggestions.clear();
+        }
+        
         // Clear any existing suggestions when TMDB is disabled
         if (m_isShowingSuggestions) {
             clearSuggestions();
@@ -609,26 +645,39 @@ void VP_ShowsAddDialog::onUseTMDBCheckboxToggled(bool checked)
         // Reset TMDB data flag
         m_hasTMDBData = false;
         
-        // Display custom data if available, otherwise show originals
-        if (!m_customPoster.isNull()) {
-            ui->label_ShowPoster->setPixmap(m_customPoster);
-            qDebug() << "VP_ShowsAddDialog: Displaying custom poster";
-        } else if (!m_originalPoster.isNull()) {
-            ui->label_ShowPoster->setPixmap(m_originalPoster);
+        // When TMDB is disabled for new shows, we need to reset or show custom data
+        if (!m_isAddingToExistingShow) {
+            // If we have custom data, show it
+            if (!m_customPoster.isNull()) {
+                ui->label_ShowPoster->setPixmap(m_customPoster);
+                qDebug() << "VP_ShowsAddDialog: TMDB disabled - displaying custom poster";
+            } else {
+                // No custom poster, reset to empty state (not original which might be TMDB data)
+                ui->label_ShowPoster->clear();
+                ui->label_ShowPoster->setText("No Poster Available");
+                qDebug() << "VP_ShowsAddDialog: TMDB disabled - reset poster to empty state";
+            }
+            
+            if (m_hasCustomDescription && !m_customDescription.isEmpty()) {
+                ui->textBrowser_ShowDescription->clear();
+                ui->textBrowser_ShowDescription->setPlainText(m_customDescription);
+                qDebug() << "VP_ShowsAddDialog: TMDB disabled - displaying custom description";
+            } else {
+                // No custom description, reset to empty state (not original which might be TMDB data)
+                ui->textBrowser_ShowDescription->clear();
+                ui->textBrowser_ShowDescription->setPlainText("No description available.");
+                qDebug() << "VP_ShowsAddDialog: TMDB disabled - reset description to empty state";
+            }
+            
+            // Clear the stored "originals" since they might contain TMDB data
+            m_originalPoster = QPixmap();
+            m_originalDescription = "No description available.";
+            
+            qDebug() << "VP_ShowsAddDialog: TMDB disabled - reset complete";
         } else {
-            ui->label_ShowPoster->setText("No Poster Available");
+            // For existing shows, preserve the loaded show data
+            qDebug() << "VP_ShowsAddDialog: TMDB disabled for existing show - preserving show data";
         }
-        
-        if (m_hasCustomDescription && !m_customDescription.isEmpty()) {
-            ui->textBrowser_ShowDescription->clear();
-            ui->textBrowser_ShowDescription->setPlainText(m_customDescription);
-            qDebug() << "VP_ShowsAddDialog: Displaying custom description";
-        } else {
-            ui->textBrowser_ShowDescription->clear();
-            ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
-        }
-        
-        qDebug() << "VP_ShowsAddDialog: TMDB disabled - displaying custom/original data";
     } else {
         // TMDB enabled - preserve custom data internally but show TMDB/original display
         // Custom data remains stored for if user toggles back
