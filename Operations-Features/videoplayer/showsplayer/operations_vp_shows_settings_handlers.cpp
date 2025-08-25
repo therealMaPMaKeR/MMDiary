@@ -36,6 +36,9 @@ void Operations_VP_Shows::loadShowSettings(const QString& showFolderPath)
     // Store the loaded settings
     m_currentShowSettings = settings;
     
+    qDebug() << "Operations_VP_Shows: Finished loading show settings - Autoplay:" << settings.autoplay
+             << "SkipIntroOutro:" << settings.skipIntroOutro << "UseTMDB:" << settings.useTMDB;
+    
     // Checkboxes have been moved to the settings dialog
     // The settings are now only used internally for autoplay and skip intro/outro functionality
     
@@ -138,10 +141,6 @@ void Operations_VP_Shows::filterShowsList()
     if (visibleItems == 0 && totalItems > 0) {
         qDebug() << "Operations_VP_Shows: No shows match the search criteria";
     }
-
-    
-    qDebug() << "Operations_VP_Shows: Finished loading show settings - Autoplay:" << settings.autoplay
-             << "SkipIntroOutro:" << settings.skipIntroOutro << "UseTMDB:" << settings.useTMDB;
 }
 
 void Operations_VP_Shows::saveShowSettings()
