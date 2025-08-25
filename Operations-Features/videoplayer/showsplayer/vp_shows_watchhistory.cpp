@@ -609,6 +609,15 @@ int VP_ShowsWatchHistory::getCompletedEpisodeCount() const {
     return count;
 }
 
+QStringList VP_ShowsWatchHistory::getAllWatchedEpisodes() const {
+    QStringList episodes;
+    for (auto it = m_watchData->watchHistory.begin(); it != m_watchData->watchHistory.end(); ++it) {
+        episodes.append(it.key());
+    }
+    qDebug() << "VP_ShowsWatchHistory: Returning" << episodes.size() << "episodes from watch history";
+    return episodes;
+}
+
 void VP_ShowsWatchHistory::initializeEmptyData() {
     m_watchData = std::make_unique<TVShowWatchData>();
     

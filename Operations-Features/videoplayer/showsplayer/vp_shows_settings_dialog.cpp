@@ -1180,6 +1180,7 @@ void VP_ShowsSettingsDialog::updateShowImage()
         qDebug() << "VP_ShowsSettingsDialog: Failed to write complete image data";
     } else {
         qDebug() << "VP_ShowsSettingsDialog: Successfully saved show image";
+    }
 }
 
 void VP_ShowsSettingsDialog::onResetWatchHistoryClicked()

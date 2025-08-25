@@ -318,6 +318,12 @@ public:
      * @return Count of episodes watched to completion
      */
     int getCompletedEpisodeCount() const;
+    
+    /**
+     * @brief Get all episode paths from watch history
+     * @return List of all episode paths that have been watched
+     */
+    QStringList getAllWatchedEpisodes() const;
 
 private:
     // Member variables
