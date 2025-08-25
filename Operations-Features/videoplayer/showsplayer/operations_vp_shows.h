@@ -14,6 +14,7 @@
 #include <QTreeWidgetItem>
 #include <QMenu>
 #include <QStorageInfo>
+#include <QTimer>
 #include "vp_shows_settings.h"
 
 // Forward declarations
@@ -56,6 +57,11 @@ private:
     // View mode tracking
     bool m_isIconViewMode = false;
     QMap<QString, QPixmap> m_posterCache;  // Cache for loaded posters to improve performance
+    
+    // Search functionality
+    QString m_currentSearchText;
+    QTimer* m_searchDebounceTimer;
+    void filterShowsList();
     
     // Helper functions
     QString selectVideoFile();
@@ -251,6 +257,10 @@ public slots:
     void onViewModeChanged(int index);
 
 private slots:
+    // Search functionality slots
+    void onSearchTextChanged(const QString& text);
+    void onSearchTimerTimeout();
+    
     void toggleWatchedStateFromContextMenu();
 
 signals:

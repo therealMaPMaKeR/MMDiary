@@ -7,6 +7,10 @@
 #include "vp_shows_settings.h"
 #include <QCheckBox>
 #include <QDebug>
+#include <QLineEdit>
+#include <QTimer>
+#include <QListWidget>
+#include <QListWidgetItem>
 
 void Operations_VP_Shows::loadShowSettings(const QString& showFolderPath)
 {
@@ -50,6 +54,91 @@ void Operations_VP_Shows::loadShowSettings(const QString& showFolderPath)
         qDebug() << "Operations_VP_Shows: Set autoplay checkbox to:" << settings.autoplay;
     }
     */
+}
+// ============================================================================
+// Search Functionality Implementation
+// ============================================================================
+
+void Operations_VP_Shows::onSearchTextChanged(const QString& text)
+{
+    qDebug() << "Operations_VP_Shows: Search text changed to:" << text;
+    
+    // Store the current search text
+    m_currentSearchText = text.trimmed();
+    
+    // Reset and start the debounce timer
+    m_searchDebounceTimer->stop();
+    m_searchDebounceTimer->start();
+    
+    qDebug() << "Operations_VP_Shows: Debounce timer started";
+}
+
+void Operations_VP_Shows::onSearchTimerTimeout()
+{
+    qDebug() << "Operations_VP_Shows: Search timer timeout, performing search";
+    qDebug() << "Operations_VP_Shows: Search text:" << m_currentSearchText;
+    
+    filterShowsList();
+}
+
+void Operations_VP_Shows::filterShowsList()
+{
+    qDebug() << "Operations_VP_Shows: Filtering shows list with search text:" << m_currentSearchText;
+    
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->listWidget_VP_List_List) {
+        qDebug() << "Operations_VP_Shows: List widget not available for filtering";
+        return;
+    }
+    
+    QListWidget* listWidget = m_mainWindow->ui->listWidget_VP_List_List;
+    int totalItems = listWidget->count();
+    int visibleItems = 0;
+    int hiddenItems = 0;
+    
+    // If search text is empty, show all items
+    if (m_currentSearchText.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Search text is empty, showing all items";
+        for (int i = 0; i < totalItems; ++i) {
+            QListWidgetItem* item = listWidget->item(i);
+            if (item) {
+                item->setHidden(false);
+                visibleItems++;
+            }
+        }
+        qDebug() << "Operations_VP_Shows: All" << visibleItems << "items are now visible";
+        return;
+    }
+    
+    // Perform case-insensitive search
+    for (int i = 0; i < totalItems; ++i) {
+        QListWidgetItem* item = listWidget->item(i);
+        if (!item) {
+            continue;
+        }
+        
+        QString showName = item->text();
+        
+        // Check if the show name contains the search text (case-insensitive)
+        bool matches = showName.contains(m_currentSearchText, Qt::CaseInsensitive);
+        
+        // Show or hide the item based on the match
+        item->setHidden(!matches);
+        
+        if (matches) {
+            visibleItems++;
+        } else {
+            hiddenItems++;
+        }
+    }
+    
+    qDebug() << "Operations_VP_Shows: Filter complete - Visible:" << visibleItems 
+             << "Hidden:" << hiddenItems << "Total:" << totalItems;
+    
+    // If no items match, you could optionally show a message
+    if (visibleItems == 0 && totalItems > 0) {
+        qDebug() << "Operations_VP_Shows: No shows match the search criteria";
+    }
+
     
     qDebug() << "Operations_VP_Shows: Finished loading show settings - Autoplay:" << settings.autoplay
              << "SkipIntroOutro:" << settings.skipIntroOutro << "UseTMDB:" << settings.useTMDB;

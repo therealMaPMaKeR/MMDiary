@@ -47,6 +47,7 @@
 #include <QListView>
 #include <QPainter>
 #include <QFont>
+#include <QLineEdit>
 #include <algorithm>
 #include <functional>
 
@@ -58,6 +59,7 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     , m_playbackTracker(nullptr)
     , m_isAutoplayInProgress(false)
     , m_episodeWasNearCompletion(false)
+    , m_searchDebounceTimer(nullptr)
 {
     qDebug() << "Operations_VP_Shows: Constructor called";
     qDebug() << "Operations_VP_Shows: Autoplay system initialized";
@@ -105,6 +107,29 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
         
         // Set initial view mode based on combo box
         onViewModeChanged(m_mainWindow->ui->comboBox_VP_Shows_ListViewMode->currentIndex());
+    }
+    
+    // Initialize search functionality
+    m_currentSearchText = "";
+    m_searchDebounceTimer = new QTimer(this);
+    m_searchDebounceTimer->setSingleShot(true);
+    m_searchDebounceTimer->setInterval(300); // 300ms debounce delay
+    connect(m_searchDebounceTimer, &QTimer::timeout,
+            this, &Operations_VP_Shows::onSearchTimerTimeout);
+    qDebug() << "Operations_VP_Shows: Search debounce timer initialized with 300ms delay";
+    
+    // Connect search bar text changes
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->lineEdit_VP_Shows_SearchBar) {
+        connect(m_mainWindow->ui->lineEdit_VP_Shows_SearchBar, &QLineEdit::textChanged,
+                this, &Operations_VP_Shows::onSearchTextChanged);
+        
+        // Connect enter key to stop debounce and search immediately
+        connect(m_mainWindow->ui->lineEdit_VP_Shows_SearchBar, &QLineEdit::returnPressed, [this]() {
+            m_searchDebounceTimer->stop();
+            onSearchTimerTimeout();
+        });
+        
+        qDebug() << "Operations_VP_Shows: Connected search bar signal handlers";
     }
     
     // Connect back to list button on display page
