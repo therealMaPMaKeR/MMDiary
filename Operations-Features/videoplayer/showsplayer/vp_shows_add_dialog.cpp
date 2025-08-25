@@ -35,8 +35,10 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     , m_settingsLoaded(false)
     , m_existingAutoplay(true)
     , m_existingSkipIntroOutro(false)
+    , m_existingUseTMDB(true)
     , m_suggestionsList(nullptr)
     , m_searchTimer(nullptr)
+    , m_existingShowCheckTimer(nullptr)
     , m_currentCacheSize(0)  // Track if we have TMDB data loaded
     , m_isShowingSuggestions(false)
     , m_hoveredItemIndex(-1)  // Default to true
@@ -90,6 +92,13 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     // Initialize TMDB autofill functionality
     setupAutofillUI();
     
+    // Initialize existing show check timer for debouncing
+    m_existingShowCheckTimer = new QTimer(this);
+    m_existingShowCheckTimer->setSingleShot(true);
+    m_existingShowCheckTimer->setInterval(500);  // 500ms delay for existing show check
+    connect(m_existingShowCheckTimer, &QTimer::timeout, this, &VP_ShowsAddDialog::onExistingShowCheckTimeout);
+    qDebug() << "VP_ShowsAddDialog: Existing show check timer initialized with 500ms delay";
+    
     // After setting the folder name, check if we have an existing show with that name
     // This ensures we load the poster/description if the show exists,
     // or trigger TMDB search if it doesn't
@@ -134,6 +143,12 @@ VP_ShowsAddDialog::~VP_ShowsAddDialog()
     if (m_searchTimer) {
         m_searchTimer->stop();
         delete m_searchTimer;
+    }
+    
+    // Clean up existing show check timer
+    if (m_existingShowCheckTimer) {
+        m_existingShowCheckTimer->stop();
+        delete m_existingShowCheckTimer;
     }
     
     delete ui;
@@ -438,21 +453,24 @@ void VP_ShowsAddDialog::loadShowSettings(const QString& showPath, const QByteArr
     VP_ShowsSettings::ShowSettings settings;
     if (settingsManager.loadShowSettings(showPath, settings)) {
         qDebug() << "VP_ShowsAddDialog: Successfully loaded show settings";
-        qDebug() << "VP_ShowsAddDialog: Autoplay:" << settings.autoplay << "SkipIntroOutro:" << settings.skipIntroOutro;
+        qDebug() << "VP_ShowsAddDialog: Autoplay:" << settings.autoplay << "SkipIntroOutro:" << settings.skipIntroOutro << "UseTMDB:" << settings.useTMDB;
         
         // Update checkboxes with loaded settings
         ui->checkBox_Autoplay->setChecked(settings.autoplay);
         ui->checkBox_SkipIntroOutro->setChecked(settings.skipIntroOutro);
+        ui->checkBox_UseTMDB->setChecked(settings.useTMDB);
         
         // Store that we loaded settings
         m_settingsLoaded = true;
         m_existingAutoplay = settings.autoplay;
         m_existingSkipIntroOutro = settings.skipIntroOutro;
+        m_existingUseTMDB = settings.useTMDB;
     } else {
         qDebug() << "VP_ShowsAddDialog: No settings file found or failed to load, using defaults";
-        // Keep default values (Autoplay on, Skip Intro/Outro off)
+        // Keep default values (Autoplay on, Skip Intro/Outro off, TMDB on)
         ui->checkBox_Autoplay->setChecked(true);
         ui->checkBox_SkipIntroOutro->setChecked(false);
+        ui->checkBox_UseTMDB->setChecked(true);
         m_settingsLoaded = false;
     }
 }
@@ -679,9 +697,16 @@ void VP_ShowsAddDialog::onShowNameTextChanged(const QString& text)
         m_itemJustSelected = false;
         return;  // Return early to prevent any further processing
     } else {
-        // Check for existing show with this name (case-insensitive)
+        // Use debounce timer for checking existing show
         if (!m_isCheckingExistingShow && text != m_lastCheckedShowName && !text.isEmpty()) {
-            checkForExistingShow(text);
+            qDebug() << "VP_ShowsAddDialog: Scheduling existing show check for:" << text;
+            m_pendingShowNameCheck = text;
+            
+            // Start or restart the existing show check timer
+            if (m_existingShowCheckTimer) {
+                m_existingShowCheckTimer->stop();
+                m_existingShowCheckTimer->start();
+            }
         }
     }
     
@@ -750,6 +775,21 @@ void VP_ShowsAddDialog::onSearchTimerTimeout()
     }
     
     performTMDBSearch(m_currentSearchText);
+}
+
+void VP_ShowsAddDialog::onExistingShowCheckTimeout()
+{
+    qDebug() << "VP_ShowsAddDialog: Existing show check timer timeout, checking for:" << m_pendingShowNameCheck;
+    
+    if (m_pendingShowNameCheck.isEmpty()) {
+        return;
+    }
+    
+    // Perform the actual check
+    checkForExistingShow(m_pendingShowNameCheck);
+    
+    // Clear the pending check
+    m_pendingShowNameCheck.clear();
 }
 
 void VP_ShowsAddDialog::performTMDBSearch(const QString& searchText)
@@ -1621,6 +1661,10 @@ void VP_ShowsAddDialog::checkForExistingShow(const QString& showName)
                 // Load the existing show's poster and description
                 loadExistingShowData(folderPath, encryptionKey, username);
                 
+                // Load the existing show's settings and update checkboxes
+                qDebug() << "VP_ShowsAddDialog: Loading show settings for existing show";
+                loadShowSettings(folderPath, encryptionKey, username);
+                
                 // Reset flag
                 m_isCheckingExistingShow = false;
                 
@@ -1657,5 +1701,12 @@ void VP_ShowsAddDialog::checkForExistingShow(const QString& showName)
         // Reset the stored originals
         m_originalPoster = QPixmap();
         m_originalDescription = "No description available.";
+        
+        // Reset settings checkboxes to defaults since no existing show was found
+        qDebug() << "VP_ShowsAddDialog: Resetting settings checkboxes to defaults";
+        ui->checkBox_Autoplay->setChecked(true);  // Default autoplay to true
+        ui->checkBox_SkipIntroOutro->setChecked(false);  // Default skip intro/outro to false
+        ui->checkBox_UseTMDB->setChecked(true);  // Default TMDB to true
+        m_settingsLoaded = false;
     }
 }

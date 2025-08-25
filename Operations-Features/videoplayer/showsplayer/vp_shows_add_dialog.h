@@ -58,6 +58,7 @@ private slots:
     void onUseTMDBCheckboxToggled(bool checked);
     void onShowNameTextChanged(const QString& text);
     void onSearchTimerTimeout();
+    void onExistingShowCheckTimeout();  // New slot for debounced existing show check
     void onSuggestionItemClicked(QListWidgetItem* item);
     void onImageDownloadFinished(QNetworkReply* reply);
     void hideSuggestions(bool itemWasSelected = false);
@@ -89,10 +90,15 @@ private:
     QString m_lastCheckedShowName;  // Cache to avoid redundant checks
     bool m_hasTMDBData;  // Track if we have TMDB data loaded
     
+    // Timer for debouncing existing show checks
+    QTimer* m_existingShowCheckTimer;
+    QString m_pendingShowNameCheck;  // Store the show name to check after debounce
+    
     // Settings from existing show
     bool m_settingsLoaded;
     bool m_existingAutoplay;
     bool m_existingSkipIntroOutro;
+    bool m_existingUseTMDB;
     
     // TMDB autofill functionality
     void setupAutofillUI();
