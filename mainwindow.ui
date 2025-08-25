@@ -2028,26 +2028,32 @@ li.checked::marker { content: &quot;\2612&quot;; }
               <widget class="QWidget" name="page_List">
                <layout class="QVBoxLayout" name="verticalLayout_25">
                 <item>
-                 <widget class="QTabWidget" name="tabWidget_VP_ShowsList">
-                  <property name="currentIndex">
-                   <number>0</number>
-                  </property>
-                  <widget class="QWidget" name="tab_ShowsList_List">
-                   <attribute name="title">
-                    <string>List</string>
-                   </attribute>
-                   <layout class="QVBoxLayout" name="verticalLayout_28">
+                 <layout class="QHBoxLayout" name="horizontalLayout_24">
+                  <item>
+                   <widget class="QComboBox" name="comboBox_VP_Shows_ListViewMode">
                     <item>
-                     <widget class="QListWidget" name="listWidget_VP_List_List"/>
+                     <property name="text">
+                      <string>List</string>
+                     </property>
                     </item>
-                   </layout>
-                  </widget>
-                  <widget class="QWidget" name="tab_ShowsList_Icons">
-                   <attribute name="title">
-                    <string>Icons</string>
-                   </attribute>
-                  </widget>
-                 </widget>
+                    <item>
+                     <property name="text">
+                      <string>Icons</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="lineEdit_VP_Shows_SearchBar">
+                    <property name="placeholderText">
+                     <string>Search</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QListWidget" name="listWidget_VP_List_List"/>
                 </item>
                 <item>
                  <layout class="QHBoxLayout" name="horizontalLayout_22">
