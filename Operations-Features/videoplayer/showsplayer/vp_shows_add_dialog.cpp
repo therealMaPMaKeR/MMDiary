@@ -606,6 +606,20 @@ void VP_ShowsAddDialog::onSearchTimerTimeout()
         return;
     }
     
+    // First check if this show already exists in our library
+    QString showName = ui->lineEdit_ShowName->text().trimmed();
+    if (!showName.isEmpty() && showName != m_lastCheckedShowName) {
+        checkForExistingShow(showName);
+        
+        // If we found an existing show, it will have loaded the data
+        if (!m_originalPoster.isNull() || m_originalDescription != "No description available.") {
+            qDebug() << "VP_ShowsAddDialog: Existing show data loaded, skipping TMDB auto-load";
+            // Still perform search to show suggestions
+            performTMDBSearch(m_currentSearchText);
+            return;
+        }
+    }
+    
     performTMDBSearch(m_currentSearchText);
 }
 
@@ -631,6 +645,14 @@ void VP_ShowsAddDialog::performTMDBSearch(const QString& searchText)
     
     if (!m_currentSuggestions.isEmpty()) {
         displaySuggestions(m_currentSuggestions);
+        
+        // Automatically display the first match's poster and description
+        // This provides immediate visual feedback while keeping suggestions visible
+        qDebug() << "VP_ShowsAddDialog: Auto-displaying first TMDB match";
+        displayShowInfo(m_currentSuggestions.first());
+        
+        // Mark that we have TMDB data loaded
+        m_hasTMDBData = true;
     } else {
         qDebug() << "VP_ShowsAddDialog: No results found for:" << searchText;
         clearSuggestions();
@@ -686,14 +708,8 @@ void VP_ShowsAddDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowInfo>& 
         }
     });
     
-    // Automatically show the first suggestion's preview
-    if (!m_currentSuggestions.isEmpty()) {
-        displayShowInfo(m_currentSuggestions.first());
-        m_hoveredItemIndex = 0;
-        // Mark that we're showing TMDB data (from preview)
-        qDebug() << "VP_ShowsAddDialog: Setting m_hasTMDBData to true (from displaySuggestions preview)";
-        m_hasTMDBData = true;
-    }
+    // Note: Auto-display of first match is now handled in performTMDBSearch()
+    // to ensure it happens consistently whether suggestions are shown or not
     
     qDebug() << "VP_ShowsAddDialog: Suggestions list shown with" << m_suggestionsList->count() << "items";
 }
@@ -733,7 +749,34 @@ void VP_ShowsAddDialog::hideSuggestions(bool itemWasSelected)
     
     // Only restore original poster and description if no item was selected
     if (!itemWasSelected) {
-        // Restore original poster and description
+        qDebug() << "VP_ShowsAddDialog: No item selected, checking for existing show or TMDB data";
+        
+        // Get the current show name from the text field
+        QString currentShowName = ui->lineEdit_ShowName->text().trimmed();
+        
+        // First priority: Check if show exists in library
+        if (!currentShowName.isEmpty() && currentShowName != m_lastCheckedShowName) {
+            checkForExistingShow(currentShowName);
+            
+            // If we found an existing show, keep its data displayed
+            if (!m_originalPoster.isNull() || m_originalDescription != "No description available.") {
+                qDebug() << "VP_ShowsAddDialog: Keeping existing show data after closing suggestions";
+                // Don't clear m_currentSuggestions yet - might be needed for future interactions
+                return;  // Exit early, keeping the existing show data
+            }
+        }
+        
+        // Second priority: If TMDB is enabled and we have suggestions, auto-load first match
+        if (ui->checkBox_UseTMDB->isChecked() && !m_currentSuggestions.isEmpty()) {
+            qDebug() << "VP_ShowsAddDialog: Auto-loading first TMDB match after closing suggestions";
+            displayShowInfo(m_currentSuggestions.first());
+            m_hasTMDBData = true;
+            // Don't clear m_currentSuggestions - we're using them
+            return;  // Exit early, keeping the TMDB data
+        }
+        
+        // No existing show or TMDB data found, restore to empty state
+        qDebug() << "VP_ShowsAddDialog: No data found, restoring to empty state";
         if (!m_originalPoster.isNull()) {
             ui->label_ShowPoster->setPixmap(m_originalPoster);
         } else {
@@ -741,10 +784,9 @@ void VP_ShowsAddDialog::hideSuggestions(bool itemWasSelected)
         }
         ui->textBrowser_ShowDescription->clear();  // Clear any HTML
         ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
-    }
-    
-    // Clear the current suggestions when hiding (but not if an item was selected)
-    if (!itemWasSelected) {
+        m_hasTMDBData = false;
+        
+        // Clear the current suggestions when hiding (but not if an item was selected)
         m_currentSuggestions.clear();
     }
 }
