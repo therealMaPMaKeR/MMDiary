@@ -372,11 +372,17 @@ void VP_ShowsAddDialog::setupAutofillUI()
     m_networkManager = std::make_unique<QNetworkAccessManager>(this);
     // Note: Not connecting to onImageDownloadFinished since we use m_tmdbApi->downloadImage() instead
     
-    // Create suggestions list widget
+    // Create suggestions list widget as a child of the dialog
+    // Don't use window flags - keep it as a regular child widget
     m_suggestionsList = new QListWidget(this);
-    m_suggestionsList->setWindowFlags(Qt::Popup | Qt::FramelessWindowHint);
-    m_suggestionsList->setFocusPolicy(Qt::NoFocus);
+    m_suggestionsList->setParent(this);  // Ensure it's a child of the dialog
+    m_suggestionsList->setFocusPolicy(Qt::NoFocus);  // Prevent stealing focus
     m_suggestionsList->setMouseTracking(true);
+    m_suggestionsList->setAttribute(Qt::WA_ShowWithoutActivating, true);  // Show without activating
+    m_suggestionsList->setAttribute(Qt::WA_X11DoNotAcceptFocus, true);  // X11 specific but doesn't hurt on Windows
+    m_suggestionsList->setAutoFillBackground(true);  // Ensure it has a background
+    m_suggestionsList->setTabletTracking(false);  // Don't track tablet events
+    m_suggestionsList->setFocusProxy(ui->lineEdit_ShowName);  // Redirect focus to the line edit
     m_suggestionsList->setStyleSheet(
         "QListWidget { "
         "    border: 1px solid #ccc; "
@@ -599,7 +605,20 @@ void VP_ShowsAddDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowInfo>& 
     // Position and show the suggestions list
     positionSuggestionsList();
     m_suggestionsList->show();
+    m_suggestionsList->raise();  // Ensure it's on top
     m_isShowingSuggestions = true;
+    
+    // Keep focus on the show name field
+    ui->lineEdit_ShowName->setFocus();
+    ui->lineEdit_ShowName->activateWindow();
+    
+    // Use a timer to ensure focus stays on the text field
+    QTimer::singleShot(0, this, [this]() {
+        if (ui->lineEdit_ShowName) {
+            ui->lineEdit_ShowName->setFocus();
+            ui->lineEdit_ShowName->activateWindow();
+        }
+    });
     
     // Automatically show the first suggestion's preview
     if (!m_currentSuggestions.isEmpty()) {
@@ -654,11 +673,11 @@ void VP_ShowsAddDialog::positionSuggestionsList()
         return;
     }
     
-    // Get the position of the lineEdit in global coordinates
-    QPoint globalPos = ui->lineEdit_ShowName->mapToGlobal(QPoint(0, ui->lineEdit_ShowName->height()));
+    // Get the position of the lineEdit relative to the dialog
+    QPoint lineEditPos = ui->lineEdit_ShowName->mapTo(this, QPoint(0, ui->lineEdit_ShowName->height()));
     
-    // Set the position of the suggestions list
-    m_suggestionsList->move(globalPos);
+    // Set the position of the suggestions list relative to the dialog
+    m_suggestionsList->move(lineEditPos);
     
     // Set the width to match the lineEdit
     m_suggestionsList->setFixedWidth(ui->lineEdit_ShowName->width());
@@ -668,6 +687,12 @@ void VP_ShowsAddDialog::positionSuggestionsList()
     int maxVisibleItems = qMin(m_suggestionsList->count(), 8);
     int listHeight = maxVisibleItems * itemHeight + 4;  // +4 for borders/padding
     m_suggestionsList->setFixedHeight(listHeight);
+    
+    // Ensure the suggestions list is on top of other widgets
+    m_suggestionsList->raise();
+    
+    // Ensure the show name field keeps focus
+    ui->lineEdit_ShowName->setFocus();
 }
 
 void VP_ShowsAddDialog::onSuggestionItemClicked(QListWidgetItem* item)
@@ -711,6 +736,10 @@ void VP_ShowsAddDialog::onSuggestionItemClicked(QListWidgetItem* item)
     
     // Hide suggestions (pass true to indicate an item was selected)
     hideSuggestions(true);
+    
+    // Return focus to the show name field
+    ui->lineEdit_ShowName->setFocus();
+    ui->lineEdit_ShowName->setCursorPosition(ui->lineEdit_ShowName->text().length());  // Place cursor at end
 }
 
 void VP_ShowsAddDialog::displayShowInfo(const VP_ShowsTMDB::ShowInfo& showInfo)
@@ -896,6 +925,13 @@ qint64 VP_ShowsAddDialog::estimatePixmapSize(const QPixmap& pixmap)
 
 bool VP_ShowsAddDialog::eventFilter(QObject* obj, QEvent* event)
 {
+    // Prevent the suggestions list from ever getting focus
+    if (obj == m_suggestionsList && event->type() == QEvent::FocusIn) {
+        qDebug() << "VP_ShowsAddDialog: Suggestions list tried to get focus, redirecting to show name field";
+        ui->lineEdit_ShowName->setFocus();
+        return true;  // Consume the event
+    }
+    
     // Handle mouse move events on the suggestions list viewport
     if (obj == m_suggestionsList->viewport() && event->type() == QEvent::MouseMove) {
         QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
@@ -945,19 +981,16 @@ bool VP_ShowsAddDialog::eventFilter(QObject* obj, QEvent* event)
     // Handle clicks outside the suggestions list to hide it
     if (event->type() == QEvent::MouseButtonPress) {
         QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
-        QPoint pos = mouseEvent->globalPos();
+        QPoint pos = mouseEvent->pos();  // Position relative to dialog
         
         if (m_suggestionsList && m_suggestionsList->isVisible()) {
+            // Get the geometry of the suggestions list
             QRect suggestionsRect = m_suggestionsList->geometry();
-            suggestionsRect.moveTo(m_suggestionsList->mapToGlobal(QPoint(0, 0)));
             
-            // Also check if click is in the line edit
-            QRect lineEditRect = ui->lineEdit_ShowName->rect();
-            QWidget* parent = ui->lineEdit_ShowName->parentWidget();
-            while (parent && parent != this) {
-                lineEditRect.translate(parent->pos());
-                parent = parent->parentWidget();
-            }
+            // Get the geometry of the line edit relative to the dialog
+            QRect lineEditRect = ui->lineEdit_ShowName->geometry();
+            QPoint lineEditPos = ui->lineEdit_ShowName->mapTo(this, QPoint(0, 0));
+            lineEditRect.moveTo(lineEditPos);
             
             if (!suggestionsRect.contains(pos) && !lineEditRect.contains(pos)) {
                 qDebug() << "VP_ShowsAddDialog: Click outside suggestions";
@@ -986,6 +1019,8 @@ void VP_ShowsAddDialog::keyPressEvent(QKeyEvent* event)
                     displayShowInfo(m_currentSuggestions[m_hoveredItemIndex]);
                 }
             }
+            // Keep focus on the text field
+            ui->lineEdit_ShowName->setFocus();
             event->accept();
             return;
         } else if (event->key() == Qt::Key_Up) {
@@ -1000,6 +1035,8 @@ void VP_ShowsAddDialog::keyPressEvent(QKeyEvent* event)
                     displayShowInfo(m_currentSuggestions[m_hoveredItemIndex]);
                 }
             }
+            // Keep focus on the text field
+            ui->lineEdit_ShowName->setFocus();
             event->accept();
             return;
         } else if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
