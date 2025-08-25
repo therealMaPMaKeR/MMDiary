@@ -108,10 +108,12 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
         // Check if a show with this name already exists
         checkForExistingShow(folderName);
         
-        // After checking for existing show, always trigger TMDB search if enabled
-        // This will auto-load the first match and show suggestions
-        if (ui->checkBox_UseTMDB->isChecked() && m_tmdbApi) {
-            qDebug() << "VP_ShowsAddDialog: Triggering TMDB search for folder name:" << folderName;
+        // Only trigger TMDB search if the show doesn't exist in our library
+        // If we found an existing show, it will have loaded the poster/description
+        bool existingShowFound = !m_originalPoster.isNull() || m_originalDescription != "No description available.";
+        
+        if (!existingShowFound && ui->checkBox_UseTMDB->isChecked() && m_tmdbApi) {
+            qDebug() << "VP_ShowsAddDialog: No existing show found, triggering TMDB search for folder name:" << folderName;
             
             // Store the current search text
             m_currentSearchText = folderName;
@@ -124,6 +126,8 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
             
             // Set the TMDB data flag since we're about to show TMDB results
             m_hasTMDBData = true;
+        } else if (existingShowFound) {
+            qDebug() << "VP_ShowsAddDialog: Existing show found, skipping TMDB search";
         }
     }
     
@@ -767,9 +771,9 @@ void VP_ShowsAddDialog::onSearchTimerTimeout()
         
         // If we found an existing show, it will have loaded the data
         if (!m_originalPoster.isNull() || m_originalDescription != "No description available.") {
-            qDebug() << "VP_ShowsAddDialog: Existing show data loaded, skipping TMDB auto-load";
-            // Still perform search to show suggestions
-            performTMDBSearch(m_currentSearchText);
+            qDebug() << "VP_ShowsAddDialog: Existing show data loaded, skipping TMDB search and suggestions";
+            // Don't show suggestions when the show already exists in our library
+            // Just return early without performing TMDB search
             return;
         }
     }
