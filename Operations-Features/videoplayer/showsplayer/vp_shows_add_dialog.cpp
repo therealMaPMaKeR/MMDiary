@@ -68,6 +68,34 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     // Initialize TMDB autofill functionality
     setupAutofillUI();
     
+    // After setting the folder name, check if we have an existing show with that name
+    // This ensures we load the poster/description if the show exists,
+    // or trigger TMDB search if it doesn't
+    if (!folderName.isEmpty()) {
+        qDebug() << "VP_ShowsAddDialog: Checking for existing show with folder name:" << folderName;
+        
+        // Check if a show with this name already exists
+        checkForExistingShow(folderName);
+        
+        // If no existing show was found (poster and description remain empty),
+        // and TMDB is enabled, trigger the search
+        if (m_originalPoster.isNull() && 
+            m_originalDescription == "No description available." &&
+            ui->checkBox_UseTMDB->isChecked() && 
+            m_tmdbApi) {
+            qDebug() << "VP_ShowsAddDialog: No existing show found, triggering TMDB search for:" << folderName;
+            
+            // Store the current search text
+            m_currentSearchText = folderName;
+            
+            // Start the search timer to trigger TMDB search
+            if (m_searchTimer) {
+                m_searchTimer->stop();
+                m_searchTimer->start();
+            }
+        }
+    }
+    
     qDebug() << "VP_ShowsAddDialog: Dialog initialized successfully";
 }
 
@@ -490,9 +518,28 @@ void VP_ShowsAddDialog::onShowNameTextChanged(const QString& text)
         return;
     }
     
-    // Check for existing show with this name (case-insensitive)
-    if (!m_isCheckingExistingShow && text != m_lastCheckedShowName && !text.isEmpty()) {
-        checkForExistingShow(text);
+    // Check if we need to reset the m_itemJustSelected flag
+    // This happens when the user manually edits the text after selecting from TMDB
+    static QString lastTextFromSelection;
+    if (m_itemJustSelected && text != lastTextFromSelection) {
+        // User has manually edited the text after selection
+        qDebug() << "VP_ShowsAddDialog: User edited text after TMDB selection, resetting flag";
+        m_itemJustSelected = false;
+        lastTextFromSelection.clear();
+    }
+    
+    // Don't check for existing show if we just selected a TMDB item
+    if (m_itemJustSelected) {
+        qDebug() << "VP_ShowsAddDialog: Text changed from TMDB selection, skipping all processing";
+        lastTextFromSelection = text;  // Remember this text for comparison
+        m_lastCheckedShowName = text;  // Update the last checked name so future edits will trigger check
+        // Don't do any TMDB searching or existing show checking
+        return;  // Return early to prevent any further processing
+    } else {
+        // Check for existing show with this name (case-insensitive)
+        if (!m_isCheckingExistingShow && text != m_lastCheckedShowName && !text.isEmpty()) {
+            checkForExistingShow(text);
+        }
     }
     
     // Check if UseTMDB checkbox is checked
@@ -644,6 +691,14 @@ void VP_ShowsAddDialog::hideSuggestions(bool itemWasSelected)
     m_isShowingSuggestions = false;
     m_hoveredItemIndex = -1;
     
+    // Reset the item selection flag after hiding suggestions
+    if (itemWasSelected) {
+        // Keep the flag set a bit longer to prevent interference
+        // It will be reset on the next text change or other interaction
+    } else {
+        m_itemJustSelected = false;  // Reset if no item was selected
+    }
+    
     if (m_suggestionsList) {
         // Clear selection before hiding
         m_suggestionsList->clearSelection();
@@ -720,19 +775,25 @@ void VP_ShowsAddDialog::onSuggestionItemClicked(QListWidgetItem* item)
         return;
     }
     
+    // Set flag BEFORE setting text to prevent checkForExistingShow from being called
+    m_itemJustSelected = true;
+    
     // Display the show info
     displayShowInfo(selectedShow);
     
+    // Update the "original" poster and description to the TMDB selection
+    // This ensures they persist as the new baseline
+    m_originalDescription = selectedShow.overview.isEmpty() ? "No description available." : selectedShow.overview;
+    // Note: m_originalPoster is updated directly in downloadAndDisplayPoster when m_itemJustSelected is true
+    
     // Set the selected show name in the line edit
+    // This will trigger onShowNameTextChanged, but m_itemJustSelected flag will prevent existing show check
     ui->lineEdit_ShowName->setText(selectedShow.showName);
     
     // Stop any pending searches
     if (m_searchTimer) {
         m_searchTimer->stop();
     }
-    
-    // Set flag to prevent restoration on mouse leave
-    m_itemJustSelected = true;
     
     // Hide suggestions (pass true to indicate an item was selected)
     hideSuggestions(true);
@@ -779,6 +840,13 @@ void VP_ShowsAddDialog::downloadAndDisplayPoster(const QString& posterPath)
         
         // Display the pre-scaled poster from cache
         ui->label_ShowPoster->setPixmap(m_posterCache[posterPath].scaledPixmap);
+        
+        // If we're selecting from TMDB, update the original poster
+        if (m_itemJustSelected) {
+            m_originalPoster = m_posterCache[posterPath].scaledPixmap;
+            qDebug() << "VP_ShowsAddDialog: Updated original poster from TMDB cache";
+        }
+        
         return;
     }
     
@@ -840,6 +908,12 @@ void VP_ShowsAddDialog::downloadAndDisplayPoster(const QString& posterPath)
             
             // Display the scaled poster
             ui->label_ShowPoster->setPixmap(scaledPoster);
+            
+            // If we're selecting from TMDB, update the original poster
+            if (m_itemJustSelected) {
+                m_originalPoster = scaledPoster;
+                qDebug() << "VP_ShowsAddDialog: Updated original poster from TMDB download";
+            }
             
             // Clean up the temp file using secure delete from operations_files
             // Use 1 pass for temp files and allow external files since it's in Data/username/temp
