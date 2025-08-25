@@ -27,6 +27,13 @@ public:
     QString getLanguage() const;
     QString getTranslationMode() const;
     
+    // Getters for custom poster and description
+    QPixmap getCustomPoster() const { return m_customPoster; }
+    QString getCustomDescription() const { return m_customDescription; }
+    bool hasCustomPoster() const { return !m_customPoster.isNull(); }
+    bool hasCustomDescription() const { return m_hasCustomDescription; }
+    bool isUsingTMDB() const;  // Check if TMDB checkbox is checked
+    
     // Validation
     bool validateInputs();
     
@@ -47,6 +54,10 @@ private slots:
     void onSuggestionItemClicked(QListWidgetItem* item);
     void onImageDownloadFinished(QNetworkReply* reply);
     void hideSuggestions(bool itemWasSelected = false);
+    
+    // Custom poster and description slots
+    void onUseCustomPosterClicked();
+    void onUseCustomDescriptionClicked();
     
 private:
     Ui::VP_ShowsAddDialog *ui;
@@ -121,6 +132,11 @@ private:
     // Constants
     static constexpr int SEARCH_DELAY_MS = 500;  // Debounce delay for search
     static constexpr int MAX_SUGGESTIONS = 8;    // Maximum number of suggestions to show
+    
+    // Custom poster and description storage
+    QPixmap m_customPoster;
+    QString m_customDescription;
+    bool m_hasCustomDescription = false;
 };
 
 #endif // VP_SHOWS_ADD_DIALOG_H

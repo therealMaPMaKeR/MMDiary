@@ -7,6 +7,7 @@
 #include <QStringList>
 #include <QByteArray>
 #include <QMap>
+#include <QPixmap>
 #include "vp_shows_metadata.h"
 #include "vp_shows_tmdb.h"
 
@@ -21,12 +22,15 @@ class VP_ShowsEncryptionWorker : public QObject
 public:
     // Constructor for multiple files
     VP_ShowsEncryptionWorker(const QStringList& sourceFiles, 
-                            const QStringList& targetFiles,
-                            const QString& showName,
-                            const QByteArray& encryptionKey, 
-                            const QString& username,
-                            const QString& language = "English",
-                            const QString& translation = "Dubbed");
+    const QStringList& targetFiles,
+    const QString& showName,
+    const QByteArray& encryptionKey, 
+    const QString& username,
+    const QString& language = "English",
+    const QString& translation = "Dubbed",
+                             bool useTMDB = true,
+                             const QPixmap& customPoster = QPixmap(),
+                             const QString& customDescription = QString());
     
     ~VP_ShowsEncryptionWorker();
     
@@ -61,6 +65,11 @@ private:
     QString m_username;
     bool m_cancelled;
     QMutex m_cancelMutex;
+    
+    // Custom poster and description
+    bool m_useTMDB;
+    QPixmap m_customPoster;
+    QString m_customDescription;
     VP_ShowsMetadata* m_metadataManager;
     VP_ShowsTMDB* m_tmdbManager;
     
@@ -84,6 +93,7 @@ private:
     // New helper methods
     bool fetchTMDBShowData();
     bool downloadAndEncryptShowImage(const QString& targetFolder);
+    bool saveCustomShowData(const QString& targetFolder);  // Save custom poster and description
     VP_ShowsMetadata::ShowMetadata createMetadataWithTMDB(const QString& filename);
     bool checkForDuplicateEpisode(int season, int episode, const QString& language, const QString& translation);
     void loadExistingEpisodes();

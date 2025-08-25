@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QThread>
+#include <QPixmap>
 #include "vp_shows_encryptionworkers.h"
 
 // Forward declarations
@@ -28,7 +29,10 @@ public:
                          const QByteArray& encryptionKey,
                          const QString& username,
                          const QString& language = "English",
-                         const QString& translation = "Dubbed");
+                         const QString& translation = "Dubbed",
+                         bool useTMDB = true,
+                         const QPixmap& customPoster = QPixmap(),
+                         const QString& customDescription = QString());
 
 signals:
     void encryptionComplete(bool success, const QString& message,

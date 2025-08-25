@@ -29,6 +29,7 @@
 #include <QLabel>
 #include <QStackedWidget>
 #include <QBuffer>
+#include <QPixmap>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QMediaPlayer>
@@ -358,9 +359,15 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
                 this, &Operations_VP_Shows::onEncryptionComplete);
     }
     
+    // When adding episodes to library, we always use TMDB (true) and no custom data
+    // since we're not changing the show's poster/description
+    bool useTMDB = true;
+    QPixmap customPoster;  // Empty pixmap
+    QString customDescription;  // Empty string
+    
     // Start encryption with language and translation info
     m_encryptionDialog->startEncryption(filesToImport, targetFiles, showName, encryptionKey, username, 
-                                       language, translationMode);
+                                       language, translationMode, useTMDB, customPoster, customDescription);
 }
 
 void Operations_VP_Shows::importTVShow()
@@ -403,8 +410,25 @@ void Operations_VP_Shows::importTVShow()
     QString language = addDialog.getLanguage();
     QString translationMode = addDialog.getTranslationMode();
     
+    // Get custom poster and description if not using TMDB
+    bool useTMDB = addDialog.isUsingTMDB();
+    QPixmap customPoster;
+    QString customDescription;
+    
+    if (!useTMDB) {
+        if (addDialog.hasCustomPoster()) {
+            customPoster = addDialog.getCustomPoster();
+            qDebug() << "Operations_VP_Shows: Using custom poster";
+        }
+        if (addDialog.hasCustomDescription()) {
+            customDescription = addDialog.getCustomDescription();
+            qDebug() << "Operations_VP_Shows: Using custom description";
+        }
+    }
+    
     qDebug() << "Operations_VP_Shows: Show details - Name:" << showName 
-             << "Language:" << language << "Translation:" << translationMode;
+             << "Language:" << language << "Translation:" << translationMode
+             << "Using TMDB:" << useTMDB;
     
     // Find all video files in the folder and subfolders
     QStringList videoFiles = findVideoFiles(folderPath);
@@ -493,9 +517,9 @@ void Operations_VP_Shows::importTVShow()
                 this, &Operations_VP_Shows::onEncryptionComplete);
     }
     
-    // Start encryption with language and translation info
+    // Start encryption with language and translation info, including custom data if not using TMDB
     m_encryptionDialog->startEncryption(filesToImport, targetFiles, showName, encryptionKey, username, 
-                                       language, translationMode);
+                                       language, translationMode, useTMDB, customPoster, customDescription);
 }
 
 QStringList Operations_VP_Shows::findVideoFiles(const QString& folderPath, bool recursive)
@@ -2743,10 +2767,16 @@ void Operations_VP_Shows::addEpisodesToShow()
                 this, &Operations_VP_Shows::onEncryptionComplete);
     }
     
+    // When adding episodes to existing show, we use TMDB (true) and no custom data
+    // since we're not changing the show's poster/description
+    bool useTMDB = true;
+    QPixmap customPoster;  // Empty pixmap
+    QString customDescription;  // Empty string
+    
     // Start encryption with the show name and metadata
     m_encryptionDialog->startEncryption(filesToImport, targetFiles, showName, 
                                        m_mainWindow->user_Key, m_mainWindow->user_Username, 
-                                       newLanguage, newTranslation);
+                                       newLanguage, newTranslation, useTMDB, customPoster, customDescription);
 }
 
 void Operations_VP_Shows::decryptAndExportShow()

@@ -18,6 +18,9 @@
 #include <QDateTime>
 #include <QRandomGenerator>
 #include <QApplication>
+#include <QFileDialog>
+#include <QInputDialog>
+#include <QImageReader>
 
 VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     : QDialog(parent)
@@ -68,6 +71,15 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     // Connect the UseTMDB checkbox
     connect(ui->checkBox_UseTMDB, &QCheckBox::toggled,
             this, &VP_ShowsAddDialog::onUseTMDBCheckboxToggled);
+    
+    // Connect the custom poster and description buttons
+    connect(ui->pushButton_UseCustomPoster, &QPushButton::clicked,
+            this, &VP_ShowsAddDialog::onUseCustomPosterClicked);
+    connect(ui->pushButton_UseCustomDescription, &QPushButton::clicked,
+            this, &VP_ShowsAddDialog::onUseCustomDescriptionClicked);
+    
+    // Initialize custom data flags
+    m_hasCustomDescription = false;
     
     // Initialize TMDB autofill functionality
     setupAutofillUI();
@@ -134,6 +146,11 @@ QString VP_ShowsAddDialog::getLanguage() const
 QString VP_ShowsAddDialog::getTranslationMode() const
 {
     return ui->comboBox_TranslationMode->currentText();
+}
+
+bool VP_ShowsAddDialog::isUsingTMDB() const
+{
+    return ui->checkBox_UseTMDB->isChecked();
 }
 
 bool VP_ShowsAddDialog::validateInputs()
@@ -257,12 +274,22 @@ void VP_ShowsAddDialog::setShowNameReadOnly(bool readOnly)
         
         // Update the checkbox text for adding episodes to existing show
         ui->checkBox_UseTMDB->setText("Use TMDB for episode information");
+        
+        // Disable custom poster and description buttons for existing shows
+        ui->pushButton_UseCustomPoster->setEnabled(false);
+        ui->pushButton_UseCustomDescription->setEnabled(false);
+        qDebug() << "VP_ShowsAddDialog: Disabled custom buttons for existing show";
     } else {
         ui->lineEdit_ShowName->setStyleSheet("");  // Reset to default style
         m_isAddingToExistingShow = false;
         
         // Reset to default text for new show
         ui->checkBox_UseTMDB->setText("Use TMDB for show information");
+        
+        // Re-enable custom buttons based on TMDB checkbox state
+        bool tmdbChecked = ui->checkBox_UseTMDB->isChecked();
+        ui->pushButton_UseCustomPoster->setEnabled(!tmdbChecked);
+        ui->pushButton_UseCustomDescription->setEnabled(!tmdbChecked);
     }
 }
 
@@ -477,6 +504,14 @@ void VP_ShowsAddDialog::onUseTMDBCheckboxToggled(bool checked)
 {
     qDebug() << "VP_ShowsAddDialog: UseTMDB checkbox toggled to:" << checked;
     
+    // Update button states - enable custom buttons when TMDB is off, disable when on
+    // But only if we're not adding to an existing show
+    if (!m_isAddingToExistingShow) {
+        ui->pushButton_UseCustomPoster->setEnabled(!checked);
+        ui->pushButton_UseCustomDescription->setEnabled(!checked);
+        qDebug() << "VP_ShowsAddDialog: Custom buttons enabled:" << !checked;
+    }
+    
     if (!checked) {
         // Clear any existing suggestions when TMDB is disabled
         if (m_isShowingSuggestions) {
@@ -492,25 +527,63 @@ void VP_ShowsAddDialog::onUseTMDBCheckboxToggled(bool checked)
         // Reset TMDB data flag
         m_hasTMDBData = false;
         
-        // When adding to existing show, restore the original show poster/description
-        // When adding new show, clear the display
-        if (m_isAddingToExistingShow) {
-            // Restore original show poster and description
+        // Check if we have custom data to display
+        if (!m_customPoster.isNull()) {
+            ui->label_ShowPoster->setPixmap(m_customPoster);
+            qDebug() << "VP_ShowsAddDialog: Displaying custom poster";
+        } else if (!m_originalPoster.isNull()) {
+            ui->label_ShowPoster->setPixmap(m_originalPoster);
+        } else {
+            ui->label_ShowPoster->setText("No Poster Available");
+        }
+        
+        if (m_hasCustomDescription) {
+            ui->textBrowser_ShowDescription->clear();
+            ui->textBrowser_ShowDescription->setPlainText(m_customDescription);
+            qDebug() << "VP_ShowsAddDialog: Displaying custom description";
+        } else {
+            ui->textBrowser_ShowDescription->clear();
+            ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
+        }
+        
+        qDebug() << "VP_ShowsAddDialog: TMDB disabled - cleared suggestions and reset display";
+    } else {
+        // When TMDB is enabled, clear custom data and restore original/TMDB data
+        if (m_hasCustomDescription || !m_customPoster.isNull()) {
+            qDebug() << "VP_ShowsAddDialog: TMDB enabled - clearing custom data";
+            m_customPoster = QPixmap();
+            m_customDescription = QString();
+            m_hasCustomDescription = false;
+            
+            // Restore original poster and description
             if (!m_originalPoster.isNull()) {
                 ui->label_ShowPoster->setPixmap(m_originalPoster);
             } else {
                 ui->label_ShowPoster->setText("No Poster Available");
             }
-            ui->textBrowser_ShowDescription->clear();  // Clear any HTML
-            ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
-        } else {
-            // Clear poster and description for new show
-            ui->label_ShowPoster->setText("No Poster Available");
-            ui->textBrowser_ShowDescription->clear();  // Clear any HTML
+            ui->textBrowser_ShowDescription->clear();
             ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
         }
         
-        qDebug() << "VP_ShowsAddDialog: TMDB disabled - cleared suggestions and reset display";
+        // When enabled and we have TMDB API, automatically search for the current show name
+        if (m_tmdbApi && !m_isAddingToExistingShow) {
+            QString currentShowName = ui->lineEdit_ShowName->text().trimmed();
+            if (!currentShowName.isEmpty() && currentShowName.length() >= 2) {
+                qDebug() << "VP_ShowsAddDialog: TMDB enabled - auto-searching for:" << currentShowName;
+                
+                // Store the current search text
+                m_currentSearchText = currentShowName;
+                
+                // Start the search timer to trigger TMDB search
+                if (m_searchTimer) {
+                    m_searchTimer->stop();
+                    m_searchTimer->start();
+                }
+                
+                // Set the TMDB data flag since we're about to show TMDB results
+                m_hasTMDBData = true;
+            }
+        }
     }
     // When enabled, the user can start typing to search (only for new shows)
 }
@@ -1191,6 +1264,135 @@ bool VP_ShowsAddDialog::eventFilter(QObject* obj, QEvent* event)
     }
     
     return QDialog::eventFilter(obj, event);
+}
+
+void VP_ShowsAddDialog::onUseCustomPosterClicked()
+{
+    qDebug() << "VP_ShowsAddDialog: Use custom poster button clicked";
+    
+    // Get username for temp directory
+    QString username = OperationsFiles::getUsername();
+    if (username.isEmpty()) {
+        QMessageBox::warning(this, tr("Error"), tr("Cannot determine username"));
+        return;
+    }
+    
+    // Open file dialog to select image
+    QString filter = tr("Image Files (*.png *.jpg *.jpeg *.bmp *.gif *.webp)");
+    QString selectedFile = QFileDialog::getOpenFileName(
+        this,
+        tr("Select Show Poster"),
+        QDir::homePath(),
+        filter
+    );
+    
+    if (selectedFile.isEmpty()) {
+        qDebug() << "VP_ShowsAddDialog: No poster file selected";
+        return;
+    }
+    
+    qDebug() << "VP_ShowsAddDialog: Selected poster file:" << selectedFile;
+    
+    // Validate the file path
+    InputValidation::ValidationResult result = InputValidation::validateInput(
+        selectedFile, InputValidation::InputType::ExternalFilePath, 1000);
+    
+    if (!result.isValid) {
+        QMessageBox::warning(this, tr("Invalid File"), 
+                           tr("The selected file path is invalid: %1").arg(result.errorMessage));
+        return;
+    }
+    
+    // Check if file exists and is readable
+    QFileInfo fileInfo(selectedFile);
+    if (!fileInfo.exists() || !fileInfo.isReadable()) {
+        QMessageBox::warning(this, tr("File Error"), 
+                           tr("Cannot read the selected file."));
+        return;
+    }
+    
+    // Check file size (limit to 10MB for posters)
+    qint64 fileSize = fileInfo.size();
+    if (fileSize > 10 * 1024 * 1024) {
+        QMessageBox::warning(this, tr("File Too Large"), 
+                           tr("The selected image is too large. Please select an image smaller than 10MB."));
+        return;
+    }
+    
+    // Load the image
+    QImageReader reader(selectedFile);
+    reader.setAutoTransform(true);  // Handle EXIF orientation
+    
+    QImage image = reader.read();
+    if (image.isNull()) {
+        QMessageBox::warning(this, tr("Invalid Image"), 
+                           tr("Failed to load the selected image file."));
+        return;
+    }
+    
+    // Convert to pixmap and scale to fit the label
+    QPixmap poster = QPixmap::fromImage(image);
+    QSize labelSize = ui->label_ShowPoster->size();
+    m_customPoster = poster.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    
+    // Display the custom poster
+    ui->label_ShowPoster->setPixmap(m_customPoster);
+    
+    qDebug() << "VP_ShowsAddDialog: Custom poster loaded and displayed";
+    qDebug() << "VP_ShowsAddDialog: Original size:" << poster.size() << "Scaled size:" << m_customPoster.size();
+}
+
+void VP_ShowsAddDialog::onUseCustomDescriptionClicked()
+{
+    qDebug() << "VP_ShowsAddDialog: Use custom description button clicked";
+    
+    // Get current description to show as default
+    QString currentDescription;
+    if (m_hasCustomDescription) {
+        currentDescription = m_customDescription;
+    } else if (!m_originalDescription.isEmpty() && m_originalDescription != "No description available.") {
+        currentDescription = m_originalDescription;
+    } else {
+        currentDescription = "";
+    }
+    
+    // Open multi-line input dialog
+    bool ok;
+    QString description = QInputDialog::getMultiLineText(
+        this,
+        tr("Enter Show Description"),
+        tr("Enter a custom description for the show:"),
+        currentDescription,
+        &ok
+    );
+    
+    if (!ok) {
+        qDebug() << "VP_ShowsAddDialog: Description input cancelled";
+        return;
+    }
+    
+    // Validate the description
+    if (!description.isEmpty()) {
+        InputValidation::ValidationResult result = InputValidation::validateInput(
+            description, InputValidation::InputType::PlainText, 5000);  // Allow up to 5000 chars
+        
+        if (!result.isValid) {
+            QMessageBox::warning(this, tr("Invalid Description"), 
+                               tr("The description contains invalid characters: %1").arg(result.errorMessage));
+            return;
+        }
+    }
+    
+    // Store the custom description
+    m_customDescription = description.isEmpty() ? "No description available." : description;
+    m_hasCustomDescription = true;
+    
+    // Display the custom description
+    ui->textBrowser_ShowDescription->clear();
+    ui->textBrowser_ShowDescription->setPlainText(m_customDescription);
+    
+    qDebug() << "VP_ShowsAddDialog: Custom description set";
+    qDebug() << "VP_ShowsAddDialog: Description length:" << m_customDescription.length();
 }
 
 void VP_ShowsAddDialog::keyPressEvent(QKeyEvent* event)

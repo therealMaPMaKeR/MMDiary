@@ -21,7 +21,10 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
                                                    const QByteArray& encryptionKey, 
                                                    const QString& username,
                                                    const QString& language,
-                                                   const QString& translation)
+                                                   const QString& translation,
+                                                   bool useTMDB,
+                                                   const QPixmap& customPoster,
+                                                   const QString& customDescription)
     : m_sourceFiles(sourceFiles)
     , m_targetFiles(targetFiles)
     , m_showName(showName)
@@ -30,14 +33,21 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
     , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(false)
+    , m_useTMDB(useTMDB)
+    , m_customPoster(customPoster)
+    , m_customDescription(customDescription)
     , m_tmdbDataAvailable(false)
 {
     qDebug() << "VP_ShowsEncryptionWorker: Constructor called for" << sourceFiles.size() << "files";
+    qDebug() << "VP_ShowsEncryptionWorker: Using TMDB:" << useTMDB;
+    qDebug() << "VP_ShowsEncryptionWorker: Has custom poster:" << !customPoster.isNull();
+    qDebug() << "VP_ShowsEncryptionWorker: Has custom description:" << !customDescription.isEmpty();
+    
     m_metadataManager = new VP_ShowsMetadata(encryptionKey, username);
     m_tmdbManager = new VP_ShowsTMDB(this);
     
-    // Set TMDB API key from configuration
-    if (VP_ShowsConfig::isTMDBEnabled()) {
+    // Only set TMDB API key if we're using TMDB
+    if (useTMDB && VP_ShowsConfig::isTMDBEnabled()) {
         QString apiKey = VP_ShowsConfig::getTMDBApiKey();
         if (!apiKey.isEmpty()) {
             m_tmdbManager->setApiKey(apiKey);
@@ -46,7 +56,7 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
             qDebug() << "VP_ShowsEncryptionWorker: No TMDB API key available";
         }
     } else {
-        qDebug() << "VP_ShowsEncryptionWorker: TMDB integration disabled";
+        qDebug() << "VP_ShowsEncryptionWorker: TMDB integration disabled or not using TMDB";
     }
 }
 
@@ -92,14 +102,29 @@ void VP_ShowsEncryptionWorker::doEncryption()
     // Load existing episodes from the target folder to detect duplicates
     loadExistingEpisodes();
     
-    // Try to fetch TMDB data for the show
-    m_tmdbDataAvailable = fetchTMDBShowData();
-    
-    // If we have TMDB data, download and encrypt the show image
-    if (m_tmdbDataAvailable && !m_targetFiles.isEmpty()) {
+    // Get the target folder from the first target file
+    QString targetFolder;
+    if (!m_targetFiles.isEmpty()) {
         QFileInfo firstTargetInfo(m_targetFiles.first());
-        QString targetFolder = firstTargetInfo.absolutePath();
-        downloadAndEncryptShowImage(targetFolder);
+        targetFolder = firstTargetInfo.absolutePath();
+    }
+    
+    // Handle TMDB or custom data
+    if (m_useTMDB) {
+        // Try to fetch TMDB data for the show
+        m_tmdbDataAvailable = fetchTMDBShowData();
+        
+        // If we have TMDB data, download and encrypt the show image
+        if (m_tmdbDataAvailable && !targetFolder.isEmpty()) {
+            downloadAndEncryptShowImage(targetFolder);
+        }
+    } else {
+        // Save custom poster and description if provided
+        if (!targetFolder.isEmpty() && (!m_customPoster.isNull() || !m_customDescription.isEmpty())) {
+            qDebug() << "VP_ShowsEncryptionWorker: Using custom show data instead of TMDB";
+            saveCustomShowData(targetFolder);
+        }
+        m_tmdbDataAvailable = false;  // Ensure TMDB data is not used
     }
     
     // Calculate total size for progress tracking
@@ -652,6 +677,66 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     }
     
     return metadata;
+}
+
+bool VP_ShowsEncryptionWorker::saveCustomShowData(const QString& targetFolder)
+{
+    qDebug() << "VP_ShowsEncryptionWorker: Saving custom show data to:" << targetFolder;
+    
+    // Get the obfuscated folder name
+    QDir showDir(targetFolder);
+    QString obfuscatedName = showDir.dirName();
+    
+    // Save custom description if available
+    if (!m_customDescription.isEmpty()) {
+        QString descFileName = QString("showdesc_%1").arg(obfuscatedName);
+        QString descFilePath = showDir.absoluteFilePath(descFileName);
+        
+        // Encrypt and save the description
+        bool descSaved = OperationsFiles::writeEncryptedFile(descFilePath, m_encryptionKey, m_customDescription);
+        
+        if (descSaved) {
+            qDebug() << "VP_ShowsEncryptionWorker: Successfully saved custom show description";
+        } else {
+            qDebug() << "VP_ShowsEncryptionWorker: Failed to save custom show description";
+        }
+    }
+    
+    // Save custom poster if available
+    if (!m_customPoster.isNull()) {
+        // Convert pixmap to byte array
+        QByteArray imageData;
+        QBuffer buffer(&imageData);
+        buffer.open(QIODevice::WriteOnly);
+        m_customPoster.save(&buffer, "PNG");
+        buffer.close();
+        
+        // Create the filename with prefix showimage_
+        QString encryptedImagePath = targetFolder + "/showimage_" + obfuscatedName;
+        
+        // Encrypt the image data
+        QByteArray encryptedImage = CryptoUtils::Encryption_EncryptBArray(m_encryptionKey, imageData, m_username);
+        
+        if (!encryptedImage.isEmpty()) {
+            // Write encrypted image to file
+            QFile encryptedFile(encryptedImagePath);
+            if (encryptedFile.open(QIODevice::WriteOnly)) {
+                encryptedFile.write(encryptedImage);
+                encryptedFile.close();
+                
+                m_showImagePath = encryptedImagePath;
+                qDebug() << "VP_ShowsEncryptionWorker: Successfully saved custom show poster to:" << encryptedImagePath;
+            } else {
+                qDebug() << "VP_ShowsEncryptionWorker: Failed to create encrypted poster file";
+                return false;
+            }
+        } else {
+            qDebug() << "VP_ShowsEncryptionWorker: Failed to encrypt custom poster";
+            return false;
+        }
+    }
+    
+    return true;
 }
 
 bool VP_ShowsEncryptionWorker::checkForDuplicateEpisode(int season, int episode, const QString& language, const QString& translation)
