@@ -120,9 +120,17 @@ void VP_ShowsEncryptionWorker::doEncryption()
         }
     } else {
         // Save custom poster and description if provided
+        qDebug() << "VP_ShowsEncryptionWorker: TMDB not used, checking for custom data...";
+        qDebug() << "VP_ShowsEncryptionWorker: Target folder empty:" << targetFolder.isEmpty();
+        qDebug() << "VP_ShowsEncryptionWorker: Custom poster null:" << m_customPoster.isNull();
+        qDebug() << "VP_ShowsEncryptionWorker: Custom description empty:" << m_customDescription.isEmpty();
+        
         if (!targetFolder.isEmpty() && (!m_customPoster.isNull() || !m_customDescription.isEmpty())) {
-            qDebug() << "VP_ShowsEncryptionWorker: Using custom show data instead of TMDB";
-            saveCustomShowData(targetFolder);
+            qDebug() << "VP_ShowsEncryptionWorker: Calling saveCustomShowData...";
+            bool saved = saveCustomShowData(targetFolder);
+            qDebug() << "VP_ShowsEncryptionWorker: saveCustomShowData returned:" << saved;
+        } else {
+            qDebug() << "VP_ShowsEncryptionWorker: No custom data to save";
         }
         m_tmdbDataAvailable = false;  // Ensure TMDB data is not used
     }
@@ -682,6 +690,10 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
 bool VP_ShowsEncryptionWorker::saveCustomShowData(const QString& targetFolder)
 {
     qDebug() << "VP_ShowsEncryptionWorker: Saving custom show data to:" << targetFolder;
+    qDebug() << "VP_ShowsEncryptionWorker: Has custom poster:" << !m_customPoster.isNull() 
+             << "Size:" << (m_customPoster.isNull() ? QSize() : m_customPoster.size());
+    qDebug() << "VP_ShowsEncryptionWorker: Has custom description:" << !m_customDescription.isEmpty()
+             << "Length:" << m_customDescription.length();
     
     // Get the obfuscated folder name
     QDir showDir(targetFolder);
@@ -692,6 +704,8 @@ bool VP_ShowsEncryptionWorker::saveCustomShowData(const QString& targetFolder)
         QString descFileName = QString("showdesc_%1").arg(obfuscatedName);
         QString descFilePath = showDir.absoluteFilePath(descFileName);
         
+        qDebug() << "VP_ShowsEncryptionWorker: Saving description to:" << descFilePath;
+        
         // Encrypt and save the description
         bool descSaved = OperationsFiles::writeEncryptedFile(descFilePath, m_encryptionKey, m_customDescription);
         
@@ -700,19 +714,26 @@ bool VP_ShowsEncryptionWorker::saveCustomShowData(const QString& targetFolder)
         } else {
             qDebug() << "VP_ShowsEncryptionWorker: Failed to save custom show description";
         }
+    } else {
+        qDebug() << "VP_ShowsEncryptionWorker: No custom description to save (is empty)";
     }
     
     // Save custom poster if available
     if (!m_customPoster.isNull()) {
+        qDebug() << "VP_ShowsEncryptionWorker: Converting custom poster to byte array...";
         // Convert pixmap to byte array
         QByteArray imageData;
         QBuffer buffer(&imageData);
         buffer.open(QIODevice::WriteOnly);
-        m_customPoster.save(&buffer, "PNG");
+        bool savedToBuffer = m_customPoster.save(&buffer, "PNG");
         buffer.close();
+        
+        qDebug() << "VP_ShowsEncryptionWorker: Pixmap saved to buffer:" << savedToBuffer 
+                 << "Size:" << imageData.size() << "bytes";
         
         // Create the filename with prefix showimage_
         QString encryptedImagePath = targetFolder + "/showimage_" + obfuscatedName;
+        qDebug() << "VP_ShowsEncryptionWorker: Target image path:" << encryptedImagePath;
         
         // Encrypt the image data
         QByteArray encryptedImage = CryptoUtils::Encryption_EncryptBArray(m_encryptionKey, imageData, m_username);
@@ -734,6 +755,8 @@ bool VP_ShowsEncryptionWorker::saveCustomShowData(const QString& targetFolder)
             qDebug() << "VP_ShowsEncryptionWorker: Failed to encrypt custom poster";
             return false;
         }
+    } else {
+        qDebug() << "VP_ShowsEncryptionWorker: No custom poster to save (is null)";
     }
     
     return true;

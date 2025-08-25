@@ -417,12 +417,18 @@ void Operations_VP_Shows::importTVShow()
     if (!useTMDB) {
         if (addDialog.hasCustomPoster()) {
             customPoster = addDialog.getCustomPoster();
-            qDebug() << "Operations_VP_Shows: Using custom poster";
+            qDebug() << "Operations_VP_Shows: Using custom poster, size:" << customPoster.size();
+        } else {
+            qDebug() << "Operations_VP_Shows: No custom poster set";
         }
         if (addDialog.hasCustomDescription()) {
             customDescription = addDialog.getCustomDescription();
-            qDebug() << "Operations_VP_Shows: Using custom description";
+            qDebug() << "Operations_VP_Shows: Using custom description, length:" << customDescription.length();
+        } else {
+            qDebug() << "Operations_VP_Shows: No custom description set";
         }
+    } else {
+        qDebug() << "Operations_VP_Shows: Using TMDB, not retrieving custom data";
     }
     
     qDebug() << "Operations_VP_Shows: Show details - Name:" << showName 

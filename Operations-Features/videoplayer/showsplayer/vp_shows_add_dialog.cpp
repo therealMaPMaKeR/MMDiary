@@ -548,22 +548,18 @@ void VP_ShowsAddDialog::onUseTMDBCheckboxToggled(bool checked)
         
         qDebug() << "VP_ShowsAddDialog: TMDB disabled - cleared suggestions and reset display";
     } else {
-        // When TMDB is enabled, clear custom data and restore original/TMDB data
-        if (m_hasCustomDescription || !m_customPoster.isNull()) {
-            qDebug() << "VP_ShowsAddDialog: TMDB enabled - clearing custom data";
-            m_customPoster = QPixmap();
-            m_customDescription = QString();
-            m_hasCustomDescription = false;
-            
-            // Restore original poster and description
-            if (!m_originalPoster.isNull()) {
-                ui->label_ShowPoster->setPixmap(m_originalPoster);
-            } else {
-                ui->label_ShowPoster->setText("No Poster Available");
-            }
-            ui->textBrowser_ShowDescription->clear();
-            ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
+        // When TMDB is enabled, don't clear custom data - just restore display to original/TMDB data
+        // The custom data is preserved in case user toggles back
+        qDebug() << "VP_ShowsAddDialog: TMDB enabled - preserving custom data but displaying original/TMDB data";
+        
+        // Restore original poster and description for display
+        if (!m_originalPoster.isNull()) {
+            ui->label_ShowPoster->setPixmap(m_originalPoster);
+        } else {
+            ui->label_ShowPoster->setText("No Poster Available");
         }
+        ui->textBrowser_ShowDescription->clear();
+        ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
         
         // When enabled and we have TMDB API, automatically search for the current show name
         if (m_tmdbApi && !m_isAddingToExistingShow) {
