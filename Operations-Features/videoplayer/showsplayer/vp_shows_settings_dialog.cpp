@@ -1368,8 +1368,6 @@ void VP_ShowsSettingsDialog::onUseCustomPosterClicked()
     m_originalPoster = scaledPoster;
     
     qDebug() << "VP_ShowsSettingsDialog: Successfully saved custom poster";
-    QMessageBox::information(this, tr("Success"), 
-                           tr("Custom poster has been saved."));
 }
 
 void VP_ShowsSettingsDialog::onUseCustomDescClicked()
@@ -1449,8 +1447,6 @@ void VP_ShowsSettingsDialog::onUseCustomDescClicked()
     if (OperationsFiles::writeEncryptedFile(descFilePath, mainWindow->user_Key, description)) {
         qDebug() << "VP_ShowsSettingsDialog: Successfully saved show description";
         m_originalDescription = description;
-        QMessageBox::information(this, tr("Success"), 
-                               tr("Custom description has been saved."));
     } else {
         qDebug() << "VP_ShowsSettingsDialog: Failed to save show description";
         QMessageBox::warning(this, tr("Error"), 
