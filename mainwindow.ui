@@ -2316,24 +2316,6 @@ li.checked::marker { content: &quot;\2612&quot;; }
             </item>
            </layout>
           </widget>
-          <widget class="QWidget" name="tab_debug">
-           <attribute name="title">
-            <string>Debug</string>
-           </attribute>
-           <widget class="QPushButton" name="pushButton_Debug">
-            <property name="geometry">
-             <rect>
-              <x>10</x>
-              <y>10</y>
-              <width>141</width>
-              <height>24</height>
-             </rect>
-            </property>
-            <property name="text">
-             <string>TMDB API KEY SETUP</string>
-            </property>
-           </widget>
-          </widget>
          </widget>
         </item>
        </layout>
