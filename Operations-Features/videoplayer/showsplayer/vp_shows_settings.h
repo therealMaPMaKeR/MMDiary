@@ -9,9 +9,10 @@ class VP_ShowsSettings
 public:
     // Structure to hold show-specific settings
     struct ShowSettings {
-        bool skipIntroOutro = false;
-        bool autoplay = true;  // Changed default to true
-        bool useTMDB = true;   // New field for TMDB usage
+        bool skipIntro = false;      // Skip intro for episodes
+        bool skipOutro = false;      // Skip outro for episodes
+        bool autoplay = true;        // Changed default to true
+        bool useTMDB = true;         // New field for TMDB usage
         
         // Additional settings can be added here in the future
         // For example:

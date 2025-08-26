@@ -38,9 +38,16 @@
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="checkBox_SkipContent">
+      <widget class="QCheckBox" name="checkBox_SkipIntro">
        <property name="text">
-        <string>Skip Intro/Outro</string>
+        <string>Skip Intro</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="checkBox_SkipOutro">
+       <property name="text">
+        <string>Skip Outro</string>
        </property>
       </widget>
      </item>

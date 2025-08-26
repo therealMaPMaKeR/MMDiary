@@ -61,15 +61,17 @@ bool VP_ShowsSettings::loadShowSettings(const QString& showFolderPath, ShowSetti
         return false;
     }
     
-    qDebug() << "VP_ShowsSettings: Successfully loaded settings - SkipIntroOutro:" 
-             << settings.skipIntroOutro << "Autoplay:" << settings.autoplay;
+    qDebug() << "VP_ShowsSettings: Successfully loaded settings - SkipIntro:" 
+             << settings.skipIntro << "SkipOutro:" << settings.skipOutro 
+             << "Autoplay:" << settings.autoplay;
     return true;
 }
 
 bool VP_ShowsSettings::saveShowSettings(const QString& showFolderPath, const ShowSettings& settings)
 {
     qDebug() << "VP_ShowsSettings: Saving settings for show folder:" << showFolderPath;
-    qDebug() << "VP_ShowsSettings: Settings - SkipIntroOutro:" << settings.skipIntroOutro 
+    qDebug() << "VP_ShowsSettings: Settings - SkipIntro:" << settings.skipIntro 
+             << "SkipOutro:" << settings.skipOutro 
              << "Autoplay:" << settings.autoplay << "UseTMDB:" << settings.useTMDB;
     
     // Validate folder path
@@ -145,7 +147,8 @@ QString VP_ShowsSettings::serializeSettings(const ShowSettings& settings) const
     QString data;
     
     // Simple key-value format for settings
-    data += QString("skipIntroOutro=%1\n").arg(settings.skipIntroOutro ? "true" : "false");
+    data += QString("skipIntro=%1\n").arg(settings.skipIntro ? "true" : "false");
+    data += QString("skipOutro=%1\n").arg(settings.skipOutro ? "true" : "false");
     data += QString("autoplay=%1\n").arg(settings.autoplay ? "true" : "false");
     data += QString("useTMDB=%1\n").arg(settings.useTMDB ? "true" : "false");
     
@@ -168,8 +171,10 @@ bool VP_ShowsSettings::deserializeSettings(const QString& data, ShowSettings& se
         QString key = parts[0].trimmed();
         QString value = parts[1].trimmed();
         
-        if (key == "skipIntroOutro") {
-            settings.skipIntroOutro = (value == "true");
+        if (key == "skipIntro") {
+            settings.skipIntro = (value == "true");
+        } else if (key == "skipOutro") {
+            settings.skipOutro = (value == "true");
         } else if (key == "autoplay") {
             settings.autoplay = (value == "true");
         } else if (key == "useTMDB") {

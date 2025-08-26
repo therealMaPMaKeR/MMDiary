@@ -378,9 +378,19 @@ li.checked::marker { content: &quot;\2612&quot;; }
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="checkBox_SkipIntroOutro">
+      <widget class="QCheckBox" name="checkBox_SkipIntro">
        <property name="text">
-        <string>Skip Intro/Outro</string>
+        <string>Skip Intro</string>
+       </property>
+       <property name="checked">
+        <bool>false</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="checkBox_SkipOutro">
+       <property name="text">
+        <string>Skip Outro</string>
        </property>
        <property name="checked">
         <bool>false</bool>

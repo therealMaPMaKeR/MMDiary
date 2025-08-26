@@ -219,7 +219,8 @@ public:
     
     // Dialog settings stored for later use
     bool m_dialogAutoplay;
-    bool m_dialogSkipIntroOutro;
+    bool m_dialogSkipIntro;
+    bool m_dialogSkipOutro;
     bool m_dialogUseTMDB;
     
     // Store the import output path for use in onEncryptionComplete

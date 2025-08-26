@@ -36,7 +36,8 @@ public:
     
     // Getters for playback settings
     bool isAutoplayEnabled() const;
-    bool isSkipIntroOutroEnabled() const;
+    bool isSkipIntroEnabled() const;
+    bool isSkipOutroEnabled() const;
     
     // Load settings from existing show
     void loadShowSettings(const QString& showPath, const QByteArray& encryptionKey, const QString& username);
@@ -97,7 +98,8 @@ private:
     // Settings from existing show
     bool m_settingsLoaded;
     bool m_existingAutoplay;
-    bool m_existingSkipIntroOutro;
+    bool m_existingSkipIntro;
+    bool m_existingSkipOutro;
     bool m_existingUseTMDB;
     
     // TMDB autofill functionality

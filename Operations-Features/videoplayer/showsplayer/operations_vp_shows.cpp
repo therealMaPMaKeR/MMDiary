@@ -407,14 +407,16 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
     
     // Get playback settings from the dialog
     bool autoplay = addDialog.isAutoplayEnabled();
-    bool skipIntroOutro = addDialog.isSkipIntroOutroEnabled();
+    bool skipIntro = addDialog.isSkipIntroEnabled();
+    bool skipOutro = addDialog.isSkipOutroEnabled();
     
     // Store dialog settings for use in onEncryptionComplete
     m_dialogAutoplay = autoplay;
-    m_dialogSkipIntroOutro = skipIntroOutro;
+    m_dialogSkipIntro = skipIntro;
+    m_dialogSkipOutro = skipOutro;
     m_dialogUseTMDB = useTMDB;
     
-    qDebug() << "Operations_VP_Shows: Dialog settings - Autoplay:" << autoplay << "SkipIntroOutro:" << skipIntroOutro;
+    qDebug() << "Operations_VP_Shows: Dialog settings - Autoplay:" << autoplay << "SkipIntro:" << skipIntro << "SkipOutro:" << skipOutro;
     
     qDebug() << "Operations_VP_Shows: Dialog returned - Using TMDB:" << useTMDB;
     qDebug() << "Operations_VP_Shows: Checking for custom data...";
@@ -500,14 +502,16 @@ void Operations_VP_Shows::importTVShow()
     
     // Get playback settings from the dialog
     bool autoplay = addDialog.isAutoplayEnabled();
-    bool skipIntroOutro = addDialog.isSkipIntroOutroEnabled();
+    bool skipIntro = addDialog.isSkipIntroEnabled();
+    bool skipOutro = addDialog.isSkipOutroEnabled();
     
     // Store dialog settings for use in onEncryptionComplete
     m_dialogAutoplay = autoplay;
-    m_dialogSkipIntroOutro = skipIntroOutro;
+    m_dialogSkipIntro = skipIntro;
+    m_dialogSkipOutro = skipOutro;
     m_dialogUseTMDB = useTMDB;
     
-    qDebug() << "Operations_VP_Shows: Dialog settings - Autoplay:" << autoplay << "SkipIntroOutro:" << skipIntroOutro;
+    qDebug() << "Operations_VP_Shows: Dialog settings - Autoplay:" << autoplay << "SkipIntro:" << skipIntro << "SkipOutro:" << skipOutro;
     qDebug() << "Operations_VP_Shows: Dialog returned - Using TMDB:" << useTMDB;
     qDebug() << "Operations_VP_Shows: Checking for custom data...";
     
@@ -907,7 +911,8 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                 // Create settings with values from dialog (stored when dialog was accepted)
                 VP_ShowsSettings::ShowSettings settings;
                 settings.autoplay = m_dialogAutoplay;
-                settings.skipIntroOutro = m_dialogSkipIntroOutro;
+                settings.skipIntro = m_dialogSkipIntro;
+                settings.skipOutro = m_dialogSkipOutro;
                 settings.useTMDB = m_dialogUseTMDB;
                 
                 // Save the settings file
@@ -3167,14 +3172,16 @@ void Operations_VP_Shows::addEpisodesToShow()
     
     // Get playback settings from the dialog
     bool autoplay = addDialog.isAutoplayEnabled();
-    bool skipIntroOutro = addDialog.isSkipIntroOutroEnabled();
+    bool skipIntro = addDialog.isSkipIntroEnabled();
+    bool skipOutro = addDialog.isSkipOutroEnabled();
     
     // Store dialog settings for use in onEncryptionComplete
     m_dialogAutoplay = autoplay;
-    m_dialogSkipIntroOutro = skipIntroOutro;
+    m_dialogSkipIntro = skipIntro;
+    m_dialogSkipOutro = skipOutro;
     m_dialogUseTMDB = useTMDB;
     
-    qDebug() << "Operations_VP_Shows: Dialog settings - Autoplay:" << autoplay << "SkipIntroOutro:" << skipIntroOutro;
+    qDebug() << "Operations_VP_Shows: Dialog settings - Autoplay:" << autoplay << "SkipIntro:" << skipIntro << "SkipOutro:" << skipOutro;
     
     // Start encryption with the show name and metadata
     m_encryptionDialog->startEncryption(filesToImport, targetFiles, showName, 
