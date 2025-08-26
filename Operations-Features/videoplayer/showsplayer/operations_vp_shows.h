@@ -30,6 +30,7 @@ class Operations_VP_Shows : public QObject
 
 private:
     MainWindow* m_mainWindow;
+    bool m_blockSelectionChange = false;  // Track selection changes to enforce broken file restrictions
     std::unique_ptr<VP_Shows_Videoplayer> m_testVideoPlayer;  // For testing purposes
     std::unique_ptr<VP_Shows_Videoplayer> m_episodePlayer;    // For episode playback
     VP_ShowsEncryptionProgressDialog* m_encryptionDialog;
@@ -151,6 +152,10 @@ public:
     
     // Handle episode double-click in tree widget
     void onEpisodeDoubleClicked(QTreeWidgetItem* item, int column);
+    void onTreeSelectionChanged();
+    void deleteBrokenVideosFromCategory();
+    void repairBrokenVideo();
+    void corruptVideoMetadata();  // Debug only
     
     // Decrypt and play episode
     void decryptAndPlayEpisode(const QString& encryptedFilePath, const QString& episodeName);
@@ -195,6 +200,13 @@ public:
     
     // Helper functions for episode operations
     void collectEpisodesFromTreeItem(QTreeWidgetItem* item, QStringList& episodePaths);
+    
+    // Helper functions for broken file handling
+    bool isItemBroken(QTreeWidgetItem* item) const;
+    bool isBrokenCategory(QTreeWidgetItem* item) const;
+    bool hasAnyBrokenItemInSelection(const QList<QTreeWidgetItem*>& items) const;
+    bool hasAnyWorkingItemInSelection(const QList<QTreeWidgetItem*>& items) const;
+    void enforceSelectionRestrictions();
     bool deleteEpisodesWithConfirmation(const QStringList& episodePaths, const QString& description);
     bool exportEpisodes(const QStringList& episodePaths, const QString& exportPath, const QString& showName);
     void setWatchedStateForEpisodes(const QStringList& episodePaths, bool watched);

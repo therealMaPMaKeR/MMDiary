@@ -1,6 +1,7 @@
 #include "operations_vp_shows.h"
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include <QRandomGenerator>
 #include "VP_Shows_Videoplayer.h"
 #include "vp_shows_progressdialogs.h"
 #include "vp_shows_metadata.h"
@@ -4065,6 +4066,10 @@ void Operations_VP_Shows::setupEpisodeContextMenu()
     connect(m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList, &QTreeWidget::customContextMenuRequested,
             this, &Operations_VP_Shows::showEpisodeContextMenu);
     
+    // Connect selection changed signal to enforce broken file restrictions
+    connect(m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList, &QTreeWidget::itemSelectionChanged,
+            this, &Operations_VP_Shows::onTreeSelectionChanged);
+    
     qDebug() << "Operations_VP_Shows: Episode context menu setup complete with multi-selection enabled";
 }
 
@@ -4106,6 +4111,10 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
     
     // Store the primary item for context menu actions
     m_contextMenuTreeItem = clickedItem;
+    
+    // Check if this is a broken item or category
+    bool isBroken = isItemBroken(clickedItem);
+    bool isBrokenCat = isBrokenCategory(clickedItem);
     
     // Determine selection type and collect episode paths
     bool isMultiSelection = selectedItems.size() > 1;
@@ -4296,6 +4305,16 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
     }
     connect(deleteAction, &QAction::triggered, this, &Operations_VP_Shows::deleteEpisodeFromContextMenu);
     
+#ifdef QT_DEBUG
+    // Debug-only option to corrupt metadata for testing
+    if (!isMultiSelection && hasEpisodes) {
+        contextMenu->addSeparator();
+        QAction* corruptAction = contextMenu->addAction(tr("[DEBUG] Corrupt Metadata Header"));
+        corruptAction->setIcon(QIcon(":/icons/warning.png"));
+        connect(corruptAction, &QAction::triggered, this, &Operations_VP_Shows::corruptVideoMetadata);
+    }
+#endif
+    
     // Show the menu at the cursor position
     contextMenu->exec(treeWidget->mapToGlobal(pos));
     
@@ -4319,6 +4338,280 @@ void Operations_VP_Shows::collectEpisodesFromTreeItem(QTreeWidgetItem* item, QSt
             collectEpisodesFromTreeItem(item->child(i), episodePaths);
         }
     }
+}
+
+// Helper function to check if item is a broken video
+bool Operations_VP_Shows::isItemBroken(QTreeWidgetItem* item) const
+{
+    if (!item) return false;
+    
+    // Check if parent is the broken category
+    QTreeWidgetItem* parent = item->parent();
+    if (parent && parent->text(0).startsWith("Broken")) {
+        return true;
+    }
+    
+    return false;
+}
+
+// Helper function to check if item is the broken category itself
+bool Operations_VP_Shows::isBrokenCategory(QTreeWidgetItem* item) const
+{
+    if (!item) return false;
+    
+    // Check if this is a top-level item starting with "Broken"
+    return item->parent() == nullptr && item->text(0).startsWith("Broken");
+}
+
+// Check if any item in selection is broken
+bool Operations_VP_Shows::hasAnyBrokenItemInSelection(const QList<QTreeWidgetItem*>& items) const
+{
+    for (QTreeWidgetItem* item : items) {
+        if (isItemBroken(item) || isBrokenCategory(item)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Check if any item in selection is working (not broken)
+bool Operations_VP_Shows::hasAnyWorkingItemInSelection(const QList<QTreeWidgetItem*>& items) const
+{
+    for (QTreeWidgetItem* item : items) {
+        if (!isItemBroken(item) && !isBrokenCategory(item)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Enforce selection restrictions for broken files
+void Operations_VP_Shows::enforceSelectionRestrictions()
+{
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+        return;
+    }
+    
+    if (m_blockSelectionChange) {
+        return;  // Prevent recursion
+    }
+    
+    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+    QList<QTreeWidgetItem*> selectedItems = treeWidget->selectedItems();
+    
+    if (selectedItems.size() <= 1) {
+        return;  // No restrictions for single selection
+    }
+    
+    // Check if we have mixed selection (broken and working)
+    bool hasBroken = hasAnyBrokenItemInSelection(selectedItems);
+    bool hasWorking = hasAnyWorkingItemInSelection(selectedItems);
+    
+    if (hasBroken && hasWorking) {
+        // Mixed selection not allowed
+        qDebug() << "Operations_VP_Shows: Mixed selection of broken and working files not allowed";
+        
+        m_blockSelectionChange = true;
+        
+        // Keep only the last selected item
+        QTreeWidgetItem* currentItem = treeWidget->currentItem();
+        treeWidget->clearSelection();
+        if (currentItem) {
+            currentItem->setSelected(true);
+        }
+        
+        m_blockSelectionChange = false;
+        return;
+    }
+    
+    // Check if multiple broken files are selected
+    if (hasBroken) {
+        int brokenCount = 0;
+        for (QTreeWidgetItem* item : selectedItems) {
+            if (isItemBroken(item)) {
+                brokenCount++;
+            }
+        }
+        
+        if (brokenCount > 1) {
+            // Multiple broken files not allowed
+            qDebug() << "Operations_VP_Shows: Multiple broken files selection not allowed";
+            
+            m_blockSelectionChange = true;
+            
+            // Keep only the last selected item
+            QTreeWidgetItem* currentItem = treeWidget->currentItem();
+            treeWidget->clearSelection();
+            if (currentItem) {
+                currentItem->setSelected(true);
+            }
+            
+            m_blockSelectionChange = false;
+        }
+    }
+}
+
+// Slot for tree widget selection changes
+void Operations_VP_Shows::onTreeSelectionChanged()
+{
+    enforceSelectionRestrictions();
+}
+
+// Delete all broken videos from the broken category
+void Operations_VP_Shows::deleteBrokenVideosFromCategory()
+{
+    qDebug() << "Operations_VP_Shows: Delete all broken videos from category";
+    
+    if (!m_contextMenuTreeItem || !isBrokenCategory(m_contextMenuTreeItem)) {
+        qDebug() << "Operations_VP_Shows: Not a broken category item";
+        return;
+    }
+    
+    // Collect all broken file paths
+    QStringList brokenFilePaths;
+    for (int i = 0; i < m_contextMenuTreeItem->childCount(); ++i) {
+        QTreeWidgetItem* child = m_contextMenuTreeItem->child(i);
+        QString filePath = child->data(0, Qt::UserRole).toString();
+        if (!filePath.isEmpty()) {
+            brokenFilePaths.append(filePath);
+        }
+    }
+    
+    if (brokenFilePaths.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No broken files to delete";
+        return;
+    }
+    
+    // Confirm deletion
+    int fileCount = brokenFilePaths.size();
+    QString message = tr("You are about to delete %1 broken video file%2.\n\n"
+                         "These files have corrupted metadata headers and cannot be played.\n\n"
+                         "Are you sure you want to delete them?")
+                      .arg(fileCount)
+                      .arg(fileCount > 1 ? "s" : "");
+    
+    int result = QMessageBox::question(m_mainWindow,
+                                      tr("Delete Broken Videos"),
+                                      message,
+                                      QMessageBox::No | QMessageBox::Yes,
+                                      QMessageBox::No);
+    
+    if (result != QMessageBox::Yes) {
+        qDebug() << "Operations_VP_Shows: User cancelled deletion of broken videos";
+        return;
+    }
+    
+    // Delete the files
+    int successCount = 0;
+    int failCount = 0;
+    
+    for (const QString& filePath : brokenFilePaths) {
+        if (QFile::remove(filePath)) {
+            successCount++;
+            qDebug() << "Operations_VP_Shows: Deleted broken file:" << filePath;
+        } else {
+            failCount++;
+            qDebug() << "Operations_VP_Shows: Failed to delete broken file:" << filePath;
+        }
+    }
+    
+    if (failCount > 0) {
+        QMessageBox::warning(m_mainWindow,
+                           tr("Partial Success"),
+                           tr("Deleted %1 broken file%2.\n"
+                              "Failed to delete %3 file%4.")
+                           .arg(successCount).arg(successCount != 1 ? "s" : "")
+                           .arg(failCount).arg(failCount != 1 ? "s" : ""));
+    }
+    
+    // Refresh the episode list
+    if (successCount > 0) {
+        loadShowEpisodes(m_currentShowFolder);
+    }
+}
+
+// Placeholder for repair functionality
+void Operations_VP_Shows::repairBrokenVideo()
+{
+    qDebug() << "Operations_VP_Shows: Repair broken video - NOT YET IMPLEMENTED";
+    
+    QMessageBox::information(m_mainWindow,
+                            tr("Feature Not Available"),
+                            tr("The repair functionality will be implemented in a future update.\n\n"
+                               "This feature will attempt to recover or rebuild the corrupted metadata header."));
+}
+
+// Debug function to corrupt a video's metadata (for testing)
+void Operations_VP_Shows::corruptVideoMetadata()
+{
+#ifdef QT_DEBUG
+    qDebug() << "Operations_VP_Shows: DEBUG - Corrupt video metadata";
+    
+    if (m_contextMenuEpisodePaths.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No episode selected for corruption";
+        return;
+    }
+    
+    QString videoPath = m_contextMenuEpisodePaths.first();
+    
+    // Confirm this debug action
+    int result = QMessageBox::warning(m_mainWindow,
+                                     tr("DEBUG: Corrupt Metadata"),
+                                     tr("This DEBUG function will intentionally corrupt the metadata header of:\n\n%1\n\n"
+                                        "The file will become unplayable and appear in the Broken category.\n\n"
+                                        "This is for testing purposes only. Continue?")
+                                     .arg(QFileInfo(videoPath).fileName()),
+                                     QMessageBox::No | QMessageBox::Yes,
+                                     QMessageBox::No);
+    
+    if (result != QMessageBox::Yes) {
+        qDebug() << "Operations_VP_Shows: User cancelled metadata corruption";
+        return;
+    }
+    
+    // Open the file and corrupt the metadata header
+    QFile file(videoPath);
+    if (!file.open(QIODevice::ReadWrite)) {
+        qDebug() << "Operations_VP_Shows: Failed to open file for corruption:" << file.errorString();
+        QMessageBox::critical(m_mainWindow, tr("Error"), 
+                            tr("Failed to open file for metadata corruption."));
+        return;
+    }
+    
+    // The metadata is stored in a fixed-size block at the beginning
+    // We'll corrupt it by writing random data to the metadata area
+    const int corruptSize = 100;  // Corrupt first 100 bytes of metadata
+    QByteArray randomData(corruptSize, 0);
+    
+    // Generate random bytes
+    for (int i = 0; i < corruptSize; ++i) {
+        randomData[i] = static_cast<char>(QRandomGenerator::global()->bounded(256));
+    }
+    
+    // Skip the magic number position (first 4 bytes) to make corruption more obvious
+    file.seek(4);
+    qint64 written = file.write(randomData);
+    file.close();
+    
+    if (written != corruptSize) {
+        qDebug() << "Operations_VP_Shows: Failed to write corruption data";
+        QMessageBox::critical(m_mainWindow, tr("Error"), 
+                            tr("Failed to corrupt metadata."));
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Successfully corrupted metadata for:" << videoPath;
+    QMessageBox::information(m_mainWindow,
+                           tr("DEBUG: Success"),
+                           tr("Metadata has been corrupted successfully.\n\n"
+                              "The file will now appear in the Broken category."));
+    
+    // Refresh the episode list to show the file in broken category
+    loadShowEpisodes(m_currentShowFolder);
+#else
+    // This function is not available in release builds
+    qDebug() << "Operations_VP_Shows: Corrupt metadata function is only available in debug builds";
+#endif
 }
 
 void Operations_VP_Shows::playEpisodeFromContextMenu()
