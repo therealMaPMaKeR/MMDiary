@@ -11,8 +11,8 @@ Features
 Encrypted diary entries: Keep your thoughts private with AES-256-GCM encryption
 Task management: Organize your tasks with customizable lists and notifications
 Password manager: Securely store and manage your passwords
-System tray integration: Minimize to tray for convenient access
-Dark theme: Easy on the eyes for extended use
+Data Encryptor: Allows you to encrypt any file you want and features a secure delete option with 3 passes.
+Encrypted Video Player: Currently only supports tv shows, will implement movies and more later on. 
 
 Architecture
 MMDiary is built with the following technologies:
@@ -62,11 +62,11 @@ This project supports TMDB (The Movie Database) for automatic TV show metadata.
 
 ### Setup for Developers:
 1. Get a free API key from [TMDB](https://www.themoviedb.org/settings/api)
-2. Copy `tmdb_api_key_TEMPLATE.txt` to `tmdb_api_key.txt`
+2. Rename `tmdb_api_key_TEMPLATE.h` to `tmdb_api_key.h`
 3. Replace the placeholder with your Read Access Token (Bearer token)
 4. Recompile the application - the key will be embedded in your binary
 
-Note: The `tmdb_api_key.txt` file is gitignored. Never commit your actual API key.
+Note: The `tmdb_api_key.h` file is gitignored. Never commit your actual API key.
 Each developer needs their own TMDB API key.
 
 
@@ -78,25 +78,25 @@ PBKDF2 key derivation: Password-based keys are derived using 1,000,000 iteration
 In-memory protection: Encryption keys are securely wiped from memory when the application exits
 Input validation: Comprehensive validation prevents injection attacks and other security issues
 Path traversal protection: Strict file path validation prevents directory traversal attacks
+Temp files are stored in the app's folder, making it easy to have peace of mind that no decrypted file remains on disk.
+Uses secure delete when deleting temporarily decrypted files.
 
 Data Storage
 User data is stored in the following locations:
 
-Database: ./Data/MMDiary.db - Contains user accounts and settings
+Database: ./Data/MMDiary.db - Contains user accounts.
+Database: ./Data/[username]/settings.db - Contains user settings.
+Database: ./Data/[username]/persistent.db - Contains persistent settings (window location, size, etc)
 Diary entries: ./Data/[username]/Diaries/[year]/[month]/[day]/*.txt - Encrypted diary files
 Task lists: ./Data/[username]/TaskLists/*.txt - Encrypted task list files
-Passwords: ./Data/[username]/passwords.txt - Encrypted password storage
+Passwords: ./Data/[username]/Passwords/passwords.txt - Encrypted password storage
+Encrypted Data: ./Data/[username]/EncryptedData/(Archives/Document/Image/Video) - Stores data encrypted by the user.
+Videoplayer: ./Data/[username]/Videoplayer/Shows - Stores imported tv shows. (encrypted)
+Temp files: ./Data/[username]/Temp and ./Data/[username]/Temp/tempdecrypt - stores temp files.
+
 
 All files are encrypted using AES-256-GCM with user-specific keys.
-Key Classes
 
-MainWindow: Main application window and controller
-Operations_Diary: Diary entry management
-Operations_TaskLists: Task management
-Operations_PasswordManager: Password storage and retrieval
-CryptoUtils: Encryption and cryptographic operations
-DatabaseManager: SQLite database interface
-InputValidation: User input validation and security
 
 Contributing
 I am not accepting contributions right now since the project is personal and I want to retain full control over it.
@@ -109,6 +109,7 @@ Acknowledgments
 
 Qt for their excellent framework
 OpenSSL for cryptographic functionality
+TMDB for their api that I use to retrieve information about tv shows and movies, such as posters and descriptions.
 My brother H1nj0 for his interest in this personal app of mine.
 
 
