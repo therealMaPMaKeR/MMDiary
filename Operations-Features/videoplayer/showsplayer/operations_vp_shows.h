@@ -107,6 +107,8 @@ private:
     QTreeWidgetItem* determineEpisodeToPlay();
 
 
+
+
 public:
     explicit Operations_VP_Shows(MainWindow* mainWindow);
     ~Operations_VP_Shows();
@@ -237,7 +239,8 @@ public:
     bool m_dialogSkipIntro;
     bool m_dialogSkipOutro;
     bool m_dialogUseTMDB;
-    
+    QString m_dialogShowName;
+
     // Store the import output path for use in onEncryptionComplete
     QString m_currentImportOutputPath;
     

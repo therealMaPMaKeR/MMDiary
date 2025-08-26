@@ -9,6 +9,7 @@ class VP_ShowsSettings
 public:
     // Structure to hold show-specific settings
     struct ShowSettings {
+        QString showName;            // Show name stored in settings file
         bool skipIntro = false;      // Skip intro for episodes
         bool skipOutro = false;      // Skip outro for episodes
         bool autoplay = true;        // Changed default to true

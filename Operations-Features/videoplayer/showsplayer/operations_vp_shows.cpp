@@ -418,6 +418,7 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
     bool skipOutro = addDialog.isSkipOutroEnabled();
     
     // Store dialog settings for use in onEncryptionComplete
+    m_dialogShowName = showName;
     m_dialogAutoplay = autoplay;
     m_dialogSkipIntro = skipIntro;
     m_dialogSkipOutro = skipOutro;
@@ -513,6 +514,7 @@ void Operations_VP_Shows::importTVShow()
     bool skipOutro = addDialog.isSkipOutroEnabled();
     
     // Store dialog settings for use in onEncryptionComplete
+    m_dialogShowName = showName;
     m_dialogAutoplay = autoplay;
     m_dialogSkipIntro = skipIntro;
     m_dialogSkipOutro = skipOutro;
@@ -919,6 +921,7 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                 
                 // Create settings with values from dialog (stored when dialog was accepted)
                 VP_ShowsSettings::ShowSettings settings;
+                settings.showName = m_dialogShowName;  // Save the show name
                 settings.autoplay = m_dialogAutoplay;
                 settings.skipIntro = m_dialogSkipIntro;
                 settings.skipOutro = m_dialogSkipOutro;
@@ -1255,53 +1258,90 @@ void Operations_VP_Shows::loadTVShowsList()
     
     qDebug() << "Operations_VP_Shows: Found" << showFolders.size() << "show folders";
     
-    // Create metadata manager for reading show metadata
+    // Create managers for reading settings and metadata
+    VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
     VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
     
     // Process each show folder
     for (const QString& folderName : showFolders) {
         QString folderPath = showsDir.absoluteFilePath(folderName);
         QDir showFolder(folderPath);
+        QString showName;
         
-        // Find the first video file in this folder to read its metadata
-        QStringList videoExtensions;
-        videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
+        // First, try to load the show name from settings file
+        VP_ShowsSettings::ShowSettings settings;
+        bool hasShowNameFromSettings = false;
         
-        showFolder.setNameFilters(videoExtensions);
-        QStringList videoFiles = showFolder.entryList(QDir::Files);
-        
-        if (videoFiles.isEmpty()) {
-            qDebug() << "Operations_VP_Shows: No video files found in folder:" << folderName;
-            continue;
+        if (settingsManager.loadShowSettings(folderPath, settings)) {
+            if (!settings.showName.isEmpty()) {
+                showName = settings.showName;
+                hasShowNameFromSettings = true;
+                qDebug() << "Operations_VP_Shows: Found show from settings:" << showName;
+            }
         }
         
-        // Try to read metadata from the first video file
-        QString firstVideoPath = showFolder.absoluteFilePath(videoFiles.first());
-        VP_ShowsMetadata::ShowMetadata metadata;
-        
-        if (metadataManager.readMetadataFromFile(firstVideoPath, metadata)) {
-            // Successfully read metadata, check if it has the Show field
-            if (!metadata.showName.isEmpty()) {
-                qDebug() << "Operations_VP_Shows: Found show:" << metadata.showName;
-                
-                // Add the show name to the list widget
-                QListWidgetItem* item = new QListWidgetItem();
-                
-                // Store the folder path as user data for later use (when playing videos)
-                item->setData(Qt::UserRole, folderPath);
-                
-                // Store the mapping in RAM for quick access
-                m_showFolderMapping[metadata.showName] = folderPath;
-                
-                // Set up the item based on current view mode
-                refreshShowListItem(item, metadata.showName, folderPath);
-                
-                m_mainWindow->ui->listWidget_VP_List_List->addItem(item);
-            } else {
-                qDebug() << "Operations_VP_Shows: Show name is empty in metadata for folder:" << folderName;
+        // If no show name in settings, fall back to reading from video metadata
+        if (!hasShowNameFromSettings) {
+            qDebug() << "Operations_VP_Shows: No show name in settings for folder:" << folderName;
+            qDebug() << "Operations_VP_Shows: Attempting to read from video metadata";
+            
+            // Find video files in this folder
+            QStringList videoExtensions;
+            videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
+            
+            showFolder.setNameFilters(videoExtensions);
+            QStringList videoFiles = showFolder.entryList(QDir::Files);
+            
+            if (videoFiles.isEmpty()) {
+                qDebug() << "Operations_VP_Shows: No video files found in folder:" << folderName;
+                continue;
             }
-        } else {
-            qDebug() << "Operations_VP_Shows: Failed to read metadata from file:" << firstVideoPath;
+            
+            // Try each video file until we find one with valid metadata
+            bool foundValidMetadata = false;
+            for (const QString& videoFile : videoFiles) {
+                QString videoPath = showFolder.absoluteFilePath(videoFile);
+                VP_ShowsMetadata::ShowMetadata metadata;
+                
+                if (metadataManager.readMetadataFromFile(videoPath, metadata)) {
+                    if (!metadata.showName.isEmpty()) {
+                        showName = metadata.showName;
+                        foundValidMetadata = true;
+                        qDebug() << "Operations_VP_Shows: Found show from video metadata:" << showName;
+                        qDebug() << "Operations_VP_Shows: Read from file:" << videoFile;
+                        
+                        // Save the show name to settings for future use
+                        settings.showName = showName;
+                        if (!settingsManager.saveShowSettings(folderPath, settings)) {
+                            qDebug() << "Operations_VP_Shows: Warning - Failed to save show name to settings";
+                        }
+                        break;
+                    }
+                }
+            }
+            
+            if (!foundValidMetadata) {
+                qDebug() << "Operations_VP_Shows: Could not read show name from any video in folder:" << folderName;
+                qDebug() << "Operations_VP_Shows: This folder may contain only corrupted videos";
+                continue;
+            }
+        }
+        
+        // Add the show to the list if we have a valid name
+        if (!showName.isEmpty()) {
+            // Add the show name to the list widget
+            QListWidgetItem* item = new QListWidgetItem();
+            
+            // Store the folder path as user data for later use (when playing videos)
+            item->setData(Qt::UserRole, folderPath);
+            
+            // Store the mapping in RAM for quick access
+            m_showFolderMapping[showName] = folderPath;
+            
+            // Set up the item based on current view mode
+            refreshShowListItem(item, showName, folderPath);
+            
+            m_mainWindow->ui->listWidget_VP_List_List->addItem(item);
         }
     }
     

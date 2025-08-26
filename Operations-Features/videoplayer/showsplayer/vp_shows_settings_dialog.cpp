@@ -903,6 +903,12 @@ void VP_ShowsSettingsDialog::loadShowSettings()
         // So this block only executes on actual errors
     }
     
+    // If settings don't have show name yet, set it now
+    if (m_currentSettings.showName.isEmpty()) {
+        m_currentSettings.showName = m_showName;
+        qDebug() << "VP_ShowsSettingsDialog: Settings didn't have show name, setting it to:" << m_showName;
+    }
+    
     // Update UI with loaded settings
     ui->checkBox_Autoplay->setChecked(m_currentSettings.autoplay);
     ui->checkBox_SkipIntro->setChecked(m_currentSettings.skipIntro);
@@ -953,6 +959,7 @@ void VP_ShowsSettingsDialog::saveShowSettings()
     }
     
     // Update settings from UI
+    m_currentSettings.showName = m_showName;  // Preserve the show name
     m_currentSettings.autoplay = ui->checkBox_Autoplay->isChecked();
     m_currentSettings.skipIntro = ui->checkBox_SkipIntro->isChecked();
     m_currentSettings.skipOutro = ui->checkBox_SkipOutro->isChecked();
