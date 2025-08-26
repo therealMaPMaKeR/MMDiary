@@ -650,7 +650,7 @@ void Operations_VP_Shows::importTVShow()
 QStringList Operations_VP_Shows::findVideoFiles(const QString& folderPath, bool recursive)
 {
     QStringList videoFiles;
-    QStringList videoExtensions = {"mmvid"}; // Custom extension for encrypted video files
+    QStringList videoExtensions = {"mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp"}; // Regular video extensions for import
     
     QDirIterator::IteratorFlags flags = QDirIterator::NoIteratorFlags;
     if (recursive) {
@@ -3495,8 +3495,7 @@ void Operations_VP_Shows::decryptAndExportShow()
     // Count seasons and episodes
     QDir showDir(m_contextMenuShowPath);
     QStringList videoExtensions;
-    videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
-                   << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+    videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
     showDir.setNameFilters(videoExtensions);
     QStringList videoFiles = showDir.entryList(QDir::Files);
     
@@ -4116,6 +4115,59 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
     bool isBroken = isItemBroken(clickedItem);
     bool isBrokenCat = isBrokenCategory(clickedItem);
     
+    // Special handling for broken category - only show "Delete broken files" option
+    if (isBrokenCat) {
+        qDebug() << "Operations_VP_Shows: Showing context menu for broken category";
+        
+        // Create simplified context menu for broken category
+        QMenu* contextMenu = new QMenu(m_mainWindow);
+        
+        // Only add "Delete broken files" action
+        QAction* deleteAllAction = contextMenu->addAction(tr("Delete broken files"));
+        deleteAllAction->setIcon(QIcon(":/icons/delete.png"));
+        connect(deleteAllAction, &QAction::triggered, this, &Operations_VP_Shows::deleteBrokenVideosFromCategory);
+        
+        // Show the menu
+        contextMenu->exec(treeWidget->mapToGlobal(pos));
+        contextMenu->deleteLater();
+        return; // Exit early - don't show regular menu
+    }
+    
+    // Special handling for broken items - only show "Repair file" and "Delete file" options
+    if (isBroken) {
+        qDebug() << "Operations_VP_Shows: Showing context menu for broken file";
+        
+        // Store the clicked item for context menu actions (important for delete function)
+        m_contextMenuTreeItem = clickedItem;
+        
+        // Store the episode path for context menu actions
+        m_contextMenuEpisodePaths.clear();
+        m_contextMenuEpisodePath.clear();
+        QString videoPath = clickedItem->data(0, Qt::UserRole).toString();
+        if (!videoPath.isEmpty()) {
+            m_contextMenuEpisodePaths.append(videoPath);
+            m_contextMenuEpisodePath = videoPath;
+        }
+        
+        // Create simplified context menu for broken items
+        QMenu* contextMenu = new QMenu(m_mainWindow);
+        
+        // Add "Repair file" action
+        QAction* repairAction = contextMenu->addAction(tr("Repair file"));
+        repairAction->setIcon(QIcon(":/icons/repair.png"));
+        connect(repairAction, &QAction::triggered, this, &Operations_VP_Shows::repairBrokenVideo);
+        
+        // Add "Delete file" action
+        QAction* deleteAction = contextMenu->addAction(tr("Delete file"));
+        deleteAction->setIcon(QIcon(":/icons/delete.png"));
+        connect(deleteAction, &QAction::triggered, this, &Operations_VP_Shows::deleteEpisodeFromContextMenu);
+        
+        // Show the menu
+        contextMenu->exec(treeWidget->mapToGlobal(pos));
+        contextMenu->deleteLater();
+        return; // Exit early - don't show regular menu
+    }
+    
     // Determine selection type and collect episode paths
     bool isMultiSelection = selectedItems.size() > 1;
     bool hasCategories = false;
@@ -4524,8 +4576,42 @@ void Operations_VP_Shows::deleteBrokenVideosFromCategory()
                            .arg(failCount).arg(failCount != 1 ? "s" : ""));
     }
     
-    // Refresh the episode list
-    if (successCount > 0) {
+    // Check if any video files remain in the show folder
+    if (successCount > 0 && !m_currentShowFolder.isEmpty()) {
+        QDir showDir(m_currentShowFolder);
+        QStringList videoExtensions;
+        videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
+        showDir.setNameFilters(videoExtensions);
+        QStringList remainingVideos = showDir.entryList(QDir::Files);
+        
+        if (remainingVideos.isEmpty()) {
+            // No episodes left, delete the entire show
+            qDebug() << "Operations_VP_Shows: No episodes left after deleting broken files, deleting entire show";
+            
+            // Get the show name
+            QString showName;
+            if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->label_VP_Shows_Display_Name) {
+                showName = m_mainWindow->ui->label_VP_Shows_Display_Name->text();
+            }
+            
+            // Delete the show folder
+            if (!showDir.removeRecursively()) {
+                qDebug() << "Operations_VP_Shows: Failed to remove empty show directory";
+            }
+            
+            // Go back to the shows list
+            if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->stackedWidget_VP_Shows) {
+                m_mainWindow->ui->stackedWidget_VP_Shows->setCurrentIndex(0);
+            }
+            
+            // Refresh the shows list
+            refreshTVShowsList();
+        } else {
+            // Some episodes remain, just refresh the episode list
+            loadShowEpisodes(m_currentShowFolder);
+        }
+    } else if (successCount > 0) {
+        // Just refresh if we don't have the current show folder
         loadShowEpisodes(m_currentShowFolder);
     }
 }
@@ -4948,8 +5034,7 @@ void Operations_VP_Shows::deleteEpisodeFromContextMenu()
         if (!m_currentShowFolder.isEmpty()) {
             QDir showDir(m_currentShowFolder);
             QStringList videoExtensions;
-            videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
-                           << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+            videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
             showDir.setNameFilters(videoExtensions);
             QStringList remainingVideos = showDir.entryList(QDir::Files);
             
