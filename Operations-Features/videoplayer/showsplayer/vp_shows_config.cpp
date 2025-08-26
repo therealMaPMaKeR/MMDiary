@@ -19,18 +19,29 @@ QString VP_ShowsConfig::getTMDBApiKey()
     
     if (apiKey.isEmpty()) {
         qDebug() << "VP_ShowsConfig: No TMDB API key embedded (compile with tmdb_api_key.txt present)";
+        qDebug() << "VP_ShowsConfig: Please ensure tmdb_api_key.txt exists in project root and rebuild";
         return QString();
+    }
+    
+    // Log key details for debugging (without exposing the actual key)
+    qDebug() << "VP_ShowsConfig: API key found, length:" << apiKey.length() << "characters";
+    if (apiKey.startsWith("Bearer ")) {
+        qDebug() << "VP_ShowsConfig: Using Bearer token authentication";
+    } else {
+        qDebug() << "VP_ShowsConfig: Using API key authentication";
     }
     
     // Validate the API key format
     // Bearer tokens can be very long (200+ characters)
-    int maxLength = apiKey.startsWith("Bearer ") || apiKey.length() > 100 ? 512 : 256;
+    // Allow up to 512 characters for Bearer tokens
+    int maxLength = 512;
     
     InputValidation::ValidationResult validationResult = 
         InputValidation::validateInput(apiKey, InputValidation::InputType::PlainText, maxLength);
     
     if (!validationResult.isValid) {
         qDebug() << "VP_ShowsConfig: Invalid API key format:" << validationResult.errorMessage;
+        qDebug() << "VP_ShowsConfig: Key length was:" << apiKey.length();
         return QString();
     }
     
