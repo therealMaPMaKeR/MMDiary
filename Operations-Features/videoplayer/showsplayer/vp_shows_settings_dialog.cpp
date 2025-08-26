@@ -866,6 +866,7 @@ void VP_ShowsSettingsDialog::loadShowSettings()
         ui->checkBox_SkipIntro->setChecked(m_currentSettings.skipIntro);
         ui->checkBox_SkipOutro->setChecked(m_currentSettings.skipOutro);
         ui->checkBox_UseTMDB->setChecked(m_currentSettings.useTMDB);
+        ui->checkBox_AutoFullscreen->setChecked(m_currentSettings.autoFullscreen);
         return;
     }
     
@@ -914,11 +915,13 @@ void VP_ShowsSettingsDialog::loadShowSettings()
     ui->checkBox_SkipIntro->setChecked(m_currentSettings.skipIntro);
     ui->checkBox_SkipOutro->setChecked(m_currentSettings.skipOutro);
     ui->checkBox_UseTMDB->setChecked(m_currentSettings.useTMDB);
+    ui->checkBox_AutoFullscreen->setChecked(m_currentSettings.autoFullscreen);
     
     qDebug() << "VP_ShowsSettingsDialog: Settings loaded - Autoplay:" << m_currentSettings.autoplay
              << "SkipIntro:" << m_currentSettings.skipIntro
              << "SkipOutro:" << m_currentSettings.skipOutro
-             << "UseTMDB:" << m_currentSettings.useTMDB;
+             << "UseTMDB:" << m_currentSettings.useTMDB
+             << "AutoFullscreen:" << m_currentSettings.autoFullscreen;
 }
 
 void VP_ShowsSettingsDialog::saveShowSettings()
@@ -964,11 +967,13 @@ void VP_ShowsSettingsDialog::saveShowSettings()
     m_currentSettings.skipIntro = ui->checkBox_SkipIntro->isChecked();
     m_currentSettings.skipOutro = ui->checkBox_SkipOutro->isChecked();
     m_currentSettings.useTMDB = ui->checkBox_UseTMDB->isChecked();
+    m_currentSettings.autoFullscreen = ui->checkBox_AutoFullscreen->isChecked();
     
     qDebug() << "VP_ShowsSettingsDialog: Settings to save - Autoplay:" << m_currentSettings.autoplay
              << "SkipIntro:" << m_currentSettings.skipIntro
              << "SkipOutro:" << m_currentSettings.skipOutro
-             << "UseTMDB:" << m_currentSettings.useTMDB;
+             << "UseTMDB:" << m_currentSettings.useTMDB
+             << "AutoFullscreen:" << m_currentSettings.autoFullscreen;
     
     // Create settings manager
     VP_ShowsSettings settingsManager(encryptionKey, username);

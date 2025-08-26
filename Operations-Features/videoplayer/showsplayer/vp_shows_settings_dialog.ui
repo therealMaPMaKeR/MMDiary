@@ -59,6 +59,13 @@
       </widget>
      </item>
      <item>
+      <widget class="QCheckBox" name="checkBox_AutoFullscreen">
+       <property name="text">
+        <string>Auto Fullscreen</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QPushButton" name="pushButton_ResetWatchHistory">
        <property name="text">
         <string>Reset Watch History</string>

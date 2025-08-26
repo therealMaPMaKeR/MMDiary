@@ -14,6 +14,7 @@ public:
         bool skipOutro = false;      // Skip outro for episodes
         bool autoplay = true;        // Changed default to true
         bool useTMDB = true;         // New field for TMDB usage
+        bool autoFullscreen = true;  // Auto fullscreen when playing episodes
         
         // Additional settings can be added here in the future
         // For example:

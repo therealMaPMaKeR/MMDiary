@@ -64,7 +64,8 @@ bool VP_ShowsSettings::loadShowSettings(const QString& showFolderPath, ShowSetti
     qDebug() << "VP_ShowsSettings: Successfully loaded settings - ShowName:"
              << settings.showName << "SkipIntro:" 
              << settings.skipIntro << "SkipOutro:" << settings.skipOutro 
-             << "Autoplay:" << settings.autoplay << "UseTMDB:" << settings.useTMDB;
+             << "Autoplay:" << settings.autoplay << "UseTMDB:" << settings.useTMDB
+             << "AutoFullscreen:" << settings.autoFullscreen;
     return true;
 }
 
@@ -74,7 +75,8 @@ bool VP_ShowsSettings::saveShowSettings(const QString& showFolderPath, const Sho
     qDebug() << "VP_ShowsSettings: Settings - ShowName:" << settings.showName
              << "SkipIntro:" << settings.skipIntro 
              << "SkipOutro:" << settings.skipOutro 
-             << "Autoplay:" << settings.autoplay << "UseTMDB:" << settings.useTMDB;
+             << "Autoplay:" << settings.autoplay << "UseTMDB:" << settings.useTMDB
+             << "AutoFullscreen:" << settings.autoFullscreen;
     
     // Validate folder path
     if (showFolderPath.isEmpty()) {
@@ -154,6 +156,7 @@ QString VP_ShowsSettings::serializeSettings(const ShowSettings& settings) const
     data += QString("skipOutro=%1\n").arg(settings.skipOutro ? "true" : "false");
     data += QString("autoplay=%1\n").arg(settings.autoplay ? "true" : "false");
     data += QString("useTMDB=%1\n").arg(settings.useTMDB ? "true" : "false");
+    data += QString("autoFullscreen=%1\n").arg(settings.autoFullscreen ? "true" : "false");
     
     // Add more settings here as needed in the future
     
@@ -184,6 +187,8 @@ bool VP_ShowsSettings::deserializeSettings(const QString& data, ShowSettings& se
             settings.autoplay = (value == "true");
         } else if (key == "useTMDB") {
             settings.useTMDB = (value == "true");
+        } else if (key == "autoFullscreen") {
+            settings.autoFullscreen = (value == "true");
         }
         // Add more settings parsing here as needed
     }
