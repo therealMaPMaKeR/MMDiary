@@ -49,6 +49,9 @@ private:
     // Current decrypted temp file path (for cleanup)
     QString m_currentTempFile;
     
+    // Stores the actual decrypted file path with proper extension from decryptVideoWithMetadata
+    QString m_lastDecryptedFilePath;
+    
     // Flags for tracking import state
     bool m_isUpdatingExistingShow = false;
     int m_originalEpisodeCount = 0;

@@ -1705,8 +1705,7 @@ void VP_ShowsAddDialog::checkForExistingShow(const QString& showName)
         
         // Find the first video file in this folder to read its metadata
         QStringList videoExtensions;
-        videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
-                       << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+        videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
         
         showFolder.setNameFilters(videoExtensions);
         QStringList videoFiles = showFolder.entryList(QDir::Files);

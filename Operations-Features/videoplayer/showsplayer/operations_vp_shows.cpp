@@ -643,8 +643,7 @@ void Operations_VP_Shows::importTVShow()
 QStringList Operations_VP_Shows::findVideoFiles(const QString& folderPath, bool recursive)
 {
     QStringList videoFiles;
-    QStringList videoExtensions = {"mp4", "avi", "mkv", "mov", "wmv", "flv", 
-                                  "webm", "m4v", "mpg", "mpeg", "3gp"};
+    QStringList videoExtensions = {"mmvid"}; // Custom extension for encrypted video files
     
     QDirIterator::IteratorFlags flags = QDirIterator::NoIteratorFlags;
     if (recursive) {
@@ -700,8 +699,7 @@ bool Operations_VP_Shows::checkForExistingShow(const QString& showName, const QS
         
         // Find the first video file in this folder to read its metadata
         QStringList videoExtensions;
-        videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
-                       << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+        videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
         
         showFolder.setNameFilters(videoExtensions);
         QStringList videoFiles = showFolder.entryList(QDir::Files);
@@ -804,7 +802,9 @@ QStringList Operations_VP_Shows::filterNewEpisodes(const QStringList& candidateF
 
 QString Operations_VP_Shows::generateRandomFileName(const QString& extension)
 {
-    // Generate a random filename with the original extension
+    Q_UNUSED(extension); // We'll always use .mmvid now for encrypted videos
+    
+    // Generate a random filename with the custom .mmvid extension
     const QString chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     const int nameLength = 32;
     
@@ -814,11 +814,8 @@ QString Operations_VP_Shows::generateRandomFileName(const QString& extension)
         randomName.append(chars.at(index));
     }
     
-    // Add extension if provided
-    if (!extension.isEmpty()) {
-        return randomName + "." + extension;
-    }
-    return randomName;
+    // Always add .mmvid extension for encrypted video files
+    return randomName + ".mmvid";
 }
 
 bool Operations_VP_Shows::createShowFolderStructure(QString& outputPath)
@@ -1828,11 +1825,10 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     // Set header for the tree widget
     m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->setHeaderLabel(tr("Episodes"));
     
-    // Get all video files in the folder
+    // Get all video files in the folder (now using .mmvid extension)
     QDir showDir(showFolderPath);
     QStringList videoExtensions;
-    videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
-                   << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+    videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
     showDir.setNameFilters(videoExtensions);
     QStringList videoFiles = showDir.entryList(QDir::Files, QDir::Name);
     
@@ -2567,17 +2563,20 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         return;
     }
     
-    // Get the file extension from the encrypted file
-    QFileInfo fileInfo(encryptedFilePath);
-    QString extension = fileInfo.suffix().toLower();
+    // For decryption, we'll need to get the actual extension from metadata
+    // For now, generate a temp name without knowing the extension
+    // The actual extension will be determined after reading metadata
+    QString tempRandomName = generateRandomFileName("");
+    // Remove the .mmvid extension we just added
+    tempRandomName = tempRandomName.left(tempRandomName.lastIndexOf('.'));
     
-    // Generate a random filename for the decrypted file
-    QString randomName = generateRandomFileName(extension);
-    QString decryptedFilePath = QDir(tempDecryptPath).absoluteFilePath(randomName);
+    // We'll determine the actual extension after reading metadata
+    QString decryptedFilePath = QDir(tempDecryptPath).absoluteFilePath(tempRandomName);
     
-    qDebug() << "Operations_VP_Shows: Decrypting to:" << decryptedFilePath;
+    qDebug() << "Operations_VP_Shows: Base decrypt path:" << decryptedFilePath;
     
     // Decrypt the file with metadata handling
+    // Note: decryptVideoWithMetadata will append the proper extension and store the actual path in m_lastDecryptedFilePath
     bool decryptSuccess = decryptVideoWithMetadata(encryptedFilePath, decryptedFilePath);
     
     if (!decryptSuccess) {
@@ -2706,9 +2705,13 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     // Start tracking with the integration layer after loading but before playing
     // We'll set this up after the video loads successfully
     
-    // Load and play the video
-    qDebug() << "Operations_VP_Shows: Loading decrypted video:" << decryptedFilePath;
-    if (m_episodePlayer->loadVideo(decryptedFilePath)) {
+    // Store the actual decrypted file path (with proper extension) for cleanup
+    m_currentTempFile = m_lastDecryptedFilePath;
+    qDebug() << "Operations_VP_Shows: Actual decrypted file with extension:" << m_currentTempFile;
+    
+    // Load and play the video using the actual decrypted file path
+    qDebug() << "Operations_VP_Shows: Loading decrypted video:" << m_lastDecryptedFilePath;
+    if (m_episodePlayer->loadVideo(m_lastDecryptedFilePath)) {
         // Show the window first
         m_episodePlayer->show();
         
@@ -2770,13 +2773,6 @@ bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, co
         return false;
     }
     
-    QFile target(targetFile);
-    if (!target.open(QIODevice::WriteOnly)) {
-        qDebug() << "Operations_VP_Shows: Failed to open target file:" << target.errorString();
-        source.close();
-        return false;
-    }
-    
     // Create metadata manager to read the metadata
     VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
     
@@ -2785,13 +2781,31 @@ bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, co
     if (!metadataManager.readFixedSizeEncryptedMetadata(&source, metadata)) {
         qDebug() << "Operations_VP_Shows: Failed to read metadata from encrypted file";
         source.close();
-        target.close();
-        target.remove();
         return false;
     }
     
     qDebug() << "Operations_VP_Shows: Read metadata - Show:" << metadata.showName 
-             << "Episode:" << metadata.EPName;
+             << "Episode:" << metadata.EPName << "Original filename:" << metadata.filename;
+    
+    // Extract the actual file extension from the original filename in metadata
+    QString actualExtension;
+    if (!metadata.filename.isEmpty()) {
+        QFileInfo originalFileInfo(metadata.filename);
+        actualExtension = originalFileInfo.suffix();
+    }
+    
+    // Update target filename with the actual extension
+    QString actualTargetFile = targetFile;
+    if (!actualExtension.isEmpty()) {
+        actualTargetFile = targetFile + "." + actualExtension;
+    }
+    
+    QFile target(actualTargetFile);
+    if (!target.open(QIODevice::WriteOnly)) {
+        qDebug() << "Operations_VP_Shows: Failed to open target file:" << target.errorString();
+        source.close();
+        return false;
+    }
     
     // Skip past metadata (already read) - the metadata is METADATA_RESERVED_SIZE bytes
     source.seek(VP_ShowsMetadata::METADATA_RESERVED_SIZE);
@@ -2858,7 +2872,10 @@ bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, co
     source.close();
     target.close();
     
-    qDebug() << "Operations_VP_Shows: Successfully decrypted video to:" << targetFile;
+    // Store the actual decrypted file path in the member variable for the caller
+    m_lastDecryptedFilePath = actualTargetFile;
+    
+    qDebug() << "Operations_VP_Shows: Successfully decrypted video to:" << actualTargetFile;
     return true;
 }
 
@@ -3064,8 +3081,7 @@ void Operations_VP_Shows::addEpisodesToShow()
     // Find the first video file in the show folder to get its metadata
     QDir showDir(showPath);
     QStringList videoExtensions;
-    videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
-                   << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+    videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
     showDir.setNameFilters(videoExtensions);
     QStringList existingVideos = showDir.entryList(QDir::Files);
     
@@ -3467,11 +3483,10 @@ bool Operations_VP_Shows::exportShowEpisodes(const QString& showFolderPath, cons
     QString showExportPath = exportDir.absoluteFilePath(showFolderName);
     QDir showExportDir(showExportPath);
     
-    // Get all video files
+    // Get all video files (now using .mmvid extension)
     QDir showDir(showFolderPath);
     QStringList videoExtensions;
-    videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
-                   << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+    videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
     showDir.setNameFilters(videoExtensions);
     QStringList videoFiles = showDir.entryList(QDir::Files);
     
@@ -3651,11 +3666,10 @@ void Operations_VP_Shows::performExportWithWorker(const QString& showFolderPath,
     QString showExportPath = exportDir.absoluteFilePath(showFolderName);
     QDir showExportDir(showExportPath);
     
-    // Get all video files
+    // Get all video files (now using .mmvid extension)
     QDir showDir(showFolderPath);
     QStringList videoExtensions;
-    videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
-                   << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+    videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
     showDir.setNameFilters(videoExtensions);
     QStringList videoFiles = showDir.entryList(QDir::Files);
     
