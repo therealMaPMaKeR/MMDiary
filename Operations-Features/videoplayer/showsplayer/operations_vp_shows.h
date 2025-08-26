@@ -119,9 +119,6 @@ public:
     // Refresh the TV shows list (public version that can be called from outside)
     void refreshTVShowsList();
     
-    // Open TMDB setup dialog
-    void openSettings();
-    
     // Open show-specific settings dialog
     void openShowSettings();
     

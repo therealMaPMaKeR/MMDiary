@@ -130,10 +130,17 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
         return;
     }
     
+    // Check if TMDB API key was embedded at compile time
+    if (!VP_ShowsConfig::hasApiKey()) {
+        qDebug() << "VP_ShowsSettingsDialog: No TMDB API key embedded, disabling TMDB integration";
+        qDebug() << "VP_ShowsSettingsDialog: Recompile with tmdb_api_key.txt present to enable TMDB";
+        return;
+    }
+    
     // Get TMDB API key
     QString apiKey = VP_ShowsConfig::getTMDBApiKey();
     if (apiKey.isEmpty()) {
-        qDebug() << "VP_ShowsSettingsDialog: No TMDB API key configured, skipping autofill setup";
+        qDebug() << "VP_ShowsSettingsDialog: TMDB API key file is empty or invalid, skipping autofill setup";
         return;
     }
     

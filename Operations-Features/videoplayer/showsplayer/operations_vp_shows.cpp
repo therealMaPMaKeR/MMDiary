@@ -4,7 +4,6 @@
 #include "VP_Shows_Videoplayer.h"
 #include "vp_shows_progressdialogs.h"
 #include "vp_shows_metadata.h"
-#include "vp_shows_tmdbsetup.h"
 #include "vp_shows_settings_dialog.h"
 #include "vp_shows_add_dialog.h"
 #include "vp_shows_edit_metadata_dialog.h"
@@ -57,9 +56,9 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     , m_encryptionDialog(nullptr)
     , m_watchHistory(nullptr)
     , m_playbackTracker(nullptr)
+    , m_searchDebounceTimer(nullptr)
     , m_isAutoplayInProgress(false)
     , m_episodeWasNearCompletion(false)
-    , m_searchDebounceTimer(nullptr)
 {
     qDebug() << "Operations_VP_Shows: Constructor called";
     qDebug() << "Operations_VP_Shows: Autoplay system initialized";
@@ -1357,23 +1356,6 @@ QPixmap Operations_VP_Shows::loadShowPoster(const QString& showFolderPath, const
     return scaledPoster;
 }
 
-void Operations_VP_Shows::openSettings()
-{
-    qDebug() << "Operations_VP_Shows: Opening TMDB setup dialog";
-    
-    VP_Shows_TMDBSetup tmdbSetupDialog(m_mainWindow);
-    
-    // Show the dialog modally
-    if (tmdbSetupDialog.exec() == QDialog::Accepted) {
-        qDebug() << "Operations_VP_Shows: TMDB settings saved";
-        
-        // Optionally refresh the shows list in case TMDB settings changed
-        // This would be relevant if we display TMDB-sourced data in the list
-        // For now, we just log that settings were saved
-    } else {
-        qDebug() << "Operations_VP_Shows: TMDB setup dialog cancelled";
-    }
-}
 
 void Operations_VP_Shows::openShowSettings()
 {

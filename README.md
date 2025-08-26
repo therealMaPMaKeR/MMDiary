@@ -56,6 +56,20 @@ qmake ../MMDiary.pro
 nmake (or jom if available)
 
 
+## TMDB Integration for Developers
+
+This project supports TMDB (The Movie Database) for automatic TV show metadata.
+
+### Setup for Developers:
+1. Get a free API key from [TMDB](https://www.themoviedb.org/settings/api)
+2. Copy `tmdb_api_key_TEMPLATE.txt` to `tmdb_api_key.txt`
+3. Replace the placeholder with your Read Access Token (Bearer token)
+4. Recompile the application - the key will be embedded in your binary
+
+Note: The `tmdb_api_key.txt` file is gitignored. Never commit your actual API key.
+Each developer needs their own TMDB API key.
+
+
 Security Architecture
 MMDiary employs several security measures to protect user data:
 

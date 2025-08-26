@@ -1,45 +1,48 @@
 #include "vp_shows_config.h"
 #include "../../Operations-Global/operations_files.h"
-#include "../../encryption/CryptoUtils.h"
+#include "../../Operations-Global/inputvalidation.h"
 #include <QDir>
 #include <QDebug>
 #include <QStandardPaths>
+#include <QCoreApplication>
+
+// TMDB_API_KEY is defined at compile time by the .pro file
+// It reads from tmdb_api_key.txt during compilation and embeds the key
+#ifndef TMDB_API_KEY
+    #define TMDB_API_KEY ""
+#endif
 
 QString VP_ShowsConfig::getTMDBApiKey()
 {
-    QSettings settings("MMDiary", "TVShows");
+    // Return the compile-time embedded API key
+    QString apiKey = QString(TMDB_API_KEY);
     
-    // Get encrypted API key from settings
-    QString encryptedKey = settings.value("TMDB/ApiKey", QString()).toString();
-    
-    if (encryptedKey.isEmpty()) {
-        qDebug() << "VP_ShowsConfig: No TMDB API key configured";
+    if (apiKey.isEmpty()) {
+        qDebug() << "VP_ShowsConfig: No TMDB API key embedded (compile with tmdb_api_key.txt present)";
         return QString();
     }
     
-    // For production, you should decrypt the API key here
-    // For now, returning as-is (you should implement proper encryption)
-    // Example: return CryptoUtils::decryptString(encryptedKey, masterKey);
+    // Validate the API key format
+    // Bearer tokens can be very long (200+ characters)
+    int maxLength = apiKey.startsWith("Bearer ") || apiKey.length() > 100 ? 512 : 256;
     
-    return encryptedKey;
-}
-
-void VP_ShowsConfig::setTMDBApiKey(const QString& apiKey)
-{
-    if (apiKey.isEmpty()) {
-        qDebug() << "VP_ShowsConfig: Cannot set empty API key";
-        return;
+    InputValidation::ValidationResult validationResult = 
+        InputValidation::validateInput(apiKey, InputValidation::InputType::PlainText, maxLength);
+    
+    if (!validationResult.isValid) {
+        qDebug() << "VP_ShowsConfig: Invalid API key format:" << validationResult.errorMessage;
+        return QString();
     }
     
-    QSettings settings("MMDiary", "TVShows");
-    
-    // For production, encrypt the API key before storing
-    // Example: QString encryptedKey = CryptoUtils::encryptString(apiKey, masterKey);
-    
-    settings.setValue("TMDB/ApiKey", apiKey);
-    settings.sync();
-    
-    qDebug() << "VP_ShowsConfig: TMDB API key saved";
+    qDebug() << "VP_ShowsConfig: TMDB API key loaded successfully (embedded at compile time)";
+    return apiKey;
+}
+
+bool VP_ShowsConfig::hasApiKey()
+{
+    // Check if API key was embedded at compile time
+    QString apiKey = QString(TMDB_API_KEY);
+    return !apiKey.isEmpty();
 }
 
 bool VP_ShowsConfig::isTMDBEnabled()

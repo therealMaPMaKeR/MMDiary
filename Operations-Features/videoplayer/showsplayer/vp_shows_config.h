@@ -7,11 +7,11 @@
 class VP_ShowsConfig
 {
 public:
-    // Get the TMDB API key (should be stored securely)
+    // Get the TMDB API key (embedded at compile time)
     static QString getTMDBApiKey();
     
-    // Set the TMDB API key (for initial configuration)
-    static void setTMDBApiKey(const QString& apiKey);
+    // Check if TMDB API key is available
+    static bool hasApiKey();
     
     // Check if TMDB integration is enabled
     static bool isTMDBEnabled();

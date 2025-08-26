@@ -1251,10 +1251,7 @@ void MainWindow::on_pushButton_DataENC_SecureDel_clicked()
 //------Video Player Debug Button-----//
 void MainWindow::on_pushButton_Debug_clicked()
 {
-    qDebug() << "MainWindow: Debug button clicked - Testing video player";
-    if (Operations_VP_Shows_ptr) {
-        Operations_VP_Shows_ptr->openSettings();
-    }
+
 }
 
 //------Custom Setting Signals-----//

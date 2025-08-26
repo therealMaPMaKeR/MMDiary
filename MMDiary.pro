@@ -8,6 +8,24 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 CONFIG += c++17
 
+# TMDB API Key Configuration (compile-time embedding)
+# Read API key from file if it exists
+TMDB_KEY_FILE = $$PWD/tmdb_api_key.txt
+exists($TMDB_KEY_FILE) {
+    TMDB_API_KEY = $cat($TMDB_KEY_FILE)
+    # Remove any trailing whitespace or newlines
+    TMDB_API_KEY = $replace(TMDB_API_KEY, \n, )
+    TMDB_API_KEY = $replace(TMDB_API_KEY, \r, )
+    # Define as preprocessor macro (properly escaped)
+    DEFINES += TMDB_API_KEY=\"$TMDB_API_KEY\"
+    message("TMDB API key loaded from tmdb_api_key.txt")
+} else {
+    # No API key file found - TMDB features will be disabled
+    DEFINES += TMDB_API_KEY=\"\"
+    message("Warning: tmdb_api_key.txt not found - TMDB integration will be disabled")
+    message("Create tmdb_api_key.txt from tmdb_api_key.txt.example to enable TMDB")
+}
+
 # Add include paths for project directories
 INCLUDEPATH += $$PWD \
                $$PWD/CustomWidgets \
@@ -89,7 +107,6 @@ SOURCES += \
     Operations-Features/videoplayer/showsplayer/vp_shows_encryptionworkers.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_progressdialogs.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_tmdb.cpp \
-    Operations-Features/videoplayer/showsplayer/vp_shows_tmdbsetup.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_config.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.cpp \
@@ -140,7 +157,6 @@ HEADERS += \
     Operations-Features/videoplayer/showsplayer/vp_shows_encryptionworkers.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_progressdialogs.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_tmdb.h \
-    Operations-Features/videoplayer/showsplayer/vp_shows_tmdbsetup.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_config.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.h \
