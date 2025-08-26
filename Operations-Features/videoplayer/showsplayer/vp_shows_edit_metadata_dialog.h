@@ -21,6 +21,7 @@ public:
     explicit VP_ShowsEditMetadataDialog(const QString& videoFilePath, 
                                        const QByteArray& encryptionKey,
                                        const QString& username,
+                                       bool repairMode = false,
                                        QWidget *parent = nullptr);
     ~VP_ShowsEditMetadataDialog();
 
@@ -55,6 +56,9 @@ private:
     // Load metadata from file
     bool loadMetadata();
     
+    // Initialize empty metadata for repair mode
+    void initializeEmptyMetadata();
+    
     // Populate UI with metadata
     void populateUI();
     
@@ -81,6 +85,7 @@ private:
     VP_ShowsMetadata::ShowMetadata m_originalMetadata;
     
     bool m_wasModified;
+    bool m_repairMode;  // Flag to indicate repair mode
     
     // UI elements that need special handling
     QLabel* m_imagePreviewLabel;

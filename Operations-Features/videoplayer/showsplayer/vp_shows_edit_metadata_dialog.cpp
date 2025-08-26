@@ -13,6 +13,7 @@
 VP_ShowsEditMetadataDialog::VP_ShowsEditMetadataDialog(const QString& videoFilePath,
                                                        const QByteArray& encryptionKey,
                                                        const QString& username,
+                                                       bool repairMode,
                                                        QWidget *parent)
     : QDialog(parent)
     , ui(new Ui::VP_ShowsEditMetadataDialog)
@@ -20,6 +21,7 @@ VP_ShowsEditMetadataDialog::VP_ShowsEditMetadataDialog(const QString& videoFileP
     , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_wasModified(false)
+    , m_repairMode(repairMode)
     , m_imagePreviewLabel(nullptr)
     , m_contentTypeCombo(nullptr)
 {
@@ -34,12 +36,29 @@ VP_ShowsEditMetadataDialog::VP_ShowsEditMetadataDialog(const QString& videoFileP
     // Set file path in read-only label
     ui->label_FilePathValue->setText(videoFilePath);
     
-    // Load metadata from file
-    if (!loadMetadata()) {
-        QMessageBox::critical(this, tr("Error"), 
-                            tr("Failed to load metadata from file."));
-        reject();
-        return;
+    // In repair mode, initialize with empty metadata
+    if (m_repairMode) {
+        qDebug() << "VP_ShowsEditMetadataDialog: Repair mode - initializing empty metadata";
+        
+        // Set window title to indicate repair mode
+        setWindowTitle(tr("Repair Video Metadata"));
+        
+        // Initialize metadata with empty values
+        initializeEmptyMetadata();
+        
+        // Show a message to the user about repair mode
+        QMessageBox::information(this, tr("Repair Mode"),
+                               tr("The metadata header is corrupted.\n\n"
+                                  "Please enter the correct information to recreate the metadata."
+                                  "\n\nThe video content itself is intact."));
+    } else {
+        // Normal mode - load metadata from file
+        if (!loadMetadata()) {
+            QMessageBox::critical(this, tr("Error"), 
+                                tr("Failed to load metadata from file."));
+            reject();
+            return;
+        }
     }
     
     // Populate UI with loaded metadata
@@ -83,6 +102,55 @@ VP_ShowsEditMetadataDialog::~VP_ShowsEditMetadataDialog()
     delete ui;
 }
 
+void VP_ShowsEditMetadataDialog::initializeEmptyMetadata()
+{
+    qDebug() << "VP_ShowsEditMetadataDialog: Initializing empty metadata for repair mode";
+    
+    // Initialize metadata with empty/default values
+    m_metadata = VP_ShowsMetadata::ShowMetadata();
+    
+    // Try to extract show name from the file path
+    // The path is usually: Data/username/TVShows/ShowName/episode.mmvid
+    QString showName;
+    QFileInfo fileInfo(m_videoFilePath);
+    QDir parentDir = fileInfo.dir();
+    if (parentDir.exists()) {
+        showName = parentDir.dirName();
+        qDebug() << "VP_ShowsEditMetadataDialog: Extracted show name from path:" << showName;
+    }
+    
+    // Set some default values
+    m_metadata.showName = showName;
+    m_metadata.filename = fileInfo.fileName();
+    
+    // Remove .mmvid extension from filename if present
+    if (m_metadata.filename.endsWith(".mmvid", Qt::CaseInsensitive)) {
+        m_metadata.filename = m_metadata.filename.left(m_metadata.filename.length() - 6);
+    }
+    
+    // Set default language and translation
+    m_metadata.language = "Japanese";  // Common default for anime content
+    m_metadata.translation = "English";
+    
+    // Set default content type
+    m_metadata.contentType = VP_ShowsMetadata::Regular;
+    m_metadata.isDualDisplay = false;
+    
+    // Set today's date as default air date
+    m_metadata.airDate = QDate::currentDate().toString("yyyy-MM-dd");
+    
+    // EPImage remains empty (no thumbnail)
+    m_metadata.EPImage = QByteArray();
+    
+    // Store as original for comparison (all changes will be considered modifications)
+    m_originalMetadata = m_metadata;
+    
+    // In repair mode, always consider the metadata as modified
+    m_wasModified = true;
+    
+    qDebug() << "VP_ShowsEditMetadataDialog: Empty metadata initialized with show name:" << showName;
+}
+
 bool VP_ShowsEditMetadataDialog::loadMetadata()
 {
     qDebug() << "VP_ShowsEditMetadataDialog: Loading metadata from file";
@@ -121,8 +189,15 @@ void VP_ShowsEditMetadataDialog::populateUI()
     // Basic information
     ui->lineEdit_Filename->setText(m_metadata.filename);
     ui->lineEdit_ShowName->setText(m_metadata.showName);
-    ui->lineEdit_ShowName->setReadOnly(true);  // Show name should not be editable
-    ui->lineEdit_ShowName->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #404040; }");  // Visual indication with dark grey text
+    
+    // In repair mode, allow editing show name; in normal mode, make it read-only
+    if (m_repairMode) {
+        ui->lineEdit_ShowName->setReadOnly(false);
+        ui->lineEdit_ShowName->setStyleSheet("");  // Normal appearance
+    } else {
+        ui->lineEdit_ShowName->setReadOnly(true);  // Show name should not be editable in normal mode
+        ui->lineEdit_ShowName->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #404040; }");  // Visual indication with dark grey text
+    }
     ui->lineEdit_Season->setText(m_metadata.season);
     ui->lineEdit_Episode->setText(m_metadata.episode);
     ui->lineEdit_EPName->setText(m_metadata.EPName);
@@ -390,8 +465,34 @@ bool VP_ShowsEditMetadataDialog::validateInput()
         return false;
     }
     
-    // Show name validation is skipped since it's read-only
-    // The show name should not be changed for individual episodes
+    // Show name validation - only in repair mode since it's editable there
+    if (m_repairMode) {
+        QString showName = ui->lineEdit_ShowName->text().trimmed();
+        if (showName.isEmpty()) {
+            QMessageBox::warning(this, tr("Validation Error"),
+                               tr("Show name cannot be empty."));
+            ui->lineEdit_ShowName->setFocus();
+            return false;
+        }
+        
+        if (showName.length() > VP_ShowsMetadata::MAX_SHOW_NAME_LENGTH) {
+            QMessageBox::warning(this, tr("Validation Error"),
+                               tr("Show name is too long (maximum 100 characters)."));
+            ui->lineEdit_ShowName->setFocus();
+            return false;
+        }
+        
+        InputValidation::ValidationResult showResult = InputValidation::validateInput(
+            showName, InputValidation::InputType::PlainText);
+        
+        if (!showResult.isValid) {
+            QMessageBox::warning(this, tr("Validation Error"),
+                               tr("Invalid show name: %1").arg(showResult.errorMessage));
+            ui->lineEdit_ShowName->setFocus();
+            return false;
+        }
+    }
+    // In normal mode, show name is read-only and doesn't need validation
     
     // Validate episode number if provided
     QString episode = ui->lineEdit_Episode->text().trimmed();
@@ -425,8 +526,16 @@ void VP_ShowsEditMetadataDialog::updateMetadataFromUI()
     
     // Basic information
     m_metadata.filename = ui->lineEdit_Filename->text().trimmed();
-    // Show name is read-only, keep the original value
-    m_metadata.showName = m_originalMetadata.showName;
+    
+    // In repair mode, get show name from UI since it was initialized from file path
+    // In normal mode, keep the original value (read-only)
+    if (m_repairMode) {
+        m_metadata.showName = ui->lineEdit_ShowName->text().trimmed();
+        // Allow editing show name in repair mode
+    } else {
+        // Show name is read-only in normal mode, keep the original value
+        m_metadata.showName = m_originalMetadata.showName;
+    }
     m_metadata.season = ui->lineEdit_Season->text().trimmed();
     m_metadata.episode = ui->lineEdit_Episode->text().trimmed();
     m_metadata.EPName = ui->lineEdit_EPName->text().trimmed();
@@ -511,11 +620,14 @@ void VP_ShowsEditMetadataDialog::accept()
         return;
     }
     
-    // Check for modifications
-    checkForModifications();
+    // In repair mode, always save (recreate metadata)
+    // In normal mode, check for modifications first
+    if (!m_repairMode) {
+        checkForModifications();
+    }
     
-    if (m_wasModified) {
-        qDebug() << "VP_ShowsEditMetadataDialog: Saving modified metadata";
+    if (m_wasModified || m_repairMode) {
+        qDebug() << "VP_ShowsEditMetadataDialog: Saving metadata" << (m_repairMode ? "(repair mode)" : "(normal mode)");
         
         // Update metadata from UI
         updateMetadataFromUI();
@@ -525,8 +637,10 @@ void VP_ShowsEditMetadataDialog::accept()
         
         // Write metadata back to file
         if (!metadataManager.writeMetadataToFile(m_videoFilePath, m_metadata)) {
-            QMessageBox::critical(this, tr("Error"), 
-                                tr("Failed to save metadata to file."));
+            QString errorMsg = m_repairMode ? 
+                tr("Failed to recreate metadata header.") :
+                tr("Failed to save metadata to file.");
+            QMessageBox::critical(this, tr("Error"), errorMsg);
             return;
         }
         

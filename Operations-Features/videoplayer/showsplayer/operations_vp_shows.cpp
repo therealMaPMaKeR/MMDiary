@@ -4706,15 +4706,111 @@ void Operations_VP_Shows::deleteBrokenVideosFromCategory()
     }
 }
 
-// Placeholder for repair functionality
+// Repair broken video by attempting to decrypt the video content and allowing metadata recreation
 void Operations_VP_Shows::repairBrokenVideo()
 {
-    qDebug() << "Operations_VP_Shows: Repair broken video - NOT YET IMPLEMENTED";
+    qDebug() << "Operations_VP_Shows: Starting repair broken video process";
     
-    QMessageBox::information(m_mainWindow,
-                            tr("Feature Not Available"),
-                            tr("The repair functionality will be implemented in a future update.\n\n"
-                               "This feature will attempt to recover or rebuild the corrupted metadata header."));
+    // Check if we have a valid broken item selected
+    if (!m_contextMenuTreeItem || !isItemBroken(m_contextMenuTreeItem)) {
+        qDebug() << "Operations_VP_Shows: No broken item selected for repair";
+        return;
+    }
+    
+    // Get the video file path
+    QString videoFilePath = m_contextMenuTreeItem->data(0, Qt::UserRole).toString();
+    if (videoFilePath.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No file path for broken item";
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Attempting to repair file:" << videoFilePath;
+    
+    // Validate file path using operations_files
+    if (!OperationsFiles::isWithinAllowedDirectory(videoFilePath, "Data")) {
+        qDebug() << "Operations_VP_Shows: File path outside allowed directory";
+        QMessageBox::critical(m_mainWindow, tr("Error"),
+                            tr("The file path is outside the allowed directory."));
+        return;
+    }
+    
+    // Check if file exists and has sufficient size
+    QFile videoFile(videoFilePath);
+    if (!videoFile.exists()) {
+        qDebug() << "Operations_VP_Shows: File does not exist";
+        QMessageBox::critical(m_mainWindow, tr("Error"),
+                            tr("The video file no longer exists."));
+        return;
+    }
+    
+    // Check if file has at least the metadata header size + some video content
+    qint64 fileSize = videoFile.size();
+    if (fileSize <= VP_ShowsMetadata::METADATA_RESERVED_SIZE) {
+        qDebug() << "Operations_VP_Shows: File too small, only metadata header or less";
+        QMessageBox::critical(m_mainWindow, tr("Error"),
+                            tr("The file is too small to contain video data."));
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: File size:" << fileSize << "bytes";
+    
+    // Attempt to decrypt the video portion (skipping metadata)
+    if (!videoFile.open(QIODevice::ReadOnly)) {
+        qDebug() << "Operations_VP_Shows: Failed to open file for reading";
+        QMessageBox::critical(m_mainWindow, tr("Error"),
+                            tr("Failed to open the video file for reading."));
+        return;
+    }
+    
+    // Skip the metadata header
+    videoFile.seek(VP_ShowsMetadata::METADATA_RESERVED_SIZE);
+    
+    // Read a small chunk of the encrypted video data to test decryption
+    const int testChunkSize = 8192; // 8KB test chunk
+    QByteArray encryptedChunk = videoFile.read(testChunkSize);
+    videoFile.close();
+    
+    if (encryptedChunk.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No video data after metadata header";
+        QMessageBox::critical(m_mainWindow, tr("Error"),
+                            tr("The file contains no video data after the metadata header."));
+        return;
+    }
+    
+    // Attempt to decrypt the test chunk
+    QByteArray decryptedChunk = CryptoUtils::Encryption_DecryptBArray(
+        m_mainWindow->user_Key, encryptedChunk);
+    
+    if (decryptedChunk.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Failed to decrypt video content";
+        QMessageBox::critical(m_mainWindow, tr("Repair Failed"),
+                            tr("Unable to repair the file, decryption failed."));
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Video content successfully decrypted, proceeding with metadata repair";
+    
+    // Video content is intact, open the metadata edit dialog in repair mode
+    VP_ShowsEditMetadataDialog* dialog = new VP_ShowsEditMetadataDialog(
+        videoFilePath,
+        m_mainWindow->user_Key,
+        m_mainWindow->user_Username,
+        true,  // repair mode flag
+        m_mainWindow);
+    
+    if (dialog->exec() == QDialog::Accepted) {
+        qDebug() << "Operations_VP_Shows: Metadata repair completed successfully";
+        
+        // Refresh the episode list to reflect the repaired file
+        loadShowEpisodes(m_currentShowFolder);
+        
+        QMessageBox::information(m_mainWindow, tr("Repair Successful"),
+                               tr("The video file has been successfully repaired."));
+    } else {
+        qDebug() << "Operations_VP_Shows: User cancelled metadata repair";
+    }
+    
+    delete dialog;
 }
 
 // Debug function to corrupt a video's metadata (for testing)
@@ -4984,7 +5080,7 @@ void Operations_VP_Shows::editEpisodeMetadata()
     
     // Create and show the edit metadata dialog
     // The dialog will handle reading the current metadata internally
-    VP_ShowsEditMetadataDialog dialog(videoFilePath, m_mainWindow->user_Key, m_mainWindow->user_Username, m_mainWindow);
+    VP_ShowsEditMetadataDialog dialog(videoFilePath, m_mainWindow->user_Key, m_mainWindow->user_Username, false, m_mainWindow);
     
     if (dialog.exec() == QDialog::Accepted) {
         // Get the updated metadata
