@@ -934,10 +934,86 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
             successMessage = tr("TV show imported successfully!\n%1").arg(message);
         }
         
-        // Success dialog removed - absence of error dialog indicates success
-        // QMessageBox::information(m_mainWindow,
-        //                        tr("Import Successful"),
-        //                        successMessage);
+        // Show enhanced success dialog with options for handling original files
+        QMessageBox msgBox(m_mainWindow);
+        msgBox.setWindowTitle(tr("Import Successful"));
+        msgBox.setIcon(QMessageBox::Information);
+        msgBox.setText(successMessage + "\n\nChoose how to handle the original video files:");
+        
+        QPushButton* keepButton = msgBox.addButton(tr("Keep Files"), QMessageBox::RejectRole);
+        QPushButton* deleteButton = msgBox.addButton(tr("Delete Files"), QMessageBox::ActionRole);
+        QPushButton* secureDeleteButton = msgBox.addButton(tr("Securely Delete Files"), QMessageBox::ActionRole);
+        msgBox.setDefaultButton(keepButton);  // Safe default option
+        
+        msgBox.exec();
+        
+        // Handle user's choice for original files
+        if (msgBox.clickedButton() == deleteButton || msgBox.clickedButton() == secureDeleteButton) {
+            bool useSecureDeletion = (msgBox.clickedButton() == secureDeleteButton);
+            
+            // The successfulFiles list already contains the source file paths that were successfully encrypted
+            // We can directly use it for deletion
+            QStringList filesToDelete = successfulFiles;
+            
+            qDebug() << "Operations_VP_Shows: Files to delete:" << filesToDelete.size() << "files";
+            for (const QString& file : filesToDelete) {
+                qDebug() << "Operations_VP_Shows:   Will delete:" << file;
+            }
+            
+            if (!filesToDelete.isEmpty()) {
+                QStringList deletedFiles;
+                QStringList deletionFailures;
+                
+                for (const QString& filePath : filesToDelete) {
+                    bool deleted = false;
+                    
+                    // Check if file exists before attempting deletion
+                    if (!QFile::exists(filePath)) {
+                        qDebug() << "Operations_VP_Shows: File doesn't exist (already deleted?):" << filePath;
+                        deletedFiles.append(QFileInfo(filePath).fileName());
+                        continue;
+                    }
+                    
+                    qDebug() << "Operations_VP_Shows: Attempting to delete:" << filePath;
+                    
+                    if (useSecureDeletion) {
+                        // Secure deletion with 3 passes, allow external files
+                        qDebug() << "Operations_VP_Shows: Using secure deletion...";
+                        deleted = OperationsFiles::secureDelete(filePath, 3, true);
+                    } else {
+                        // Regular deletion
+                        qDebug() << "Operations_VP_Shows: Using regular deletion...";
+                        deleted = QFile::remove(filePath);
+                    }
+                    
+                    if (deleted) {
+                        deletedFiles.append(QFileInfo(filePath).fileName());
+                        qDebug() << "Operations_VP_Shows: Successfully deleted original file:" << filePath;
+                    } else {
+                        deletionFailures.append(QFileInfo(filePath).fileName());
+                        qDebug() << "Operations_VP_Shows: Failed to delete original file:" << filePath;
+                        // Try to get more info about why it failed
+                        QFileInfo fileInfo(filePath);
+                        qDebug() << "Operations_VP_Shows:   File exists:" << fileInfo.exists();
+                        qDebug() << "Operations_VP_Shows:   File readable:" << fileInfo.isReadable();
+                        qDebug() << "Operations_VP_Shows:   File writable:" << fileInfo.isWritable();
+                    }
+                }
+                
+                // Show deletion results if there were any failures
+                if (!deletionFailures.isEmpty()) {
+                    QString deletionMessage = tr("Successfully deleted %1 file(s).\n\nFailed to delete:\n%2")
+                        .arg(deletedFiles.size())
+                        .arg(deletionFailures.join("\n"));
+                    
+                    QMessageBox::warning(m_mainWindow,
+                                       useSecureDeletion ? tr("Secure Deletion Results") : tr("Deletion Results"),
+                                       deletionMessage);
+                }
+                // If all deletions succeeded, no additional dialog is shown (silent success)
+            }
+        }
+        // If keepButton was clicked, do nothing with the original files
         
         // Refresh the show list in the UI
         refreshTVShowsList();
