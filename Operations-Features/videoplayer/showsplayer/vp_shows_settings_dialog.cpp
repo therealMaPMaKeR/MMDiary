@@ -1662,11 +1662,10 @@ QString VP_ShowsSettingsDialog::loadActualShowName()
         return QString();
     }
     
-    // Find any video file in the show folder
+    // Find any video file in the show folder (now using .mmvid extension)
     QDir showDir(m_showPath);
     QStringList videoExtensions;
-    videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
-                   << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+    videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
     showDir.setNameFilters(videoExtensions);
     QStringList videoFiles = showDir.entryList(QDir::Files);
     

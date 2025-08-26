@@ -368,8 +368,10 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
     // Generate random filenames for each video file to import
     for (const QString& sourceFile : filesToImport) {
         QFileInfo fileInfo(sourceFile);
-        QString extension = fileInfo.suffix().toLower();
-        QString randomName = generateRandomFileName(extension);
+        // Use custom .mmvid extension for all encrypted video files
+        // Note: generateRandomFileName is also used for folder names and other files,
+        // so we only pass "mmvid" when generating encrypted video file names
+        QString randomName = generateRandomFileName("mmvid");
         QString targetFile = QDir(outputPath).absoluteFilePath(randomName);
         
         // Validate the target path using operations_files
@@ -802,9 +804,11 @@ QStringList Operations_VP_Shows::filterNewEpisodes(const QStringList& candidateF
 
 QString Operations_VP_Shows::generateRandomFileName(const QString& extension)
 {
-    Q_UNUSED(extension); // We'll always use .mmvid now for encrypted videos
-    
-    // Generate a random filename with the custom .mmvid extension
+    // Generate a random filename with the specified extension
+    // Usage:
+    // - Pass "mmvid" for encrypted video files  
+    // - Pass "" (empty) for folder names and extensionless files (showdesc_, showimage_, showsettings_)
+    // - Pass other extensions as needed for non-video files
     const QString chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     const int nameLength = 32;
     
@@ -814,8 +818,12 @@ QString Operations_VP_Shows::generateRandomFileName(const QString& extension)
         randomName.append(chars.at(index));
     }
     
-    // Always add .mmvid extension for encrypted video files
-    return randomName + ".mmvid";
+    // Add extension if provided
+    if (!extension.isEmpty()) {
+        randomName += "." + extension;
+    }
+    
+    return randomName;
 }
 
 bool Operations_VP_Shows::createShowFolderStructure(QString& outputPath)
@@ -858,9 +866,8 @@ bool Operations_VP_Shows::createShowFolderStructure(QString& outputPath)
         return false;
     }
     
-    // Generate a random folder name for this specific show
+    // Generate a random folder name for this specific show (no extension needed)
     QString randomFolderName = generateRandomFileName("");
-    randomFolderName = randomFolderName.left(randomFolderName.length() - 1); // Remove the dot
     
     // Create the specific show folder with secure permissions
     QString showFolderPath = QDir(showsPath).absoluteFilePath(randomFolderName);
@@ -1107,8 +1114,7 @@ void Operations_VP_Shows::loadTVShowsList()
         
         // Find the first video file in this folder to read its metadata
         QStringList videoExtensions;
-        videoExtensions << "*.mp4" << "*.avi" << "*.mkv" << "*.mov" << "*.wmv" 
-                       << "*.flv" << "*.webm" << "*.m4v" << "*.mpg" << "*.mpeg" << "*.3gp";
+        videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
         
         showFolder.setNameFilters(videoExtensions);
         QStringList videoFiles = showFolder.entryList(QDir::Files);
