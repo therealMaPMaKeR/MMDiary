@@ -7,7 +7,7 @@
 //
 // Get your API key from: https://www.themoviedb.org/settings/api
 // You can use either:
-// - API Key (v3 auth): Just the key like "434dbce915e0c72437914445723fa50d"
+// - API Key (v3 auth): Just the key like "a5423d49147b9c0e7c51f3d472e405d"
 // - Bearer Token: Full token starting with "Bearer eyJ..."
 
 #ifndef TMDB_API_KEY_H
@@ -17,7 +17,7 @@
 #define TMDB_API_KEY "YOUR_API_KEY_OR_BEARER_TOKEN_HERE"
 
 // Example formats:
-// For API Key (v3):     #define TMDB_API_KEY "434dbce915e0c72437914445723fa50d"
+// For API Key (v3):     #define TMDB_API_KEY "a5423d49147b9c0e7c51f3d472e405d"
 // For Bearer Token:     #define TMDB_API_KEY "Bearer eyJhbGciOiJIUzI1NiJ9..."
 
 #endif // TMDB_API_KEY_H
