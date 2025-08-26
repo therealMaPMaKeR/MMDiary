@@ -8,29 +8,6 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 CONFIG += c++17
 
-# TMDB API Key Configuration (compile-time embedding)
-# Read API key from file if it exists
-TMDB_KEY_FILE = $$PWD/tmdb_api_key.txt
-exists($$TMDB_KEY_FILE) {
-    # Read the API key from file
-    TMDB_API_KEY = $$cat($$TMDB_KEY_FILE)
-
-    # Remove any trailing whitespace or newlines
-    TMDB_API_KEY = $$replace($$TMDB_API_KEY, \r\n, )
-    TMDB_API_KEY = $$replace($$TMDB_API_KEY, \n, )
-    TMDB_API_KEY = $$replace($$TMDB_API_KEY, \r, )
-
-    # Define as preprocessor macro with proper escaping for Windows
-    DEFINES += TMDB_API_KEY=\\\"$$TMDB_API_KEY\\\"
-
-    message("TMDB API key loaded from tmdb_api_key.txt")
-} else {
-    # No API key file found - TMDB features will be disabled
-    DEFINES += TMDB_API_KEY=\\\"\\\"
-    message("Warning: tmdb_api_key.txt not found - TMDB integration will be disabled")
-    message("Create tmdb_api_key.txt from tmdb_api_key.txt.example to enable TMDB")
-}
-
 # Add include paths for project directories
 INCLUDEPATH += $$PWD \
                $$PWD/CustomWidgets \

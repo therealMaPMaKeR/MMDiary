@@ -130,10 +130,10 @@ void VP_ShowsSettingsDialog::setupAutofillUI()
         return;
     }
     
-    // Check if TMDB API key was embedded at compile time
+    // Check if TMDB API key is available
     if (!VP_ShowsConfig::hasApiKey()) {
-        qDebug() << "VP_ShowsSettingsDialog: No TMDB API key embedded, disabling TMDB integration";
-        qDebug() << "VP_ShowsSettingsDialog: Recompile with tmdb_api_key.txt present to enable TMDB";
+        qDebug() << "VP_ShowsSettingsDialog: No TMDB API key found, disabling TMDB integration";
+        qDebug() << "VP_ShowsSettingsDialog: Copy tmdb_api_key_TEMPLATE.h to tmdb_api_key.h and add your API key";
         return;
     }
     

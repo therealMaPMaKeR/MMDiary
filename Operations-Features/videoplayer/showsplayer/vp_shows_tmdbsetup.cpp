@@ -39,22 +39,23 @@ void VP_Shows_TMDBSetup::setupUi()
     // Info label
     QLabel* infoLabel = new QLabel(
         "TMDB provides show information, episode names, and images.\n"
-        "You need either:\n"
-        "• An API key (v3 auth) from https://www.themoviedb.org/settings/api\n"
-        "• An API Read Access Token (Bearer token) for enhanced security",
+        "API Key Configuration:\n"
+        "• The API key is defined in tmdb_api_key.h\n"
+        "• To change it: edit tmdb_api_key.h and rebuild the project\n"
+        "• Get your key from https://www.themoviedb.org/settings/api",
         this
     );
     infoLabel->setWordWrap(true);
     infoLabel->setStyleSheet("QLabel { color: #666; padding: 5px; }");
     tmdbLayout->addWidget(infoLabel);
     
-    // API Key input
+    // API Key display (read-only)
     QHBoxLayout* apiKeyLayout = new QHBoxLayout();
-    QLabel* apiKeyLabel = new QLabel("API Key:", this);
-    apiKeyLabel->setMinimumWidth(60);
+    QLabel* apiKeyLabel = new QLabel("API Key Status:", this);
+    apiKeyLabel->setMinimumWidth(100);
     m_apiKeyEdit = new QLineEdit(this);
-    m_apiKeyEdit->setPlaceholderText("Enter your TMDB API key or Bearer token");
-    m_apiKeyEdit->setEchoMode(QLineEdit::Password);
+    m_apiKeyEdit->setReadOnly(true);
+    m_apiKeyEdit->setStyleSheet("QLineEdit { background-color: #f0f0f0; }");
     
     apiKeyLayout->addWidget(apiKeyLabel);
     apiKeyLayout->addWidget(m_apiKeyEdit);
@@ -97,10 +98,16 @@ void VP_Shows_TMDBSetup::loadSettings()
     bool tmdbEnabled = VP_ShowsConfig::isTMDBEnabled();
     m_enableTMDBCheckBox->setChecked(tmdbEnabled);
     
-    // Load API key (if exists)
+    // Display API key status
     QString apiKey = VP_ShowsConfig::getTMDBApiKey();
     if (!apiKey.isEmpty()) {
-        m_apiKeyEdit->setText(apiKey);
+        if (apiKey.startsWith("Bearer ")) {
+            m_apiKeyEdit->setText("Bearer token configured (" + QString::number(apiKey.length()) + " chars)");
+        } else {
+            m_apiKeyEdit->setText("API key configured (" + QString::number(apiKey.length()) + " chars)");
+        }
+    } else {
+        m_apiKeyEdit->setText("No API key found - edit tmdb_api_key.h and rebuild");
     }
     
     qDebug() << "VP_Shows_TMDBSetup: Settings loaded";
@@ -108,35 +115,18 @@ void VP_Shows_TMDBSetup::loadSettings()
 
 void VP_Shows_TMDBSetup::onSaveClicked()
 {
-    // Validate and save settings
+    // Save only the enabled/disabled state
     bool tmdbEnabled = m_enableTMDBCheckBox->isChecked();
     VP_ShowsConfig::setTMDBEnabled(tmdbEnabled);
     
-    if (tmdbEnabled) {
-        QString apiKey = m_apiKeyEdit->text().trimmed();
-        
-        if (!apiKey.isEmpty()) {
-            // Validate API key format (basic check)
-            // Bearer tokens are longer than regular API keys (can be 200+ characters)
-            int maxLength = apiKey.startsWith("Bearer ") || apiKey.length() > 100 ? 512 : 256;
-            
-            InputValidation::ValidationResult validationResult = 
-                InputValidation::validateInput(apiKey, InputValidation::InputType::PlainText, maxLength);
-            
-            if (!validationResult.isValid) {
-                QMessageBox::warning(this, "Invalid API Key", 
-                                   QString("The API key/token is invalid: %1").arg(validationResult.errorMessage));
-                return;
-            }
-            
-            VP_ShowsConfig::setTMDBApiKey(apiKey);
-            qDebug() << "VP_Shows_TMDBSetup: API key saved";
-        } else if (VP_ShowsConfig::getTMDBApiKey().isEmpty()) {
-            // Warn if enabling without API key
-            QMessageBox::information(this, "API Key Required",
-                                   "TMDB integration is enabled but no API key is set. "
-                                   "Metadata retrieval will not work until you provide a valid API key.");
-        }
+    if (tmdbEnabled && VP_ShowsConfig::getTMDBApiKey().isEmpty()) {
+        // Warn if enabling without API key
+        QMessageBox::information(this, "API Key Required",
+                               "TMDB integration is enabled but no API key is configured.\n\n"
+                               "To add an API key:\n"
+                               "1. Copy tmdb_api_key_TEMPLATE.h to tmdb_api_key.h\n"
+                               "2. Add your API key to the file\n"
+                               "3. Rebuild the project");
     }
     
     QMessageBox::information(this, "Settings Saved", "TMDB settings have been saved.");
@@ -145,10 +135,12 @@ void VP_Shows_TMDBSetup::onSaveClicked()
 
 void VP_Shows_TMDBSetup::onTestConnectionClicked()
 {
-    QString apiKey = m_apiKeyEdit->text().trimmed();
+    QString apiKey = VP_ShowsConfig::getTMDBApiKey();
     
     if (apiKey.isEmpty()) {
-        QMessageBox::warning(this, "No API Key", "Please enter an API key to test.");
+        QMessageBox::warning(this, "No API Key", 
+                           "No API key configured.\n\n"
+                           "Please edit tmdb_api_key.h and rebuild the project.");
         return;
     }
     
@@ -182,14 +174,8 @@ void VP_Shows_TMDBSetup::onTestConnectionClicked()
 
 void VP_Shows_TMDBSetup::onTMDBEnabledToggled(bool checked)
 {
-    m_apiKeyEdit->setEnabled(checked);
-    m_testButton->setEnabled(checked);
-    
-    if (!checked) {
-        m_apiKeyEdit->setStyleSheet("QLineEdit { background-color: #f0f0f0; }");
-    } else {
-        m_apiKeyEdit->setStyleSheet("");
-    }
+    // API key display is always read-only
+    m_testButton->setEnabled(checked && !VP_ShowsConfig::getTMDBApiKey().isEmpty());
     
     qDebug() << "VP_Shows_TMDBSetup: TMDB enabled toggled:" << checked;
 }

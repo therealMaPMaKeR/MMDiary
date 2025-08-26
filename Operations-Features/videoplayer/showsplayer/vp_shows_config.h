@@ -7,7 +7,7 @@
 class VP_ShowsConfig
 {
 public:
-    // Get the TMDB API key (embedded at compile time)
+    // Get the TMDB API key (from tmdb_api_key.h header)
     static QString getTMDBApiKey();
     
     // Check if TMDB API key is available
