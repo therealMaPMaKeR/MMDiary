@@ -238,6 +238,10 @@ public:
     QString findNextEpisode(const QString& currentEpisodePath) const;  // Find next episode to play
     void autoplayNextEpisode();  // Trigger autoplay of next episode
     void handleEpisodeNearCompletion(const QString& episodePath);  // Handle when episode is about to end
+    
+    // Cleanup functions
+    void cleanupEmptyShowFolder(const QString& folderPath);  // Clean up a single empty show folder
+    void cleanupIncompleteShowFolders();  // Clean up all incomplete show folders on startup
 
 public slots:
     // Slot for add show button

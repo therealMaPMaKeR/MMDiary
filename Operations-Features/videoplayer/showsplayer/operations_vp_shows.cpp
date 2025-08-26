@@ -183,6 +183,10 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     }
     */
     
+    // Clean up any incomplete show folders from previous sessions (crashed imports, etc.)
+    // This should happen before loading the shows list
+    cleanupIncompleteShowFolders();
+    
     // Load the TV shows list on initialization
     // We use a small delay to ensure the UI is fully initialized
     QTimer::singleShot(100, this, &Operations_VP_Shows::loadTVShowsList);
@@ -1047,10 +1051,156 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
         // Clean up any partially created folders if all files failed
         if (successfulFiles.isEmpty() && !failedFiles.isEmpty() && !m_isUpdatingExistingShow) {
             qDebug() << "Operations_VP_Shows: All files failed for new show, cleaning up created folders";
-            // The encrypted files that failed would have been cleaned up by the encryption worker
-            // We just need to log this for debugging purposes
+            cleanupEmptyShowFolder(m_currentImportOutputPath);
         }
     }
+    
+    // Also check for cleanup on cancellation (when success is false and both lists are empty)
+    if (!success && successfulFiles.isEmpty() && failedFiles.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Import was cancelled, checking for cleanup";
+        if (!m_currentImportOutputPath.isEmpty() && !m_isUpdatingExistingShow) {
+            cleanupEmptyShowFolder(m_currentImportOutputPath);
+        }
+    }
+    
+    // Clear the stored output path
+    m_currentImportOutputPath.clear();
+    m_isUpdatingExistingShow = false;
+}
+
+void Operations_VP_Shows::cleanupEmptyShowFolder(const QString& folderPath)
+{
+    if (folderPath.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No folder path provided for cleanup";
+        return;
+    }
+    
+    // Validate the folder path
+    if (!OperationsFiles::isWithinAllowedDirectory(folderPath, "Data")) {
+        qDebug() << "Operations_VP_Shows: Folder path is outside allowed directory:" << folderPath;
+        return;
+    }
+    
+    QDir showDir(folderPath);
+    if (!showDir.exists()) {
+        qDebug() << "Operations_VP_Shows: Folder doesn't exist:" << folderPath;
+        return;
+    }
+    
+    // Check for .mmvid files in the folder
+    QStringList videoExtensions;
+    videoExtensions << "*.mmvid";
+    showDir.setNameFilters(videoExtensions);
+    QStringList videoFiles = showDir.entryList(QDir::Files);
+    
+    if (videoFiles.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No video files found in folder, deleting:" << folderPath;
+        
+        // First delete all non-video files in the folder
+        showDir.setNameFilters(QStringList());
+        QStringList allFiles = showDir.entryList(QDir::Files);
+        
+        for (const QString& file : allFiles) {
+            QString filePath = showDir.absoluteFilePath(file);
+            if (!QFile::remove(filePath)) {
+                qDebug() << "Operations_VP_Shows: Failed to delete file:" << filePath;
+            }
+        }
+        
+        // Now remove the empty directory
+        QString folderName = showDir.dirName();
+        if (showDir.cdUp()) {
+            if (showDir.rmdir(folderName)) {
+                qDebug() << "Operations_VP_Shows: Successfully deleted empty show folder:" << folderPath;
+            } else {
+                qDebug() << "Operations_VP_Shows: Failed to delete folder:" << folderPath;
+            }
+        }
+    } else {
+        qDebug() << "Operations_VP_Shows: Found" << videoFiles.size() << "video files, keeping folder:" << folderPath;
+    }
+}
+
+void Operations_VP_Shows::cleanupIncompleteShowFolders()
+{
+    qDebug() << "Operations_VP_Shows: Starting cleanup of incomplete show folders";
+    
+    // Get username from mainwindow
+    QString username = m_mainWindow->user_Username;
+    if (username.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Username is empty, skipping cleanup";
+        return;
+    }
+    
+    // Build the shows path
+    QString basePath = QDir::current().absoluteFilePath("Data");
+    QString userPath = QDir(basePath).absoluteFilePath(username);
+    QString videoplayerPath = QDir(userPath).absoluteFilePath("Videoplayer");
+    QString showsPath = QDir(videoplayerPath).absoluteFilePath("Shows");
+    
+    QDir showsDir(showsPath);
+    if (!showsDir.exists()) {
+        qDebug() << "Operations_VP_Shows: Shows directory does not exist, skipping cleanup";
+        return;
+    }
+    
+    // Get all subdirectories in the shows folder
+    QStringList showFolders = showsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    
+    if (showFolders.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No show folders found";
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Checking" << showFolders.size() << "show folders for incomplete imports";
+    
+    int foldersDeleted = 0;
+    
+    // Check each show folder
+    for (const QString& folderName : showFolders) {
+        QString folderPath = showsDir.absoluteFilePath(folderName);
+        QDir showFolder(folderPath);
+        
+        // Check for .mmvid files
+        QStringList videoExtensions;
+        videoExtensions << "*.mmvid";
+        showFolder.setNameFilters(videoExtensions);
+        QStringList videoFiles = showFolder.entryList(QDir::Files);
+        
+        if (videoFiles.isEmpty()) {
+            qDebug() << "Operations_VP_Shows: Found incomplete show folder (no video files):" << folderName;
+            
+            // Delete all files in the folder first
+            showFolder.setNameFilters(QStringList());
+            QStringList allFiles = showFolder.entryList(QDir::Files);
+            
+            bool deletionSuccess = true;
+            for (const QString& file : allFiles) {
+                QString filePath = showFolder.absoluteFilePath(file);
+                if (!QFile::remove(filePath)) {
+                    qDebug() << "Operations_VP_Shows: Failed to delete file:" << filePath;
+                    deletionSuccess = false;
+                }
+            }
+            
+            // Try to remove the directory if all files were deleted
+            if (deletionSuccess) {
+                if (showFolder.cdUp() && showsDir.rmdir(folderName)) {
+                    qDebug() << "Operations_VP_Shows: Successfully deleted incomplete show folder:" << folderName;
+                    foldersDeleted++;
+                } else {
+                    qDebug() << "Operations_VP_Shows: Failed to delete folder:" << folderName;
+                }
+            }
+        }
+    }
+    
+    if (foldersDeleted > 0) {
+        qDebug() << "Operations_VP_Shows: Cleanup completed. Deleted" << foldersDeleted << "incomplete show folders";
+    } else {
+        qDebug() << "Operations_VP_Shows: Cleanup completed. No incomplete show folders found";
+    }
+
     
     // Reset the flags
     m_isUpdatingExistingShow = false;
