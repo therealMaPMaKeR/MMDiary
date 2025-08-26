@@ -372,10 +372,7 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
     
     // Generate random filenames for each video file to import
     for (const QString& sourceFile : filesToImport) {
-        QFileInfo fileInfo(sourceFile);
-        // Use custom .mmvid extension for all encrypted video files
-        // Note: generateRandomFileName is also used for folder names and other files,
-        // so we only pass "mmvid" when generating encrypted video file names
+        // Always use .mmvid extension for encrypted video files
         QString randomName = generateRandomFileName("mmvid");
         QString targetFile = QDir(outputPath).absoluteFilePath(randomName);
         
@@ -611,9 +608,8 @@ void Operations_VP_Shows::importTVShow()
     
     // Generate random filenames for each video file to import
     for (const QString& sourceFile : filesToImport) {
-        QFileInfo fileInfo(sourceFile);
-        QString extension = fileInfo.suffix().toLower();
-        QString randomName = generateRandomFileName(extension);
+        // Always use .mmvid extension for encrypted video files
+        QString randomName = generateRandomFileName("mmvid");
         QString targetFile = QDir(outputPath).absoluteFilePath(randomName);
         
         // Validate the target path using operations_files
@@ -701,11 +697,65 @@ bool Operations_VP_Shows::checkForExistingShow(const QString& showName, const QS
     // Create metadata manager for reading show metadata
     VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
     
+    // Create settings manager for reading show settings
+    VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    
     // Check each show folder
     for (const QString& folderName : showFolders) {
         QString folderPath = showsDir.absoluteFilePath(folderName);
         QDir showFolder(folderPath);
         
+        // First, try to read the show settings file to get the show name
+        // This will work even if all video files have broken metadata
+        VP_ShowsSettings::ShowSettings settings;
+        if (settingsManager.loadShowSettings(folderPath, settings)) {
+            // Check if this is the show we're looking for
+            if (settings.showName == showName) {
+                qDebug() << "Operations_VP_Shows: Found matching show via settings file in folder:" << folderPath;
+                existingFolder = folderPath;
+                
+                // Now try to get existing episodes (they might have broken metadata)
+                // We'll still try to read them but won't fail if metadata is broken
+                QStringList videoExtensions;
+                videoExtensions << "*.mmvid";
+                showFolder.setNameFilters(videoExtensions);
+                QStringList videoFiles = showFolder.entryList(QDir::Files);
+                
+                for (const QString& videoFile : videoFiles) {
+                    QString videoPath = showFolder.absoluteFilePath(videoFile);
+                    VP_ShowsMetadata::ShowMetadata epMetadata;
+                    
+                    if (metadataManager.readMetadataFromFile(videoPath, epMetadata)) {
+                        // Only add episodes with matching language and translation
+                        if (epMetadata.language == language && epMetadata.translation == translation) {
+                            int seasonNum = epMetadata.season.toInt();
+                            int episodeNum = epMetadata.episode.toInt();
+                            
+                            if (seasonNum == 0 || episodeNum == 0) {
+                                VP_ShowsTMDB::parseEpisodeFromFilename(epMetadata.filename, seasonNum, episodeNum);
+                            }
+                            
+                            QString episodeId;
+                            if (seasonNum > 0 && episodeNum > 0) {
+                                episodeId = QString("S%1E%2").arg(seasonNum, 2, 10, QChar('0'))
+                                                            .arg(episodeNum, 2, 10, QChar('0'));
+                            } else {
+                                episodeId = epMetadata.filename;
+                            }
+                            
+                            existingEpisodes.append(episodeId);
+                            qDebug() << "Operations_VP_Shows: Found existing episode:" << episodeId;
+                        }
+                    }
+                    // If metadata read fails, we just skip that episode (it has broken metadata)
+                }
+                
+                return true; // Found the show via settings file
+            }
+        }
+        
+        // Fallback: Try the original method using video metadata
+        // (in case there's no settings file or it can't be read)
         // Find the first video file in this folder to read its metadata
         QStringList videoExtensions;
         videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
@@ -813,7 +863,7 @@ QString Operations_VP_Shows::generateRandomFileName(const QString& extension)
 {
     // Generate a random filename with the specified extension
     // Usage:
-    // - Pass "mmvid" for encrypted video files  
+    // - ALWAYS Pass "mmvid" for encrypted video files (regardless of original extension)
     // - Pass "" (empty) for folder names and extensionless files (showdesc_, showimage_, showsettings_)
     // - Pass other extensions as needed for non-video files
     const QString chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -3429,8 +3479,8 @@ void Operations_VP_Shows::addEpisodesToShow()
     QStringList targetFiles;
     for (const QString& sourceFile : filesToImport) {
         QFileInfo fileInfo(sourceFile);
-        QString extension = fileInfo.suffix().toLower();
-        QString randomName = generateRandomFileName(extension);
+        // Always use .mmvid extension for encrypted video files
+        QString randomName = generateRandomFileName("mmvid");
         QString targetFile = showDir.absoluteFilePath(randomName);
         targetFiles.append(targetFile);
     }
