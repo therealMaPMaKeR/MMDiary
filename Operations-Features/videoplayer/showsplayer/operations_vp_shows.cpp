@@ -2026,6 +2026,9 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     // Key: "Language Translation", Value: list of error episode items
     QMap<QString, QList<QTreeWidgetItem*>> errorEpisodesByLanguage;
     
+    // List to hold broken video files (files where metadata cannot be read)
+    QList<QTreeWidgetItem*> brokenFiles;
+    
     // Process each video file
     for (const QString& videoFile : videoFiles) {
         QString videoPath = showDir.absoluteFilePath(videoFile);
@@ -2034,6 +2037,25 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         VP_ShowsMetadata::ShowMetadata metadata;
         if (!metadataManager.readMetadataFromFile(videoPath, metadata)) {
             qDebug() << "Operations_VP_Shows: Failed to read metadata from:" << videoFile;
+            
+            // Create broken file item
+            QTreeWidgetItem* brokenItem = new QTreeWidgetItem();
+            
+            // Use the actual filename (without path) for display
+            QFileInfo fileInfo(videoFile);
+            QString displayName = fileInfo.fileName();
+            
+            brokenItem->setText(0, displayName);
+            brokenItem->setData(0, Qt::UserRole, videoPath);
+            
+            // Set red color to indicate broken file
+            brokenItem->setForeground(0, QBrush(QColor(255, 100, 100))); // Light red for visibility
+            
+            // Set tooltip to explain the issue
+            brokenItem->setToolTip(0, tr("Broken file: Unable to read metadata header"));
+            
+            // Add to broken files list
+            brokenFiles.append(brokenItem);
             continue;
         }
         
@@ -2244,6 +2266,38 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     
     QList<QString> languageKeys = allLanguageKeys.values();
     std::sort(languageKeys.begin(), languageKeys.end());
+    
+    // Add "Broken" category as the first item if there are any broken files
+    if (!brokenFiles.isEmpty()) {
+        QTreeWidgetItem* brokenCategory = new QTreeWidgetItem();
+        brokenCategory->setText(0, tr("Broken (%1)").arg(brokenFiles.size()));
+        
+        // Set a distinctive icon or color for the broken category
+        brokenCategory->setForeground(0, QBrush(QColor(255, 100, 100))); // Light red
+        brokenCategory->setFont(0, QFont(brokenCategory->font(0).family(), brokenCategory->font(0).pointSize(), QFont::Bold));
+        
+        // Add tooltip explaining what this category contains
+        brokenCategory->setToolTip(0, tr("Video files with corrupted or unreadable metadata headers"));
+        
+        // Sort broken files by filename for consistent display
+        std::sort(brokenFiles.begin(), brokenFiles.end(), 
+                  [](const QTreeWidgetItem* a, const QTreeWidgetItem* b) {
+                      return a->text(0).toLower() < b->text(0).toLower();
+                  });
+        
+        // Add all broken files to the category
+        for (QTreeWidgetItem* brokenItem : brokenFiles) {
+            brokenCategory->addChild(brokenItem);
+        }
+        
+        // Add broken category to tree widget as first item
+        m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->addTopLevelItem(brokenCategory);
+        
+        // Always expand the broken category so users can see the problematic files
+        brokenCategory->setExpanded(true);
+        
+        qDebug() << "Operations_VP_Shows: Added" << brokenFiles.size() << "broken files to tree";
+    }
     
     for (const QString& languageKey : languageKeys) {
         // Create language/translation item
@@ -2550,6 +2604,22 @@ void Operations_VP_Shows::onEpisodeDoubleClicked(QTreeWidgetItem* item, int colu
     QString episodeName = item->text(0);
     qDebug() << "Operations_VP_Shows: Double-clicked on episode:" << episodeName;
     qDebug() << "Operations_VP_Shows: Video path:" << videoPath;
+    
+    // Check if this is a broken file by checking if the parent is the "Broken" category
+    QTreeWidgetItem* parent = item->parent();
+    if (parent && parent->text(0).startsWith("Broken")) {
+        qDebug() << "Operations_VP_Shows: User attempted to play a broken video file";
+        
+        // Show warning dialog
+        QMessageBox msgBox(m_mainWindow);
+        msgBox.setIcon(QMessageBox::Warning);
+        msgBox.setWindowTitle(tr("Broken Video File"));
+        msgBox.setText(tr("This video file has a corrupted metadata header and cannot be played."));
+        msgBox.setInformativeText(tr("The file's metadata needs to be repaired before it can be played.\n\nFile: %1").arg(episodeName));
+        msgBox.setStandardButtons(QMessageBox::Ok);
+        msgBox.exec();
+        return;
+    }
     
     // Decrypt and play the episode
     decryptAndPlayEpisode(videoPath, episodeName);
