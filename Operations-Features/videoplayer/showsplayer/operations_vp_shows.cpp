@@ -4765,15 +4765,32 @@ void Operations_VP_Shows::repairBrokenVideo()
     // Skip the metadata header
     videoFile.seek(VP_ShowsMetadata::METADATA_RESERVED_SIZE);
     
-    // Read a small chunk of the encrypted video data to test decryption
-    const int testChunkSize = 8192; // 8KB test chunk
-    QByteArray encryptedChunk = videoFile.read(testChunkSize);
+    // Create a data stream to read the chunked format
+    QDataStream stream(&videoFile);
+    stream.setVersion(QDataStream::Qt_5_15);
+    
+    // Read the first chunk to test decryption
+    qint32 chunkSize = 0;
+    stream >> chunkSize;
+    
+    if (stream.status() != QDataStream::Ok || chunkSize <= 0 || chunkSize > 10 * 1024 * 1024) {
+        qDebug() << "Operations_VP_Shows: Invalid chunk size:" << chunkSize;
+        videoFile.close();
+        QMessageBox::critical(m_mainWindow, tr("Error"),
+                            tr("The file appears to be corrupted (invalid chunk size)."));
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Reading test chunk of size:" << chunkSize;
+    
+    // Read the encrypted chunk data
+    QByteArray encryptedChunk = videoFile.read(chunkSize);
     videoFile.close();
     
-    if (encryptedChunk.isEmpty()) {
-        qDebug() << "Operations_VP_Shows: No video data after metadata header";
+    if (encryptedChunk.size() != chunkSize) {
+        qDebug() << "Operations_VP_Shows: Failed to read complete chunk. Expected:" << chunkSize << "Got:" << encryptedChunk.size();
         QMessageBox::critical(m_mainWindow, tr("Error"),
-                            tr("The file contains no video data after the metadata header."));
+                            tr("Failed to read video data from file."));
         return;
     }
     
@@ -4784,11 +4801,58 @@ void Operations_VP_Shows::repairBrokenVideo()
     if (decryptedChunk.isEmpty()) {
         qDebug() << "Operations_VP_Shows: Failed to decrypt video content";
         QMessageBox::critical(m_mainWindow, tr("Repair Failed"),
-                            tr("Unable to repair the file, decryption failed."));
+                            tr("Unable to repair the file. The video data could not be decrypted.\n\n"
+                               "This may indicate the file is corrupted beyond repair or "
+                               "was encrypted with a different key."));
         return;
     }
     
     qDebug() << "Operations_VP_Shows: Video content successfully decrypted, proceeding with metadata repair";
+    
+    // Get the actual show name from the UI or settings
+    QString actualShowName;
+    
+    // Method 1: Try to get from the UI label
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->label_VP_Shows_Display_Name) {
+        actualShowName = m_mainWindow->ui->label_VP_Shows_Display_Name->text();
+        qDebug() << "Operations_VP_Shows: Got show name from UI label:" << actualShowName;
+    }
+    
+    // Method 2: If UI label is empty, try to load from show settings
+    if (actualShowName.isEmpty() && !m_currentShowFolder.isEmpty()) {
+        VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+        VP_ShowsSettings::ShowSettings settings;
+        if (settingsManager.loadShowSettings(m_currentShowFolder, settings)) {
+            actualShowName = settings.showName;
+            qDebug() << "Operations_VP_Shows: Got show name from settings file:" << actualShowName;
+        }
+    }
+    
+    // Method 3: If still empty, try to get from another video file's metadata in the same folder
+    if (actualShowName.isEmpty() && !m_currentShowFolder.isEmpty()) {
+        QDir showDir(m_currentShowFolder);
+        QStringList videoExtensions;
+        videoExtensions << "*.mmvid";
+        showDir.setNameFilters(videoExtensions);
+        QStringList videoFiles = showDir.entryList(QDir::Files);
+        
+        VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+        for (const QString& videoFile : videoFiles) {
+            QString fullPath = showDir.absoluteFilePath(videoFile);
+            if (fullPath != videoFilePath) { // Skip the broken file
+                VP_ShowsMetadata::ShowMetadata tempMetadata;
+                if (metadataManager.readMetadataFromFile(fullPath, tempMetadata)) {
+                    actualShowName = tempMetadata.showName;
+                    qDebug() << "Operations_VP_Shows: Got show name from another video's metadata:" << actualShowName;
+                    break;
+                }
+            }
+        }
+    }
+    
+    if (actualShowName.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Warning - Could not determine show name, dialog will prompt for it";
+    }
     
     // Video content is intact, open the metadata edit dialog in repair mode
     VP_ShowsEditMetadataDialog* dialog = new VP_ShowsEditMetadataDialog(
@@ -4796,6 +4860,7 @@ void Operations_VP_Shows::repairBrokenVideo()
         m_mainWindow->user_Key,
         m_mainWindow->user_Username,
         true,  // repair mode flag
+        actualShowName,  // Pass the actual show name
         m_mainWindow);
     
     if (dialog->exec() == QDialog::Accepted) {
@@ -5080,7 +5145,8 @@ void Operations_VP_Shows::editEpisodeMetadata()
     
     // Create and show the edit metadata dialog
     // The dialog will handle reading the current metadata internally
-    VP_ShowsEditMetadataDialog dialog(videoFilePath, m_mainWindow->user_Key, m_mainWindow->user_Username, false, m_mainWindow);
+    // Pass empty string for show name since it will be loaded from metadata in normal edit mode
+    VP_ShowsEditMetadataDialog dialog(videoFilePath, m_mainWindow->user_Key, m_mainWindow->user_Username, false, QString(), m_mainWindow);
     
     if (dialog.exec() == QDialog::Accepted) {
         // Get the updated metadata

@@ -14,6 +14,7 @@ VP_ShowsEditMetadataDialog::VP_ShowsEditMetadataDialog(const QString& videoFileP
                                                        const QByteArray& encryptionKey,
                                                        const QString& username,
                                                        bool repairMode,
+                                                       const QString& showName,
                                                        QWidget *parent)
     : QDialog(parent)
     , ui(new Ui::VP_ShowsEditMetadataDialog)
@@ -22,6 +23,7 @@ VP_ShowsEditMetadataDialog::VP_ShowsEditMetadataDialog(const QString& videoFileP
     , m_username(username)
     , m_wasModified(false)
     , m_repairMode(repairMode)
+    , m_providedShowName(showName)
     , m_imagePreviewLabel(nullptr)
     , m_contentTypeCombo(nullptr)
 {
@@ -109,18 +111,25 @@ void VP_ShowsEditMetadataDialog::initializeEmptyMetadata()
     // Initialize metadata with empty/default values
     m_metadata = VP_ShowsMetadata::ShowMetadata();
     
-    // Try to extract show name from the file path
-    // The path is usually: Data/username/TVShows/ShowName/episode.mmvid
+    // Use the provided show name if available
     QString showName;
-    QFileInfo fileInfo(m_videoFilePath);
-    QDir parentDir = fileInfo.dir();
-    if (parentDir.exists()) {
-        showName = parentDir.dirName();
-        qDebug() << "VP_ShowsEditMetadataDialog: Extracted show name from path:" << showName;
+    if (!m_providedShowName.isEmpty()) {
+        showName = m_providedShowName;
+        qDebug() << "VP_ShowsEditMetadataDialog: Using provided show name:" << showName;
+    } else {
+        // Fallback: try to extract from the file path (though this will be obfuscated)
+        QFileInfo fileInfo(m_videoFilePath);
+        QDir parentDir = fileInfo.dir();
+        if (parentDir.exists()) {
+            showName = parentDir.dirName();
+            qDebug() << "VP_ShowsEditMetadataDialog: Warning - Using obfuscated folder name as show name:" << showName;
+        }
     }
     
     // Set some default values
     m_metadata.showName = showName;
+    
+    QFileInfo fileInfo(m_videoFilePath);
     m_metadata.filename = fileInfo.fileName();
     
     // Remove .mmvid extension from filename if present
@@ -190,14 +199,9 @@ void VP_ShowsEditMetadataDialog::populateUI()
     ui->lineEdit_Filename->setText(m_metadata.filename);
     ui->lineEdit_ShowName->setText(m_metadata.showName);
     
-    // In repair mode, allow editing show name; in normal mode, make it read-only
-    if (m_repairMode) {
-        ui->lineEdit_ShowName->setReadOnly(false);
-        ui->lineEdit_ShowName->setStyleSheet("");  // Normal appearance
-    } else {
-        ui->lineEdit_ShowName->setReadOnly(true);  // Show name should not be editable in normal mode
-        ui->lineEdit_ShowName->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #404040; }");  // Visual indication with dark grey text
-    }
+    // Show name should always be read-only (determined from folder structure)
+    ui->lineEdit_ShowName->setReadOnly(true);
+    ui->lineEdit_ShowName->setStyleSheet("QLineEdit { background-color: #f0f0f0; color: #404040; }");  // Visual indication with dark grey text
     ui->lineEdit_Season->setText(m_metadata.season);
     ui->lineEdit_Episode->setText(m_metadata.episode);
     ui->lineEdit_EPName->setText(m_metadata.EPName);
@@ -465,34 +469,8 @@ bool VP_ShowsEditMetadataDialog::validateInput()
         return false;
     }
     
-    // Show name validation - only in repair mode since it's editable there
-    if (m_repairMode) {
-        QString showName = ui->lineEdit_ShowName->text().trimmed();
-        if (showName.isEmpty()) {
-            QMessageBox::warning(this, tr("Validation Error"),
-                               tr("Show name cannot be empty."));
-            ui->lineEdit_ShowName->setFocus();
-            return false;
-        }
-        
-        if (showName.length() > VP_ShowsMetadata::MAX_SHOW_NAME_LENGTH) {
-            QMessageBox::warning(this, tr("Validation Error"),
-                               tr("Show name is too long (maximum 100 characters)."));
-            ui->lineEdit_ShowName->setFocus();
-            return false;
-        }
-        
-        InputValidation::ValidationResult showResult = InputValidation::validateInput(
-            showName, InputValidation::InputType::PlainText);
-        
-        if (!showResult.isValid) {
-            QMessageBox::warning(this, tr("Validation Error"),
-                               tr("Invalid show name: %1").arg(showResult.errorMessage));
-            ui->lineEdit_ShowName->setFocus();
-            return false;
-        }
-    }
-    // In normal mode, show name is read-only and doesn't need validation
+    // Show name validation is not needed since it's always read-only (determined from folder structure)
+    // The show name is already validated when it was initially created
     
     // Validate episode number if provided
     QString episode = ui->lineEdit_Episode->text().trimmed();
@@ -527,15 +505,8 @@ void VP_ShowsEditMetadataDialog::updateMetadataFromUI()
     // Basic information
     m_metadata.filename = ui->lineEdit_Filename->text().trimmed();
     
-    // In repair mode, get show name from UI since it was initialized from file path
-    // In normal mode, keep the original value (read-only)
-    if (m_repairMode) {
-        m_metadata.showName = ui->lineEdit_ShowName->text().trimmed();
-        // Allow editing show name in repair mode
-    } else {
-        // Show name is read-only in normal mode, keep the original value
-        m_metadata.showName = m_originalMetadata.showName;
-    }
+    // Show name is always read-only (determined from folder structure), keep the original value
+    m_metadata.showName = m_originalMetadata.showName;
     m_metadata.season = ui->lineEdit_Season->text().trimmed();
     m_metadata.episode = ui->lineEdit_Episode->text().trimmed();
     m_metadata.EPName = ui->lineEdit_EPName->text().trimmed();

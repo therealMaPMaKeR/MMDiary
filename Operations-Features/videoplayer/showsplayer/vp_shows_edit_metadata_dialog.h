@@ -22,6 +22,7 @@ public:
                                        const QByteArray& encryptionKey,
                                        const QString& username,
                                        bool repairMode = false,
+                                       const QString& showName = QString(),
                                        QWidget *parent = nullptr);
     ~VP_ShowsEditMetadataDialog();
 
@@ -86,6 +87,7 @@ private:
     
     bool m_wasModified;
     bool m_repairMode;  // Flag to indicate repair mode
+    QString m_providedShowName;  // Show name provided for repair mode
     
     // UI elements that need special handling
     QLabel* m_imagePreviewLabel;
