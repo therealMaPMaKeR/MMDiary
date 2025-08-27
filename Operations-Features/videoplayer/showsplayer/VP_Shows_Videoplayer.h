@@ -2,8 +2,6 @@
 #define VP_SHOWS_VIDEOPLAYER_H
 
 #include <QWidget>
-#include <QMediaPlayer>
-#include <QVideoWidget>
 #include <QPushButton>
 #include <QSlider>
 #include <QLabel>
@@ -19,6 +17,7 @@
 #include <QComboBox>
 #include <memory>
 #include "vp_shows_watchhistory.h"
+#include "vp_vlcplayer.h"
 
 class VP_Shows_Videoplayer : public QWidget
 {
@@ -57,7 +56,7 @@ public:
 
 signals:
     void errorOccurred(const QString& error);
-    void playbackStateChanged(QMediaPlayer::PlaybackState state);
+    void playbackStateChanged(VP_VLCPlayer::PlayerState state);
     void positionChanged(qint64 position);
     void durationChanged(qint64 duration);
     void volumeChanged(int volume);
@@ -76,8 +75,8 @@ private slots:
     void on_fullScreenButton_clicked();
     void updatePosition(qint64 position);
     void updateDuration(qint64 duration);
-    void handleError(QMediaPlayer::Error error, const QString &errorString);
-    void handlePlaybackStateChanged(QMediaPlayer::PlaybackState state);
+    void handleError(const QString &errorString);
+    void handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state);
     
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -96,8 +95,8 @@ private:
     QString formatTime(qint64 milliseconds) const;
     
     // Core media components
-    std::unique_ptr<QMediaPlayer> m_mediaPlayer;
-    QVideoWidget* m_videoWidget;
+    std::unique_ptr<VP_VLCPlayer> m_mediaPlayer;
+    QWidget* m_videoWidget;  // Regular QWidget for libvlc rendering
     
     // Control widgets
     QPushButton* m_playButton;
