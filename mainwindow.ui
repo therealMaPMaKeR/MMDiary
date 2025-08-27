@@ -2032,7 +2032,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                   <item>
                    <widget class="QComboBox" name="comboBox_VP_Shows_ListViewMode">
                     <property name="currentIndex">
-                     <number>1</number>
+                     <number>0</number>
                     </property>
                     <item>
                      <property name="text">

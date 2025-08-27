@@ -3039,8 +3039,13 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         m_episodePlayer->raise();
         m_episodePlayer->activateWindow();
         
-        // Start in fullscreen mode
-        m_episodePlayer->startInFullScreen();
+        // Start in fullscreen mode if the setting is enabled
+        if (m_currentShowSettings.autoFullscreen) {
+            qDebug() << "Operations_VP_Shows: Auto-fullscreen is enabled, starting in fullscreen mode";
+            m_episodePlayer->startInFullScreen();
+        } else {
+            qDebug() << "Operations_VP_Shows: Auto-fullscreen is disabled, starting in windowed mode";
+        }
         
         // Add a small delay to ensure video widget is properly initialized
         QTimer::singleShot(100, [this, relativeEpisodePath]() {
