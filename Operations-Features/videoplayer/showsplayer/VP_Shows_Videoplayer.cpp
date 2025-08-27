@@ -1298,3 +1298,321 @@ void VP_Shows_Videoplayer::keyPressEvent(QKeyEvent *event)
     // Accept the event to prevent it from being propagated
     event->accept();
 }
+
+// Functions were missing when the code was refactored
+
+void VP_Shows_Videoplayer::startCursorTimer()
+{
+    if (m_isFullScreen && m_cursorTimer) {
+        qDebug() << "VP_Shows_Videoplayer: Starting cursor timer for auto-hide";
+        m_cursorTimer->stop();
+        m_cursorTimer->start();
+
+        // Also record current mouse position
+        m_lastMousePos = QCursor::pos();
+    }
+}
+
+void VP_Shows_Videoplayer::stopCursorTimer()
+{
+    if (m_cursorTimer) {
+        qDebug() << "VP_Shows_Videoplayer: Stopping cursor timer";
+        m_cursorTimer->stop();
+    }
+    if (m_mouseCheckTimer) {
+        qDebug() << "VP_Shows_Videoplayer: Stopping mouse check timer";
+        m_mouseCheckTimer->stop();
+    }
+}
+
+void VP_Shows_Videoplayer::hideCursor()
+{
+    if (m_isFullScreen && !m_controlsWidget->underMouse()) {
+        qDebug() << "VP_Shows_Videoplayer: Hiding cursor and controls";
+
+        // Hide cursor on all widgets
+        setCursor(Qt::BlankCursor);
+        m_videoWidget->setCursor(Qt::BlankCursor);
+        m_controlsWidget->setCursor(Qt::BlankCursor);
+
+        // Hide controls
+        m_controlsWidget->setVisible(false);
+
+        // Force cursor update
+        QApplication::setOverrideCursor(Qt::BlankCursor);
+    }
+}
+
+void VP_Shows_Videoplayer::showCursor()
+{
+    // Only show if cursor is hidden
+    if (cursor().shape() == Qt::BlankCursor || QApplication::overrideCursor()) {
+        qDebug() << "VP_Shows_Videoplayer: Showing cursor";
+
+        // Restore cursor on all widgets
+        setCursor(Qt::ArrowCursor);
+        m_videoWidget->setCursor(Qt::ArrowCursor);
+        m_controlsWidget->setCursor(Qt::ArrowCursor);
+
+        // Remove any override cursor
+        while (QApplication::overrideCursor()) {
+            QApplication::restoreOverrideCursor();
+        }
+    }
+}
+
+QScreen* VP_Shows_Videoplayer::getCurrentScreen() const
+{
+    // Get the screen this window is currently on
+    if (windowHandle() && windowHandle()->screen()) {
+        return windowHandle()->screen();
+    }
+
+    // Fallback: get screen based on geometry
+    QPoint center = geometry().center();
+    if (parentWidget()) {
+        center = mapToGlobal(center);
+    }
+
+    return QGuiApplication::screenAt(center);
+}
+
+void VP_Shows_Videoplayer::checkMouseMovement()
+{
+    if (!m_isFullScreen) {
+        return;  // Only check in fullscreen mode
+    }
+
+    QPoint currentPos = QCursor::pos();
+
+    // Check if mouse has moved
+    if (currentPos != m_lastMousePos) {
+        // Get the screen the player is currently on
+        QScreen* playerScreen = getCurrentScreen();
+
+        // Get the screen the mouse is currently on
+        QScreen* mouseScreen = QGuiApplication::screenAt(currentPos);
+
+        // Only respond if the mouse is on the same screen as the player
+        if (playerScreen && mouseScreen && playerScreen == mouseScreen) {
+            // Mouse has moved on the same screen
+            qDebug() << "VP_Shows_Videoplayer: Mouse movement detected on player screen - from"
+                     << m_lastMousePos << "to" << currentPos;
+
+            // Show cursor and controls
+            showCursor();
+
+            if (!m_controlsWidget->isVisible()) {
+                qDebug() << "VP_Shows_Videoplayer: Showing controls due to detected movement on same screen";
+                m_controlsWidget->setVisible(true);
+            }
+
+            // Restart the hide timer
+            startCursorTimer();
+        } else {
+            // Mouse is on a different screen, do not show controls
+            qDebug() << "VP_Shows_Videoplayer: Mouse movement on different screen - ignoring";
+        }
+
+        // Always update last position to track movement
+        m_lastMousePos = currentPos;
+    }
+}
+
+void VP_Shows_Videoplayer::saveWatchProgress()
+{
+    if (!m_watchHistory || m_episodePath.isEmpty() || !m_hasStartedPlaying) {
+        return;
+    }
+
+    qint64 currentPosition = m_mediaPlayer->position();
+    qint64 duration = m_mediaPlayer->duration();
+
+    // Only save if position has changed significantly (more than 1 second)
+    if (!shouldUpdateProgress(currentPosition)) {
+        return;
+    }
+
+    qDebug() << "VP_Shows_Videoplayer: Saving watch progress - Position:" << currentPosition
+             << "Duration:" << duration;
+
+    m_watchHistory->updateWatchProgress(m_episodePath, currentPosition, duration, m_episodeIdentifier);
+    m_watchHistory->saveHistory();
+    m_lastSavedPosition = currentPosition;
+}
+
+void VP_Shows_Videoplayer::ensureKeyboardFocus()
+{
+    qDebug() << "VP_Shows_Videoplayer: Ensuring keyboard focus";
+
+    // First, clear focus from any control widgets
+    if (m_positionSlider->hasFocus()) {
+        qDebug() << "VP_Shows_Videoplayer: Clearing focus from position slider";
+        m_positionSlider->clearFocus();
+    }
+    if (m_volumeSlider->hasFocus()) {
+        qDebug() << "VP_Shows_Videoplayer: Clearing focus from volume slider";
+        m_volumeSlider->clearFocus();
+    }
+
+    // Set focus to the main widget to ensure keyboard shortcuts work
+    setFocus(Qt::OtherFocusReason);
+
+    // Also raise and activate the window to be safe
+    raise();
+    activateWindow();
+
+    // Verify focus was set
+    if (hasFocus()) {
+        qDebug() << "VP_Shows_Videoplayer: Focus successfully set to main widget";
+    } else {
+        qDebug() << "VP_Shows_Videoplayer: WARNING - Failed to set focus to main widget";
+    }
+}
+
+void VP_Shows_Videoplayer::focusInEvent(QFocusEvent *event)
+{
+    qDebug() << "VP_Shows_Videoplayer: Focus in event, reason:" << event->reason();
+    QWidget::focusInEvent(event);
+}
+
+void VP_Shows_Videoplayer::wheelEvent(QWheelEvent *event)
+{
+    qDebug() << "VP_Shows_Videoplayer: Mouse wheel event detected";
+
+    // Get the number of degrees the wheel was rotated
+    QPoint numDegrees = event->angleDelta() / 8;
+
+    if (!numDegrees.isNull()) {
+        // Get the number of steps (typically 15 degrees per step)
+        QPoint numSteps = numDegrees / 15;
+
+        // Adjust volume based on vertical wheel movement
+        int currentVolume = m_volumeSlider->value();
+        int volumeChange = numSteps.y() * 5; // 5% per step
+        int newVolume = qBound(0, currentVolume + volumeChange, 150);
+
+        if (newVolume != currentVolume) {
+            setVolume(newVolume);
+            qDebug() << "VP_Shows_Videoplayer: Mouse wheel - Volume changed from" << currentVolume << "to" << newVolume;
+        }
+    }
+
+    event->accept();
+}
+
+void VP_Shows_Videoplayer::mouseMoveEvent(QMouseEvent *event)
+{
+    if (m_isFullScreen) {
+        // Update last mouse position to global position
+        QPoint globalPos = mapToGlobal(event->pos());
+
+        // Only process if position actually changed
+        if (globalPos != m_lastMousePos) {
+            // Get the screen the player is on and the screen the mouse is on
+            QScreen* playerScreen = getCurrentScreen();
+            QScreen* mouseScreen = QGuiApplication::screenAt(globalPos);
+
+            // Only respond if mouse is on the same screen as the player
+            if (playerScreen && mouseScreen && playerScreen == mouseScreen) {
+                qDebug() << "VP_Shows_Videoplayer: Mouse movement detected on main widget at global position"
+                         << globalPos << " on same screen";
+
+                // Show cursor
+                showCursor();
+
+                // Show controls if hidden
+                if (!m_controlsWidget->isVisible()) {
+                    qDebug() << "VP_Shows_Videoplayer: Showing controls due to main widget mouse movement on same screen";
+                    m_controlsWidget->setVisible(true);
+                }
+
+                // Restart the timer
+                startCursorTimer();
+            } else if (playerScreen && mouseScreen && playerScreen != mouseScreen) {
+                // Mouse is on a different screen, log but don't show controls
+                qDebug() << "VP_Shows_Videoplayer: Mouse movement on different screen (main widget) - ignoring";
+            }
+
+            // Always update last position to track movement
+            m_lastMousePos = globalPos;
+        }
+    }
+
+    // Call base class implementation
+    QWidget::mouseMoveEvent(event);
+}
+
+bool VP_Shows_Videoplayer::eventFilter(QObject *watched, QEvent *event)
+{
+    // Handle double-click on video widget for fullscreen
+    if (watched == m_videoWidget && event->type() == QEvent::MouseButtonDblClick) {
+        QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            toggleFullScreen();
+            return true;
+        }
+    }
+
+    // Handle single click on video widget to restore focus
+    if (watched == m_videoWidget && event->type() == QEvent::MouseButtonPress) {
+        QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            qDebug() << "VP_Shows_Videoplayer: Click on video widget - restoring focus and clearing slider flag";
+            // Clear the slider being moved flag in case it's stuck
+            m_isSliderBeingMoved = false;
+            // Ensure keyboard focus returns to main widget
+            ensureKeyboardFocus();
+            // Don't consume the event, let it propagate
+        }
+    }
+
+    // Handle mouse movement on video widget OR controls widget in fullscreen mode
+    if ((watched == m_videoWidget || watched == m_controlsWidget) && m_isFullScreen && event->type() == QEvent::MouseMove) {
+        QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+        QPoint globalPos = mouseEvent->globalPosition().toPoint();
+
+        // Only process if position actually changed
+        if (globalPos != m_lastMousePos) {
+            // Get the screen the player is on and the screen the mouse is on
+            QScreen* playerScreen = getCurrentScreen();
+            QScreen* mouseScreen = QGuiApplication::screenAt(globalPos);
+
+            // Only respond if mouse is on the same screen as the player
+            if (playerScreen && mouseScreen && playerScreen == mouseScreen) {
+                qDebug() << "VP_Shows_Videoplayer: Mouse movement detected on"
+                         << (watched == m_videoWidget ? "video widget" : "controls widget")
+                         << "at global position" << globalPos << " on same screen";
+
+                // Show cursor
+                showCursor();
+
+                // Show controls if hidden
+                if (!m_controlsWidget->isVisible()) {
+                    qDebug() << "VP_Shows_Videoplayer: Showing controls due to mouse movement on same screen";
+                    m_controlsWidget->setVisible(true);
+                }
+
+                // Restart the cursor timer
+                startCursorTimer();
+            } else if (playerScreen && mouseScreen && playerScreen != mouseScreen) {
+                // Mouse is on a different screen, log but don't show controls
+                qDebug() << "VP_Shows_Videoplayer: Mouse movement on different screen - ignoring";
+            }
+
+            // Always update last position to track movement
+            m_lastMousePos = globalPos;
+        }
+
+        // Don't return true here, let the event propagate
+    }
+
+    return QWidget::eventFilter(watched, event);
+}
+
+bool VP_Shows_Videoplayer::shouldUpdateProgress(qint64 currentPosition) const
+{
+    // Don't update if position hasn't changed significantly (at least 1 second difference)
+    return qAbs(currentPosition - m_lastSavedPosition) >= 1000;
+}
+

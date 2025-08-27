@@ -33,7 +33,6 @@
 #include <QPixmap>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
-#include <QMediaPlayer>
 #include <QCoreApplication>
 #include <QProgressDialog>
 #include <QStorageInfo>
@@ -3051,8 +3050,8 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         
         // Connect playback state changed to clean up when stopped
         connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::playbackStateChanged,
-                this, [this](QMediaPlayer::PlaybackState state) {
-            if (state == QMediaPlayer::StoppedState) {
+                this, [this](VP_VLCPlayer::PlayerState state) {
+            if (state == VP_VLCPlayer::PlayerState::Stopped) {
                 qDebug() << "Operations_VP_Shows: Playback stopped, scheduling cleanup";
                 
                 // Get the current position and duration BEFORE stopping the tracker
