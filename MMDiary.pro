@@ -130,7 +130,6 @@ SOURCES += \
     Operations-Features/videoplayer/showsplayer/vp_shows_encryptionworkers.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_progressdialogs.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_tmdb.cpp \
-    Operations-Features/videoplayer/VP_VLCPlayer.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_config.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.cpp \
@@ -182,7 +181,6 @@ HEADERS += \
     Operations-Features/videoplayer/showsplayer/vp_shows_encryptionworkers.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_progressdialogs.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_tmdb.h \
-    Operations-Features/videoplayer/VP_VLCPlayer.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_config.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.h \
