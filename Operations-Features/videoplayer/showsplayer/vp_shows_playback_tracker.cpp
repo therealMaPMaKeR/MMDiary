@@ -13,6 +13,7 @@ VP_ShowsPlaybackTracker::VP_ShowsPlaybackTracker(Operations_VP_Shows* parent)
     , m_isTracking(false)
     , m_lastSavedPosition(0)
     , m_lastNearCompletionEpisode()
+    , m_trackingSessionId(0)
 {
     qDebug() << "VP_ShowsPlaybackTracker: Initializing playback tracker";
     
@@ -36,10 +37,20 @@ VP_ShowsPlaybackTracker::~VP_ShowsPlaybackTracker()
 {
     qDebug() << "VP_ShowsPlaybackTracker: Destroying playback tracker";
     
+    // Invalidate session to prevent any pending lambdas from executing
+    m_trackingSessionId = -1;
+    
     // Stop tracking if still active
     if (m_isTracking) {
         qDebug() << "VP_ShowsPlaybackTracker: Still tracking in destructor, calling stopTracking";
         stopTracking();
+    }
+    
+    // Ensure timer is deleted properly
+    if (!m_progressTimer.isNull()) {
+        m_progressTimer->stop();
+        m_progressTimer->deleteLater();
+        m_progressTimer = nullptr;
     }
 }
 
@@ -126,6 +137,11 @@ void VP_ShowsPlaybackTracker::startTracking(const QString& episodePath, VP_Shows
     // Stop any existing tracking
     stopTracking();
     
+    // Increment tracking session ID for this new session
+    m_trackingSessionId++;
+    int currentSessionId = m_trackingSessionId;
+    qDebug() << "VP_ShowsPlaybackTracker: Starting new tracking session ID:" << currentSessionId;
+    
     // Set new tracking state
     m_currentEpisodePath = episodePath;
     m_currentPlayer = player;
@@ -135,8 +151,8 @@ void VP_ShowsPlaybackTracker::startTracking(const QString& episodePath, VP_Shows
     m_lastNearCompletionEpisode.clear();
     qDebug() << "VP_ShowsPlaybackTracker: Reset near-completion tracking for new episode";
     
-    // Connect to player signals
-    connectPlayerSignals(player);
+    // Connect to player signals with current session ID
+    connectPlayerSignals(player, currentSessionId);
     
     // Capture initial position
     qint64 initialPosition = player->position();
@@ -170,26 +186,39 @@ void VP_ShowsPlaybackTracker::startTracking(const QString& episodePath, VP_Shows
     
     // Start periodic updates with a shorter initial interval
     qDebug() << "VP_ShowsPlaybackTracker: Starting periodic timer with initial 2-second interval...";
-    m_progressTimer->setInterval(2000);  // 2 seconds for first save
-    m_progressTimer->start();
-    
-    if (m_progressTimer->isActive()) {
-        qDebug() << "VP_ShowsPlaybackTracker: Timer successfully started and is active";
-    } else {
-        qDebug() << "VP_ShowsPlaybackTracker: ERROR - Timer failed to start!";
-    }
-    
-    // After first save, switch to normal interval
-    QTimer::singleShot(2100, [this]() {
+    if (!m_progressTimer.isNull()) {
+        m_progressTimer->setInterval(2000);  // 2 seconds for first save
+        m_progressTimer->start();
+        
         if (m_progressTimer->isActive()) {
-            int normalInterval = VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS * 1000;
-            m_progressTimer->setInterval(normalInterval);
-            qDebug() << "VP_ShowsPlaybackTracker: Switched to normal save interval:" 
-                     << normalInterval << "ms (" << VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS << "seconds)";
+            qDebug() << "VP_ShowsPlaybackTracker: Timer successfully started and is active";
         } else {
-            qDebug() << "VP_ShowsPlaybackTracker: Timer not active when trying to switch interval";
+            qDebug() << "VP_ShowsPlaybackTracker: ERROR - Timer failed to start!";
         }
-    });
+        
+        // After first save, switch to normal interval
+        // Capture the session ID to ensure this lambda only runs for the current session
+        QTimer::singleShot(2100, this, [this, currentSessionId]() {
+            // Check if we're still in the same tracking session
+            if (m_trackingSessionId != currentSessionId) {
+                qDebug() << "VP_ShowsPlaybackTracker: Ignoring timer interval switch - session ID mismatch"
+                         << "(current:" << m_trackingSessionId << "expected:" << currentSessionId << ")";
+                return;
+            }
+            
+            // Now safe to check timer state
+            if (!m_progressTimer.isNull() && m_progressTimer->isActive()) {
+                int normalInterval = VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS * 1000;
+                m_progressTimer->setInterval(normalInterval);
+                qDebug() << "VP_ShowsPlaybackTracker: Switched to normal save interval:" 
+                         << normalInterval << "ms (" << VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS << "seconds)";
+            } else {
+                qDebug() << "VP_ShowsPlaybackTracker: Timer not active when trying to switch interval";
+            }
+        });
+    } else {
+        qDebug() << "VP_ShowsPlaybackTracker: ERROR - Timer is null, cannot start tracking!";
+    }
     
     qDebug() << "VP_ShowsPlaybackTracker: Tracking started successfully";
 }
@@ -211,8 +240,10 @@ void VP_ShowsPlaybackTracker::stopTracking(qint64 finalPosition)
     // Set tracking to false immediately to prevent double calls
     m_isTracking = false;
     
-    // Stop timer first
-    m_progressTimer->stop();
+    // Stop timer first (with null check)
+    if (!m_progressTimer.isNull()) {
+        m_progressTimer->stop();
+    }
     
     // Do final progress update
     if (m_watchHistory && !m_currentEpisodePath.isEmpty()) {
@@ -220,10 +251,10 @@ void VP_ShowsPlaybackTracker::stopTracking(qint64 finalPosition)
         qint64 duration = 0;
         
         // If no position was provided, try to get it from the player
-        if (finalPosition < 0 && m_currentPlayer) {
+        if (finalPosition < 0 && !m_currentPlayer.isNull()) {
             position = m_currentPlayer->position();
             duration = m_currentPlayer->duration();
-        } else if (m_currentPlayer) {
+        } else if (!m_currentPlayer.isNull()) {
             duration = m_currentPlayer->duration();
         }
         
@@ -257,6 +288,10 @@ void VP_ShowsPlaybackTracker::stopTracking(qint64 finalPosition)
     m_lastSavedPosition = 0;
     m_lastNearCompletionEpisode.clear();
     
+    // Increment session ID to invalidate any pending lambdas
+    m_trackingSessionId++;
+    qDebug() << "VP_ShowsPlaybackTracker: Session ID incremented to" << m_trackingSessionId << "to invalidate pending operations";
+    
     // Emit tracking stopped signal
     qint64 emittedPosition = finalPosition >= 0 ? finalPosition : m_lastSavedPosition;
     emit trackingStopped(episodePath, emittedPosition);
@@ -265,7 +300,7 @@ void VP_ShowsPlaybackTracker::stopTracking(qint64 finalPosition)
     qDebug() << "VP_ShowsPlaybackTracker: === TRACKING SUMMARY ===";
     qDebug() << "VP_ShowsPlaybackTracker:   Episode:" << episodePath;
     qDebug() << "VP_ShowsPlaybackTracker:   Final position:" << emittedPosition << "ms";
-    qDebug() << "VP_ShowsPlaybackTracker:   Timer was active:" << (m_progressTimer && m_progressTimer->isActive());
+    qDebug() << "VP_ShowsPlaybackTracker:   Timer was active:" << (!m_progressTimer.isNull() && m_progressTimer->isActive());
 }
 
 qint64 VP_ShowsPlaybackTracker::getResumePosition(const QString& episodePath) const
@@ -485,12 +520,12 @@ void VP_ShowsPlaybackTracker::updateProgress()
     static int updateCallCount = 0;
     updateCallCount++;
     
-    if (!m_isTracking || !m_currentPlayer || !m_watchHistory || m_currentEpisodePath.isEmpty()) {
+    if (!m_isTracking || m_currentPlayer.isNull() || !m_watchHistory || m_currentEpisodePath.isEmpty()) {
         qDebug() << "VP_ShowsPlaybackTracker: Cannot update progress - missing required components";
         return;
     }
     
-    // Get current position and duration from player
+    // Get current position and duration from player (player already checked above)
     qint64 position = m_currentPlayer->position();
     qint64 duration = m_currentPlayer->duration();
     
@@ -562,19 +597,24 @@ void VP_ShowsPlaybackTracker::updateProgress()
 
 // checkForCompletion functionality has been integrated directly into updateProgress()
 
-void VP_ShowsPlaybackTracker::connectPlayerSignals(VP_Shows_Videoplayer* player)
+void VP_ShowsPlaybackTracker::connectPlayerSignals(VP_Shows_Videoplayer* player, int sessionId)
 {
     if (!player) {
         qDebug() << "VP_ShowsPlaybackTracker: ERROR - Player is null, cannot connect signals";
         return;
     }
     
-    qDebug() << "VP_ShowsPlaybackTracker: Connecting to player signals";
+    qDebug() << "VP_ShowsPlaybackTracker: Connecting to player signals for session" << sessionId;
     qDebug() << "VP_ShowsPlaybackTracker: Player pointer:" << player;
     
     // Connect to position changed for continuous tracking
     QMetaObject::Connection posConnection = connect(player, &VP_Shows_Videoplayer::positionChanged,
-            this, [this](qint64 position) {
+            this, [this, sessionId](qint64 position) {
+                // Validate we're still in the same tracking session
+                if (m_trackingSessionId != sessionId) {
+                    return; // Ignore signal from old session
+                }
+                
                 if (m_isTracking && position > 0) {
                     // Detect large position jumps (seeks)
                     qint64 positionJump = qAbs(position - m_lastSavedPosition);
@@ -583,7 +623,7 @@ void VP_ShowsPlaybackTracker::connectPlayerSignals(VP_Shows_Videoplayer* player)
                     // This catches manual skips, keyboard arrow seeks, and slider drags
                     if (positionJump > 5000) {
                         // Check if we seeked to near the end
-                        if (m_currentPlayer) {
+                        if (!m_currentPlayer.isNull()) {
                             qint64 duration = m_currentPlayer->duration();
                             if (duration > 0) {
                                 qint64 remaining = duration - position;
@@ -621,7 +661,14 @@ void VP_ShowsPlaybackTracker::connectPlayerSignals(VP_Shows_Videoplayer* player)
     
     // Connect to aboutToClose signal to capture final position
     QMetaObject::Connection closeConnection = connect(player, &VP_Shows_Videoplayer::aboutToClose,
-            this, [this](qint64 finalPosition) {
+            this, [this, sessionId](qint64 finalPosition) {
+                // Validate we're still in the same tracking session
+                if (m_trackingSessionId != sessionId) {
+                    qDebug() << "VP_ShowsPlaybackTracker: Ignoring aboutToClose from old session"
+                             << "(current:" << m_trackingSessionId << "signal from:" << sessionId << ")";
+                    return; // Ignore signal from old session
+                }
+                
                 qDebug() << "VP_ShowsPlaybackTracker: Received aboutToClose signal with position:" << finalPosition << "ms";
                 if (m_isTracking) {
                     stopTracking(finalPosition);
@@ -637,7 +684,7 @@ void VP_ShowsPlaybackTracker::connectPlayerSignals(VP_Shows_Videoplayer* player)
 
 void VP_ShowsPlaybackTracker::disconnectPlayerSignals()
 {
-    if (m_currentPlayer) {
+    if (!m_currentPlayer.isNull()) {
         qDebug() << "VP_ShowsPlaybackTracker: Disconnecting from player signals";
         disconnect(m_currentPlayer, nullptr, this, nullptr);
     }

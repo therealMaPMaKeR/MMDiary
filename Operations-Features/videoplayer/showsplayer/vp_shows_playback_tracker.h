@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QTimer>
+#include <QPointer>
 #include <memory>
 #include "vp_shows_watchhistory.h"
 
@@ -243,18 +244,21 @@ private:
     std::unique_ptr<VP_ShowsWatchHistory> m_watchHistory;
     
     // Tracking state
-    QTimer* m_progressTimer;
-    VP_Shows_Videoplayer* m_currentPlayer;
+    QPointer<QTimer> m_progressTimer;
+    QPointer<VP_Shows_Videoplayer> m_currentPlayer;
     QString m_currentEpisodePath;
     bool m_isTracking;
     qint64 m_lastSavedPosition;
     
     // Helper methods
-    void connectPlayerSignals(VP_Shows_Videoplayer* player);
+    void connectPlayerSignals(VP_Shows_Videoplayer* player, int sessionId);
     void disconnectPlayerSignals();
     
     // Track if we've already emitted near completion for current episode
     QString m_lastNearCompletionEpisode;
+    
+    // Tracking session counter to prevent stale lambda executions
+    int m_trackingSessionId;
 };
 
 #endif // VP_SHOWS_PLAYBACK_TRACKER_H
