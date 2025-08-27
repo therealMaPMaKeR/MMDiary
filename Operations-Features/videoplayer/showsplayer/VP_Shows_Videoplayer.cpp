@@ -290,6 +290,18 @@ void VP_Shows_Videoplayer::createControls()
     m_volumeSlider->setToolTip(tr("Volume (up to 150%)"));
     m_volumeSlider->setFocusPolicy(Qt::ClickFocus);  // Only take focus when clicked, and give it up easily
     
+    // Speed combo box
+    m_speedComboBox = new QComboBox(this);
+    m_speedComboBox->addItem("0.5x", 0.5);
+    m_speedComboBox->addItem("1x", 1.0);
+    m_speedComboBox->addItem("1.5x", 1.5);
+    m_speedComboBox->addItem("2x", 2.0);
+    m_speedComboBox->addItem("3x", 3.0);
+    m_speedComboBox->setCurrentIndex(1);  // Default to 1x speed
+    m_speedComboBox->setMaximumWidth(60);
+    m_speedComboBox->setToolTip(tr("Playback Speed"));
+    m_speedComboBox->setFocusPolicy(Qt::NoFocus);  // Prevent combo box from taking keyboard focus
+    
     // Labels
     m_positionLabel = new QLabel("00:00", this);
     m_positionLabel->setMinimumWidth(50);
@@ -298,6 +310,8 @@ void VP_Shows_Videoplayer::createControls()
     m_durationLabel->setMinimumWidth(50);
     
     m_volumeLabel = new QLabel(tr("Vol:"), this);
+    
+    m_speedLabel = new QLabel(tr("Speed:"), this);
     
     // Set initial volume
     if (m_mediaPlayer->audioOutput()) {
@@ -327,7 +341,7 @@ void VP_Shows_Videoplayer::createLayouts()
     m_controlLayout->addWidget(m_fullScreenButton);
     m_controlLayout->addStretch();
     
-    // Slider layout (position and volume)
+    // Slider layout (position, volume, and speed)
     m_sliderLayout = new QHBoxLayout();
     m_sliderLayout->addWidget(m_positionLabel);
     m_sliderLayout->addWidget(m_positionSlider, 1);
@@ -335,6 +349,9 @@ void VP_Shows_Videoplayer::createLayouts()
     m_sliderLayout->addSpacing(20);
     m_sliderLayout->addWidget(m_volumeLabel);
     m_sliderLayout->addWidget(m_volumeSlider);
+    m_sliderLayout->addSpacing(20);
+    m_sliderLayout->addWidget(m_speedLabel);
+    m_sliderLayout->addWidget(m_speedComboBox);
     
     // Controls widget layout
     QVBoxLayout* controlsLayout = new QVBoxLayout(m_controlsWidget);
@@ -388,6 +405,10 @@ void VP_Shows_Videoplayer::connectSignals()
     
     connect(m_volumeSlider, &QSlider::sliderMoved,
             this, &VP_Shows_Videoplayer::on_volumeSlider_sliderMoved);
+    
+    // Speed combo box signal
+    connect(m_speedComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &VP_Shows_Videoplayer::on_speedComboBox_currentIndexChanged);
     
     // Media player signals
     connect(m_mediaPlayer.get(), &QMediaPlayer::positionChanged,
@@ -799,6 +820,39 @@ QString VP_Shows_Videoplayer::currentVideoPath() const
     return m_currentVideoPath;
 }
 
+void VP_Shows_Videoplayer::setPlaybackSpeed(qreal speed)
+{
+    qDebug() << "VP_Shows_Videoplayer: Setting playback speed to" << speed;
+    
+    // Clamp speed to reasonable values
+    if (speed < 0.25) speed = 0.25;
+    if (speed > 4.0) speed = 4.0;
+    
+    m_mediaPlayer->setPlaybackRate(speed);
+    
+    // Update combo box if needed
+    int index = -1;
+    for (int i = 0; i < m_speedComboBox->count(); ++i) {
+        if (qFuzzyCompare(m_speedComboBox->itemData(i).toDouble(), speed)) {
+            index = i;
+            break;
+        }
+    }
+    
+    if (index >= 0 && m_speedComboBox->currentIndex() != index) {
+        m_speedComboBox->blockSignals(true);
+        m_speedComboBox->setCurrentIndex(index);
+        m_speedComboBox->blockSignals(false);
+    }
+    
+    emit playbackSpeedChanged(speed);
+}
+
+qreal VP_Shows_Videoplayer::playbackSpeed() const
+{
+    return m_mediaPlayer->playbackRate();
+}
+
 void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
 {
     qDebug() << "VP_Shows_Videoplayer: Window closing, stopping playback. m_isClosing =" << m_isClosing;
@@ -1142,6 +1196,21 @@ void VP_Shows_Videoplayer::on_volumeSlider_sliderMoved(int position)
     qDebug() << "VP_Shows_Videoplayer: Volume slider moved to" << position << "%";
     setVolume(position);
     // Don't steal focus while user is adjusting volume
+}
+
+void VP_Shows_Videoplayer::on_speedComboBox_currentIndexChanged(int index)
+{
+    if (index < 0 || index >= m_speedComboBox->count()) {
+        return;
+    }
+    
+    qreal speed = m_speedComboBox->itemData(index).toDouble();
+    qDebug() << "VP_Shows_Videoplayer: Speed combo box changed to index" << index << "speed" << speed;
+    
+    setPlaybackSpeed(speed);
+    
+    // Return focus to main widget for keyboard shortcuts
+    ensureKeyboardFocus();
 }
 
 void VP_Shows_Videoplayer::on_fullScreenButton_clicked()

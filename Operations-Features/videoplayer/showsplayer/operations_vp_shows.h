@@ -224,6 +224,11 @@ public:
     bool m_isAutoplayInProgress = false;  // Flag to prevent multiple autoplay triggers
     bool m_episodeWasNearCompletion = false;  // Flag to track if episode reached near-end position
     
+    // Playback speed management (session-based)
+    QMap<QString, qreal> m_sessionPlaybackSpeeds;  // Map of show folder path to playback speed
+    qreal getSessionPlaybackSpeed(const QString& showFolder) const;
+    void setSessionPlaybackSpeed(const QString& showFolder, qreal speed);
+    
     // Settings handling
     // Load settings for the current show (checkboxes)
     void loadShowSettings(const QString& showFolderPath);

@@ -16,6 +16,7 @@
 #include <QMargins>
 #include <QTimer>
 #include <QScreen>
+#include <QComboBox>
 #include <memory>
 #include "vp_shows_watchhistory.h"
 
@@ -34,6 +35,7 @@ public:
     void stop();
     void setVolume(int volume);
     void setPosition(qint64 position);
+    void setPlaybackSpeed(qreal speed);
     void toggleFullScreen();
     void exitFullScreen();
     void startInFullScreen();
@@ -44,6 +46,7 @@ public:
     qint64 duration() const;
     qint64 position() const;
     int volume() const;
+    qreal playbackSpeed() const;
     QString currentVideoPath() const;
     
     // Watch history integration
@@ -58,6 +61,7 @@ signals:
     void positionChanged(qint64 position);
     void durationChanged(qint64 duration);
     void volumeChanged(int volume);
+    void playbackSpeedChanged(qreal speed);
     void fullScreenChanged(bool isFullScreen);
     void aboutToClose(qint64 finalPosition);  // Emitted before window closes with final playback position
 
@@ -68,6 +72,7 @@ private slots:
     void on_positionSlider_sliderPressed();
     void on_positionSlider_sliderReleased();
     void on_volumeSlider_sliderMoved(int position);
+    void on_speedComboBox_currentIndexChanged(int index);
     void on_fullScreenButton_clicked();
     void updatePosition(qint64 position);
     void updateDuration(qint64 duration);
@@ -100,9 +105,11 @@ private:
     QPushButton* m_fullScreenButton;
     QSlider* m_positionSlider;
     QSlider* m_volumeSlider;
+    QComboBox* m_speedComboBox;
     QLabel* m_positionLabel;
     QLabel* m_durationLabel;
     QLabel* m_volumeLabel;
+    QLabel* m_speedLabel;
     QWidget* m_controlsWidget;
     
     // Layout containers

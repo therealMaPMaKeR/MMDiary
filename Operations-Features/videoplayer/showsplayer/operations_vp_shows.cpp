@@ -233,6 +233,10 @@ Operations_VP_Shows::~Operations_VP_Shows()
         qDebug() << "Operations_VP_Shows: Warning - Found" << activeLocks << "active locks during destructor, cleaning up";
         VP_MetadataLockManager::instance()->cleanup();
     }
+    
+    // Clear session playback speeds
+    m_sessionPlaybackSpeeds.clear();
+    qDebug() << "Operations_VP_Shows: Session playback speeds cleared";
 }
 
 QString Operations_VP_Shows::selectVideoFile()
@@ -1269,6 +1273,40 @@ void Operations_VP_Shows::cleanupIncompleteShowFolders()
     m_isUpdatingExistingShow = false;
     m_originalEpisodeCount = 0;
     m_newEpisodeCount = 0;
+}
+
+// ============================================================================
+// Playback Speed Management (Session-based)
+// ============================================================================
+
+qreal Operations_VP_Shows::getSessionPlaybackSpeed(const QString& showFolder) const
+{
+    qDebug() << "Operations_VP_Shows: Getting session playback speed for show:" << showFolder;
+    
+    // Check if we have a saved speed for this show in the current session
+    if (m_sessionPlaybackSpeeds.contains(showFolder)) {
+        qreal speed = m_sessionPlaybackSpeeds.value(showFolder);
+        qDebug() << "Operations_VP_Shows: Found session speed:" << speed;
+        return speed;
+    }
+    
+    // Default to 1x speed
+    qDebug() << "Operations_VP_Shows: No session speed found, returning default 1.0x";
+    return 1.0;
+}
+
+void Operations_VP_Shows::setSessionPlaybackSpeed(const QString& showFolder, qreal speed)
+{
+    qDebug() << "Operations_VP_Shows: Setting session playback speed for show:" << showFolder << "to" << speed;
+    
+    // Clamp speed to reasonable values
+    if (speed < 0.25) speed = 0.25;
+    if (speed > 4.0) speed = 4.0;
+    
+    // Store the speed for this show in the session
+    m_sessionPlaybackSpeeds[showFolder] = speed;
+    
+    qDebug() << "Operations_VP_Shows: Session speed saved. Current session speeds count:" << m_sessionPlaybackSpeeds.size();
 }
 
 void Operations_VP_Shows::loadTVShowsList()
@@ -3002,6 +3040,15 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             cleanupTempFile();
         });
         
+        // Connect playback speed changed signal to save the speed for this show
+        connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::playbackSpeedChanged,
+                this, [this](qreal speed) {
+            if (!m_currentShowFolder.isEmpty()) {
+                qDebug() << "Operations_VP_Shows: Playback speed changed to" << speed << "- saving for session";
+                setSessionPlaybackSpeed(m_currentShowFolder, speed);
+            }
+        });
+        
         // Connect playback state changed to clean up when stopped
         connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::playbackStateChanged,
                 this, [this](QMediaPlayer::PlaybackState state) {
@@ -3132,8 +3179,17 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                     }
                 }
                 
+                // Apply the session playback speed for this show
+                if (!m_currentShowFolder.isEmpty()) {
+                    qreal sessionSpeed = getSessionPlaybackSpeed(m_currentShowFolder);
+                    if (!qFuzzyCompare(sessionSpeed, 1.0)) {
+                        qDebug() << "Operations_VP_Shows: Applying session playback speed:" << sessionSpeed;
+                        m_episodePlayer->setPlaybackSpeed(sessionSpeed);
+                    }
+                }
+                
                 m_episodePlayer->play();
-                qDebug() << "Operations_VP_Shows: Episode playing in fullscreen";
+                qDebug() << "Operations_VP_Shows: Episode playing";
             }
         });
     } else {
