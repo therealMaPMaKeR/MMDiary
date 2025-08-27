@@ -1,5 +1,5 @@
-#ifndef VP_SHOWS_METADATA_LOCK_MANAGER_H
-#define VP_SHOWS_METADATA_LOCK_MANAGER_H
+#ifndef VP_METADATA_LOCK_MANAGER_H
+#define VP_METADATA_LOCK_MANAGER_H
 
 #include <QObject>
 #include <QString>
@@ -11,14 +11,16 @@
 #include <memory>
 
 /**
- * @class VP_ShowsMetadataLockManager
- * @brief Manages file locking for TV shows metadata operations to prevent concurrent access issues
+ * @class VP_MetadataLockManager
+ * @brief Manages file locking for video metadata operations to prevent concurrent access issues
  * 
  * This class provides thread-safe file locking mechanism to ensure that only one operation
  * can access a video file's metadata at a time. This prevents corruption and crashes when
  * multiple parts of the application try to read/write metadata simultaneously.
+ * 
+ * Can be used for TV shows, movies, and other video content types.
  */
-class VP_ShowsMetadataLockManager : public QObject
+class VP_MetadataLockManager : public QObject
 {
     Q_OBJECT
 
@@ -38,7 +40,7 @@ public:
      */
     class LockGuard {
     public:
-        LockGuard(VP_ShowsMetadataLockManager* manager, const QString& filePath);
+        LockGuard(VP_MetadataLockManager* manager, const QString& filePath);
         ~LockGuard();
         
         // Disable copy
@@ -53,7 +55,7 @@ public:
         LockResult result() const { return m_result; }
         
     private:
-        VP_ShowsMetadataLockManager* m_manager;
+        VP_MetadataLockManager* m_manager;
         QString m_filePath;
         bool m_locked;
         LockResult m_result;
@@ -62,12 +64,12 @@ public:
     /**
      * @brief Get the singleton instance
      */
-    static VP_ShowsMetadataLockManager* instance();
+    static VP_MetadataLockManager* instance();
     
     /**
      * @brief Destructor
      */
-    ~VP_ShowsMetadataLockManager();
+    ~VP_MetadataLockManager();
 
     /**
      * @brief Acquire a lock for the specified file
@@ -137,11 +139,11 @@ signals:
 
 private:
     // Private constructor for singleton
-    VP_ShowsMetadataLockManager();
+    VP_MetadataLockManager();
     
     // Disable copy
-    VP_ShowsMetadataLockManager(const VP_ShowsMetadataLockManager&) = delete;
-    VP_ShowsMetadataLockManager& operator=(const VP_ShowsMetadataLockManager&) = delete;
+    VP_MetadataLockManager(const VP_MetadataLockManager&) = delete;
+    VP_MetadataLockManager& operator=(const VP_MetadataLockManager&) = delete;
     
     /**
      * @brief Get or create a lock file for the specified path
@@ -159,7 +161,7 @@ private:
     void cleanupOldLocks();
 
 private:
-    static VP_ShowsMetadataLockManager* s_instance;
+    static VP_MetadataLockManager* s_instance;
     static QMutex s_instanceMutex;
     
     mutable QMutex m_mutex;
@@ -174,4 +176,4 @@ private:
     static const QString LOCK_FILE_EXTENSION;           // ".vpmlock"
 };
 
-#endif // VP_SHOWS_METADATA_LOCK_MANAGER_H
+#endif // VP_METADATA_LOCK_MANAGER_H
