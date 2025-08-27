@@ -123,6 +123,11 @@ signals:
     void audioTracksAvailable(const QStringList& tracks);
     void subtitleTracksAvailable(const QStringList& tracks);
 
+public slots:
+    // Enable/disable libvlc mouse/keyboard input (to allow Qt event handling)
+    void setMouseInputEnabled(bool enabled);
+    void setKeyInputEnabled(bool enabled);
+    
 private slots:
     void updatePosition();
     
@@ -157,6 +162,8 @@ private:
     QTimer* m_positionTimer;
     qint64 m_lastPosition;
     qint64 m_duration;
+    
+
     
     // Debug mode
     bool m_debugMode;

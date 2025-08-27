@@ -366,7 +366,8 @@ void VP_Shows_Videoplayer::setupUI()
     // Ensure video widget is visible
     m_videoWidget->show();
     
-    // Install event filter on video widget for double-click fullscreen
+    // Install event filter on video widget for double-click fullscreen and focus restoration
+    // This works because we disable libvlc's mouse/keyboard input handling in VP_VLCPlayer
     m_videoWidget->installEventFilter(this);
     
     // Enable mouse tracking on video widget too
@@ -561,6 +562,8 @@ void VP_Shows_Videoplayer::connectSignals()
                 qDebug() << "VP_Shows_Videoplayer: Playback finished";
                 // Handle end of playback similar to stopped state
             });
+    
+    // Note: Double-click is handled through Qt's event filter since we disabled libvlc's input handling
 }
 
 bool VP_Shows_Videoplayer::loadVideo(const QString& filePath)
@@ -1546,9 +1549,11 @@ void VP_Shows_Videoplayer::mouseMoveEvent(QMouseEvent *event)
 bool VP_Shows_Videoplayer::eventFilter(QObject *watched, QEvent *event)
 {
     // Handle double-click on video widget for fullscreen
+    // This works now because we've disabled libvlc's mouse input handling
     if (watched == m_videoWidget && event->type() == QEvent::MouseButtonDblClick) {
         QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
         if (mouseEvent->button() == Qt::LeftButton) {
+            qDebug() << "VP_Shows_Videoplayer: Double-click detected on video widget - toggling fullscreen";
             toggleFullScreen();
             return true;
         }

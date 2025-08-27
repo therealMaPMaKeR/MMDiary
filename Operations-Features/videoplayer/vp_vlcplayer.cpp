@@ -264,6 +264,10 @@ void VP_VLCPlayer::play()
 #else
         libvlc_media_player_set_xwindow(m_mediaPlayer, m_videoWidget->winId());
 #endif
+        
+        // Ensure libvlc input is disabled to allow Qt event handling
+        setMouseInputEnabled(false);
+        setKeyInputEnabled(false);
     }
     
     int result = libvlc_media_player_play(m_mediaPlayer);
@@ -494,7 +498,34 @@ void VP_VLCPlayer::setVideoWidget(QWidget* widget)
 #else
         libvlc_media_player_set_xwindow(m_mediaPlayer, m_videoWidget->winId());
 #endif
+        
+        // Disable libvlc's mouse and keyboard input to allow Qt event handling
+        setMouseInputEnabled(false);
+        setKeyInputEnabled(false);
+        qDebug() << "VP_VLCPlayer: Disabled libvlc input handling to allow Qt events";
     }
+}
+
+void VP_VLCPlayer::setMouseInputEnabled(bool enabled)
+{
+    if (!m_mediaPlayer) {
+        return;
+    }
+    
+    // 0 = disable mouse input (allow Qt to handle), 1 = enable mouse input (libvlc handles)
+    libvlc_video_set_mouse_input(m_mediaPlayer, enabled ? 1 : 0);
+    qDebug() << "VP_VLCPlayer: Mouse input" << (enabled ? "enabled" : "disabled") << "for libvlc";
+}
+
+void VP_VLCPlayer::setKeyInputEnabled(bool enabled)
+{
+    if (!m_mediaPlayer) {
+        return;
+    }
+    
+    // 0 = disable keyboard input (allow Qt to handle), 1 = enable keyboard input (libvlc handles)
+    libvlc_video_set_key_input(m_mediaPlayer, enabled ? 1 : 0);
+    qDebug() << "VP_VLCPlayer: Keyboard input" << (enabled ? "enabled" : "disabled") << "for libvlc";
 }
 
 int VP_VLCPlayer::audioTrackCount() const
@@ -678,6 +709,8 @@ void VP_VLCPlayer::cleanupEventCallbacks()
     libvlc_event_detach(m_eventManager, libvlc_MediaPlayerEncounteredError, handleVLCEvent, this);
     libvlc_event_detach(m_eventManager, libvlc_MediaPlayerLengthChanged, handleVLCEvent, this);
     libvlc_event_detach(m_eventManager, libvlc_MediaPlayerBuffering, handleVLCEvent, this);
+    
+
 }
 
 void VP_VLCPlayer::handleVLCEvent(const libvlc_event_t* event, void* userData)
