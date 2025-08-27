@@ -80,6 +80,26 @@ win32 {
 
         # Link against libvlc libraries
         LIBS += -L$$LIBVLC_PATH/lib -llibvlc -llibvlccore
+
+        # Copy VLC DLLs to output directory
+        LIBVLC_DLLS = $$LIBVLC_PATH/bin/libvlc.dll $$LIBVLC_PATH/bin/libvlccore.dll
+
+        for(dll, LIBVLC_DLLS) {
+            exists($$dll) {
+                QMAKE_POST_LINK += $$QMAKE_COPY "$$shell_path($$dll)" "$$shell_path($$OUT_PWD/debug)" $$escape_expand(\n\t)
+            }
+        }
+
+        # Copy plugins directory to output
+        PLUGIN_SOURCE = $$LIBVLC_PATH/bin/plugins
+        PLUGIN_DEST = $$OUT_PWD/debug/plugins
+
+        # Create plugins directory and copy all plugin files
+        exists($$PLUGIN_SOURCE) {
+            # Use xcopy on Windows to copy entire directory structure
+            QMAKE_POST_LINK += $$QMAKE_MKDIR "$$shell_path($$PLUGIN_DEST)" $$escape_expand(\n\t)
+            QMAKE_POST_LINK += xcopy /E /I /Y "$$shell_path($$PLUGIN_SOURCE)" "$$shell_path($$PLUGIN_DEST)" $$escape_expand(\n\t)
+        }
     }
 
     CONFIG(release, debug|release) {
@@ -96,6 +116,72 @@ win32 {
 
         # Link against libvlc libraries
         LIBS += -L$$LIBVLC_PATH/lib -llibvlc -llibvlccore
+
+        # Copy VLC DLLs to output directory
+        LIBVLC_DLLS = $$LIBVLC_PATH/bin/libvlc.dll $$LIBVLC_PATH/bin/libvlccore.dll
+
+        for(dll, LIBVLC_DLLS) {
+            exists($$dll) {
+                QMAKE_POST_LINK += $$QMAKE_COPY "$$shell_path($$dll)" "$$shell_path($$OUT_PWD/release)" $$escape_expand(\n\t)
+            }
+        }
+
+        # Copy plugins directory to output
+        PLUGIN_SOURCE = $$LIBVLC_PATH/bin/plugins
+        PLUGIN_DEST = $$OUT_PWD/release/plugins
+
+        # Create plugins directory and copy all plugin files
+        exists($$PLUGIN_SOURCE) {
+            # Use xcopy on Windows to copy entire directory structure
+            QMAKE_POST_LINK += $$QMAKE_MKDIR "$$shell_path($$PLUGIN_DEST)" $$escape_expand(\n\t)
+            QMAKE_POST_LINK += xcopy /E /I /Y "$$shell_path($$PLUGIN_SOURCE)" "$$shell_path($$PLUGIN_DEST)" $$escape_expand(\n\t)
+        }
+    }
+
+    # Copy VLC files for debug builds
+    CONFIG(debug, debug|release) {
+        # Copy VLC DLLs to output directory
+        LIBVLC_DLLS = $$LIBVLC_PATH/bin/libvlc.dll $$LIBVLC_PATH/bin/libvlccore.dll
+
+        for(dll, LIBVLC_DLLS) {
+            exists($$dll) {
+                QMAKE_POST_LINK += $$QMAKE_COPY "$$shell_path($$dll)" "$$shell_path($$OUT_PWD/debug)" $$escape_expand(\n\t)
+            }
+        }
+
+        # Copy plugins directory to output
+        PLUGIN_SOURCE = $$LIBVLC_PATH/bin/plugins
+        PLUGIN_DEST = $$OUT_PWD/debug/plugins
+
+        # Create plugins directory and copy all plugin files
+        exists($$PLUGIN_SOURCE) {
+            # Use xcopy on Windows to copy entire directory structure
+            QMAKE_POST_LINK += $$QMAKE_MKDIR "$$shell_path($$PLUGIN_DEST)" $$escape_expand(\n\t)
+            QMAKE_POST_LINK += xcopy /E /I /Y "$$shell_path($$PLUGIN_SOURCE)" "$$shell_path($$PLUGIN_DEST)" $$escape_expand(\n\t)
+        }
+    }
+
+    # Copy VLC files for release builds
+    CONFIG(release, debug|release) {
+        # Copy VLC DLLs to output directory
+        LIBVLC_DLLS = $$LIBVLC_PATH/bin/libvlc.dll $$LIBVLC_PATH/bin/libvlccore.dll
+
+        for(dll, LIBVLC_DLLS) {
+            exists($$dll) {
+                QMAKE_POST_LINK += $$QMAKE_COPY "$$shell_path($$dll)" "$$shell_path($$OUT_PWD/release)" $$escape_expand(\n\t)
+            }
+        }
+
+        # Copy plugins directory to output
+        PLUGIN_SOURCE = $$LIBVLC_PATH/bin/plugins
+        PLUGIN_DEST = $$OUT_PWD/release/plugins
+
+        # Create plugins directory and copy all plugin files
+        exists($$PLUGIN_SOURCE) {
+            # Use xcopy on Windows to copy entire directory structure
+            QMAKE_POST_LINK += $$QMAKE_MKDIR "$$shell_path($$PLUGIN_DEST)" $$escape_expand(\n\t)
+            QMAKE_POST_LINK += xcopy /E /I /Y "$$shell_path($$PLUGIN_SOURCE)" "$$shell_path($$PLUGIN_DEST)" $$escape_expand(\n\t)
+        }
     }
 
     # Define for conditional compilation

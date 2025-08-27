@@ -2,6 +2,7 @@
 #include <vlc/vlc.h>
 #include <QDebug>
 #include <QApplication>
+#include <QCoreApplication>
 #include <QDir>
 
 VP_VLCPlayer::VP_VLCPlayer(QObject *parent)
@@ -54,6 +55,68 @@ bool VP_VLCPlayer::initialize()
 {
     qDebug() << "VP_VLCPlayer: Initializing VLC instance";
     
+    // Determine the plugin path
+    QString pluginPath;
+    
+    // First, try to find plugins in the application directory
+    QString appDir = QCoreApplication::applicationDirPath();
+    QString appPlugins = appDir + "/plugins";
+    
+    // Check if plugins exist in app directory (for deployed version)
+    if (QDir(appPlugins).exists()) {
+        pluginPath = appPlugins;
+        qDebug() << "VP_VLCPlayer: Using plugins from application directory:" << pluginPath;
+    } else {
+        // For development, use the project's 3rdparty folder
+        // We need to go up from the build directory to find the project
+        QDir buildDir(appDir);
+        
+        // Try to find the project directory by looking for MMDiary.pro
+        QString projectPath;
+        QDir searchDir = buildDir;
+        
+        // Go up directories until we find MMDiary.pro or reach root
+        for (int i = 0; i < 5; i++) {
+            if (searchDir.exists("MMDiary.pro")) {
+                projectPath = searchDir.absolutePath();
+                break;
+            }
+            if (searchDir.exists("MMDiary/MMDiary.pro")) {
+                projectPath = searchDir.absolutePath() + "/MMDiary";
+                break;
+            }
+            if (!searchDir.cdUp()) {
+                break;
+            }
+        }
+        
+        if (!projectPath.isEmpty()) {
+            pluginPath = projectPath + "/3rdparty/libvlc/bin/plugins";
+            if (QDir(pluginPath).exists()) {
+                qDebug() << "VP_VLCPlayer: Using plugins from project directory:" << pluginPath;
+            } else {
+                qDebug() << "VP_VLCPlayer: Warning - plugins not found at:" << pluginPath;
+                // Try one more location - direct path
+                pluginPath = "C:/Users/Gabriel/Storage/Coding/Projects/MMDiary/MMDiary/3rdparty/libvlc/bin/plugins";
+                if (QDir(pluginPath).exists()) {
+                    qDebug() << "VP_VLCPlayer: Using plugins from absolute path:" << pluginPath;
+                } else {
+                    qDebug() << "VP_VLCPlayer: Error - Could not find VLC plugins!";
+                }
+            }
+        } else {
+            // Fallback to absolute path
+            pluginPath = "C:/Users/Gabriel/Storage/Coding/Projects/MMDiary/MMDiary/3rdparty/libvlc/bin/plugins";
+            qDebug() << "VP_VLCPlayer: Using fallback plugin path:" << pluginPath;
+        }
+    }
+    
+    // Convert to native separators
+    pluginPath = QDir::toNativeSeparators(pluginPath);
+    
+    // Prepare VLC arguments with the correct plugin path
+    std::string pluginArg = "--plugin-path=" + pluginPath.toStdString();
+    
     // VLC command line arguments
     const char* vlc_args[] = {
         "--no-xlib",  // Tell VLC not to use Xlib (for Linux compatibility)
@@ -61,19 +124,27 @@ bool VP_VLCPlayer::initialize()
         "--no-video-title-show",  // Don't show media title on video
         "--no-stats",  // Don't collect statistics
         "--no-snapshot-preview",  // Don't show snapshot preview
-        #ifdef _WIN32
-        "--plugin-path=./plugins",  // Windows plugin path
-        #endif
+        "--intf=dummy",  // No interface
+        "--no-media-library",  // Don't use media library
+        "--no-one-instance",  // Allow multiple instances
+        pluginArg.c_str()  // Plugin path
     };
     
     int vlc_argc = sizeof(vlc_args) / sizeof(vlc_args[0]);
+    
+    qDebug() << "VP_VLCPlayer: Initializing with arguments:";
+    for (int i = 0; i < vlc_argc; i++) {
+        qDebug() << "  " << vlc_args[i];
+    }
     
     // Create VLC instance
     m_vlcInstance = libvlc_new(vlc_argc, vlc_args);
     
     if (!m_vlcInstance) {
-        setLastError("Failed to create VLC instance. Make sure VLC libraries are properly installed.");
-        qDebug() << "VP_VLCPlayer: Failed to create VLC instance";
+        const char* error = libvlc_errmsg();
+        QString errorMsg = error ? QString::fromUtf8(error) : "Unknown error";
+        setLastError(QString("Failed to create VLC instance: %1. Make sure VLC libraries are properly installed.").arg(errorMsg));
+        qDebug() << "VP_VLCPlayer: Failed to create VLC instance. Error:" << errorMsg;
         return false;
     }
     
