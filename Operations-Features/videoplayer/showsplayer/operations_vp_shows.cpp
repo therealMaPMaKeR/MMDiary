@@ -1419,8 +1419,8 @@ void Operations_VP_Shows::onViewModeChanged(int index)
         return;
     }
     
-    // Index 0 = List view, Index 1 = Icon view
-    m_isIconViewMode = (index == 1);
+    // Index 1 = List view, Index 0 = Icon view
+    m_isIconViewMode = (index == 0);
     
     if (m_isIconViewMode) {
         qDebug() << "Operations_VP_Shows: Switching to Icon view mode";
