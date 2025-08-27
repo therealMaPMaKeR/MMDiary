@@ -1,4 +1,4 @@
-#include "vp_shows_vlc_player.h"
+#include "VP_VLCPlayer.h"
 
 #ifdef USE_LIBVLC
 
@@ -11,26 +11,26 @@
 #include <windows.h>
 #endif
 
-VP_Shows_VLCPlayer::VP_Shows_VLCPlayer(QWidget *parent)
+VP_VLCPlayer::VP_VLCPlayer(QWidget *parent)
     : QWidget(parent)
     , m_vlcInstance(nullptr)
     , m_mediaPlayer(nullptr)
     , m_videoWidget(nullptr)
     , m_isInitialized(false)
 {
-    qDebug() << "VP_Shows_VLCPlayer: Constructor called";
+    qDebug() << "VP_VLCPlayer: Constructor called";
     setupVideoWidget();
 }
 
-VP_Shows_VLCPlayer::~VP_Shows_VLCPlayer()
+VP_VLCPlayer::~VP_VLCPlayer()
 {
-    qDebug() << "VP_Shows_VLCPlayer: Destructor called";
+    qDebug() << "VP_VLCPlayer: Destructor called";
     cleanup();
 }
 
-void VP_Shows_VLCPlayer::setupVideoWidget()
+void VP_VLCPlayer::setupVideoWidget()
 {
-    qDebug() << "VP_Shows_VLCPlayer: Setting up video widget";
+    qDebug() << "VP_VLCPlayer: Setting up video widget";
     
     // Create layout
     QVBoxLayout* layout = new QVBoxLayout(this);
@@ -44,12 +44,12 @@ void VP_Shows_VLCPlayer::setupVideoWidget()
     layout->addWidget(m_videoWidget);
 }
 
-bool VP_Shows_VLCPlayer::initialize()
+bool VP_VLCPlayer::initialize()
 {
-    qDebug() << "VP_Shows_VLCPlayer: Initializing VLC";
+    qDebug() << "VP_VLCPlayer: Initializing VLC";
     
     if (m_isInitialized) {
-        qDebug() << "VP_Shows_VLCPlayer: Already initialized";
+        qDebug() << "VP_VLCPlayer: Already initialized";
         return true;
     }
     
@@ -66,7 +66,7 @@ bool VP_Shows_VLCPlayer::initialize()
     m_vlcInstance = libvlc_new(sizeof(vlc_args)/sizeof(vlc_args[0]), vlc_args);
     
     if (!m_vlcInstance) {
-        qDebug() << "VP_Shows_VLCPlayer: Failed to create VLC instance";
+        qDebug() << "VP_VLCPlayer: Failed to create VLC instance";
         emit errorOccurred("Failed to initialize VLC. Please ensure VLC libraries are properly installed.");
         return false;
     }
@@ -75,7 +75,7 @@ bool VP_Shows_VLCPlayer::initialize()
     m_mediaPlayer = libvlc_media_player_new(m_vlcInstance);
     
     if (!m_mediaPlayer) {
-        qDebug() << "VP_Shows_VLCPlayer: Failed to create media player";
+        qDebug() << "VP_VLCPlayer: Failed to create media player";
         libvlc_release(m_vlcInstance);
         m_vlcInstance = nullptr;
         emit errorOccurred("Failed to create VLC media player.");
@@ -95,14 +95,14 @@ bool VP_Shows_VLCPlayer::initialize()
     registerEvents();
     
     m_isInitialized = true;
-    qDebug() << "VP_Shows_VLCPlayer: Initialization successful";
+    qDebug() << "VP_VLCPlayer: Initialization successful";
     
     return true;
 }
 
-void VP_Shows_VLCPlayer::cleanup()
+void VP_VLCPlayer::cleanup()
 {
-    qDebug() << "VP_Shows_VLCPlayer: Cleaning up VLC resources";
+    qDebug() << "VP_VLCPlayer: Cleaning up VLC resources";
     
     if (m_mediaPlayer) {
         // Stop playback
@@ -124,13 +124,13 @@ void VP_Shows_VLCPlayer::cleanup()
     m_isInitialized = false;
 }
 
-bool VP_Shows_VLCPlayer::loadVideo(const QString& filePath)
+bool VP_VLCPlayer::loadVideo(const QString& filePath)
 {
-    qDebug() << "VP_Shows_VLCPlayer: Loading video:" << filePath;
+    qDebug() << "VP_VLCPlayer: Loading video:" << filePath;
     
     if (!m_isInitialized) {
         if (!initialize()) {
-            qDebug() << "VP_Shows_VLCPlayer: Failed to initialize before loading video";
+            qDebug() << "VP_VLCPlayer: Failed to initialize before loading video";
             return false;
         }
     }
@@ -139,7 +139,7 @@ bool VP_Shows_VLCPlayer::loadVideo(const QString& filePath)
     libvlc_media_t* media = libvlc_media_new_path(m_vlcInstance, filePath.toUtf8().constData());
     
     if (!media) {
-        qDebug() << "VP_Shows_VLCPlayer: Failed to create media from path:" << filePath;
+        qDebug() << "VP_VLCPlayer: Failed to create media from path:" << filePath;
         emit errorOccurred(QString("Failed to load video: %1").arg(filePath));
         return false;
     }
@@ -155,31 +155,31 @@ bool VP_Shows_VLCPlayer::loadVideo(const QString& filePath)
     
     m_currentFilePath = filePath;
     
-    qDebug() << "VP_Shows_VLCPlayer: Video loaded successfully";
+    qDebug() << "VP_VLCPlayer: Video loaded successfully";
     return true;
 }
 
-void VP_Shows_VLCPlayer::play()
+void VP_VLCPlayer::play()
 {
-    qDebug() << "VP_Shows_VLCPlayer: Play requested";
+    qDebug() << "VP_VLCPlayer: Play requested";
     
     if (!m_mediaPlayer) {
-        qDebug() << "VP_Shows_VLCPlayer: No media player instance";
+        qDebug() << "VP_VLCPlayer: No media player instance";
         return;
     }
     
     if (libvlc_media_player_play(m_mediaPlayer) == 0) {
-        qDebug() << "VP_Shows_VLCPlayer: Playback started";
+        qDebug() << "VP_VLCPlayer: Playback started";
         emit playbackStateChanged(true);
     } else {
-        qDebug() << "VP_Shows_VLCPlayer: Failed to start playback";
+        qDebug() << "VP_VLCPlayer: Failed to start playback";
         emit errorOccurred("Failed to start playback");
     }
 }
 
-void VP_Shows_VLCPlayer::pause()
+void VP_VLCPlayer::pause()
 {
-    qDebug() << "VP_Shows_VLCPlayer: Pause requested";
+    qDebug() << "VP_VLCPlayer: Pause requested";
     
     if (!m_mediaPlayer) {
         return;
@@ -189,9 +189,9 @@ void VP_Shows_VLCPlayer::pause()
     emit playbackStateChanged(false);
 }
 
-void VP_Shows_VLCPlayer::stop()
+void VP_VLCPlayer::stop()
 {
-    qDebug() << "VP_Shows_VLCPlayer: Stop requested";
+    qDebug() << "VP_VLCPlayer: Stop requested";
     
     if (!m_mediaPlayer) {
         return;
@@ -201,7 +201,7 @@ void VP_Shows_VLCPlayer::stop()
     emit playbackStateChanged(false);
 }
 
-qint64 VP_Shows_VLCPlayer::position() const
+qint64 VP_VLCPlayer::position() const
 {
     if (!m_mediaPlayer) {
         return 0;
@@ -210,7 +210,7 @@ qint64 VP_Shows_VLCPlayer::position() const
     return libvlc_media_player_get_time(m_mediaPlayer);
 }
 
-void VP_Shows_VLCPlayer::setPosition(qint64 position)
+void VP_VLCPlayer::setPosition(qint64 position)
 {
     if (!m_mediaPlayer) {
         return;
@@ -219,7 +219,7 @@ void VP_Shows_VLCPlayer::setPosition(qint64 position)
     libvlc_media_player_set_time(m_mediaPlayer, position);
 }
 
-qint64 VP_Shows_VLCPlayer::duration() const
+qint64 VP_VLCPlayer::duration() const
 {
     if (!m_mediaPlayer) {
         return 0;
@@ -228,7 +228,7 @@ qint64 VP_Shows_VLCPlayer::duration() const
     return libvlc_media_player_get_length(m_mediaPlayer);
 }
 
-int VP_Shows_VLCPlayer::volume() const
+int VP_VLCPlayer::volume() const
 {
     if (!m_mediaPlayer) {
         return 0;
@@ -237,7 +237,7 @@ int VP_Shows_VLCPlayer::volume() const
     return libvlc_audio_get_volume(m_mediaPlayer);
 }
 
-void VP_Shows_VLCPlayer::setVolume(int volume)
+void VP_VLCPlayer::setVolume(int volume)
 {
     if (!m_mediaPlayer) {
         return;
@@ -248,7 +248,7 @@ void VP_Shows_VLCPlayer::setVolume(int volume)
     libvlc_audio_set_volume(m_mediaPlayer, volume);
 }
 
-bool VP_Shows_VLCPlayer::isPlaying() const
+bool VP_VLCPlayer::isPlaying() const
 {
     if (!m_mediaPlayer) {
         return false;
@@ -257,7 +257,7 @@ bool VP_Shows_VLCPlayer::isPlaying() const
     return libvlc_media_player_is_playing(m_mediaPlayer) == 1;
 }
 
-void VP_Shows_VLCPlayer::setPlaybackRate(float rate)
+void VP_VLCPlayer::setPlaybackRate(float rate)
 {
     if (!m_mediaPlayer) {
         return;
@@ -267,12 +267,12 @@ void VP_Shows_VLCPlayer::setPlaybackRate(float rate)
     rate = qBound(0.25f, rate, 4.0f);
     libvlc_media_player_set_rate(m_mediaPlayer, rate);
     
-    qDebug() << "VP_Shows_VLCPlayer: Playback rate set to" << rate;
+    qDebug() << "VP_VLCPlayer: Playback rate set to" << rate;
 }
 
-void VP_Shows_VLCPlayer::handleVLCEvent(const libvlc_event_t* event, void* userData)
+void VP_VLCPlayer::handleVLCEvent(const libvlc_event_t* event, void* userData)
 {
-    VP_Shows_VLCPlayer* player = static_cast<VP_Shows_VLCPlayer*>(userData);
+    VP_VLCPlayer* player = static_cast<VP_VLCPlayer*>(userData);
     if (!player) {
         return;
     }
@@ -287,28 +287,28 @@ void VP_Shows_VLCPlayer::handleVLCEvent(const libvlc_event_t* event, void* userD
             break;
             
         case libvlc_MediaPlayerEndReached:
-            qDebug() << "VP_Shows_VLCPlayer: Media end reached";
+            qDebug() << "VP_VLCPlayer: Media end reached";
             emit player->mediaEndReached();
             emit player->playbackStateChanged(false);
             break;
             
         case libvlc_MediaPlayerEncounteredError:
-            qDebug() << "VP_Shows_VLCPlayer: Playback error encountered";
+            qDebug() << "VP_VLCPlayer: Playback error encountered";
             emit player->errorOccurred("Playback error occurred");
             break;
             
         case libvlc_MediaPlayerPlaying:
-            qDebug() << "VP_Shows_VLCPlayer: Playback started event";
+            qDebug() << "VP_VLCPlayer: State changed to playing";
             emit player->playbackStateChanged(true);
             break;
             
         case libvlc_MediaPlayerPaused:
-            qDebug() << "VP_Shows_VLCPlayer: Playback paused event";
+            qDebug() << "VP_VLCPlayer: State changed to paused";
             emit player->playbackStateChanged(false);
             break;
             
         case libvlc_MediaPlayerStopped:
-            qDebug() << "VP_Shows_VLCPlayer: Playback stopped event";
+            qDebug() << "VP_VLCPlayer: State changed to stopped";
             emit player->playbackStateChanged(false);
             break;
             
@@ -317,7 +317,111 @@ void VP_Shows_VLCPlayer::handleVLCEvent(const libvlc_event_t* event, void* userD
     }
 }
 
-void VP_Shows_VLCPlayer::registerEvents()
+void VP_VLCPlayer::registerEvents()
+{
+    if (!m_mediaPlayer) {
+        return;
+    }
+    
+    libvlc_event_manager_t* eventManager = libvlc_media_player_event_manager(m_mediaPlayer);
+    if (!eventManager) {
+        return;
+    }
+    
+    // Register for various events
+    libvlc_event_attach(eventManager, libvlc_MediaPlayerTimeChanged, handleVLCEvent, this);
+    libvlc_event_attach(eventManager, libvlc_MediaPlayerLengthChanged, handleVLCEvent, this);
+    libvlc_event_attach(eventManager, libvlc_MediaPlayerEndReached, handleVLCEvent, this);
+    libvlc_event_attach(eventManager, libvlc_MediaPlayerEncounteredError, handleVLCEvent, this);
+    libvlc_event_attach(eventManager, libvlc_MediaPlayerPlaying, handleVLCEvent, this);
+    libvlc_event_attach(eventManager, libvlc_MediaPlayerPaused, handleVLCEvent, this);
+    libvlc_event_attach(eventManager, libvlc_MediaPlayerStopped, handleVLCEvent, this);
+}
+
+void VP_VLCPlayer::unregisterEvents()
+{
+    if (!m_mediaPlayer) {
+        return;
+    }
+    
+    libvlc_event_manager_t* eventManager = libvlc_media_player_event_manager(m_mediaPlayer);
+    if (!eventManager) {
+        return;
+    }
+    
+    // Unregister all events
+    libvlc_event_detach(eventManager, libvlc_MediaPlayerTimeChanged, handleVLCEvent, this);
+    libvlc_event_detach(eventManager, libvlc_MediaPlayerLengthChanged, handleVLCEvent, this);
+    libvlc_event_detach(eventManager, libvlc_MediaPlayerEndReached, handleVLCEvent, this);
+    libvlc_event_detach(eventManager, libvlc_MediaPlayerEncounteredError, handleVLCEvent, this);
+    libvlc_event_detach(eventManager, libvlc_MediaPlayerPlaying, handleVLCEvent, this);
+    libvlc_event_detach(eventManager, libvlc_MediaPlayerPaused, handleVLCEvent, this);
+    libvlc_event_detach(eventManager, libvlc_MediaPlayerStopped, handleVLCEvent, this);
+}
+
+#else // USE_LIBVLC not defined
+
+// Stub implementation when libvlc is not available
+VP_VLCPlayer::VP_VLCPlayer(QWidget *parent) : QWidget(parent) 
+{
+    qDebug() << "VP_VLCPlayer: LibVLC support not compiled in";
+}
+
+VP_VLCPlayer::~VP_VLCPlayer() {}
+bool VP_VLCPlayer::initialize() { return false; }
+bool VP_VLCPlayer::loadVideo(const QString&) { return false; }
+void VP_VLCPlayer::play() {}
+void VP_VLCPlayer::pause() {}
+void VP_VLCPlayer::stop() {}
+qint64 VP_VLCPlayer::position() const { return 0; }
+void VP_VLCPlayer::setPosition(qint64) {}
+qint64 VP_VLCPlayer::duration() const { return 0; }
+int VP_VLCPlayer::volume() const { return 0; }
+void VP_VLCPlayer::setVolume(int) {}
+bool VP_VLCPlayer::isPlaying() const { return false; }
+void VP_VLCPlayer::setPlaybackRate(float) {}
+void VP_VLCPlayer::setupVideoWidget() {}
+void VP_VLCPlayer::cleanup() {}
+void VP_VLCPlayer::handleVLCEvent(const libvlc_event_t*, void*) {}
+void VP_VLCPlayer::registerEvents() {}
+void VP_VLCPlayer::unregisterEvents() {}
+
+#endif // USE_LIBVLC
+            emit player->durationChanged(event->u.media_player_length_changed.new_length);
+            break;
+            
+        case libvlc_MediaPlayerEndReached:
+            qDebug() << "VP_VLCPlayer: Media end reached";
+            emit player->mediaEndReached();
+            emit player->playbackStateChanged(false);
+            break;
+            
+        case libvlc_MediaPlayerEncounteredError:
+            qDebug() << "VP_VLCPlayer: Playback error encountered";
+            emit player->errorOccurred("Playback error occurred");
+            break;
+            
+        case libvlc_MediaPlayerPlaying:
+            qDebug() << "VP_VLCPlayer: Playback started event";
+            emit player->playbackStateChanged(true);
+            break;
+            
+        case libvlc_MediaPlayerPaused:
+            qDebug() << "VP_VLCPlayer: Playback paused event";
+            emit player->playbackStateChanged(false);
+            break;
+            
+        case libvlc_MediaPlayerStopped:
+            qDebug() << "VP_VLCPlayer: Playback stopped event";
+            emit player->playbackStateChanged(false);
+            break;
+            
+        default:
+            break;
+    }
+}
+
+void VP_VLCPlayer::registerEvents()
 {
     if (!m_mediaPlayer) {
         return;
@@ -341,7 +445,7 @@ void VP_Shows_VLCPlayer::registerEvents()
     libvlc_event_attach(eventManager, libvlc_MediaPlayerStopped, handleVLCEvent, this);
 }
 
-void VP_Shows_VLCPlayer::unregisterEvents()
+void VP_VLCPlayer::unregisterEvents()
 {
     if (!m_mediaPlayer) {
         return;
@@ -363,32 +467,3 @@ void VP_Shows_VLCPlayer::unregisterEvents()
     libvlc_event_detach(eventManager, libvlc_MediaPlayerPaused, handleVLCEvent, this);
     libvlc_event_detach(eventManager, libvlc_MediaPlayerStopped, handleVLCEvent, this);
 }
-
-#else // USE_LIBVLC not defined
-
-// Stub implementation when libvlc is not available
-VP_Shows_VLCPlayer::VP_Shows_VLCPlayer(QWidget *parent) : QWidget(parent) 
-{
-    qDebug() << "VP_Shows_VLCPlayer: LibVLC support not compiled in";
-}
-
-VP_Shows_VLCPlayer::~VP_Shows_VLCPlayer() {}
-bool VP_Shows_VLCPlayer::initialize() { return false; }
-bool VP_Shows_VLCPlayer::loadVideo(const QString&) { return false; }
-void VP_Shows_VLCPlayer::play() {}
-void VP_Shows_VLCPlayer::pause() {}
-void VP_Shows_VLCPlayer::stop() {}
-qint64 VP_Shows_VLCPlayer::position() const { return 0; }
-void VP_Shows_VLCPlayer::setPosition(qint64) {}
-qint64 VP_Shows_VLCPlayer::duration() const { return 0; }
-int VP_Shows_VLCPlayer::volume() const { return 0; }
-void VP_Shows_VLCPlayer::setVolume(int) {}
-bool VP_Shows_VLCPlayer::isPlaying() const { return false; }
-void VP_Shows_VLCPlayer::setPlaybackRate(float) {}
-void VP_Shows_VLCPlayer::setupVideoWidget() {}
-void VP_Shows_VLCPlayer::cleanup() {}
-void VP_Shows_VLCPlayer::handleVLCEvent(const libvlc_event_t*, void*) {}
-void VP_Shows_VLCPlayer::registerEvents() {}
-void VP_Shows_VLCPlayer::unregisterEvents() {}
-
-#endif // USE_LIBVLC

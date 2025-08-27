@@ -1,5 +1,5 @@
-#ifndef VP_SHOWS_VLC_PLAYER_H
-#define VP_SHOWS_VLC_PLAYER_H
+#ifndef VP_VLCPLAYER_H
+#define VP_VLCPLAYER_H
 
 #include <QWidget>
 #include <QString>
@@ -14,19 +14,19 @@ class QVBoxLayout;
 class QWidget;
 
 /**
- * @brief Simple VLC player wrapper for testing libvlc integration
+ * @brief General VLC player bridge for Qt applications
  * 
- * This is a basic wrapper to verify that libvlc is properly integrated
- * into the project. Once confirmed working, this can be expanded into
- * a full replacement for QMediaPlayer in the TV shows player.
+ * This class provides a Qt-friendly interface to LibVLC that can be used
+ * by multiple videoplayer implementations. It handles the low-level VLC
+ * integration and provides Qt signals for state changes.
  */
-class VP_Shows_VLCPlayer : public QWidget
+class VP_VLCPlayer : public QWidget
 {
     Q_OBJECT
     
 public:
-    explicit VP_Shows_VLCPlayer(QWidget *parent = nullptr);
-    ~VP_Shows_VLCPlayer();
+    explicit VP_VLCPlayer(QWidget *parent = nullptr);
+    ~VP_VLCPlayer();
     
     /**
      * @brief Initialize VLC instance
@@ -97,6 +97,12 @@ public:
      * @param rate Speed multiplier (1.0 = normal)
      */
     void setPlaybackRate(float rate);
+    
+    /**
+     * @brief Get the video rendering widget
+     * @return Pointer to the video widget
+     */
+    QWidget* videoWidget() const { return m_videoWidget; }
 
 signals:
     /**
@@ -156,4 +162,4 @@ private:
     void unregisterEvents();
 };
 
-#endif // VP_SHOWS_VLC_PLAYER_H
+#endif // VP_VLCPLAYER_H
