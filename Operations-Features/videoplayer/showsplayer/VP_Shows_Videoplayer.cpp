@@ -160,8 +160,8 @@ VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
     setWindowTitle(tr("Video Player"));
     resize(800, 600);
     
-    // Set window flags to stay on top
-    setWindowFlags(windowFlags() | Qt::WindowStaysOnTopHint);
+    // Set window flags (removed always-on-top behavior)
+    // Window will appear on top initially via raise() and activateWindow() in showEvent
     
     // Initialize media player with audio output
     m_mediaPlayer = std::make_unique<QMediaPlayer>(this);
@@ -588,7 +588,7 @@ void VP_Shows_Videoplayer::startInFullScreen()
         }
         
         // Remove window frame for true fullscreen
-        setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+        setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
         
         // Now show fullscreen - it will use the screen we just moved to
         showFullScreen();
@@ -665,7 +665,7 @@ void VP_Shows_Videoplayer::toggleFullScreen()
         }
         
         // Remove window frame for true fullscreen
-        setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+        setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
         
         // Now show fullscreen - it will use the screen we just moved to
         showFullScreen();
@@ -727,8 +727,7 @@ void VP_Shows_Videoplayer::exitFullScreen()
         
         // Restore normal window flags (with title bar and borders)
         setWindowFlags(Qt::Window | Qt::WindowTitleHint | Qt::WindowSystemMenuHint | 
-                      Qt::WindowMinMaxButtonsHint | Qt::WindowCloseButtonHint | 
-                      Qt::WindowStaysOnTopHint);
+                      Qt::WindowMinMaxButtonsHint | Qt::WindowCloseButtonHint);
         
         // Show in normal mode
         showNormal();
