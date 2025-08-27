@@ -1,5 +1,6 @@
 #include "vp_shows_metadata.h"
 #include "CryptoUtils.h"
+#include "../vp_metadata_lock_manager.h"
 #include <QFile>
 #include <QDataStream>
 #include <QDebug>
@@ -24,6 +25,13 @@ bool VP_ShowsMetadata::writeMetadataToFile(const QString& filePath, const ShowMe
 {
     qDebug() << "VP_ShowsMetadata: Writing metadata to file:" << filePath;
     
+    // Acquire lock for metadata operation
+    VP_MetadataLockManager::LockGuard lock(VP_MetadataLockManager::instance(), filePath);
+    if (!lock.isLocked()) {
+        qDebug() << "VP_ShowsMetadata: Failed to acquire lock for writing metadata. Lock result:" << static_cast<int>(lock.result());
+        return false;
+    }
+    
     QFile file(filePath);
     if (!file.open(QIODevice::ReadWrite)) {
         qDebug() << "VP_ShowsMetadata: Failed to open file for metadata writing:" << file.errorString();
@@ -39,6 +47,13 @@ bool VP_ShowsMetadata::writeMetadataToFile(const QString& filePath, const ShowMe
 bool VP_ShowsMetadata::readMetadataFromFile(const QString& filePath, ShowMetadata& metadata)
 {
     qDebug() << "VP_ShowsMetadata: Reading metadata from file:" << filePath;
+    
+    // Acquire lock for metadata operation
+    VP_MetadataLockManager::LockGuard lock(VP_MetadataLockManager::instance(), filePath);
+    if (!lock.isLocked()) {
+        qDebug() << "VP_ShowsMetadata: Failed to acquire lock for reading metadata. Lock result:" << static_cast<int>(lock.result());
+        return false;
+    }
     
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {

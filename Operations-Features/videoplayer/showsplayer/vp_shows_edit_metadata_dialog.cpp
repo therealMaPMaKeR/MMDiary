@@ -173,9 +173,12 @@ bool VP_ShowsEditMetadataDialog::loadMetadata()
     // Create metadata manager
     VP_ShowsMetadata metadataManager(m_encryptionKey, m_username);
     
-    // Read metadata from file
+    // Read metadata from file (the manager now handles locking internally)
     if (!metadataManager.readMetadataFromFile(m_videoFilePath, m_metadata)) {
         qDebug() << "VP_ShowsEditMetadataDialog: Failed to read metadata from file";
+        
+        // Check if it failed due to lock timeout  
+        // The lock is handled inside readMetadataFromFile now
         return false;
     }
     

@@ -15,6 +15,7 @@
 #include "CryptoUtils.h"
 #include "vp_shows_watchhistory.h"  // Core watch history data management
 #include "vp_shows_playback_tracker.h"  // Playback tracking integration
+#include "../vp_metadata_lock_manager.h"  // Metadata lock manager for concurrent access protection
 #include <QCheckBox>
 #include <QDataStream>
 #include <QDebug>
@@ -48,6 +49,7 @@
 #include <QPainter>
 #include <QFont>
 #include <QLineEdit>
+#include <QThread>
 #include <algorithm>
 #include <functional>
 
@@ -224,6 +226,13 @@ Operations_VP_Shows::~Operations_VP_Shows()
     
     // Clean up temp file if it exists
     cleanupTempFile();
+    
+    // Clean up any remaining metadata locks
+    int activeLocks = VP_MetadataLockManager::instance()->activeLocksCount();
+    if (activeLocks > 0) {
+        qDebug() << "Operations_VP_Shows: Warning - Found" << activeLocks << "active locks during destructor, cleaning up";
+        VP_MetadataLockManager::instance()->cleanup();
+    }
 }
 
 QString Operations_VP_Shows::selectVideoFile()
@@ -2069,6 +2078,10 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->clear();
     m_episodeFileMapping.clear();
     
+    // IMPORTANT: Clear the context menu tree item pointer since we're clearing the tree
+    // This prevents crashes from dangling pointers when the tree is refreshed
+    m_contextMenuTreeItem = nullptr;
+    
     // Set header for the tree widget
     m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->setHeaderLabel(tr("Episodes"));
     
@@ -2124,9 +2137,57 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     for (const QString& videoFile : videoFiles) {
         QString videoPath = showDir.absoluteFilePath(videoFile);
         
-        // Read metadata from the file
+        // Check if file is currently locked (being accessed by player)
+        bool isLocked = VP_MetadataLockManager::instance()->isLocked(videoPath);
+        
         VP_ShowsMetadata::ShowMetadata metadata;
-        if (!metadataManager.readMetadataFromFile(videoPath, metadata)) {
+        bool metadataRead = false;
+        
+        if (isLocked) {
+            qDebug() << "Operations_VP_Shows: File is currently locked:" << videoFile;
+            
+            // For locked files that are currently playing, use placeholder metadata
+            if (!m_currentPlayingEpisodePath.isEmpty()) {
+                QFileInfo currentInfo(m_currentPlayingEpisodePath);
+                QFileInfo videoInfo(videoPath);
+                if (currentInfo.absoluteFilePath() == videoInfo.absoluteFilePath()) {
+                    // This is the currently playing file, create placeholder metadata
+                    metadata.filename = videoFile;
+                    
+                    // Extract show name from folder name
+                    QFileInfo folderInfo(showFolderPath);
+                    QString folderName = folderInfo.fileName();
+                    QString extractedShowName;
+                    QStringList folderParts = folderName.split('_');
+                    if (!folderParts.isEmpty()) {
+                        extractedShowName = folderParts.first();
+                    } else {
+                        extractedShowName = folderName;
+                    }
+                    
+                    metadata.showName = extractedShowName; // Use the extracted show name
+                    metadata.season = "1"; // Default values
+                    metadata.episode = "1";
+                    metadata.EPName = tr("[Currently Playing]");
+                    metadata.language = "English";
+                    metadata.translation = "Dubbed";
+                    metadata.contentType = VP_ShowsMetadata::Regular;
+                    metadataRead = true;
+                    qDebug() << "Operations_VP_Shows: Using placeholder metadata for currently playing file";
+                }
+            }
+            
+            if (!metadataRead) {
+                // Skip other locked files that aren't currently playing
+                qDebug() << "Operations_VP_Shows: Skipping locked file (not currently playing):" << videoFile;
+                continue;
+            }
+        } else {
+            // File is not locked, read metadata normally
+            metadataRead = metadataManager.readMetadataFromFile(videoPath, metadata);
+        }
+        
+        if (!metadataRead) {
             qDebug() << "Operations_VP_Shows: Failed to read metadata from:" << videoFile;
             
             // Create broken file item
@@ -3088,6 +3149,12 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
 bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, const QString& targetFile)
 {
     qDebug() << "Operations_VP_Shows: Decrypting video with metadata from:" << sourceFile;
+    
+    // Check if file is locked - if it is, just fail immediately
+    if (VP_MetadataLockManager::instance()->isLocked(sourceFile)) {
+        qDebug() << "Operations_VP_Shows: File is locked, cannot decrypt";
+        return false;
+    }
     
     QFile source(sourceFile);
     if (!source.open(QIODevice::ReadOnly)) {
@@ -5126,6 +5193,12 @@ void Operations_VP_Shows::editEpisodeMetadata()
     QString videoFilePath = m_contextMenuEpisodePaths.first();
     qDebug() << "Operations_VP_Shows: Editing metadata for:" << videoFilePath;
     
+    // Store the episode text BEFORE any operations that might refresh the tree
+    QString originalEpisodeText;
+    if (m_contextMenuTreeItem) {
+        originalEpisodeText = m_contextMenuTreeItem->text(0);
+    }
+    
     // Validate file path using operations_files security
     InputValidation::ValidationResult pathValidation = 
         InputValidation::validateInput(videoFilePath, InputValidation::InputType::FilePath);
@@ -5144,9 +5217,14 @@ void Operations_VP_Shows::editEpisodeMetadata()
         return;
     }
     
-    // Store the current episode item for later expansion
-    QTreeWidgetItem* currentEpisodeItem = m_contextMenuTreeItem;
-    QString originalEpisodeText = currentEpisodeItem ? currentEpisodeItem->text(0) : QString();
+    // Simply check if file is locked and return silently if it is
+    if (VP_MetadataLockManager::instance()->isLocked(videoFilePath)) {
+        qDebug() << "Operations_VP_Shows: File is currently locked, not opening edit dialog";
+        return; // Silent return - no error message
+    }
+    
+    // Note: m_contextMenuTreeItem might be invalid at this point if tree was refreshed
+    // We already captured what we needed (originalEpisodeText) earlier
     
     // Create and show the edit metadata dialog
     // The dialog will handle reading the current metadata internally
@@ -5266,7 +5344,7 @@ void Operations_VP_Shows::deleteEpisodeFromContextMenu()
         return;
     }
     
-    // Build description for deletion
+    // Build description for deletion BEFORE any operations that might refresh tree
     QString description;
     if (m_contextMenuTreeItem) {
         if (m_contextMenuTreeItem->childCount() == 0) {
