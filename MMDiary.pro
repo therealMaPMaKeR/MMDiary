@@ -61,6 +61,47 @@ win32 {
         DEFINES += OPENSSL_STATIC
     }
 }
+
+# LibVLC configuration for Windows
+win32 {
+    LIBVLC_PATH = $$PWD/3rdparty/libvlc
+
+    CONFIG(debug, debug|release) {
+        message("Debug build: Using libvlc")
+
+        # Check if libvlc libraries exist
+        !exists($$LIBVLC_PATH/lib/libvlc.lib) {
+            warning("LibVLC libraries not found at $$LIBVLC_PATH/lib/")
+            warning("Please copy libvlc.lib and libvlccore.lib to $$LIBVLC_PATH/lib/")
+        }
+
+        # Include libvlc headers
+        INCLUDEPATH += $$LIBVLC_PATH/include
+
+        # Link against libvlc libraries
+        LIBS += -L$$LIBVLC_PATH/lib -llibvlc -llibvlccore
+    }
+
+    CONFIG(release, debug|release) {
+        message("Release build: Using libvlc")
+
+        # Check if libvlc libraries exist
+        !exists($$LIBVLC_PATH/lib/libvlc.lib) {
+            warning("LibVLC libraries not found at $$LIBVLC_PATH/lib/")
+            warning("Please copy libvlc.lib and libvlccore.lib to $$LIBVLC_PATH/lib/")
+        }
+
+        # Include libvlc headers
+        INCLUDEPATH += $$LIBVLC_PATH/include
+
+        # Link against libvlc libraries
+        LIBS += -L$$LIBVLC_PATH/lib -llibvlc -llibvlccore
+    }
+
+    # Define for conditional compilation
+    DEFINES += USE_LIBVLC
+}
+
 win32:LIBS += -lole32 -lshell32 -luuid
 #win32:QMAKE_LFLAGS += /NODEFAULTLIB:MSVCRT
 CONFIG(release, debug|release): DEFINES += QT_NO_DEBUG_OUTPUT QT_NO_WARNING_OUTPUT
@@ -89,6 +130,8 @@ SOURCES += \
     Operations-Features/videoplayer/showsplayer/vp_shows_encryptionworkers.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_progressdialogs.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_tmdb.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_vlc_player.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_vlc_test.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_config.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.cpp \
@@ -140,6 +183,8 @@ HEADERS += \
     Operations-Features/videoplayer/showsplayer/vp_shows_encryptionworkers.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_progressdialogs.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_tmdb.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_vlc_player.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_vlc_test.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_config.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.h \
