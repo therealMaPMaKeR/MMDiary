@@ -29,11 +29,11 @@ class Operations_VP_Shows : public QObject
     Q_OBJECT
 
 private:
-    MainWindow* m_mainWindow;
+    QPointer<MainWindow> m_mainWindow;  // Use QPointer for automatic null-setting on deletion
     bool m_blockSelectionChange = false;  // Track selection changes to enforce broken file restrictions
     std::unique_ptr<VP_Shows_Videoplayer> m_testVideoPlayer;  // For testing purposes
     std::unique_ptr<VP_Shows_Videoplayer> m_episodePlayer;    // For episode playback
-    VP_ShowsEncryptionProgressDialog* m_encryptionDialog;
+    QPointer<VP_ShowsEncryptionProgressDialog> m_encryptionDialog;  // Use QPointer for safety
     std::unique_ptr<VP_ShowsWatchHistory> m_watchHistory;     // Direct watch history access (for non-playback queries)
     std::unique_ptr<VP_ShowsPlaybackTracker> m_playbackTracker; // Playback tracking and integration
     
@@ -215,9 +215,12 @@ public:
     void performEpisodeExportWithWorker(const QStringList& episodePaths, const QString& exportPath, const QString& description);
     
     // Currently selected tree item for episode context menu
-    QTreeWidgetItem* m_contextMenuTreeItem;
+    QTreeWidgetItem* m_contextMenuTreeItem;  // Raw pointer - QTreeWidgetItem doesn't inherit QObject
     QString m_contextMenuEpisodePath;
     QStringList m_contextMenuEpisodePaths;
+    
+    // Helper function to clear context menu data
+    void clearContextMenuData();
     
     // Autoplay tracking
     QString m_currentPlayingEpisodePath;  // Path of currently playing episode

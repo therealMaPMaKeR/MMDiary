@@ -202,6 +202,9 @@ Operations_VP_Shows::~Operations_VP_Shows()
 {
     qDebug() << "Operations_VP_Shows: Destructor called";
     
+    // Clear context menu data first to prevent dangling references
+    clearContextMenuData();
+    
     // Stop playback tracking first before destroying player
     if (m_playbackTracker) {
         qDebug() << "Operations_VP_Shows: Stopping playback tracking in destructor";
@@ -227,8 +230,9 @@ Operations_VP_Shows::~Operations_VP_Shows()
         m_watchHistory.reset();
     }
     
+    // m_encryptionDialog is a QPointer, will be automatically nulled when deleted
     if (m_encryptionDialog) {
-        delete m_encryptionDialog;
+        m_encryptionDialog->deleteLater();  // Use deleteLater for safer cleanup
     }
     
     // Clean up temp file if it exists
@@ -656,8 +660,13 @@ void Operations_VP_Shows::importTVShow()
     // Create and show progress dialog
     if (!m_encryptionDialog) {
         m_encryptionDialog = new VP_ShowsEncryptionProgressDialog(m_mainWindow);
-        connect(m_encryptionDialog, &VP_ShowsEncryptionProgressDialog::encryptionComplete,
-                this, &Operations_VP_Shows::onEncryptionComplete);
+        if (m_encryptionDialog) {  // Check if creation was successful
+            connect(m_encryptionDialog, &VP_ShowsEncryptionProgressDialog::encryptionComplete,
+                    this, &Operations_VP_Shows::onEncryptionComplete);
+        } else {
+            qDebug() << "Operations_VP_Shows: Failed to create encryption dialog";
+            return;
+        }
     }
     
     // Start encryption with language and translation info, including custom data if not using TMDB
@@ -2895,18 +2904,24 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
 
     // Clean up any existing temp file first
     cleanupTempFile();
-
+    
     // Reset any existing playback tracker before creating new one
     if (m_playbackTracker) {
-        m_playbackTracker.reset();
+    m_playbackTracker.reset();
     }
     // Don't reset m_watchHistory - it should persist for the context menu functionality
     // m_watchHistory is initialized in displayShowDetails and should remain available
-
+    
+    // Check MainWindow validity before proceeding
+    if (!m_mainWindow) {
+        qDebug() << "Operations_VP_Shows: MainWindow is null, cannot proceed with playback";
+        return;
+    }
+    
     // Initialize watch history integration for this show
     QString relativeEpisodePath;
     QString episodeIdentifier;
-
+    
     if (!m_currentShowFolder.isEmpty()) {
         qDebug() << "Operations_VP_Shows: Initializing watch history integration for show folder:" << m_currentShowFolder;
 
@@ -3183,6 +3198,12 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
 
         // Add a small delay to ensure video widget is properly initialized
         QTimer::singleShot(100, [this, relativeEpisodePath]() {
+            // Ensure player and mainWindow are still valid
+            if (!m_episodePlayer || !m_mainWindow) {
+                qDebug() << "Operations_VP_Shows: Player or MainWindow no longer valid";
+                return;
+            }
+            
             if (m_episodePlayer) {
                 // Start tracking with the playback tracker
                 if (m_playbackTracker && !relativeEpisodePath.isEmpty()) {
@@ -3442,6 +3463,24 @@ void Operations_VP_Shows::forceReleaseVideoFile()
     }
 }
 
+void Operations_VP_Shows::clearContextMenuData()
+{
+    qDebug() << "Operations_VP_Shows: Clearing context menu data";
+    
+    // Clear the tree item pointer (raw pointer - must be manually cleared)
+    m_contextMenuTreeItem = nullptr;
+    
+    // Clear stored paths
+    m_contextMenuEpisodePath.clear();
+    m_contextMenuEpisodePaths.clear();
+    
+    // Clear show-related context menu data
+    m_contextMenuShowName.clear();
+    m_contextMenuShowPath.clear();
+    
+    qDebug() << "Operations_VP_Shows: Context menu data cleared";
+}
+
 void Operations_VP_Shows::onPlayContinueClicked()
 {
     qDebug() << "Operations_VP_Shows: Play/Continue button clicked";
@@ -3481,7 +3520,13 @@ void Operations_VP_Shows::showContextMenu(const QPoint& pos)
 {
     qDebug() << "Operations_VP_Shows: Context menu requested";
     
-    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->listWidget_VP_List_List) {
+    // Check for valid m_mainWindow pointer
+    if (!m_mainWindow) {
+        qDebug() << "Operations_VP_Shows: MainWindow pointer is null";
+        return;
+    }
+    
+    if (!m_mainWindow->ui || !m_mainWindow->ui->listWidget_VP_List_List) {
         return;
     }
     
@@ -3493,9 +3538,8 @@ void Operations_VP_Shows::showContextMenu(const QPoint& pos)
         return;
     }
     
-    // Clear any previous context menu data
-    m_contextMenuEpisodePaths.clear();
-    m_contextMenuEpisodePath.clear();
+    // Clear any previous context menu data before setting new values
+    clearContextMenuData();
     
     // Store the show name and path for the context menu actions
     m_contextMenuShowName = item->text();
@@ -3528,6 +3572,9 @@ void Operations_VP_Shows::showContextMenu(const QPoint& pos)
     
     // Clean up
     contextMenu->deleteLater();
+    
+    // Clear context menu data after use to prevent stale references
+    clearContextMenuData();
 }
 
 void Operations_VP_Shows::addEpisodesToShow()
@@ -4353,7 +4400,13 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
 {
     qDebug() << "Operations_VP_Shows: Episode context menu requested";
     
-    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+    // Check for valid m_mainWindow pointer
+    if (!m_mainWindow) {
+        qDebug() << "Operations_VP_Shows: MainWindow pointer is null";
+        return;
+    }
+    
+    if (!m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
         return;
     }
     
@@ -4791,8 +4844,15 @@ void Operations_VP_Shows::deleteBrokenVideosFromCategory()
 {
     qDebug() << "Operations_VP_Shows: Delete all broken videos from category";
     
+    // Check MainWindow validity
+    if (!m_mainWindow) {
+        qDebug() << "Operations_VP_Shows: MainWindow is null";
+        return;
+    }
+    
+    // Check tree item validity
     if (!m_contextMenuTreeItem || !isBrokenCategory(m_contextMenuTreeItem)) {
-        qDebug() << "Operations_VP_Shows: Not a broken category item";
+        qDebug() << "Operations_VP_Shows: Not a broken category item or item no longer valid";
         return;
     }
     
@@ -5483,9 +5543,15 @@ void Operations_VP_Shows::deleteEpisodeFromContextMenu()
         return;
     }
     
+    // Check MainWindow validity
+    if (!m_mainWindow) {
+        qDebug() << "Operations_VP_Shows: MainWindow is null";
+        return;
+    }
+    
     // Build description for deletion BEFORE any operations that might refresh tree
     QString description;
-    if (m_contextMenuTreeItem) {
+    if (m_contextMenuTreeItem) {  // Check pointer validity
         if (m_contextMenuTreeItem->childCount() == 0) {
             // Single episode
             description = m_contextMenuTreeItem->text(0);
