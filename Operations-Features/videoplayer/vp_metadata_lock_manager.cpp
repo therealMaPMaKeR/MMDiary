@@ -374,14 +374,29 @@ QString VP_MetadataLockManager::getLockFilePath(const QString& videoFilePath) co
     QByteArray hash = QCryptographicHash::hash(pathBytes, QCryptographicHash::Sha256);
     QString hashString = QString::fromLatin1(hash.toHex());
     
+    // Get username safely
+    QString username = OperationsFiles::getUsername();
+    if (username.isEmpty()) {
+        qWarning() << "VP_MetadataLockManager: Username is empty, using 'default'";
+        username = "default";
+    }
+    
     // Get the app's temp_metadata_locks directory (separate from temp to avoid cleanup)
     QString tempDir = QCoreApplication::applicationDirPath() + "/Data/" + 
-                     OperationsFiles::getUsername() + "/temp_metadata_locks";
+                     username + "/temp_metadata_locks";
     
     // Ensure the directory exists
     QDir dir(tempDir);
     if (!dir.exists()) {
-        dir.mkpath(".");
+        if (!dir.mkpath(".")) {
+            qWarning() << "VP_MetadataLockManager: Failed to create lock directory:" << tempDir;
+            // Fall back to a simpler path
+            tempDir = QCoreApplication::applicationDirPath() + "/temp_metadata_locks";
+            QDir fallbackDir(tempDir);
+            if (!fallbackDir.exists()) {
+                fallbackDir.mkpath(".");
+            }
+        }
     }
     
     // Create the lock file path
@@ -395,12 +410,24 @@ void VP_MetadataLockManager::cleanupOldLocks()
 {
     qDebug() << "VP_MetadataLockManager: Cleaning up old lock files";
     
+    // Get username safely
+    QString username = OperationsFiles::getUsername();
+    if (username.isEmpty()) {
+        qWarning() << "VP_MetadataLockManager: Username is empty for cleanup, using 'default'";
+        username = "default";
+    }
+    
     QString tempDir = QCoreApplication::applicationDirPath() + "/Data/" + 
-                     OperationsFiles::getUsername() + "/temp_metadata_locks";
+                     username + "/temp_metadata_locks";
     
     QDir dir(tempDir);
     if (!dir.exists()) {
-        return;
+        // Also check fallback directory
+        tempDir = QCoreApplication::applicationDirPath() + "/temp_metadata_locks";
+        dir = QDir(tempDir);
+        if (!dir.exists()) {
+            return;
+        }
     }
     
     // Get all lock files
