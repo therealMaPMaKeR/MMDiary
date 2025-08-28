@@ -6,6 +6,7 @@
 #include <QVariant>
 #include <QMap>
 #include <QByteArray>
+#include "datastorage_field_definitions.h"
 
 /**
  * @brief Generic data storage field manager for handling versioned data files
@@ -20,40 +21,10 @@
 class DataStorage_FieldManager
 {
 public:
-    /**
-     * @brief Supported field data types
-     */
-    enum FieldType {
-        String,
-        Boolean,
-        Integer,
-        Double
-    };
-
-    /**
-     * @brief Field definition structure
-     */
-    struct FieldDefinition {
-        QString name;
-        FieldType type;
-        QVariant defaultValue;
-        bool required;  // If true, field must exist (will be added if missing)
-        
-        FieldDefinition() : type(String), required(true) {}
-        
-        FieldDefinition(const QString& fieldName, FieldType fieldType, 
-                       const QVariant& defaultVal, bool isRequired = true)
-            : name(fieldName), type(fieldType), defaultValue(defaultVal), required(isRequired) {}
-    };
-
-    /**
-     * @brief Data type identifiers for different features
-     */
-    enum DataType {
-        TVShowSettings,
-        TaskLists  // Future use for when you redo tasklists
-        // Add more data types as needed
-    };
+    // Type aliases for easier access to definitions
+    using FieldType = DataStorage_FieldDefinitions::FieldType;
+    using FieldDefinition = DataStorage_FieldDefinitions::FieldDefinition;
+    using DataType = DataStorage_FieldDefinitions::DataType;
 
     /**
      * @brief Result of data validation/repair operation
@@ -120,18 +91,8 @@ private:
     QByteArray m_encryptionKey;
     QString m_username;
     
-    // Field registry - maps data types to their field definitions
-    QMap<DataType, QList<FieldDefinition>> m_fieldRegistry;
-    
-    /**
-     * @brief Initialize the field registry with all supported data types
-     */
-    void initializeFieldRegistry();
-    
-    /**
-     * @brief Register TV show settings fields
-     */
-    void registerTVShowSettingsFields();
+    // Field definitions instance for accessing field configurations
+    DataStorage_FieldDefinitions m_fieldDefinitions;
     
     /**
      * @brief Parse data from string format (key=value\n)

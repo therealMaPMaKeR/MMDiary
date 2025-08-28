@@ -236,6 +236,7 @@ SOURCES += \
     Operations-Global/operations_files.cpp \
     Operations-Global/passwordvalidation.cpp \
     Operations-Global/datastorage_field_manager.cpp \
+    Operations-Global/datastorage_field_definitions.cpp \
     Operations-Global/databases/sqlite-database-auth.cpp \
     Operations-Global/databases/sqlite-database-impl.cpp \
     Operations-Global/databases/sqlite-database-persistentsettings.cpp \
@@ -289,6 +290,7 @@ HEADERS += \
     Operations-Global/operations_files.h \
     Operations-Global/passwordvalidation.h \
     Operations-Global/datastorage_field_manager.h \
+    Operations-Global/datastorage_field_definitions.h \
     Operations-Global/databases/sqlite-database-auth.h \
     Operations-Global/databases/sqlite-database-handler.h \
     Operations-Global/databases/sqlite-database-persistentsettings.h \

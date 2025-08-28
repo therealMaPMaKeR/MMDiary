@@ -46,9 +46,9 @@ bool VP_ShowsSettings::loadShowSettings(const QString& showFolderPath, ShowSetti
     
     // Read and validate settings using the field manager
     QMap<QString, QVariant> settingsMap;
-    DataStorage_FieldManager::ValidationResult result = 
-        fieldManager.readAndValidateData(settingsFilePath, 
-                                        DataStorage_FieldManager::TVShowSettings, 
+    DataStorage_FieldManager::ValidationResult result =
+        fieldManager.readAndValidateData(settingsFilePath,
+                                        DataStorage_FieldDefinitions::TVShowSettings,
                                         settingsMap);
     
     if (!result.success) {
@@ -116,7 +116,7 @@ bool VP_ShowsSettings::saveShowSettings(const QString& showFolderPath, const Sho
     
     // Write validated settings using the field manager
     if (!fieldManager.writeValidatedData(settingsFilePath, 
-                                        DataStorage_FieldManager::TVShowSettings, 
+                                        DataStorage_FieldDefinitions::TVShowSettings,
                                         settingsMap)) {
         qDebug() << "VP_ShowsSettings: Failed to write validated settings";
         return false;

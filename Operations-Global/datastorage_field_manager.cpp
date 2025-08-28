@@ -10,7 +10,8 @@ DataStorage_FieldManager::DataStorage_FieldManager(const QByteArray& encryptionK
     , m_username(username)
 {
     qDebug() << "DataStorage_FieldManager: Initialized with username:" << m_username;
-    initializeFieldRegistry();
+    qDebug() << "DataStorage_FieldManager: Using field definitions with" 
+             << m_fieldDefinitions.getSupportedDataTypes().size() << "supported data types";
 }
 
 DataStorage_FieldManager::~DataStorage_FieldManager()
@@ -18,36 +19,7 @@ DataStorage_FieldManager::~DataStorage_FieldManager()
     qDebug() << "DataStorage_FieldManager: Destructor called";
 }
 
-void DataStorage_FieldManager::initializeFieldRegistry()
-{
-    qDebug() << "DataStorage_FieldManager: Initializing field registry";
-    
-    // Register all supported data types
-    registerTVShowSettingsFields();
-    
-    qDebug() << "DataStorage_FieldManager: Field registry initialized with" 
-             << m_fieldRegistry.size() << "data types";
-}
 
-void DataStorage_FieldManager::registerTVShowSettingsFields()
-{
-    qDebug() << "DataStorage_FieldManager: Registering TV Show Settings fields";
-    
-    QList<FieldDefinition> tvShowFields;
-    
-    // Define all TV show settings fields based on ShowSettings struct defaults
-    tvShowFields.append(FieldDefinition("showName", String, QString(""), true));
-    tvShowFields.append(FieldDefinition("skipIntro", Boolean, false, true));
-    tvShowFields.append(FieldDefinition("skipOutro", Boolean, false, true));
-    tvShowFields.append(FieldDefinition("autoplay", Boolean, true, true));  // Default true to match ShowSettings
-    tvShowFields.append(FieldDefinition("useTMDB", Boolean, true, true));  // Default to enabled
-    tvShowFields.append(FieldDefinition("autoFullscreen", Boolean, true, true));  // Default true to match ShowSettings
-    
-    m_fieldRegistry[TVShowSettings] = tvShowFields;
-    
-    qDebug() << "DataStorage_FieldManager: Registered" << tvShowFields.size() 
-             << "fields for TV Show Settings";
-}
 
 DataStorage_FieldManager::ValidationResult DataStorage_FieldManager::readAndValidateData(
     const QString& filePath, 
@@ -211,15 +183,12 @@ bool DataStorage_FieldManager::writeValidatedData(const QString& filePath,
 
 QList<DataStorage_FieldManager::FieldDefinition> DataStorage_FieldManager::getFieldDefinitions(DataType dataType) const
 {
-    if (m_fieldRegistry.contains(dataType)) {
-        return m_fieldRegistry[dataType];
-    }
-    return QList<FieldDefinition>();
+    return m_fieldDefinitions.getFieldDefinitions(dataType);
 }
 
 bool DataStorage_FieldManager::isDataTypeSupported(DataType dataType) const
 {
-    return m_fieldRegistry.contains(dataType);
+    return m_fieldDefinitions.isDataTypeSupported(dataType);
 }
 
 bool DataStorage_FieldManager::parseDataString(const QString& dataString, 
@@ -347,10 +316,10 @@ QVariant DataStorage_FieldManager::convertToType(const QString& value, FieldType
                                             const QVariant& defaultValue) const
 {
     switch (expectedType) {
-    case String:
+    case DataStorage_FieldDefinitions::String:
         return value;
         
-    case Boolean: {
+    case DataStorage_FieldDefinitions::Boolean: {
         QString lowerValue = value.toLower();
         if (lowerValue == "true" || lowerValue == "1" || lowerValue == "yes" || lowerValue == "on") {
             return true;
@@ -362,7 +331,7 @@ QVariant DataStorage_FieldManager::convertToType(const QString& value, FieldType
         }
     }
     
-    case Integer: {
+    case DataStorage_FieldDefinitions::Integer: {
         bool ok;
         int intValue = value.toInt(&ok);
         if (ok) {
@@ -373,7 +342,7 @@ QVariant DataStorage_FieldManager::convertToType(const QString& value, FieldType
         }
     }
     
-    case Double: {
+    case DataStorage_FieldDefinitions::Double: {
         bool ok;
         double doubleValue = value.toDouble(&ok);
         if (ok) {
@@ -418,7 +387,7 @@ bool DataStorage_FieldManager::validateFieldValue(const QString& fieldName, cons
     bool typeValid = false;
     
     switch (definition.type) {
-    case String:
+    case DataStorage_FieldDefinitions::String:
         typeValid = value.canConvert<QString>();
         if (typeValid) {
             // Additional string validation
@@ -441,15 +410,15 @@ bool DataStorage_FieldManager::validateFieldValue(const QString& fieldName, cons
         }
         break;
         
-    case Boolean:
+    case DataStorage_FieldDefinitions::Boolean:
         typeValid = value.canConvert<bool>();
         break;
         
-    case Integer:
+    case DataStorage_FieldDefinitions::Integer:
         typeValid = value.canConvert<int>();
         break;
         
-    case Double:
+    case DataStorage_FieldDefinitions::Double:
         typeValid = value.canConvert<double>();
         break;
     }
