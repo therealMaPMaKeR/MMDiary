@@ -350,8 +350,23 @@ void VP_VLCPlayer::setPosition(qint64 position)
         return;
     }
     
+    // Ensure position is valid
+    if (position < 0) {
+        qDebug() << "VP_VLCPlayer: Invalid negative position, setting to 0";
+        position = 0;
+    }
+    
+    // Check if the player is in a state that allows seeking
+    if (!libvlc_media_player_is_playing(m_mediaPlayer) && m_state != PlayerState::Paused) {
+        qDebug() << "VP_VLCPlayer: Warning - Setting position while not playing or paused, may not work correctly";
+    }
+    
     qDebug() << "VP_VLCPlayer: Setting position to" << position << "ms";
     libvlc_media_player_set_time(m_mediaPlayer, position);
+    
+    // Update cached position immediately
+    m_lastPosition = position;
+    emit positionChanged(position);
 }
 
 void VP_VLCPlayer::seekRelative(qint64 offset)

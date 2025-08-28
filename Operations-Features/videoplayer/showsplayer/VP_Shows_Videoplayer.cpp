@@ -157,6 +157,7 @@ VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
     , m_lastSavedPosition(0)
     , m_hasStartedPlaying(false)
     , m_isClosing(false)
+    , m_playbackStartedEmitted(false)
     , m_targetScreen(nullptr)
 {
     qDebug() << "VP_Shows_Videoplayer: Constructor called";
@@ -579,6 +580,7 @@ bool VP_Shows_Videoplayer::loadVideo(const QString& filePath)
     // Reset the closing flag when loading a new video (fixes auto-close on subsequent plays)
     m_isClosing = false;
     m_hasStartedPlaying = false;
+    m_playbackStartedEmitted = false;  // Reset playback started flag
     qDebug() << "VP_Shows_Videoplayer: Reset flags for new video load";
     
     // Handle empty path to clear the player
@@ -966,6 +968,12 @@ void VP_Shows_Videoplayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState 
             m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
             m_playButton->setToolTip(tr("Pause"));
             emit playbackStateChanged(state);
+            // Emit playbackStarted signal only once per play session
+            if (!m_playbackStartedEmitted) {
+                m_playbackStartedEmitted = true;
+                qDebug() << "VP_Shows_Videoplayer: Emitting playbackStarted signal";
+                emit playbackStarted();
+            }
             break;
             
         case VP_VLCPlayer::PlayerState::Paused:
@@ -977,6 +985,7 @@ void VP_Shows_Videoplayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState 
         case VP_VLCPlayer::PlayerState::Stopped:
             m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
             m_playButton->setToolTip(tr("Play"));
+            m_playbackStartedEmitted = false;  // Reset for next play
             
             // QUICK FIX: Close the player when playback stops to prevent crash
             // This happens because the temp decrypted file gets deleted by async cleanup

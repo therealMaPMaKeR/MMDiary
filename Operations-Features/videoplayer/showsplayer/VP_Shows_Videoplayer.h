@@ -57,6 +57,7 @@ public:
 signals:
     void errorOccurred(const QString& error);
     void playbackStateChanged(VP_VLCPlayer::PlayerState state);
+    void playbackStarted();  // Emitted when playback actually starts
     void positionChanged(qint64 position);
     void durationChanged(qint64 duration);
     void volumeChanged(int volume);
@@ -146,6 +147,7 @@ private:
     qint64 m_lastSavedPosition;
     bool m_hasStartedPlaying;
     bool m_isClosing;
+    bool m_playbackStartedEmitted;  // Track if playbackStarted signal has been emitted for current session
     
     void initializeWatchProgress();
     void finalizeWatchProgress();

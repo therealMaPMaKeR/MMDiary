@@ -3176,7 +3176,7 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                     qDebug() << "Operations_VP_Shows: Starting playback tracking for episode";
                     m_playbackTracker->startTracking(relativeEpisodePath, m_episodePlayer.get());
 
-                    // Get resume position and seek if needed
+                    // Get resume position and check if we need to resume
                     qint64 resumePosition = m_playbackTracker->getResumePosition(relativeEpisodePath);
 
                     // Check if the resume position is near the end
@@ -3193,35 +3193,59 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                         }
                     }
 
-                    // Only resume if not near the end
-                    if (resumePosition > 1000 && !isNearEnd) {
-                        qDebug() << "Operations_VP_Shows: Resuming playback from:" << resumePosition << "ms";
-                        m_episodePlayer->setPosition(resumePosition);
+                    // Apply the session playback speed for this show
+                    if (!m_currentShowFolder.isEmpty()) {
+                        qreal sessionSpeed = getSessionPlaybackSpeed(m_currentShowFolder);
+                        if (!qFuzzyCompare(sessionSpeed, 1.0)) {
+                            qDebug() << "Operations_VP_Shows: Applying session playback speed:" << sessionSpeed;
+                            m_episodePlayer->setPlaybackSpeed(sessionSpeed);
+                        }
+                    }
 
-                        // Add a small delay to ensure the slider updates properly during autoplay resume
-                        QTimer::singleShot(50, [this, resumePosition]() {
-                            if (m_episodePlayer) {
-                                qDebug() << "Operations_VP_Shows: Forcing slider update for autoplay resume";
-                                m_episodePlayer->forceUpdateSliderPosition(resumePosition);
-                            }
+                    // Determine if we should resume
+                    bool shouldResume = (resumePosition > 1000 && !isNearEnd);
+                    
+                    if (shouldResume) {
+                        qDebug() << "Operations_VP_Shows: Will resume from position:" << resumePosition << "ms after playback starts";
+                        
+                        // Connect to the playing signal to set position after playback actually starts
+                        // Use a single-shot connection to ensure it only happens once
+                        QMetaObject::Connection* resumeConnection = new QMetaObject::Connection;
+                        *resumeConnection = connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::playbackStarted,
+                                this, [this, resumePosition, resumeConnection]() {
+                            // Disconnect the signal to ensure this only happens once
+                            disconnect(*resumeConnection);
+                            delete resumeConnection;
+                            
+                            qDebug() << "Operations_VP_Shows: Playback started, now setting resume position to" << resumePosition << "ms";
+                            
+                            // Small delay to ensure libVLC is fully ready
+                            QTimer::singleShot(200, this, [this, resumePosition]() {
+                                if (m_episodePlayer) {
+                                    qDebug() << "Operations_VP_Shows: Setting resume position after delay";
+                                    m_episodePlayer->setPosition(resumePosition);
+                                    
+                                    // Force update the slider position
+                                    QTimer::singleShot(50, [this, resumePosition]() {
+                                        if (m_episodePlayer) {
+                                            qDebug() << "Operations_VP_Shows: Forcing slider update for resume";
+                                            m_episodePlayer->forceUpdateSliderPosition(resumePosition);
+                                        }
+                                    });
+                                }
+                            });
                         });
                     } else if (isNearEnd) {
                         qDebug() << "Operations_VP_Shows: Starting from beginning since position was near end";
                         // Position will default to 0
+                    } else {
+                        qDebug() << "Operations_VP_Shows: No resume position, starting from beginning";
                     }
                 }
 
-                // Apply the session playback speed for this show
-                if (!m_currentShowFolder.isEmpty()) {
-                    qreal sessionSpeed = getSessionPlaybackSpeed(m_currentShowFolder);
-                    if (!qFuzzyCompare(sessionSpeed, 1.0)) {
-                        qDebug() << "Operations_VP_Shows: Applying session playback speed:" << sessionSpeed;
-                        m_episodePlayer->setPlaybackSpeed(sessionSpeed);
-                    }
-                }
-
+                // Start playback
                 m_episodePlayer->play();
-                qDebug() << "Operations_VP_Shows: Episode playing";
+                qDebug() << "Operations_VP_Shows: Play command issued";
             }
         });
     } else {
