@@ -489,9 +489,13 @@ bool VP_ShowsEditMetadataDialog::validateInput()
     // Validate episode name if provided
     QString epName = ui->lineEdit_EPName->text().trimmed();
     if (!epName.isEmpty()) {
-        if (epName.length() > VP_ShowsMetadata::MAX_EP_NAME_LENGTH) {
+        // Use TVShowName validation type since episode names need the same special characters
+        InputValidation::ValidationResult epNameResult = InputValidation::validateInput(
+            epName, InputValidation::InputType::TVShowName, VP_ShowsMetadata::MAX_EP_NAME_LENGTH);
+        
+        if (!epNameResult.isValid) {
             QMessageBox::warning(this, tr("Validation Error"), 
-                               tr("Episode name is too long (maximum 200 characters)."));
+                               tr("Invalid episode name: %1").arg(epNameResult.errorMessage));
             ui->lineEdit_EPName->setFocus();
             return false;
         }
