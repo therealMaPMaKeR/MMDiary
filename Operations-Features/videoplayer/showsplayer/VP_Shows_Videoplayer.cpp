@@ -1359,6 +1359,10 @@ void VP_Shows_Videoplayer::keyPressEvent(QKeyEvent *event)
         case Qt::Key_Escape:
             if (m_isFullScreen) {
                 exitFullScreen();
+            } else {
+                // Close the video player if not in fullscreen
+                qDebug() << "VP_Shows_Videoplayer: ESC pressed while not in fullscreen - closing player";
+                close();
             }
             break;
             
