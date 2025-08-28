@@ -1,5 +1,6 @@
 #include "vp_shows_settings.h"
 #include "operations_files.h"
+#include "../../Operations-Global/datastorage_field_manager.h"
 #include <QDir>
 #include <QFile>
 #include <QDebug>
@@ -40,26 +41,35 @@ bool VP_ShowsSettings::loadShowSettings(const QString& showFolderPath, ShowSetti
     
     qDebug() << "VP_ShowsSettings: Settings file path:" << settingsFilePath;
     
-    // Check if the settings file exists
-    if (!QFile::exists(settingsFilePath)) {
-        qDebug() << "VP_ShowsSettings: Settings file does not exist, using defaults";
-        // File doesn't exist, use default settings
-        settings = ShowSettings(); // Initialize with defaults
-        return true; // Not an error, just no saved settings yet
+    // Create the data storage field manager
+    DataStorage_FieldManager fieldManager(m_encryptionKey, m_username);
+    
+    // Read and validate settings using the field manager
+    QMap<QString, QVariant> settingsMap;
+    DataStorage_FieldManager::ValidationResult result = 
+        fieldManager.readAndValidateData(settingsFilePath, 
+                                        DataStorage_FieldManager::TVShowSettings, 
+                                        settingsMap);
+    
+    if (!result.success) {
+        qDebug() << "VP_ShowsSettings: Failed to read/validate settings:" << result.errorMessage;
+        settings = ShowSettings(); // Use defaults
+        return true; // Still return true to use defaults instead of failing
     }
     
-    // Read and decrypt the settings file
-    QString settingsData;
-    if (!OperationsFiles::readEncryptedFile(settingsFilePath, m_encryptionKey, settingsData)) {
-        qDebug() << "VP_ShowsSettings: Failed to read encrypted settings file";
-        return false;
+    // Log if settings were modified during validation
+    if (result.wasModified) {
+        qDebug() << "VP_ShowsSettings: Settings file was automatically repaired";
+        if (!result.addedFields.isEmpty()) {
+            qDebug() << "VP_ShowsSettings: Added missing fields:" << result.addedFields.join(", ");
+        }
+        if (!result.removedFields.isEmpty()) {
+            qDebug() << "VP_ShowsSettings: Removed obsolete fields:" << result.removedFields.join(", ");
+        }
     }
     
-    // Deserialize the settings
-    if (!deserializeSettings(settingsData, settings)) {
-        qDebug() << "VP_ShowsSettings: Failed to deserialize settings";
-        return false;
-    }
+    // Convert QMap to ShowSettings struct
+    convertMapToSettings(settingsMap, settings);
     
     qDebug() << "VP_ShowsSettings: Successfully loaded settings - ShowName:"
              << settings.showName << "SkipIntro:" 
@@ -97,12 +107,18 @@ bool VP_ShowsSettings::saveShowSettings(const QString& showFolderPath, const Sho
     
     qDebug() << "VP_ShowsSettings: Settings file path:" << settingsFilePath;
     
-    // Serialize the settings
-    QString settingsData = serializeSettings(settings);
+    // Convert ShowSettings struct to QMap
+    QMap<QString, QVariant> settingsMap;
+    convertSettingsToMap(settings, settingsMap);
     
-    // Encrypt and save the settings file
-    if (!OperationsFiles::writeEncryptedFile(settingsFilePath, m_encryptionKey, settingsData)) {
-        qDebug() << "VP_ShowsSettings: Failed to write encrypted settings file";
+    // Create the data storage field manager
+    DataStorage_FieldManager fieldManager(m_encryptionKey, m_username);
+    
+    // Write validated settings using the field manager
+    if (!fieldManager.writeValidatedData(settingsFilePath, 
+                                        DataStorage_FieldManager::TVShowSettings, 
+                                        settingsMap)) {
+        qDebug() << "VP_ShowsSettings: Failed to write validated settings";
         return false;
     }
     
@@ -146,52 +162,54 @@ QString VP_ShowsSettings::generateSettingsFileName(const QString& showFolderPath
     return settingsFileName;
 }
 
-QString VP_ShowsSettings::serializeSettings(const ShowSettings& settings) const
+void VP_ShowsSettings::convertMapToSettings(const QMap<QString, QVariant>& settingsMap, ShowSettings& settings) const
 {
-    QString data;
+    qDebug() << "VP_ShowsSettings: Converting QMap to ShowSettings struct";
     
-    // Simple key-value format for settings
-    data += QString("showName=%1\n").arg(settings.showName);
-    data += QString("skipIntro=%1\n").arg(settings.skipIntro ? "true" : "false");
-    data += QString("skipOutro=%1\n").arg(settings.skipOutro ? "true" : "false");
-    data += QString("autoplay=%1\n").arg(settings.autoplay ? "true" : "false");
-    data += QString("useTMDB=%1\n").arg(settings.useTMDB ? "true" : "false");
-    data += QString("autoFullscreen=%1\n").arg(settings.autoFullscreen ? "true" : "false");
+    // Initialize with defaults
+    settings = ShowSettings();
     
-    // Add more settings here as needed in the future
-    
-    return data;
-}
-
-bool VP_ShowsSettings::deserializeSettings(const QString& data, ShowSettings& settings) const
-{
-    // Parse the key-value pairs
-    QStringList lines = data.split('\n', Qt::SkipEmptyParts);
-    
-    for (const QString& line : lines) {
-        QStringList parts = line.split('=');
-        if (parts.size() != 2) {
-            continue; // Skip invalid lines
-        }
-        
-        QString key = parts[0].trimmed();
-        QString value = parts[1].trimmed();
-        
-        if (key == "showName") {
-            settings.showName = value;
-        } else if (key == "skipIntro") {
-            settings.skipIntro = (value == "true");
-        } else if (key == "skipOutro") {
-            settings.skipOutro = (value == "true");
-        } else if (key == "autoplay") {
-            settings.autoplay = (value == "true");
-        } else if (key == "useTMDB") {
-            settings.useTMDB = (value == "true");
-        } else if (key == "autoFullscreen") {
-            settings.autoFullscreen = (value == "true");
-        }
-        // Add more settings parsing here as needed
+    // Convert each field from QMap to struct
+    if (settingsMap.contains("showName")) {
+        settings.showName = settingsMap["showName"].toString();
     }
     
-    return true;
+    if (settingsMap.contains("skipIntro")) {
+        settings.skipIntro = settingsMap["skipIntro"].toBool();
+    }
+    
+    if (settingsMap.contains("skipOutro")) {
+        settings.skipOutro = settingsMap["skipOutro"].toBool();
+    }
+    
+    if (settingsMap.contains("autoplay")) {
+        settings.autoplay = settingsMap["autoplay"].toBool();
+    }
+    
+    if (settingsMap.contains("useTMDB")) {
+        settings.useTMDB = settingsMap["useTMDB"].toBool();
+    }
+    
+    if (settingsMap.contains("autoFullscreen")) {
+        settings.autoFullscreen = settingsMap["autoFullscreen"].toBool();
+    }
+    
+    qDebug() << "VP_ShowsSettings: Conversion completed - converted" << settingsMap.size() << "fields";
+}
+
+void VP_ShowsSettings::convertSettingsToMap(const ShowSettings& settings, QMap<QString, QVariant>& settingsMap) const
+{
+    qDebug() << "VP_ShowsSettings: Converting ShowSettings struct to QMap";
+    
+    settingsMap.clear();
+    
+    // Convert each field from struct to QMap
+    settingsMap["showName"] = settings.showName;
+    settingsMap["skipIntro"] = settings.skipIntro;
+    settingsMap["skipOutro"] = settings.skipOutro;
+    settingsMap["autoplay"] = settings.autoplay;
+    settingsMap["useTMDB"] = settings.useTMDB;
+    settingsMap["autoFullscreen"] = settings.autoFullscreen;
+    
+    qDebug() << "VP_ShowsSettings: Conversion completed - created" << settingsMap.size() << "fields";
 }

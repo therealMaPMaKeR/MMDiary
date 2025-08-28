@@ -42,11 +42,9 @@ private:
     // Generate settings filename based on show folder
     QString generateSettingsFileName(const QString& showFolderPath) const;
     
-    // Serialize settings to string
-    QString serializeSettings(const ShowSettings& settings) const;
-    
-    // Deserialize settings from string
-    bool deserializeSettings(const QString& data, ShowSettings& settings) const;
+    // Convert between ShowSettings struct and QMap
+    void convertMapToSettings(const QMap<QString, QVariant>& settingsMap, ShowSettings& settings) const;
+    void convertSettingsToMap(const ShowSettings& settings, QMap<QString, QVariant>& settingsMap) const;
     
     QByteArray m_encryptionKey;
     QString m_username;
