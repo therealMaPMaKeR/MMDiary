@@ -202,20 +202,24 @@ Operations_VP_Shows::~Operations_VP_Shows()
 {
     qDebug() << "Operations_VP_Shows: Destructor called";
     
-    // Stop playback tracking if active
+    // Stop playback tracking first before destroying player
     if (m_playbackTracker) {
         qDebug() << "Operations_VP_Shows: Stopping playback tracking in destructor";
         m_playbackTracker->stopTracking();
+        // Disconnect all signals from tracker to prevent callbacks
+        disconnect(m_playbackTracker.get(), nullptr, this, nullptr);
     }
     
     // Force release and cleanup any playing video
     if (m_episodePlayer) {
+        // Disconnect all signals from player first
+        disconnect(m_episodePlayer.get(), nullptr, this, nullptr);
         forceReleaseVideoFile();
         // Reset the player to ensure it's properly closed
         m_episodePlayer.reset();
     }
     
-    // Clean up playback tracker and watch history
+    // Clean up playback tracker after player is destroyed
     if (m_playbackTracker) {
         m_playbackTracker.reset();
     }

@@ -167,6 +167,9 @@ private:
     
     // Debug mode
     bool m_debugMode;
+    
+    // Destruction flag
+    bool m_isDestroying;
 };
 
 #endif // VP_VLCPLAYER_H

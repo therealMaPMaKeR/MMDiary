@@ -209,13 +209,38 @@ VP_Shows_Videoplayer::~VP_Shows_Videoplayer()
 {
     qDebug() << "VP_Shows_Videoplayer: Destructor called";
     
-    // Note: Watch history is managed by Operations_VP_Shows_WatchHistory
-    // The aboutToClose signal handles final position saving
+    // Stop and delete timers first to prevent callbacks during destruction
+    if (m_cursorTimer) {
+        m_cursorTimer->stop();
+        disconnect(m_cursorTimer, nullptr, this, nullptr);
+        delete m_cursorTimer;
+        m_cursorTimer = nullptr;
+    }
     
+    if (m_mouseCheckTimer) {
+        m_mouseCheckTimer->stop();
+        disconnect(m_mouseCheckTimer, nullptr, this, nullptr);
+        delete m_mouseCheckTimer;
+        m_mouseCheckTimer = nullptr;
+    }
+    
+    if (m_progressSaveTimer) {
+        m_progressSaveTimer->stop();
+        disconnect(m_progressSaveTimer, nullptr, this, nullptr);
+        delete m_progressSaveTimer;
+        m_progressSaveTimer = nullptr;
+    }
+    
+    // Disconnect all signals from media player before stopping
     if (m_mediaPlayer) {
+        disconnect(m_mediaPlayer.get(), nullptr, this, nullptr);
         m_mediaPlayer->stop();
         m_mediaPlayer->unloadMedia();
     }
+    
+    // Clear widget pointers (they're owned by Qt parent-child hierarchy)
+    m_videoWidget = nullptr;
+    m_controlsWidget = nullptr;
 }
 
 void VP_Shows_Videoplayer::toggleFullScreen()
@@ -564,11 +589,12 @@ void VP_Shows_Videoplayer::connectSignals()
             this, &VP_Shows_Videoplayer::handleError);
     
     // Connect finished signal for end of playback
+    // Use Qt::DirectConnection to ensure it's processed immediately
     connect(m_mediaPlayer.get(), &VP_VLCPlayer::finished,
             this, [this]() {
                 qDebug() << "VP_Shows_Videoplayer: Playback finished";
                 emit finished();  // Forward the finished signal
-            });
+            }, Qt::DirectConnection);
     
     // Note: Double-click is handled through Qt's event filter since we disabled libvlc's input handling
 }
@@ -1458,6 +1484,12 @@ void VP_Shows_Videoplayer::stopCursorTimer()
 
 void VP_Shows_Videoplayer::hideCursor()
 {
+    // Check if widgets still exist before accessing
+    if (!m_controlsWidget) {
+        qDebug() << "VP_Shows_Videoplayer: hideCursor called but m_controlsWidget is null";
+        return;
+    }
+    
     if (m_isFullScreen && !m_controlsWidget->underMouse()) {
         // Always hide the control bar in fullscreen mode when timer triggers
         qDebug() << "VP_Shows_Videoplayer: Hiding controls";
@@ -1478,8 +1510,12 @@ void VP_Shows_Videoplayer::hideCursor()
 
             // Hide cursor only on video player widgets, not globally
             setCursor(Qt::BlankCursor);
-            m_videoWidget->setCursor(Qt::BlankCursor);
-            m_controlsWidget->setCursor(Qt::BlankCursor);
+            if (m_videoWidget) {
+                m_videoWidget->setCursor(Qt::BlankCursor);
+            }
+            if (m_controlsWidget) {
+                m_controlsWidget->setCursor(Qt::BlankCursor);
+            }
             
             // Do NOT use QApplication::setOverrideCursor as it affects the entire application
         } else {
@@ -1496,8 +1532,12 @@ void VP_Shows_Videoplayer::showCursor()
 
         // Restore cursor only on video player widgets
         setCursor(Qt::ArrowCursor);
-        m_videoWidget->setCursor(Qt::ArrowCursor);
-        m_controlsWidget->setCursor(Qt::ArrowCursor);
+        if (m_videoWidget) {
+            m_videoWidget->setCursor(Qt::ArrowCursor);
+        }
+        if (m_controlsWidget) {
+            m_controlsWidget->setCursor(Qt::ArrowCursor);
+        }
         
         // No need to deal with override cursors since we're not using them anymore
     }
@@ -1523,6 +1563,12 @@ void VP_Shows_Videoplayer::checkMouseMovement()
 {
     if (!m_isFullScreen) {
         return;  // Only check in fullscreen mode
+    }
+    
+    // Safety check for widgets
+    if (!m_controlsWidget) {
+        qDebug() << "VP_Shows_Videoplayer: checkMouseMovement - controlsWidget is null";
+        return;
     }
 
     QPoint currentPos = QCursor::pos();

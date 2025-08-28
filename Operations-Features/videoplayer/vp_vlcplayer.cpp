@@ -19,6 +19,7 @@ VP_VLCPlayer::VP_VLCPlayer(QObject *parent)
     , m_lastPosition(-1)
     , m_duration(-1)
     , m_debugMode(true)  // Enable debug output
+    , m_isDestroying(false)
 {
     // Setup position update timer
     m_positionTimer->setInterval(100);  // Update every 100ms
@@ -34,21 +35,44 @@ VP_VLCPlayer::~VP_VLCPlayer()
 {
     qDebug() << "VP_VLCPlayer: Destructor called";
     
-    // Stop playback and clean up
+    // Set flag to prevent callbacks during destruction
+    m_isDestroying = true;
+    
+    // Stop position timer first to prevent callbacks during destruction
+    if (m_positionTimer) {
+        m_positionTimer->stop();
+        disconnect(m_positionTimer, nullptr, this, nullptr);
+    }
+    
+    // Clean up event callbacks before releasing media player
     if (m_mediaPlayer) {
-        stop();
         cleanupEventCallbacks();
+        stop();
         
-        // Release media player
+        // Detach video output to prevent access during destruction
+        libvlc_media_player_set_hwnd(m_mediaPlayer, nullptr);
+    }
+    
+    // Release current media if any
+    if (m_currentMedia) {
+        libvlc_media_release(m_currentMedia);
+        m_currentMedia = nullptr;
+    }
+    
+    // Release media player
+    if (m_mediaPlayer) {
         libvlc_media_player_release(m_mediaPlayer);
         m_mediaPlayer = nullptr;
     }
     
-    // Release VLC instance
+    // Release VLC instance last
     if (m_vlcInstance) {
         libvlc_release(m_vlcInstance);
         m_vlcInstance = nullptr;
     }
+    
+    // Clear widget pointer
+    m_videoWidget = nullptr;
 }
 
 bool VP_VLCPlayer::initialize()
@@ -672,7 +696,7 @@ float VP_VLCPlayer::aspectRatio() const
 
 void VP_VLCPlayer::updatePosition()
 {
-    if (!m_mediaPlayer) {
+    if (!m_mediaPlayer || m_isDestroying) {
         return;
     }
     
@@ -732,7 +756,7 @@ void VP_VLCPlayer::handleVLCEvent(const libvlc_event_t* event, void* userData)
 {
     VP_VLCPlayer* player = static_cast<VP_VLCPlayer*>(userData);
     
-    if (!player) {
+    if (!player || player->m_isDestroying) {
         return;
     }
     

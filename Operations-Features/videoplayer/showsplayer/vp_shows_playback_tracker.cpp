@@ -47,11 +47,15 @@ VP_ShowsPlaybackTracker::~VP_ShowsPlaybackTracker()
     }
     
     // Ensure timer is deleted properly
-    if (!m_progressTimer.isNull()) {
+    if (m_progressTimer && !m_progressTimer.isNull()) {
         m_progressTimer->stop();
+        disconnect(m_progressTimer.data(), nullptr, this, nullptr);
         m_progressTimer->deleteLater();
         m_progressTimer = nullptr;
     }
+    
+    // Clear the player pointer
+    m_currentPlayer = nullptr;
 }
 
 bool VP_ShowsPlaybackTracker::initializeForShow(const QString& showFolderPath,
@@ -186,7 +190,7 @@ void VP_ShowsPlaybackTracker::startTracking(const QString& episodePath, VP_Shows
     
     // Start periodic updates with a shorter initial interval
     qDebug() << "VP_ShowsPlaybackTracker: Starting periodic timer with initial 2-second interval...";
-    if (!m_progressTimer.isNull()) {
+    if (m_progressTimer && !m_progressTimer.isNull()) {
         m_progressTimer->setInterval(2000);  // 2 seconds for first save
         m_progressTimer->start();
         
@@ -241,8 +245,10 @@ void VP_ShowsPlaybackTracker::stopTracking(qint64 finalPosition)
     m_isTracking = false;
     
     // Stop timer first (with null check)
-    if (!m_progressTimer.isNull()) {
+    if (m_progressTimer && !m_progressTimer.isNull()) {
         m_progressTimer->stop();
+    } else {
+        qDebug() << "VP_ShowsPlaybackTracker: Progress timer is null or deleted";
     }
     
     // Do final progress update
@@ -520,8 +526,12 @@ void VP_ShowsPlaybackTracker::updateProgress()
     static int updateCallCount = 0;
     updateCallCount++;
     
-    if (!m_isTracking || m_currentPlayer.isNull() || !m_watchHistory || m_currentEpisodePath.isEmpty()) {
+    if (!m_isTracking || !m_currentPlayer || m_currentPlayer.isNull() || !m_watchHistory || m_currentEpisodePath.isEmpty()) {
         qDebug() << "VP_ShowsPlaybackTracker: Cannot update progress - missing required components";
+        qDebug() << "VP_ShowsPlaybackTracker: Tracking:" << m_isTracking 
+                 << "Player valid:" << (!m_currentPlayer.isNull())
+                 << "History valid:" << (m_watchHistory != nullptr)
+                 << "Episode empty:" << m_currentEpisodePath.isEmpty();
         return;
     }
     
@@ -607,6 +617,9 @@ void VP_ShowsPlaybackTracker::connectPlayerSignals(VP_Shows_Videoplayer* player,
     
     qDebug() << "VP_ShowsPlaybackTracker: Connecting to player signals for session" << sessionId;
     qDebug() << "VP_ShowsPlaybackTracker: Player pointer:" << player;
+    
+    // Store player as QPointer for safer lambda access
+    QPointer<VP_Shows_Videoplayer> safePlayer = player;
     
     // Connect to position changed for continuous tracking
     QMetaObject::Connection posConnection = connect(player, &VP_Shows_Videoplayer::positionChanged,
