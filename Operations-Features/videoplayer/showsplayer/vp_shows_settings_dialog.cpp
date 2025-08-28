@@ -139,7 +139,7 @@ VP_ShowsSettingsDialog::~VP_ShowsSettingsDialog()
     }
     
     // Clear caches
-    m_imageCache.clear();
+    m_posterCache.clear();
     m_currentSuggestions.clear();
     
     delete ui;
