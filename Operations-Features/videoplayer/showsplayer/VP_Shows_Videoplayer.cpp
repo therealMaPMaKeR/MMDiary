@@ -1331,36 +1331,47 @@ void VP_Shows_Videoplayer::stopCursorTimer()
 void VP_Shows_Videoplayer::hideCursor()
 {
     if (m_isFullScreen && !m_controlsWidget->underMouse()) {
-        qDebug() << "VP_Shows_Videoplayer: Hiding cursor and controls";
-
-        // Hide cursor on all widgets
-        setCursor(Qt::BlankCursor);
-        m_videoWidget->setCursor(Qt::BlankCursor);
-        m_controlsWidget->setCursor(Qt::BlankCursor);
-
-        // Hide controls
+        // Always hide the control bar in fullscreen mode when timer triggers
+        qDebug() << "VP_Shows_Videoplayer: Hiding controls";
         m_controlsWidget->setVisible(false);
+        
+        // Check if the mouse cursor is actually within the video player window
+        QPoint globalMousePos = QCursor::pos();
+        QRect playerGlobalRect = geometry();
+        
+        // Convert to global coordinates if we have a parent
+        if (!isWindow()) {
+            playerGlobalRect.moveTopLeft(mapToGlobal(QPoint(0, 0)));
+        }
+        
+        // Only hide cursor if it's within the video player window
+        if (playerGlobalRect.contains(globalMousePos)) {
+            qDebug() << "VP_Shows_Videoplayer: Hiding cursor (cursor is within player window)";
 
-        // Force cursor update
-        QApplication::setOverrideCursor(Qt::BlankCursor);
+            // Hide cursor only on video player widgets, not globally
+            setCursor(Qt::BlankCursor);
+            m_videoWidget->setCursor(Qt::BlankCursor);
+            m_controlsWidget->setCursor(Qt::BlankCursor);
+            
+            // Do NOT use QApplication::setOverrideCursor as it affects the entire application
+        } else {
+            qDebug() << "VP_Shows_Videoplayer: Not hiding cursor (cursor is outside player window)";
+        }
     }
 }
 
 void VP_Shows_Videoplayer::showCursor()
 {
     // Only show if cursor is hidden
-    if (cursor().shape() == Qt::BlankCursor || QApplication::overrideCursor()) {
+    if (cursor().shape() == Qt::BlankCursor) {
         qDebug() << "VP_Shows_Videoplayer: Showing cursor";
 
-        // Restore cursor on all widgets
+        // Restore cursor only on video player widgets
         setCursor(Qt::ArrowCursor);
         m_videoWidget->setCursor(Qt::ArrowCursor);
         m_controlsWidget->setCursor(Qt::ArrowCursor);
-
-        // Remove any override cursor
-        while (QApplication::overrideCursor()) {
-            QApplication::restoreOverrideCursor();
-        }
+        
+        // No need to deal with override cursors since we're not using them anymore
     }
 }
 
