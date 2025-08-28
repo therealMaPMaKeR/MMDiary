@@ -6,15 +6,10 @@
 #include <QDebug>
 
 VP_ShowsSettings::VP_ShowsSettings(const QByteArray& encryptionKey, const QString& username)
-    : m_encryptionKey(encryptionKey)  // Creates a copy, not a reference
+    : m_encryptionKey(encryptionKey)
     , m_username(username)
 {
     qDebug() << "VP_ShowsSettings: Initialized with username:" << m_username;
-    
-    // Validate encryption key
-    if (m_encryptionKey.isEmpty() || m_encryptionKey.size() != 32) {
-        qWarning() << "VP_ShowsSettings: Invalid encryption key size:" << m_encryptionKey.size();
-    }
 }
 
 VP_ShowsSettings::~VP_ShowsSettings()

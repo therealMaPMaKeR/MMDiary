@@ -101,18 +101,13 @@ VP_ShowsWatchHistory::VP_ShowsWatchHistory(const QString& showFolderPath,
                                          const QByteArray& encryptionKey,
                                          const QString& username)
     : m_showFolderPath(QDir(showFolderPath).absolutePath())  // Ensure absolute path
-    , m_encryptionKey(encryptionKey)  // Creates a copy, not a reference
+    , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_historyFilePath(QDir(showFolderPath).absolutePath() + "/" + HISTORY_FILENAME)  // Use absolute path
     , m_backupFilePath(QDir(showFolderPath).absolutePath() + "/" + BACKUP_FILENAME)  // Backup file path
     , m_watchData(std::make_unique<TVShowWatchData>())
     , m_isDirty(false)
 {
-    // Validate encryption key
-    if (m_encryptionKey.isEmpty() || m_encryptionKey.size() != 32) {
-        qWarning() << "VP_ShowsWatchHistory: Invalid encryption key size:" << m_encryptionKey.size();
-    }
-    
     qDebug() << "VP_ShowsWatchHistory: ============================================";
     qDebug() << "VP_ShowsWatchHistory: Initializing watch history";
     qDebug() << "VP_ShowsWatchHistory: Show folder path (original):" << showFolderPath;
@@ -200,12 +195,9 @@ bool VP_ShowsWatchHistory::loadHistory() {
     
     qDebug() << "VP_ShowsWatchHistory: JSON parsed successfully";
     
-    // Create a copy of the JSON object to ensure it remains valid
-    QJsonObject jsonObj = doc.object();
-    
     // Load watch data
     try {
-        *m_watchData = TVShowWatchData::fromJson(jsonObj);
+        *m_watchData = TVShowWatchData::fromJson(doc.object());
         qDebug() << "VP_ShowsWatchHistory: Successfully loaded history with" 
                  << m_watchData->watchHistory.size() << "episodes";
         return true;
@@ -231,13 +223,7 @@ bool VP_ShowsWatchHistory::saveHistory() {
         }
     }
     
-    // Check if watch data is valid
-    if (!m_watchData) {
-        qDebug() << "VP_ShowsWatchHistory: Watch data is null, cannot save";
-        return false;
-    }
-    
-    // Convert watch data to JSON - ensure objects remain in scope
+    // Convert watch data to JSON
     QJsonObject json = m_watchData->toJson();
     QJsonDocument doc(json);
     QString jsonContent = doc.toJson(QJsonDocument::Indented);
@@ -299,12 +285,6 @@ void VP_ShowsWatchHistory::updateWatchProgress(const QString& episodePath,
     qDebug() << "VP_ShowsWatchHistory: Episode path:" << episodePath;
     qDebug() << "VP_ShowsWatchHistory: Position:" << position << "ms, Duration:" << duration << "ms";
     
-    // Check if watch data is valid
-    if (!m_watchData) {
-        qDebug() << "VP_ShowsWatchHistory: Watch data is null, cannot update progress";
-        return;
-    }
-    
     QString validPath = validateEpisodePath(episodePath);
     if (validPath.isEmpty()) {
         qDebug() << "VP_ShowsWatchHistory: Invalid episode path:" << episodePath;
@@ -351,12 +331,6 @@ void VP_ShowsWatchHistory::updateWatchProgress(const QString& episodePath,
 }
 
 void VP_ShowsWatchHistory::markEpisodeCompleted(const QString& episodePath) {
-    // Check if watch data is valid
-    if (!m_watchData) {
-        qDebug() << "VP_ShowsWatchHistory: Watch data is null, cannot mark episode completed";
-        return;
-    }
-    
     QString validPath = validateEpisodePath(episodePath);
     if (validPath.isEmpty()) {
         qDebug() << "VP_ShowsWatchHistory: Invalid episode path:" << episodePath;
@@ -381,12 +355,6 @@ void VP_ShowsWatchHistory::markEpisodeCompleted(const QString& episodePath) {
 }
 
 void VP_ShowsWatchHistory::setEpisodeWatched(const QString& episodePath, bool watched) {
-    // Check if watch data is valid
-    if (!m_watchData) {
-        qDebug() << "VP_ShowsWatchHistory: Watch data is null, cannot set watched status";
-        return;
-    }
-    
     QString validPath = validateEpisodePath(episodePath);
     if (validPath.isEmpty()) {
         qDebug() << "VP_ShowsWatchHistory: Invalid episode path:" << episodePath;
@@ -480,12 +448,6 @@ void VP_ShowsWatchHistory::setLastWatchedEpisode(const QString& episodePath) {
 }
 
 EpisodeWatchInfo VP_ShowsWatchHistory::getEpisodeWatchInfo(const QString& episodePath) const {
-    // Check if watch data is valid
-    if (!m_watchData) {
-        qDebug() << "VP_ShowsWatchHistory: Watch data is null, returning empty info";
-        return EpisodeWatchInfo();
-    }
-    
     QString validPath = validateEpisodePath(episodePath);
     if (validPath.isEmpty() || !m_watchData->watchHistory.contains(validPath)) {
         return EpisodeWatchInfo();
@@ -495,11 +457,6 @@ EpisodeWatchInfo VP_ShowsWatchHistory::getEpisodeWatchInfo(const QString& episod
 }
 
 bool VP_ShowsWatchHistory::hasEpisodeBeenWatched(const QString& episodePath) const {
-    // Check if watch data is valid
-    if (!m_watchData) {
-        return false;
-    }
-    
     QString validPath = validateEpisodePath(episodePath);
     return !validPath.isEmpty() && m_watchData->watchHistory.contains(validPath);
 }
@@ -510,11 +467,6 @@ bool VP_ShowsWatchHistory::isEpisodeInHistory(const QString& episodePath) const 
 }
 
 bool VP_ShowsWatchHistory::isEpisodeCompleted(const QString& episodePath) const {
-    // Check if watch data is valid
-    if (!m_watchData) {
-        return false;
-    }
-    
     QString validPath = validateEpisodePath(episodePath);
     if (validPath.isEmpty() || !m_watchData->watchHistory.contains(validPath)) {
         return false;
@@ -524,9 +476,6 @@ bool VP_ShowsWatchHistory::isEpisodeCompleted(const QString& episodePath) const 
 }
 
 QString VP_ShowsWatchHistory::getLastWatchedEpisode() const {
-    if (!m_watchData) {
-        return QString();
-    }
     return m_watchData->lastWatchedEpisode;
 }
 
@@ -610,9 +559,6 @@ qint64 VP_ShowsWatchHistory::getResumePosition(const QString& episodePath) const
 }
 
 TVShowSettings VP_ShowsWatchHistory::getSettings() const {
-    if (!m_watchData) {
-        return TVShowSettings();
-    }
     return m_watchData->settings;
 }
 
@@ -633,9 +579,6 @@ void VP_ShowsWatchHistory::setAutoplayEnabled(bool enabled) {
 }
 
 QString VP_ShowsWatchHistory::getShowName() const {
-    if (!m_watchData) {
-        return QString();
-    }
     return m_watchData->showName;
 }
 
@@ -645,10 +588,6 @@ void VP_ShowsWatchHistory::setShowName(const QString& showName) {
 }
 
 qint64 VP_ShowsWatchHistory::getTotalWatchTime() const {
-    if (!m_watchData) {
-        return 0;
-    }
-    
     qint64 totalTime = 0;
     for (const auto& info : m_watchData->watchHistory) {
         totalTime += info.lastPosition;
@@ -657,17 +596,10 @@ qint64 VP_ShowsWatchHistory::getTotalWatchTime() const {
 }
 
 int VP_ShowsWatchHistory::getWatchedEpisodeCount() const {
-    if (!m_watchData) {
-        return 0;
-    }
     return m_watchData->watchHistory.size();
 }
 
 int VP_ShowsWatchHistory::getCompletedEpisodeCount() const {
-    if (!m_watchData) {
-        return 0;
-    }
-    
     int count = 0;
     for (const auto& info : m_watchData->watchHistory) {
         if (info.completed) {
@@ -678,10 +610,6 @@ int VP_ShowsWatchHistory::getCompletedEpisodeCount() const {
 }
 
 QStringList VP_ShowsWatchHistory::getAllWatchedEpisodes() const {
-    if (!m_watchData) {
-        return QStringList();
-    }
-    
     QStringList episodes;
     for (auto it = m_watchData->watchHistory.begin(); it != m_watchData->watchHistory.end(); ++it) {
         episodes.append(it.key());
@@ -763,12 +691,9 @@ bool VP_ShowsWatchHistory::restoreFromBackup() {
         return false;
     }
     
-    // Create a copy of the JSON object to ensure it remains valid
-    QJsonObject jsonObj = doc.object();
-    
     // Load watch data from backup
     try {
-        *m_watchData = TVShowWatchData::fromJson(jsonObj);
+        *m_watchData = TVShowWatchData::fromJson(doc.object());
         qDebug() << "VP_ShowsWatchHistory: Successfully restored from backup with" 
                  << m_watchData->watchHistory.size() << "episodes";
         

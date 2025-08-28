@@ -11,15 +11,10 @@
 const int VP_ShowsMetadata::METADATA_RESERVED_SIZE;
 
 VP_ShowsMetadata::VP_ShowsMetadata(const QByteArray& encryptionKey, const QString& username)
-    : m_encryptionKey(encryptionKey)  // Creates a copy, not a reference
+    : m_encryptionKey(encryptionKey)
     , m_username(username)
 {
     qDebug() << "VP_ShowsMetadata: Constructor called";
-    
-    // Validate encryption key
-    if (m_encryptionKey.isEmpty() || m_encryptionKey.size() != 32) {
-        qWarning() << "VP_ShowsMetadata: Invalid encryption key size:" << m_encryptionKey.size();
-    }
 }
 
 VP_ShowsMetadata::~VP_ShowsMetadata()
@@ -31,15 +26,8 @@ bool VP_ShowsMetadata::writeMetadataToFile(const QString& filePath, const ShowMe
 {
     qDebug() << "VP_ShowsMetadata: Writing metadata to file:" << filePath;
     
-    // Check if lock manager instance is valid
-    VP_MetadataLockManager* lockManager = VP_MetadataLockManager::instance();
-    if (!lockManager) {
-        qDebug() << "VP_ShowsMetadata: Lock manager instance is invalid";
-        return false;
-    }
-    
     // Acquire lock for metadata operation
-    VP_MetadataLockManager::LockGuard lock(lockManager, filePath);
+    VP_MetadataLockManager::LockGuard lock(VP_MetadataLockManager::instance(), filePath);
     if (!lock.isLocked()) {
         qDebug() << "VP_ShowsMetadata: Failed to acquire lock for writing metadata. Lock result:" << static_cast<int>(lock.result());
         return false;
@@ -51,18 +39,8 @@ bool VP_ShowsMetadata::writeMetadataToFile(const QString& filePath, const ShowMe
         return false;
     }
     
-    // Ensure file is open before passing to write function
-    if (!file.isOpen()) {
-        qDebug() << "VP_ShowsMetadata: File is not open after open() call";
-        return false;
-    }
-    
     bool success = writeFixedSizeEncryptedMetadata(&file, metadata);
-    
-    // Ensure file is closed even if write fails
-    if (file.isOpen()) {
-        file.close();
-    }
+    file.close();
     
     return success;
 }
@@ -71,15 +49,8 @@ bool VP_ShowsMetadata::readMetadataFromFile(const QString& filePath, ShowMetadat
 {
     qDebug() << "VP_ShowsMetadata: Reading metadata from file:" << filePath;
     
-    // Check if lock manager instance is valid
-    VP_MetadataLockManager* lockManager = VP_MetadataLockManager::instance();
-    if (!lockManager) {
-        qDebug() << "VP_ShowsMetadata: Lock manager instance is invalid";
-        return false;
-    }
-    
     // Acquire lock for metadata operation
-    VP_MetadataLockManager::LockGuard lock(lockManager, filePath);
+    VP_MetadataLockManager::LockGuard lock(VP_MetadataLockManager::instance(), filePath);
     if (!lock.isLocked()) {
         qDebug() << "VP_ShowsMetadata: Failed to acquire lock for reading metadata. Lock result:" << static_cast<int>(lock.result());
         return false;

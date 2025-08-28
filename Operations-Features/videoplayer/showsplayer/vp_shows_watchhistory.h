@@ -96,14 +96,14 @@ public:
     static constexpr int SAVE_INTERVAL_SECONDS = 10; // Save progress every 10 seconds
     
     /**
-    * @brief Constructor
-    * @param showFolderPath Path to the TV show folder
-    * @param encryptionKey Encryption key for secure storage (will be copied)
-    * @param username Current user's username
-    */
+     * @brief Constructor
+     * @param showFolderPath Path to the TV show folder
+     * @param encryptionKey Encryption key for secure storage
+     * @param username Current user's username
+     */
     VP_ShowsWatchHistory(const QString& showFolderPath, 
-    const QByteArray& encryptionKey, 
-    const QString& username);
+                        const QByteArray& encryptionKey,
+                        const QString& username);
     
     /**
      * @brief Destructor - ensures data is saved
@@ -328,7 +328,7 @@ public:
 private:
     // Member variables
     QString m_showFolderPath;
-    QByteArray m_encryptionKey;  // Store copy, not reference
+    QByteArray m_encryptionKey;
     QString m_username;
     QString m_historyFilePath;
     QString m_backupFilePath;
