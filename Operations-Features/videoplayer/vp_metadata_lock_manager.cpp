@@ -341,9 +341,9 @@ QString VP_MetadataLockManager::getLockFilePath(const QString& videoFilePath) co
     QByteArray hash = QCryptographicHash::hash(pathBytes, QCryptographicHash::Sha256);
     QString hashString = QString::fromLatin1(hash.toHex());
     
-    // Get the app's temp directory
+    // Get the app's temp_metadata_locks directory (separate from temp to avoid cleanup)
     QString tempDir = QCoreApplication::applicationDirPath() + "/Data/" + 
-                     QDir::home().dirName() + "/temp/vp_metadata_locks";
+                     OperationsFiles::getUsername() + "/temp_metadata_locks";
     
     // Ensure the directory exists
     QDir dir(tempDir);
@@ -363,7 +363,7 @@ void VP_MetadataLockManager::cleanupOldLocks()
     qDebug() << "VP_MetadataLockManager: Cleaning up old lock files";
     
     QString tempDir = QCoreApplication::applicationDirPath() + "/Data/" + 
-                     QDir::home().dirName() + "/temp/vp_metadata_locks";
+                     OperationsFiles::getUsername() + "/temp_metadata_locks";
     
     QDir dir(tempDir);
     if (!dir.exists()) {
