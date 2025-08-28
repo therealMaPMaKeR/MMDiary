@@ -2817,6 +2817,16 @@ void Operations_VP_Shows::onEpisodeDoubleClicked(QTreeWidgetItem* item, int colu
 void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath, const QString& episodeName)
 {
     qDebug() << "Operations_VP_Shows: Starting decryption and playback for:" << episodeName;
+    qDebug() << "Operations_VP_Shows: Is autoplay:" << m_isAutoplayInProgress;
+    
+    // Reset stored window settings if this is NOT autoplay
+    // This ensures that manual play uses the autoFullscreen setting instead of previous window state
+    if (!m_isAutoplayInProgress) {
+        qDebug() << "Operations_VP_Shows: Manual play detected - resetting stored window settings";
+        VP_Shows_Videoplayer::resetStoredWindowSettings();
+    } else {
+        qDebug() << "Operations_VP_Shows: Autoplay detected - keeping stored window settings";
+    }
     
     // Check if there's already a video player open and close it before decryption
     if (m_episodePlayer) {

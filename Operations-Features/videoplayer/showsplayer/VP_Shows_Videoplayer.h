@@ -158,11 +158,30 @@ private:
     QScreen* m_targetScreen;  // The screen to initially open the player on (only used for initial positioning)
     static QScreen* s_lastUsedScreen;  // Static variable to remember last used screen (stored in RAM)
     
+    // Window state management (for autoplay)
+    static QRect s_lastWindowGeometry;  // Remember window size and position
+    static bool s_wasFullScreen;        // Remember if was fullscreen
+    static bool s_wasMaximized;         // Remember if was maximized
+    static bool s_wasMinimized;         // Remember if was minimized
+    static int s_lastVolume;            // Remember last volume setting
+    static bool s_hasStoredSettings;    // Flag to know if we have stored settings
+    
     // Helper function to get the screen the player is currently on
     QScreen* getCurrentScreen() const;
     
 public:
     void setTargetScreen(QScreen* screen) { m_targetScreen = screen; }
+    
+    // Static method to reset stored window settings (for when playing a different show)
+    static void resetStoredWindowSettings() {
+        s_hasStoredSettings = false;
+        s_lastWindowGeometry = QRect();
+        s_wasFullScreen = false;
+        s_wasMaximized = false;
+        s_wasMinimized = false;
+        // Note: We keep s_lastVolume and s_lastUsedScreen as they persist across shows
+        qDebug() << "VP_Shows_Videoplayer: Reset all stored window settings";
+    }
 };
 
 #endif // VP_SHOWS_VIDEOPLAYER_H

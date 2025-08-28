@@ -14,8 +14,14 @@
 #include <QDateTime>
 #include <climits>
 
-// Initialize static member for last used screen
+// Initialize static members for window state persistence
 QScreen* VP_Shows_Videoplayer::s_lastUsedScreen = nullptr;
+QRect VP_Shows_Videoplayer::s_lastWindowGeometry = QRect();
+bool VP_Shows_Videoplayer::s_wasFullScreen = false;
+bool VP_Shows_Videoplayer::s_wasMaximized = false;
+bool VP_Shows_Videoplayer::s_wasMinimized = false;
+int VP_Shows_Videoplayer::s_lastVolume = 70;  // Default volume
+bool VP_Shows_Videoplayer::s_hasStoredSettings = false;
 
 // Custom clickable slider class for seeking in video
 class VP_Shows_Videoplayer::ClickableSlider : public QSlider
@@ -420,7 +426,7 @@ void VP_Shows_Videoplayer::createControls()
     // Volume slider - use custom clickable slider, extended range to 150%
     m_volumeSlider = createClickableSlider();
     m_volumeSlider->setRange(0, 150);  // Extended to 150%
-    m_volumeSlider->setValue(70);
+    m_volumeSlider->setValue(s_lastVolume);  // Use saved volume from previous session
     m_volumeSlider->setMaximumWidth(100);
     m_volumeSlider->setToolTip(tr("Volume (up to 150%)"));
     m_volumeSlider->setFocusPolicy(Qt::ClickFocus);  // Only take focus when clicked, and give it up easily
@@ -444,12 +450,12 @@ void VP_Shows_Videoplayer::createControls()
     m_durationLabel = new QLabel("00:00", this);
     m_durationLabel->setMinimumWidth(50);
     
-    m_volumeLabel = new QLabel(tr("Vol:"), this);
+    m_volumeLabel = new QLabel(tr("Vol (%1%):").arg(s_lastVolume), this);
     
     m_speedLabel = new QLabel(tr("Speed:"), this);
     
     // Set initial volume on VLC player
-    m_mediaPlayer->setVolume(70);
+    m_mediaPlayer->setVolume(s_lastVolume);
 }
 
 void VP_Shows_Videoplayer::createLayouts()
@@ -686,12 +692,11 @@ void VP_Shows_Videoplayer::setVolume(int volume)
         m_volumeSlider->setValue(volume);
     }
     
-    // Update volume label to show percentage
-    if (volume > 100) {
-        m_volumeLabel->setText(tr("Vol (%1%):").arg(volume));
-    } else {
-        m_volumeLabel->setText(tr("Vol:"));
-    }
+    // Always show volume percentage
+    m_volumeLabel->setText(tr("Vol (%1%):").arg(volume));
+    
+    // Remember volume for next video
+    s_lastVolume = volume;
     
     emit volumeChanged(volume);
 }
@@ -1044,7 +1049,16 @@ QString VP_Shows_Videoplayer::formatTime(qint64 milliseconds) const
 
 void VP_Shows_Videoplayer::startInFullScreen()
 {
-    qDebug() << "VP_Shows_Videoplayer: Starting in fullscreen mode";
+    qDebug() << "VP_Shows_Videoplayer: startInFullScreen called";
+    
+    // Only auto-fullscreen if we don't have stored settings
+    // If we have stored settings, the showEvent will handle restoration
+    if (s_hasStoredSettings) {
+        qDebug() << "VP_Shows_Videoplayer: Skipping auto-fullscreen - using stored window state";
+        return;
+    }
+    
+    qDebug() << "VP_Shows_Videoplayer: Starting in fullscreen mode (no stored settings)";
     
     if (!m_isFullScreen) {
         // Store the normal geometry before going fullscreen
@@ -1129,6 +1143,42 @@ void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
         qDebug() << "VP_Shows_Videoplayer: Remembering last used screen:" << currentScreen->name();
     }
     
+    // Save window state for autoplay restoration
+    s_wasFullScreen = m_isFullScreen;
+    s_wasMaximized = isMaximized();
+    s_wasMinimized = isMinimized();
+    
+    // Save window geometry
+    if (m_isFullScreen) {
+        // If fullscreen, save the normal geometry from before fullscreen
+        s_lastWindowGeometry = m_normalGeometry;
+    } else if (isMinimized()) {
+        // If minimized, we need to get the normal geometry (what it would be when restored)
+        // Qt doesn't provide this directly when minimized, so use normalGeometry if we have it
+        if (!m_normalGeometry.isNull()) {
+            s_lastWindowGeometry = m_normalGeometry;
+        } else {
+            // Fallback: save a default size
+            s_lastWindowGeometry = QRect(100, 100, 800, 600);
+        }
+    } else if (isMaximized()) {
+        // If maximized, save the normal geometry from before maximize
+        // We'll rely on Qt to restore the proper normal size when un-maximizing
+        s_lastWindowGeometry = normalGeometry();
+    } else {
+        // Normal window state - save current geometry
+        s_lastWindowGeometry = geometry();
+        // Also update m_normalGeometry for future use
+        m_normalGeometry = geometry();
+    }
+    
+    // Mark that we have stored settings
+    s_hasStoredSettings = true;
+    
+    qDebug() << "VP_Shows_Videoplayer: Saved window state - Fullscreen:" << s_wasFullScreen 
+             << "Maximized:" << s_wasMaximized << "Minimized:" << s_wasMinimized
+             << "Geometry:" << s_lastWindowGeometry << "Volume:" << s_lastVolume;
+    
     // The m_isClosing flag is already set by handlePlaybackStateChanged if this is an auto-close
     // We don't need to set it here anymore
     
@@ -1202,12 +1252,77 @@ void VP_Shows_Videoplayer::showEvent(QShowEvent *event)
         qDebug() << "VP_Shows_Videoplayer: Using screen at mouse position:" << (screenToUse ? screenToUse->name() : "primary");
     }
     
-    // Position on the chosen screen if not fullscreen
-    if (screenToUse && !m_isFullScreen) {
-        QRect screenGeometry = screenToUse->availableGeometry();
-        // Center on the chosen screen
-        move(screenGeometry.center() - rect().center());
-        qDebug() << "VP_Shows_Videoplayer: Positioned on screen:" << screenToUse->name();
+    // Restore window state if we have stored settings (from autoplay)
+    if (s_hasStoredSettings) {
+        qDebug() << "VP_Shows_Videoplayer: Restoring saved window state";
+        
+        // IMPORTANT: Clear the flag immediately to prevent re-applying settings on subsequent show events
+        // (like when user manually restores a minimized window)
+        s_hasStoredSettings = false;
+        qDebug() << "VP_Shows_Videoplayer: Cleared stored settings flag to prevent re-application";
+        
+        // Restore geometry first (unless we're going to fullscreen/maximize/minimize)
+        if (!s_lastWindowGeometry.isNull() && !s_wasFullScreen && !s_wasMaximized && !s_wasMinimized) {
+            setGeometry(s_lastWindowGeometry);
+            qDebug() << "VP_Shows_Videoplayer: Restored geometry:" << s_lastWindowGeometry;
+        }
+        
+        // Handle fullscreen restoration
+        if (s_wasFullScreen) {
+            qDebug() << "VP_Shows_Videoplayer: Restoring fullscreen state";
+            // Store the normal geometry before fullscreen
+            if (!s_lastWindowGeometry.isNull()) {
+                m_normalGeometry = s_lastWindowGeometry;
+            }
+            // Use QTimer to ensure window is fully shown before going fullscreen
+            QTimer::singleShot(100, this, [this]() {
+                if (!m_isFullScreen) {
+                    toggleFullScreen();
+                }
+            });
+        }
+        // Handle maximized restoration
+        else if (s_wasMaximized) {
+            qDebug() << "VP_Shows_Videoplayer: Restoring maximized state";
+            showMaximized();
+        }
+        // Handle minimized restoration - show normally first, then minimize
+        else if (s_wasMinimized) {
+            qDebug() << "VP_Shows_Videoplayer: Restoring minimized state";
+            // First, restore the normal geometry so it's correct when un-minimized
+            if (!s_lastWindowGeometry.isNull()) {
+                setGeometry(s_lastWindowGeometry);
+            }
+            // Show the window normally first
+            show();
+            // Then minimize it after a short delay to ensure proper state
+            QTimer::singleShot(100, this, [this]() {
+                qDebug() << "VP_Shows_Videoplayer: Minimizing window after show";
+                showMinimized();
+                // Ensure the window can be restored by setting proper flags
+                setWindowState(windowState() | Qt::WindowMinimized);
+                // Clear the minimized flag AFTER actually minimizing
+                s_wasMinimized = false;
+                qDebug() << "VP_Shows_Videoplayer: Cleared minimized flag after applying it";
+            });
+        }
+        
+        // Clear non-minimized window state flags after applying them
+        // (minimized flag is cleared in its timer callback above)
+        s_wasFullScreen = false;
+        s_wasMaximized = false;
+        // Note: s_wasMinimized is cleared in the timer callback above
+        qDebug() << "VP_Shows_Videoplayer: Cleared fullscreen and maximized flags after restoration";
+    }
+    // No stored settings - use default positioning
+    else {
+        // Position on the chosen screen if not fullscreen
+        if (screenToUse && !m_isFullScreen) {
+            QRect screenGeometry = screenToUse->availableGeometry();
+            // Center on the chosen screen
+            move(screenGeometry.center() - rect().center());
+            qDebug() << "VP_Shows_Videoplayer: Positioned on screen (no stored settings):" << screenToUse->name();
+        }
     }
     
     // Ensure the widget has focus when shown
