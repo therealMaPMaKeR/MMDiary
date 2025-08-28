@@ -385,6 +385,9 @@ li.checked::marker { content: &quot;\2612&quot;; }
        <property name="checked">
         <bool>false</bool>
        </property>
+       <property name="visible">
+        <bool>false</bool>
+       </property>
       </widget>
      </item>
      <item>
@@ -393,6 +396,9 @@ li.checked::marker { content: &quot;\2612&quot;; }
         <string>Skip Outro</string>
        </property>
        <property name="checked">
+        <bool>false</bool>
+       </property>
+       <property name="visible">
         <bool>false</bool>
        </property>
       </widget>
