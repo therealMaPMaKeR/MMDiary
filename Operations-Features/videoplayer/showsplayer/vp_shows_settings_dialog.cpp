@@ -106,45 +106,18 @@ VP_ShowsSettingsDialog::~VP_ShowsSettingsDialog()
 {
     qDebug() << "VP_ShowsSettingsDialog: Destructor called";
     
-    // Stop timer before cleanup
+    // Clean up suggestions list if it exists
+    if (m_suggestionsList) {
+        m_suggestionsList->deleteLater();
+    }
+    
+    // Clean up timer
     if (m_searchTimer) {
         m_searchTimer->stop();
-        disconnect(m_searchTimer, nullptr, this, nullptr);
         delete m_searchTimer;
-        m_searchTimer = nullptr;
     }
-    
-    // Remove event filters BEFORE deleting widgets
-    if (m_suggestionsList) {
-        m_suggestionsList->removeEventFilter(this);
-        if (m_suggestionsList->viewport()) {
-            m_suggestionsList->viewport()->removeEventFilter(this);
-        }
-        m_suggestionsList->clear();
-        m_suggestionsList->deleteLater();
-        m_suggestionsList = nullptr;
-    }
-    
-    // Remove main event filter
-    this->removeEventFilter(this);
-    
-    // Disconnect network manager signals
-    if (m_networkManager) {
-        disconnect(m_networkManager.get(), nullptr, this, nullptr);
-    }
-    
-    // Disconnect TMDB API signals
-    if (m_tmdbApi) {
-        disconnect(m_tmdbApi.get(), nullptr, this, nullptr);
-    }
-    
-    // Clear caches
-    m_imageCache.clear();
-    m_currentSuggestions.clear();
     
     delete ui;
-    
-    qDebug() << "VP_ShowsSettingsDialog: Cleanup completed";
 }
 
 void VP_ShowsSettingsDialog::setupAutofillUI()
@@ -901,8 +874,6 @@ void VP_ShowsSettingsDialog::loadShowSettings()
     MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
     if (!mainWindow) {
         qDebug() << "VP_ShowsSettingsDialog: Parent is not MainWindow";
-        QMessageBox::critical(this, tr("Error"), 
-                            tr("Unable to access main window. Please restart the application."));
         return;
     }
     
@@ -1137,16 +1108,6 @@ void VP_ShowsSettingsDialog::updateShowDescription()
     MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
     if (!mainWindow) {
         qDebug() << "VP_ShowsSettingsDialog: Parent is not MainWindow";
-        QMessageBox::critical(this, tr("Error"), 
-                            tr("Unable to access main window. Please restart the application."));
-        return;
-    }
-    
-    // Validate encryption key
-    if (mainWindow->user_Key.isEmpty() || mainWindow->user_Key.size() != 32) {
-        qDebug() << "VP_ShowsSettingsDialog: Invalid encryption key";
-        QMessageBox::critical(this, tr("Authentication Error"), 
-                            tr("Invalid encryption key. Please log out and log in again."));
         return;
     }
     
