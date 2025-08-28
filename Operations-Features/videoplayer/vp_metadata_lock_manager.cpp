@@ -11,6 +11,7 @@
 // Static member initialization
 VP_MetadataLockManager* VP_MetadataLockManager::s_instance = nullptr;
 QMutex VP_MetadataLockManager::s_instanceMutex;
+bool VP_MetadataLockManager::s_instanceDestroyed = false;
 const QString VP_MetadataLockManager::LOCK_FILE_EXTENSION = ".vpmlock";
 
 // ============================================================================
@@ -23,6 +24,13 @@ VP_MetadataLockManager::LockGuard::LockGuard(VP_MetadataLockManager* manager, co
     , m_locked(false)
     , m_result(LockResult::Error)
 {
+    // Validate manager is not null and instance is still valid
+    if (!manager || !VP_MetadataLockManager::isInstanceValid()) {
+        qDebug() << "VP_MetadataLockManager: LockGuard - Invalid manager or instance destroyed";
+        m_manager = nullptr;
+        return;
+    }
+    
     if (m_manager && !m_filePath.isEmpty()) {
         m_result = m_manager->acquireLock(m_filePath);
         m_locked = (m_result == LockResult::Success || m_result == LockResult::StaleLock);
@@ -38,9 +46,12 @@ VP_MetadataLockManager::LockGuard::LockGuard(VP_MetadataLockManager* manager, co
 
 VP_MetadataLockManager::LockGuard::~LockGuard()
 {
-    if (m_locked && m_manager) {
+    // Check if instance is still valid before releasing lock
+    if (m_locked && m_manager && VP_MetadataLockManager::isInstanceValid()) {
         m_manager->releaseLock(m_filePath);
         qDebug() << "VP_MetadataLockManager: LockGuard released lock for:" << m_filePath;
+    } else if (m_locked) {
+        qDebug() << "VP_MetadataLockManager: LockGuard - Cannot release lock, instance destroyed";
     }
 }
 
@@ -92,11 +103,33 @@ VP_MetadataLockManager::~VP_MetadataLockManager()
 VP_MetadataLockManager* VP_MetadataLockManager::instance()
 {
     QMutexLocker locker(&s_instanceMutex);
+    if (s_instanceDestroyed) {
+        qWarning() << "VP_MetadataLockManager: Attempting to access destroyed singleton!";
+        return nullptr;
+    }
     if (!s_instance) {
         s_instance = new VP_MetadataLockManager();
+        s_instanceDestroyed = false;
         qDebug() << "VP_MetadataLockManager: Created singleton instance";
     }
     return s_instance;
+}
+
+bool VP_MetadataLockManager::isInstanceValid()
+{
+    QMutexLocker locker(&s_instanceMutex);
+    return s_instance != nullptr && !s_instanceDestroyed;
+}
+
+void VP_MetadataLockManager::destroyInstance()
+{
+    QMutexLocker locker(&s_instanceMutex);
+    if (s_instance) {
+        qDebug() << "VP_MetadataLockManager: Destroying singleton instance";
+        delete s_instance;
+        s_instance = nullptr;
+        s_instanceDestroyed = true;
+    }
 }
 
 VP_MetadataLockManager::LockResult VP_MetadataLockManager::acquireLock(const QString& filePath, int timeoutMs)

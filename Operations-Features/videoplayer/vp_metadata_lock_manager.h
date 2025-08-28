@@ -63,8 +63,20 @@ public:
 
     /**
      * @brief Get the singleton instance
+     * @return Pointer to the singleton instance (guaranteed non-null during normal operation)
      */
     static VP_MetadataLockManager* instance();
+    
+    /**
+     * @brief Check if the singleton instance is still valid
+     * @return true if instance exists and is valid
+     */
+    static bool isInstanceValid();
+    
+    /**
+     * @brief Destroy the singleton instance (should be called on app shutdown)
+     */
+    static void destroyInstance();
     
     /**
      * @brief Destructor
@@ -163,6 +175,7 @@ private:
 private:
     static VP_MetadataLockManager* s_instance;
     static QMutex s_instanceMutex;
+    static bool s_instanceDestroyed;  // Track if instance was destroyed
     
     mutable QMutex m_mutex;
     QMap<QString, QSharedPointer<QLockFile>> m_locks;

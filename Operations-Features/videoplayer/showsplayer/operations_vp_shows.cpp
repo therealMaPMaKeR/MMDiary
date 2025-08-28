@@ -3286,8 +3286,15 @@ bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, co
 {
     qDebug() << "Operations_VP_Shows: Decrypting video with metadata from:" << sourceFile;
     
+    // Check if lock manager is valid
+    VP_MetadataLockManager* lockManager = VP_MetadataLockManager::instance();
+    if (!lockManager) {
+        qDebug() << "Operations_VP_Shows: Lock manager instance is invalid";
+        return false;
+    }
+    
     // Check if file is locked - if it is, just fail immediately
-    if (VP_MetadataLockManager::instance()->isLocked(sourceFile)) {
+    if (lockManager->isLocked(sourceFile)) {
         qDebug() << "Operations_VP_Shows: File is locked, cannot decrypt";
         return false;
     }
