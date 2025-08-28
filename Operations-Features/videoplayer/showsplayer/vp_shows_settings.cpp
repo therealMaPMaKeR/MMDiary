@@ -1,6 +1,6 @@
 #include "vp_shows_settings.h"
 #include "operations_files.h"
-#include "../../Operations-Global/datastorage_field_manager.h"
+#include "datastorage_field_manager.h"
 #include <QDir>
 #include <QFile>
 #include <QDebug>

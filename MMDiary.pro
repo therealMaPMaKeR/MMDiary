@@ -24,6 +24,8 @@ INCLUDEPATH += $$PWD \
                $$PWD/Operations-Features/videoplayer/showsplayer \
                $$PWD/Operations-Global \
                $$PWD/Operations-Global/databases \
+               $$PWD/Operations-Global/databases/sqlite \
+               $$PWD/Operations-Global/databases/custom-data-storage \
                $$PWD/Operations-Global/encryption \
                $$PWD/Operations-Global/encryption/QT_AESGCM256
 
@@ -235,12 +237,12 @@ SOURCES += \
     Operations-Global/operations.cpp \
     Operations-Global/operations_files.cpp \
     Operations-Global/passwordvalidation.cpp \
-    Operations-Global/datastorage_field_manager.cpp \
-    Operations-Global/datastorage_field_definitions.cpp \
-    Operations-Global/databases/sqlite-database-auth.cpp \
-    Operations-Global/databases/sqlite-database-impl.cpp \
-    Operations-Global/databases/sqlite-database-persistentsettings.cpp \
-    Operations-Global/databases/sqlite-database-settings.cpp \
+    Operations-Global/databases/custom-data-storage/datastorage_field_manager.cpp \
+    Operations-Global/databases/custom-data-storage/datastorage_field_definitions.cpp \
+    Operations-Global/databases/sqlite/sqlite-database-auth.cpp \
+    Operations-Global/databases/sqlite/sqlite-database-impl.cpp \
+    Operations-Global/databases/sqlite/sqlite-database-persistentsettings.cpp \
+    Operations-Global/databases/sqlite/sqlite-database-settings.cpp \
     Operations-Global/encryption/CryptoUtils.cpp \
     Operations-Global/encryption/noncechecker.cpp \
     Operations-Global/encryption/QT_AESGCM256/aesgcm256.cpp \
@@ -289,12 +291,12 @@ HEADERS += \
     Operations-Global/operations.h \
     Operations-Global/operations_files.h \
     Operations-Global/passwordvalidation.h \
-    Operations-Global/datastorage_field_manager.h \
-    Operations-Global/datastorage_field_definitions.h \
-    Operations-Global/databases/sqlite-database-auth.h \
-    Operations-Global/databases/sqlite-database-handler.h \
-    Operations-Global/databases/sqlite-database-persistentsettings.h \
-    Operations-Global/databases/sqlite-database-settings.h \
+    Operations-Global/databases/custom-data-storage/datastorage_field_manager.h \
+    Operations-Global/databases/custom-data-storage/datastorage_field_definitions.h \
+    Operations-Global/databases/sqlite/sqlite-database-auth.h \
+    Operations-Global/databases/sqlite/sqlite-database-handler.h \
+    Operations-Global/databases/sqlite/sqlite-database-persistentsettings.h \
+    Operations-Global/databases/sqlite/sqlite-database-settings.h \
     Operations-Global/encryption/CryptoUtils.h \
     Operations-Global/encryption/noncechecker.h \
     Operations-Global/encryption/QT_AESGCM256/aesgcm256.h \
