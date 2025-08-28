@@ -567,7 +567,7 @@ void VP_Shows_Videoplayer::connectSignals()
     connect(m_mediaPlayer.get(), &VP_VLCPlayer::finished,
             this, [this]() {
                 qDebug() << "VP_Shows_Videoplayer: Playback finished";
-                // Handle end of playback similar to stopped state
+                emit finished();  // Forward the finished signal
             });
     
     // Note: Double-click is handled through Qt's event filter since we disabled libvlc's input handling

@@ -58,6 +58,7 @@ signals:
     void errorOccurred(const QString& error);
     void playbackStateChanged(VP_VLCPlayer::PlayerState state);
     void playbackStarted();  // Emitted when playback actually starts
+    void finished();  // Emitted when playback reaches the end
     void positionChanged(qint64 position);
     void durationChanged(qint64 duration);
     void volumeChanged(int volume);

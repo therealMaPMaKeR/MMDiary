@@ -2814,6 +2814,30 @@ void Operations_VP_Shows::onEpisodeDoubleClicked(QTreeWidgetItem* item, int colu
         return;
     }
     
+    // Check if we should start from the beginning due to near-end position
+    // This is for direct double-click play
+    bool forceStartFromBeginning = false;
+    if (m_watchHistory && !m_currentShowFolder.isEmpty()) {
+        QDir showDir(m_currentShowFolder);
+        QString relativePath = showDir.relativeFilePath(videoPath);
+        qint64 resumePosition = m_watchHistory->getResumePosition(relativePath);
+        
+        if (resumePosition > 0) {
+            EpisodeWatchInfo watchInfo = m_watchHistory->getEpisodeWatchInfo(relativePath);
+            if (watchInfo.totalDuration > 0) {
+                qint64 remainingTime = watchInfo.totalDuration - resumePosition;
+                if (remainingTime <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS) {
+                    forceStartFromBeginning = true;
+                    qDebug() << "Operations_VP_Shows: Double-click play - resume position is near end (" << remainingTime
+                             << "ms remaining), will start from beginning instead";
+                }
+            }
+        }
+    }
+    
+    // Store flag to indicate we should start from beginning
+    m_forceStartFromBeginning = forceStartFromBeginning;
+    
     // Decrypt and play the episode
     decryptAndPlayEpisode(videoPath, episodeName);
 }
@@ -2861,11 +2885,9 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     m_currentPlayingEpisodePath = encryptedFilePath;
     qDebug() << "Operations_VP_Shows: Stored current playing episode path:" << m_currentPlayingEpisodePath;
 
-    // Note: We no longer use the m_episodeWasNearCompletion flag for autoplay decisions
-    // Autoplay is now determined by checking the actual playback position when the player closes
-    // This prevents the bug where seeking away from near-end would still trigger autoplay
-    qDebug() << "Operations_VP_Shows: Using position-based autoplay (not flag-based)";
-    m_episodeWasNearCompletion = false;  // Reset for consistency, though not used for autoplay anymore
+    // Reset the near-completion flag for this new episode
+    m_episodeWasNearCompletion = false;
+    qDebug() << "Operations_VP_Shows: Reset near-completion flag for new episode";
 
     // Clean up any existing temp file first
     cleanupTempFile();
@@ -2908,24 +2930,22 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         if (initSuccess) {
             qDebug() << "Operations_VP_Shows: Playback tracker initialized successfully";
 
-            // NOTE: We no longer need to connect the episodeNearCompletion signal to set a flag
-            // The autoplay decision is now made based on the actual position when the player closes
-            // This prevents the bug where seeking away from the end would still trigger autoplay
-
-            /* REMOVED - Old flag-based approach that caused autoplay bug
-            QMetaObject::Connection connection = connect(m_playbackTracker.get(), &VP_ShowsPlaybackTracker::episodeNearCompletion,
+            // Connect episodeNearCompletion signal to trigger autoplay when episode naturally completes
+            connect(m_playbackTracker.get(), &VP_ShowsPlaybackTracker::episodeNearCompletion,
                     this, [this](const QString& episodePath) {
-                qDebug() << "Operations_VP_Shows: *** NEAR COMPLETION SIGNAL RECEIVED ***";
                 qDebug() << "Operations_VP_Shows: Episode near completion signal received for:" << episodePath;
-                qDebug() << "Operations_VP_Shows: Current flag value before setting:" << m_episodeWasNearCompletion;
-                qDebug() << "Operations_VP_Shows: Setting m_episodeWasNearCompletion flag to true";
-                m_episodeWasNearCompletion = true;
-                qDebug() << "Operations_VP_Shows: Flag is now:" << m_episodeWasNearCompletion;
-                qDebug() << "Operations_VP_Shows: Signal handler completed";
+                
+                // Check if autoplay is enabled and not already in progress
+                if (m_currentShowSettings.autoplay && !m_isAutoplayInProgress) {
+                    qDebug() << "Operations_VP_Shows: Autoplay enabled - will trigger when playback ends naturally";
+                    // Set flag to indicate we should autoplay when episode finishes
+                    m_episodeWasNearCompletion = true;
+                } else {
+                    qDebug() << "Operations_VP_Shows: Autoplay disabled or already in progress";
+                }
             });
-            */
-
-            qDebug() << "Operations_VP_Shows: Using position-based autoplay detection instead of flag-based approach";
+            
+            qDebug() << "Operations_VP_Shows: Connected episodeNearCompletion signal for autoplay";
 
             // Calculate relative path of episode within show folder
             QDir showDir(m_currentShowFolder);
@@ -3062,30 +3082,31 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             }
         });
 
+        // Connect finished signal to trigger autoplay when episode completes naturally
+        connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::finished,
+                this, [this]() {
+            qDebug() << "Operations_VP_Shows: Episode finished naturally";
+            
+            // Check if we should autoplay next episode
+            if (m_currentShowSettings.autoplay && !m_isAutoplayInProgress && m_episodeWasNearCompletion) {
+                qDebug() << "Operations_VP_Shows: Episode completed naturally and was near completion - triggering autoplay";
+                autoplayNextEpisode();
+            } else {
+                qDebug() << "Operations_VP_Shows: Episode finished but autoplay conditions not met";
+                qDebug() << "Operations_VP_Shows:   - Autoplay enabled:" << m_currentShowSettings.autoplay;
+                qDebug() << "Operations_VP_Shows:   - Not in progress:" << !m_isAutoplayInProgress;
+                qDebug() << "Operations_VP_Shows:   - Was near completion:" << m_episodeWasNearCompletion;
+            }
+            
+            // Reset the flag
+            m_episodeWasNearCompletion = false;
+        });
+        
         // Connect playback state changed to clean up when stopped
         connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::playbackStateChanged,
                 this, [this](VP_VLCPlayer::PlayerState state) {
             if (state == VP_VLCPlayer::PlayerState::Stopped) {
                 qDebug() << "Operations_VP_Shows: Playback stopped, scheduling cleanup";
-
-                // Get the current position and duration BEFORE stopping the tracker
-                qint64 currentPosition = 0;
-                qint64 duration = 0;
-                bool shouldAutoplay = false;
-
-                if (m_episodePlayer) {
-                    currentPosition = m_episodePlayer->position();
-                    duration = m_episodePlayer->duration();
-                    qDebug() << "Operations_VP_Shows: Final position:" << currentPosition << "ms, Duration:" << duration << "ms";
-
-                    // Check if we're actually near completion RIGHT NOW (not based on old flag)
-                    if (duration > 0) {
-                        qint64 remaining = duration - currentPosition;
-                        shouldAutoplay = (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && remaining >= 0);
-                        qDebug() << "Operations_VP_Shows: Remaining time:" << remaining << "ms";
-                        qDebug() << "Operations_VP_Shows: Should autoplay based on current position:" << shouldAutoplay;
-                    }
-                }
 
                 // Stop playback tracking to save final position
                 if (m_playbackTracker) {
@@ -3093,20 +3114,8 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                     m_playbackTracker->stopTracking();
                 }
 
-                // Trigger autoplay if enabled AND currently at near completion position
-                qDebug() << "Operations_VP_Shows: Checking autoplay conditions:";
-                qDebug() << "Operations_VP_Shows:   - Autoplay enabled:" << m_currentShowSettings.autoplay;
-                qDebug() << "Operations_VP_Shows:   - Autoplay not in progress:" << !m_isAutoplayInProgress;
-                qDebug() << "Operations_VP_Shows:   - Should autoplay (based on current position):" << shouldAutoplay;
-
-                if (m_currentShowSettings.autoplay && !m_isAutoplayInProgress && shouldAutoplay) {
-                    qDebug() << "Operations_VP_Shows: All conditions met - triggering autoplay";
-                    autoplayNextEpisode();
-                } else if (m_currentShowSettings.autoplay && !shouldAutoplay) {
-                    qDebug() << "Operations_VP_Shows: Autoplay enabled but playback position not near completion, skipping autoplay";
-                } else {
-                    qDebug() << "Operations_VP_Shows: Autoplay conditions not met, skipping";
-                }
+                // Note: Autoplay is now handled by the episodeNearCompletion signal or finished signal
+                // We don't trigger autoplay when the user manually closes the player
 
                 // Force the media player to release the file
                 forceReleaseVideoFile();
@@ -3179,18 +3188,11 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                     // Get resume position and check if we need to resume
                     qint64 resumePosition = m_playbackTracker->getResumePosition(relativeEpisodePath);
 
-                    // Check if the resume position is near the end
-                    bool isNearEnd = false;
-                    if (resumePosition > 1000) { // Only check if more than 1 second
-                        EpisodeWatchInfo watchInfo = m_watchHistory->getEpisodeWatchInfo(relativeEpisodePath);
-                        if (watchInfo.totalDuration > 0) {
-                            qint64 remainingTime = watchInfo.totalDuration - resumePosition;
-                            if (remainingTime <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS) {
-                                isNearEnd = true;
-                                qDebug() << "Operations_VP_Shows: Resume position is near end (" << remainingTime
-                                         << "ms remaining), starting from beginning instead";
-                            }
-                        }
+                    // Check if we should force start from beginning (for direct play when near end)
+                    if (m_forceStartFromBeginning) {
+                        qDebug() << "Operations_VP_Shows: Forcing start from beginning (direct play near end)";
+                        resumePosition = 0;
+                        m_forceStartFromBeginning = false; // Reset the flag
                     }
 
                     // Apply the session playback speed for this show
@@ -3203,11 +3205,11 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                     }
 
                     // Determine if we should resume
-                    bool shouldResume = (resumePosition > 1000 && !isNearEnd);
-                    
+                    bool shouldResume = (resumePosition > 1000);
+
                     if (shouldResume) {
                         qDebug() << "Operations_VP_Shows: Will resume from position:" << resumePosition << "ms after playback starts";
-                        
+
                         // Connect to the playing signal to set position after playback actually starts
                         // Use a single-shot connection to ensure it only happens once
                         QMetaObject::Connection* resumeConnection = new QMetaObject::Connection;
@@ -3216,15 +3218,15 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                             // Disconnect the signal to ensure this only happens once
                             disconnect(*resumeConnection);
                             delete resumeConnection;
-                            
+
                             qDebug() << "Operations_VP_Shows: Playback started, now setting resume position to" << resumePosition << "ms";
-                            
+
                             // Small delay to ensure libVLC is fully ready
                             QTimer::singleShot(200, this, [this, resumePosition]() {
                                 if (m_episodePlayer) {
                                     qDebug() << "Operations_VP_Shows: Setting resume position after delay";
                                     m_episodePlayer->setPosition(resumePosition);
-                                    
+
                                     // Force update the slider position
                                     QTimer::singleShot(50, [this, resumePosition]() {
                                         if (m_episodePlayer) {
@@ -3235,11 +3237,8 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                                 }
                             });
                         });
-                    } else if (isNearEnd) {
-                        qDebug() << "Operations_VP_Shows: Starting from beginning since position was near end";
-                        // Position will default to 0
                     } else {
-                        qDebug() << "Operations_VP_Shows: No resume position, starting from beginning";
+                        qDebug() << "Operations_VP_Shows: No resume position or forced to start from beginning";
                     }
                 }
 
@@ -5172,6 +5171,30 @@ void Operations_VP_Shows::playEpisodeFromContextMenu()
     
     qDebug() << "Operations_VP_Shows: Playing episode:" << episodeName;
     
+    // Check if we should start from the beginning due to near-end position
+    // This is for direct play from context menu
+    bool forceStartFromBeginning = false;
+    if (m_watchHistory && !m_currentShowFolder.isEmpty()) {
+        QDir showDir(m_currentShowFolder);
+        QString relativePath = showDir.relativeFilePath(firstEpisodePath);
+        qint64 resumePosition = m_watchHistory->getResumePosition(relativePath);
+        
+        if (resumePosition > 0) {
+            EpisodeWatchInfo watchInfo = m_watchHistory->getEpisodeWatchInfo(relativePath);
+            if (watchInfo.totalDuration > 0) {
+                qint64 remainingTime = watchInfo.totalDuration - resumePosition;
+                if (remainingTime <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS) {
+                    forceStartFromBeginning = true;
+                    qDebug() << "Operations_VP_Shows: Context menu play - resume position is near end (" << remainingTime
+                             << "ms remaining), will start from beginning instead";
+                }
+            }
+        }
+    }
+    
+    // Store flag to indicate we should start from beginning
+    m_forceStartFromBeginning = forceStartFromBeginning;
+    
     // Decrypt and play the episode
     decryptAndPlayEpisode(firstEpisodePath, episodeName);
 }
@@ -6402,7 +6425,7 @@ QTreeWidgetItem* Operations_VP_Shows::determineEpisodeToPlay()
             qDebug() << "Operations_VP_Shows: Last watched episode has resume position" << resumePosition;
 
             // Check if the resume position is near the end (within COMPLETION_THRESHOLD_MS)
-            // If so, find the next unwatched episode instead
+            // If so, find the next episode in sequence instead
             bool isNearEnd = false;
             EpisodeWatchInfo watchInfo = m_watchHistory->getEpisodeWatchInfo(lastWatchedEpisode);
 
@@ -6453,15 +6476,31 @@ QTreeWidgetItem* Operations_VP_Shows::determineEpisodeToPlay()
                     }
                 }
             } else {
-                // Near end, so find the next unwatched episode
-                qDebug() << "Operations_VP_Shows: Episode near end, looking for next unwatched episode";
+                // Near end, so find the next episode in sequence (not necessarily unwatched)
+                qDebug() << "Operations_VP_Shows: Episode near end, looking for next episode in sequence";
 
-                // Get all available episodes and find the next unwatched one
+                // Get all available episodes and find the next one in sequence
                 QStringList allEpisodes = getAllAvailableEpisodes();
-                QString nextEpisode = m_watchHistory->getNextUnwatchedEpisode(lastWatchedEpisode, allEpisodes);
+                
+                // Find the current episode index and get the next one
+                int currentIndex = -1;
+                for (int i = 0; i < allEpisodes.size(); ++i) {
+                    if (allEpisodes[i] == lastWatchedEpisode || 
+                        QFileInfo(allEpisodes[i]).fileName() == QFileInfo(lastWatchedEpisode).fileName()) {
+                        currentIndex = i;
+                        break;
+                    }
+                }
+                
+                QString nextEpisode;
+                if (currentIndex >= 0 && currentIndex < allEpisodes.size() - 1) {
+                    nextEpisode = allEpisodes[currentIndex + 1];
+                    qDebug() << "Operations_VP_Shows: Found next episode in sequence:" << nextEpisode;
+                } else {
+                    qDebug() << "Operations_VP_Shows: No next episode available (at end of list)";
+                }
 
                 if (!nextEpisode.isEmpty()) {
-                    qDebug() << "Operations_VP_Shows: Found next unwatched episode:" << nextEpisode;
 
                     // Find this episode in the tree
                     std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findEpisodeItem;

@@ -223,6 +223,7 @@ public:
     QString m_currentPlayingEpisodePath;  // Path of currently playing episode
     bool m_isAutoplayInProgress = false;  // Flag to prevent multiple autoplay triggers
     bool m_episodeWasNearCompletion = false;  // Flag to track if episode reached near-end position
+    bool m_forceStartFromBeginning = false;  // Flag to force starting from beginning when near end on direct play
     
     // Playback speed management (session-based)
     QMap<QString, qreal> m_sessionPlaybackSpeeds;  // Map of show folder path to playback speed
