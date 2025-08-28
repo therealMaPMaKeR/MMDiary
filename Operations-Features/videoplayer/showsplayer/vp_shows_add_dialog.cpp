@@ -139,24 +139,49 @@ VP_ShowsAddDialog::~VP_ShowsAddDialog()
 {
     qDebug() << "VP_ShowsAddDialog: Destructor called";
     
-    // Clean up suggestions list if it exists
-    if (m_suggestionsList) {
-        m_suggestionsList->deleteLater();
-    }
-    
-    // Clean up timer
+    // Stop timers before cleanup
     if (m_searchTimer) {
         m_searchTimer->stop();
+        disconnect(m_searchTimer, nullptr, this, nullptr);
         delete m_searchTimer;
+        m_searchTimer = nullptr;
     }
     
-    // Clean up existing show check timer
     if (m_existingShowCheckTimer) {
         m_existingShowCheckTimer->stop();
+        disconnect(m_existingShowCheckTimer, nullptr, this, nullptr);
         delete m_existingShowCheckTimer;
+        m_existingShowCheckTimer = nullptr;
     }
     
+    // Remove event filters BEFORE deleting widgets
+    if (m_suggestionsList) {
+        m_suggestionsList->removeEventFilter(this);
+        if (m_suggestionsList->viewport()) {
+            m_suggestionsList->viewport()->removeEventFilter(this);
+        }
+        m_suggestionsList->clear();
+        m_suggestionsList->deleteLater();
+        m_suggestionsList = nullptr;
+    }
+    
+    // Disconnect network manager signals
+    if (m_networkManager) {
+        disconnect(m_networkManager.get(), nullptr, this, nullptr);
+    }
+    
+    // Disconnect TMDB API signals
+    if (m_tmdbApi) {
+        disconnect(m_tmdbApi.get(), nullptr, this, nullptr);
+    }
+    
+    // Clear caches
+    m_posterCache.clear();
+    m_currentSuggestions.clear();
+    
     delete ui;
+    
+    qDebug() << "VP_ShowsAddDialog: Cleanup completed";
 }
 
 QString VP_ShowsAddDialog::getShowName() const
@@ -1663,15 +1688,30 @@ void VP_ShowsAddDialog::checkForExistingShow(const QString& showName)
     MainWindow* mainWindow = qobject_cast<MainWindow*>(m_parentWidget);
     if (!mainWindow) {
         qDebug() << "VP_ShowsAddDialog: Could not cast parent to MainWindow";
-        return;
+        // Try finding MainWindow in parent hierarchy
+        QWidget* parent = parentWidget();
+        while (parent && !mainWindow) {
+            mainWindow = qobject_cast<MainWindow*>(parent);
+            parent = parent->parentWidget();
+        }
+        if (!mainWindow) {
+            qDebug() << "VP_ShowsAddDialog: Unable to find MainWindow in parent hierarchy";
+            return;
+        }
     }
     
     // Get user credentials
     QString username = mainWindow->user_Username;
     QByteArray encryptionKey = mainWindow->user_Key;
     
-    if (username.isEmpty() || encryptionKey.isEmpty()) {
-        qDebug() << "VP_ShowsAddDialog: Username or encryption key not available";
+    // Validate credentials
+    if (username.isEmpty()) {
+        qDebug() << "VP_ShowsAddDialog: Username is empty";
+        return;
+    }
+    
+    if (encryptionKey.isEmpty() || encryptionKey.size() != 32) {
+        qDebug() << "VP_ShowsAddDialog: Invalid encryption key size:" << encryptionKey.size();
         return;
     }
     

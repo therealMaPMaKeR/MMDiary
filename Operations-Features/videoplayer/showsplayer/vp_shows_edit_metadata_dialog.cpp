@@ -101,7 +101,21 @@ VP_ShowsEditMetadataDialog::VP_ShowsEditMetadataDialog(const QString& videoFileP
 VP_ShowsEditMetadataDialog::~VP_ShowsEditMetadataDialog()
 {
     qDebug() << "VP_ShowsEditMetadataDialog: Destructor called";
-    delete ui;
+    
+    // Disconnect all signals to prevent callbacks during destruction
+    disconnect();
+    
+    // Clear metadata to free any memory
+    m_metadata = VP_ShowsMetadata::ShowMetadata();
+    m_originalMetadata = VP_ShowsMetadata::ShowMetadata();
+    
+    // Ensure UI pointer is valid before deletion
+    if (ui) {
+        delete ui;
+        ui = nullptr;
+    }
+    
+    qDebug() << "VP_ShowsEditMetadataDialog: Cleanup completed";
 }
 
 void VP_ShowsEditMetadataDialog::initializeEmptyMetadata()

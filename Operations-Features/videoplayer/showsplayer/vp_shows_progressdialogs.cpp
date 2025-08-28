@@ -189,41 +189,44 @@ void VP_ShowsEncryptionProgressDialog::cleanup()
 {
     qDebug() << "VP_ShowsEncryptionProgressDialog: cleanup() called";
     
-    // First, check if we have a worker to cancel
+    // First, request cancellation if worker exists
     if (m_worker) {
         m_worker->cancel();
+        // Disconnect all signals immediately to prevent further callbacks
+        m_worker->disconnect();
     }
     
     // Handle thread cleanup
     if (m_workerThread) {
-        // Disconnect all signals to prevent any further processing
-        if (m_worker) {
-            m_worker->disconnect();
-        }
+        // Disconnect thread signals
         m_workerThread->disconnect();
         
-        // Only try to stop the thread if it's still valid and running
+        // Check if thread is valid and running
         if (m_workerThread->isRunning()) {
             qDebug() << "VP_ShowsEncryptionProgressDialog: Requesting thread quit";
             m_workerThread->quit();
             
-            // Wait for thread to finish
+            // Wait with timeout
             if (!m_workerThread->wait(5000)) {
-                qDebug() << "VP_ShowsEncryptionProgressDialog: Thread didn't quit in time, terminating";
+                qDebug() << "VP_ShowsEncryptionProgressDialog: Thread didn't quit, forcing termination";
                 m_workerThread->terminate();
-                m_workerThread->wait();
+                m_workerThread->wait(1000);  // Brief wait after terminate
             }
         }
         
-        // Delete the worker using deleteLater to ensure it's deleted in the correct thread
+        // Clean up worker - ensure it's deleted in the right context
         if (m_worker) {
-            // Move the worker back to the main thread before deletion
-            // This ensures deleteLater works correctly
-            m_worker->moveToThread(QApplication::instance()->thread());
-            m_worker->deleteLater();
+            // Check if worker is in different thread
+            if (m_worker->thread() != QThread::currentThread()) {
+                // Move to current thread for safe deletion
+                m_worker->moveToThread(QThread::currentThread());
+            }
+            // Direct delete since we moved it to current thread
+            delete m_worker;
             m_worker = nullptr;
         }
         
+        // Delete thread
         delete m_workerThread;
         m_workerThread = nullptr;
     }
