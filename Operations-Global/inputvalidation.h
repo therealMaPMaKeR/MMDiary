@@ -24,7 +24,8 @@ enum class InputType {
     ColorName,       // Color names (for your color settings)
     Line,
     TaskListName,
-    CategoryTag      // Categories and tags for encrypted files
+    CategoryTag,     // Categories and tags for encrypted files
+    TVShowName       // TV show names (allows special characters like colons, apostrophes, etc.)
 };
 
 struct ValidationResult {

@@ -1,4 +1,5 @@
 #include "vp_shows_metadata.h"
+#include "inputvalidation.h"
 #include "CryptoUtils.h"
 #include "../vp_metadata_lock_manager.h"
 #include <QFile>
@@ -100,16 +101,15 @@ QByteArray VP_ShowsMetadata::createEncryptedMetadataChunk(const ShowMetadata& me
 
 bool VP_ShowsMetadata::isValidShowName(const QString& showName)
 {
-    if (showName.isEmpty() || showName.length() > MAX_SHOW_NAME_LENGTH) {
+    if (showName.isEmpty()) {
         return false;
     }
     
-    // Check for invalid characters (basic check)
-    if (showName.contains(QChar('\0'))) {
-        return false;
-    }
+    // Use the new TVShowName validation type that allows special characters
+    InputValidation::ValidationResult result = InputValidation::validateInput(
+        showName, InputValidation::InputType::TVShowName, MAX_SHOW_NAME_LENGTH);
     
-    return true;
+    return result.isValid;
 }
 
 bool VP_ShowsMetadata::isValidFilename(const QString& filename)

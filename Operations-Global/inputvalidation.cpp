@@ -366,6 +366,66 @@ ValidationResult validateInput(const QString& input, InputType type, int maxLeng
         }
         break;
     }
+    
+    case InputType::TVShowName: {
+        // TV Show name validation: allows more special characters than DisplayName
+        // Minimum 1 character, maximum specified by maxLength (typically 200)
+        if (input.isEmpty()) {
+            result.isValid = false;
+            result.errorMessage = "TV show name cannot be empty";
+            return result;
+        }
+        
+        if (input.length() > maxLength) {
+            result.isValid = false;
+            result.errorMessage = QString("TV show name exceeds maximum length of %1 characters").arg(maxLength);
+            return result;
+        }
+        
+        // Trim the input
+        QString trimmedInput = input.trimmed();
+        if (trimmedInput.isEmpty()) {
+            result.isValid = false;
+            result.errorMessage = "TV show name cannot be only spaces";
+            return result;
+        }
+        
+        // Check for filesystem-dangerous characters
+        // Block: backslash, forward slash in path context (../../), pipe, asterisk, angle brackets, quotes for security
+        // But allow single forward slash for titles like "Love/Hate"
+        QRegularExpression pathTraversalPattern("\\.\\./|\\.\\.\\\\");
+        if (pathTraversalPattern.match(input).hasMatch()) {
+            result.isValid = false;
+            result.errorMessage = "TV show name contains path traversal attempt";
+            return result;
+        }
+        
+        // Block dangerous filesystem characters but allow TV show special chars
+        QRegularExpression dangerousChars("[\\\\*|\"<>\\x00-\\x1F]");
+        if (dangerousChars.match(input).hasMatch()) {
+            result.isValid = false;
+            result.errorMessage = "TV show name contains invalid characters";
+            return result;
+        }
+        
+        // Check for multiple consecutive spaces
+        if (input.contains("  ")) {
+            result.isValid = false;
+            result.errorMessage = "TV show name cannot contain multiple consecutive spaces";
+            return result;
+        }
+        
+        // Check for leading/trailing spaces
+        if (input != trimmedInput) {
+            // This is a soft warning - we don't necessarily fail validation
+            // The calling code should use the trimmed version
+            qDebug() << "TV show name had leading or trailing spaces that should be trimmed";
+        }
+        
+        // If we get here, the TV show name is valid
+        // It can contain: letters, numbers, spaces, and special chars like : ' , & ( ) [ ] ! ? / - . é è etc.
+        break;
+    }
     }
 
     return result;

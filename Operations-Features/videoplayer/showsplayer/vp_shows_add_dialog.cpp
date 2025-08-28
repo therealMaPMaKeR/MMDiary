@@ -270,9 +270,9 @@ bool VP_ShowsAddDialog::validateShowName(const QString& showName)
         return false;
     }
     
-    // Use InputValidation for proper validation
+    // Use InputValidation for proper validation - TVShowName allows special characters
     InputValidation::ValidationResult result = InputValidation::validateInput(
-        showName, InputValidation::InputType::DisplayName, 100);
+        showName, InputValidation::InputType::TVShowName, 200);
     
     if (!result.isValid) {
         QMessageBox::warning(this, tr("Invalid Input"), 
@@ -1650,9 +1650,9 @@ void VP_ShowsAddDialog::checkForExistingShow(const QString& showName)
     // Mark that we're checking this show name
     m_lastCheckedShowName = showName;
     
-    // Validate the input first
+    // Validate the input first - use TVShowName type for proper validation
     InputValidation::ValidationResult result = 
-        InputValidation::validateInput(showName, InputValidation::InputType::PlainText, 100);
+        InputValidation::validateInput(showName, InputValidation::InputType::TVShowName, 200);
     
     if (!result.isValid || showName.trimmed().isEmpty()) {
         qDebug() << "VP_ShowsAddDialog: Invalid or empty show name, skipping check";
