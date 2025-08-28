@@ -51,7 +51,7 @@ public:
     void setPosition(qint64 position);
     void seekRelative(qint64 offset);  // Seek relative to current position
     
-    // Volume control (0-100)
+    // Volume control (0-200, where 100 is normal volume)
     int volume() const;
     void setVolume(int volume);
     void mute();

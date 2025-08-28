@@ -399,11 +399,11 @@ void VP_VLCPlayer::setVolume(int volume)
         return;
     }
     
-    // Clamp volume to valid range
+    // Clamp volume to valid range (libvlc supports 0-200)
     if (volume < 0) volume = 0;
-    if (volume > 100) volume = 100;
+    if (volume > 200) volume = 200;
     
-    qDebug() << "VP_VLCPlayer: Setting volume to" << volume;
+    qDebug() << "VP_VLCPlayer: Setting volume to" << volume << "%";
     
     libvlc_audio_set_volume(m_mediaPlayer, volume);
     

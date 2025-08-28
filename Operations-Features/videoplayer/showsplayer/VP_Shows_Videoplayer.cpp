@@ -424,12 +424,12 @@ void VP_Shows_Videoplayer::createControls()
     m_positionSlider->setToolTip(tr("Click to seek"));
     m_positionSlider->setFocusPolicy(Qt::ClickFocus);  // Only take focus when clicked, and give it up easily
     
-    // Volume slider - use custom clickable slider, extended range to 150%
+    // Volume slider - use custom clickable slider, extended range to 200%
     m_volumeSlider = createClickableSlider();
-    m_volumeSlider->setRange(0, 150);  // Extended to 150%
+    m_volumeSlider->setRange(0, 200);  // Extended to 200% (maximum supported by libvlc)
     m_volumeSlider->setValue(s_lastVolume);  // Use saved volume from previous session
     m_volumeSlider->setMaximumWidth(100);
-    m_volumeSlider->setToolTip(tr("Volume (up to 150%)"));
+    m_volumeSlider->setToolTip(tr("Volume (up to 200%)"));
     m_volumeSlider->setFocusPolicy(Qt::ClickFocus);  // Only take focus when clicked, and give it up easily
     
     // Speed combo box
@@ -686,7 +686,7 @@ void VP_Shows_Videoplayer::setVolume(int volume)
 {
     qDebug() << "VP_Shows_Videoplayer: Setting volume to" << volume << "%";
     
-    // VLC volume is 0-100 but we allow up to 150% in UI
+    // libvlc supports volume from 0-200% where 100% is normal volume
     m_mediaPlayer->setVolume(volume);
     
     // Update slider if it's not at the right position
@@ -1402,7 +1402,7 @@ void VP_Shows_Videoplayer::keyPressEvent(QKeyEvent *event)
             // Increase volume by 5%
             {
                 int currentVolume = m_volumeSlider->value();
-                int newVolume = qMin(150, currentVolume + 5);
+                int newVolume = qMin(200, currentVolume + 5);
                 setVolume(newVolume);
                 qDebug() << "VP_Shows_Videoplayer: Key_Up - Volume changed from" << currentVolume << "to" << newVolume;
             }
@@ -1628,7 +1628,7 @@ void VP_Shows_Videoplayer::wheelEvent(QWheelEvent *event)
         // Adjust volume based on vertical wheel movement
         int currentVolume = m_volumeSlider->value();
         int volumeChange = numSteps.y() * 5; // 5% per step
-        int newVolume = qBound(0, currentVolume + volumeChange, 150);
+        int newVolume = qBound(0, currentVolume + volumeChange, 200);
 
         if (newVolume != currentVolume) {
             setVolume(newVolume);
