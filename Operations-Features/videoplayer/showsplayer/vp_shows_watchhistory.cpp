@@ -510,48 +510,48 @@ qint64 VP_ShowsWatchHistory::getResumePosition(const QString& episodePath) const
         qDebug() << "VP_ShowsWatchHistory: No watch history for episode, starting from beginning";
         return 0;
     }
-    
+
     const EpisodeWatchInfo& info = m_watchData->watchHistory[validPath];
-    
+
     // Safety check: if position is invalid or 0, start from beginning
     if (info.lastPosition <= 0) {
         qDebug() << "VP_ShowsWatchHistory: Invalid or zero position, starting from beginning";
         return 0;
     }
-    
+
     // Safety check: if position is at or beyond duration, start from beginning
     if (info.totalDuration > 0 && info.lastPosition >= info.totalDuration) {
-        qDebug() << "VP_ShowsWatchHistory: Position (" << info.lastPosition 
-                 << "ms) is at or beyond duration (" << info.totalDuration 
+        qDebug() << "VP_ShowsWatchHistory: Position (" << info.lastPosition
+                 << "ms) is at or beyond duration (" << info.totalDuration
                  << "ms), starting from beginning";
         return 0;
     }
-    
-    // Check if position is too close to the end (within RESUME_THRESHOLD_MS)
-    // If so, start from beginning to avoid player crashes when seeking to end
+
+    // Return the actual position without checking if it's near the end
+    // The logic for handling near-end positions is now in determineEpisodeToPlay() and decryptAndPlayEpisode()
+    qDebug() << "VP_ShowsWatchHistory: Returning resume position:" << info.lastPosition << "ms";
+
+    // Log if position is near the end for debugging
     if (info.totalDuration > 0) {
         qint64 remainingTime = info.totalDuration - info.lastPosition;
-        if (remainingTime <= RESUME_THRESHOLD_MS) {
-            qDebug() << "VP_ShowsWatchHistory: Position too close to end (" << remainingTime 
-                     << "ms remaining of " << RESUME_THRESHOLD_MS << "ms threshold), starting from beginning";
-            qDebug() << "VP_ShowsWatchHistory: Last position:" << info.lastPosition 
-                     << "Total duration:" << info.totalDuration
-                     << "Completed:" << info.completed;
-            return 0;
+        if (remainingTime <= COMPLETION_THRESHOLD_MS) {
+            qDebug() << "VP_ShowsWatchHistory: Note - Position is near end (" << remainingTime
+                     << "ms remaining of " << COMPLETION_THRESHOLD_MS << "ms threshold)";
+            qDebug() << "VP_ShowsWatchHistory: Episode completed status:" << info.completed;
         }
     }
-    
+
     // Additional safety: cap position to 95% of duration if duration is known
     qint64 safePosition = info.lastPosition;
     if (info.totalDuration > 0) {
         qint64 maxSafePosition = (info.totalDuration * 95) / 100;  // 95% of duration
         if (safePosition > maxSafePosition) {
-            qDebug() << "VP_ShowsWatchHistory: Capping position from" << safePosition 
+            qDebug() << "VP_ShowsWatchHistory: Capping position from" << safePosition
                      << "to" << maxSafePosition << "(95% of duration)";
             safePosition = maxSafePosition;
         }
     }
-    
+
     // Return the safe resume position
     qDebug() << "VP_ShowsWatchHistory: Resume position for" << validPath << "is" << safePosition
              << "(duration:" << info.totalDuration << ", completed:" << info.completed << ")";

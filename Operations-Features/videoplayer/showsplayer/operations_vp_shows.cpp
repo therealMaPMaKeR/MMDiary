@@ -65,7 +65,11 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     qDebug() << "Operations_VP_Shows: Constructor called";
     qDebug() << "Operations_VP_Shows: Autoplay system initialized";
     qDebug() << "Operations_VP_Shows: === CONFIGURATION ===";
-    qDebug() << "Operations_VP_Shows:   COMPLETION_THRESHOLD_MS:" << VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS << "ms (" << (VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS/1000) << "seconds)";
+    qDebug() << "Operations_VP_Shows:   COMPLETION_THRESHOLD_MS:" << VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS << "ms (" << VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS/1000 << " seconds)";
+    qDebug() << "Operations_VP_Shows:   This threshold is used for:";
+    qDebug() << "Operations_VP_Shows:     - Marking episodes as completed";
+    qDebug() << "Operations_VP_Shows:     - Resetting resume position to beginning";
+    qDebug() << "Operations_VP_Shows:     - Near-completion detection for autoplay";
     qDebug() << "Operations_VP_Shows:   SAVE_INTERVAL_SECONDS:" << VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS << "seconds";
     qDebug() << "Operations_VP_Shows:   Initial near-completion flag:" << m_episodeWasNearCompletion;
     
@@ -2818,7 +2822,7 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
 {
     qDebug() << "Operations_VP_Shows: Starting decryption and playback for:" << episodeName;
     qDebug() << "Operations_VP_Shows: Is autoplay:" << m_isAutoplayInProgress;
-    
+
     // Reset stored window settings if this is NOT autoplay
     // This ensures that manual play uses the autoFullscreen setting instead of previous window state
     if (!m_isAutoplayInProgress) {
@@ -2827,59 +2831,59 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     } else {
         qDebug() << "Operations_VP_Shows: Autoplay detected - keeping stored window settings";
     }
-    
+
     // Check if there's already a video player open and close it before decryption
     if (m_episodePlayer) {
         qDebug() << "Operations_VP_Shows: Existing video player detected - closing it before starting new playback";
-        
+
         // Stop playback tracking if active
         if (m_playbackTracker && m_playbackTracker->isTracking()) {
             qDebug() << "Operations_VP_Shows: Stopping active playback tracking";
             m_playbackTracker->stopTracking();
         }
-        
+
         // Force release the video file and clean up
         forceReleaseVideoFile();
-        
+
         // Close and reset the player
         if (m_episodePlayer->isVisible()) {
             m_episodePlayer->close();
         }
         m_episodePlayer.reset();
-        
+
         // Clean up any existing temp file
         cleanupTempFile();
-        
+
         qDebug() << "Operations_VP_Shows: Previous video player closed and cleaned up";
     }
-    
+
     // Store the current playing episode path for autoplay
     m_currentPlayingEpisodePath = encryptedFilePath;
     qDebug() << "Operations_VP_Shows: Stored current playing episode path:" << m_currentPlayingEpisodePath;
-    
+
     // Note: We no longer use the m_episodeWasNearCompletion flag for autoplay decisions
     // Autoplay is now determined by checking the actual playback position when the player closes
     // This prevents the bug where seeking away from near-end would still trigger autoplay
     qDebug() << "Operations_VP_Shows: Using position-based autoplay (not flag-based)";
     m_episodeWasNearCompletion = false;  // Reset for consistency, though not used for autoplay anymore
-    
+
     // Clean up any existing temp file first
     cleanupTempFile();
-    
+
     // Reset any existing playback tracker before creating new one
     if (m_playbackTracker) {
         m_playbackTracker.reset();
     }
     // Don't reset m_watchHistory - it should persist for the context menu functionality
     // m_watchHistory is initialized in displayShowDetails and should remain available
-    
+
     // Initialize watch history integration for this show
     QString relativeEpisodePath;
     QString episodeIdentifier;
-    
+
     if (!m_currentShowFolder.isEmpty()) {
         qDebug() << "Operations_VP_Shows: Initializing watch history integration for show folder:" << m_currentShowFolder;
-        
+
         // Ensure m_watchHistory is initialized if it's not already
         if (!m_watchHistory) {
             qDebug() << "Operations_VP_Shows: Creating watch history for playback";
@@ -2890,24 +2894,24 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             );
             m_watchHistory->loadHistory();
         }
-        
+
         // Create the playback tracker
         m_playbackTracker = std::make_unique<VP_ShowsPlaybackTracker>(this);
-        
+
         // Initialize it with the show folder
         bool initSuccess = m_playbackTracker->initializeForShow(
-            m_currentShowFolder, 
+            m_currentShowFolder,
             m_mainWindow->user_Key,
             m_mainWindow->user_Username
         );
-        
+
         if (initSuccess) {
             qDebug() << "Operations_VP_Shows: Playback tracker initialized successfully";
-            
+
             // NOTE: We no longer need to connect the episodeNearCompletion signal to set a flag
             // The autoplay decision is now made based on the actual position when the player closes
             // This prevents the bug where seeking away from the end would still trigger autoplay
-            
+
             /* REMOVED - Old flag-based approach that caused autoplay bug
             QMetaObject::Connection connection = connect(m_playbackTracker.get(), &VP_ShowsPlaybackTracker::episodeNearCompletion,
                     this, [this](const QString& episodePath) {
@@ -2920,13 +2924,13 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 qDebug() << "Operations_VP_Shows: Signal handler completed";
             });
             */
-            
+
             qDebug() << "Operations_VP_Shows: Using position-based autoplay detection instead of flag-based approach";
-            
+
             // Calculate relative path of episode within show folder
             QDir showDir(m_currentShowFolder);
             relativeEpisodePath = showDir.relativeFilePath(encryptedFilePath);
-            
+
             // Try to extract episode identifier from the episode name
             QRegularExpression regex("S(\\d+)E(\\d+)", QRegularExpression::CaseInsensitiveOption);
             QRegularExpressionMatch match = regex.match(episodeName);
@@ -2935,10 +2939,10 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 int episode = match.captured(2).toInt();
                 episodeIdentifier = QString("S%1E%2").arg(season, 2, 10, QChar('0')).arg(episode, 2, 10, QChar('0'));
             }
-            
+
             qDebug() << "Operations_VP_Shows: Episode relative path:" << relativeEpisodePath;
             qDebug() << "Operations_VP_Shows: Episode identifier:" << episodeIdentifier;
-            
+
             // Check for resume position
             qint64 resumePosition = m_playbackTracker->getResumePosition(relativeEpisodePath);
             if (resumePosition > 0) {
@@ -2949,79 +2953,79 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             m_playbackTracker.reset();
         }
     }
-    
+
     // Ensure username is set for operations_files
     if (!m_mainWindow->user_Username.isEmpty()) {
         OperationsFiles::setUsername(m_mainWindow->user_Username);
     }
-    
+
     // Build the temp folder path: Data/username/temp/tempdecrypt
     QString basePath = QDir::current().absoluteFilePath("Data");
     QString userPath = QDir(basePath).absoluteFilePath(m_mainWindow->user_Username);
     QString tempPath = QDir(userPath).absoluteFilePath("temp");
     QString tempDecryptPath = QDir(tempPath).absoluteFilePath("tempdecrypt");
-    
+
     qDebug() << "Operations_VP_Shows: Temp decrypt path:" << tempDecryptPath;
-    
+
     // Ensure the temp folders exist using operations_files functions
     if (!OperationsFiles::ensureDirectoryExists(userPath)) {
         qDebug() << "Operations_VP_Shows: Failed to create user directory";
-        QMessageBox::critical(m_mainWindow, 
+        QMessageBox::critical(m_mainWindow,
                             tr("Playback Error"),
                             tr("Failed to create user directory."));
         return;
     }
-    
+
     if (!OperationsFiles::ensureDirectoryExists(tempPath)) {
         qDebug() << "Operations_VP_Shows: Failed to create temp directory";
-        QMessageBox::critical(m_mainWindow, 
+        QMessageBox::critical(m_mainWindow,
                             tr("Playback Error"),
                             tr("Failed to create temporary directory."));
         return;
     }
-    
+
     if (!OperationsFiles::ensureDirectoryExists(tempDecryptPath)) {
         qDebug() << "Operations_VP_Shows: Failed to create tempdecrypt directory";
-        QMessageBox::critical(m_mainWindow, 
+        QMessageBox::critical(m_mainWindow,
                             tr("Playback Error"),
                             tr("Failed to create temporary decryption directory."));
         return;
     }
-    
+
     // For decryption, we'll need to get the actual extension from metadata
     // For now, generate a temp name without knowing the extension
     // The actual extension will be determined after reading metadata
     QString tempRandomName = generateRandomFileName("");
     // Remove the .mmvid extension we just added
     tempRandomName = tempRandomName.left(tempRandomName.lastIndexOf('.'));
-    
+
     // We'll determine the actual extension after reading metadata
     QString decryptedFilePath = QDir(tempDecryptPath).absoluteFilePath(tempRandomName);
-    
+
     qDebug() << "Operations_VP_Shows: Base decrypt path:" << decryptedFilePath;
-    
+
     // Decrypt the file with metadata handling
     // Note: decryptVideoWithMetadata will append the proper extension and store the actual path in m_lastDecryptedFilePath
     bool decryptSuccess = decryptVideoWithMetadata(encryptedFilePath, decryptedFilePath);
-    
+
     if (!decryptSuccess) {
         qDebug() << "Operations_VP_Shows: Failed to decrypt video file";
-        QMessageBox::critical(m_mainWindow, 
+        QMessageBox::critical(m_mainWindow,
                             tr("Decryption Error"),
                             tr("Failed to decrypt the video file. The file may be corrupted or the encryption key may be incorrect."));
         return;
     }
-    
+
     qDebug() << "Operations_VP_Shows: Decryption successful, starting playback";
-    
+
     // Store the temp file path for cleanup later
     m_currentTempFile = decryptedFilePath;
-    
+
     // Create video player if not exists
     if (!m_episodePlayer) {
         qDebug() << "Operations_VP_Shows: Creating new VP_Shows_Videoplayer instance for episode playback";
         m_episodePlayer = std::make_unique<VP_Shows_Videoplayer>();
-        
+
         // Set the target screen to the same screen as the main window
         if (m_mainWindow) {
             QWindow* mainWindowHandle = m_mainWindow->windowHandle();
@@ -3037,18 +3041,18 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 qDebug() << "Operations_VP_Shows: Main window handle not available";
             }
         }
-        
+
         // Connect error signal
         connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::errorOccurred,
                 this, [this](const QString& error) {
             qDebug() << "Operations_VP_Shows: VP_Shows_Videoplayer error:" << error;
-            QMessageBox::critical(m_mainWindow, 
+            QMessageBox::critical(m_mainWindow,
                                 tr("Video Player Error"),
                                 error);
             // Clean up temp file on error
             cleanupTempFile();
         });
-        
+
         // Connect playback speed changed signal to save the speed for this show
         connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::playbackSpeedChanged,
                 this, [this](qreal speed) {
@@ -3057,23 +3061,23 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 setSessionPlaybackSpeed(m_currentShowFolder, speed);
             }
         });
-        
+
         // Connect playback state changed to clean up when stopped
         connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::playbackStateChanged,
                 this, [this](VP_VLCPlayer::PlayerState state) {
             if (state == VP_VLCPlayer::PlayerState::Stopped) {
                 qDebug() << "Operations_VP_Shows: Playback stopped, scheduling cleanup";
-                
+
                 // Get the current position and duration BEFORE stopping the tracker
                 qint64 currentPosition = 0;
                 qint64 duration = 0;
                 bool shouldAutoplay = false;
-                
+
                 if (m_episodePlayer) {
                     currentPosition = m_episodePlayer->position();
                     duration = m_episodePlayer->duration();
                     qDebug() << "Operations_VP_Shows: Final position:" << currentPosition << "ms, Duration:" << duration << "ms";
-                    
+
                     // Check if we're actually near completion RIGHT NOW (not based on old flag)
                     if (duration > 0) {
                         qint64 remaining = duration - currentPosition;
@@ -3082,19 +3086,19 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                         qDebug() << "Operations_VP_Shows: Should autoplay based on current position:" << shouldAutoplay;
                     }
                 }
-                
+
                 // Stop playback tracking to save final position
                 if (m_playbackTracker) {
                     qDebug() << "Operations_VP_Shows: Stopping playback tracking";
                     m_playbackTracker->stopTracking();
                 }
-                
+
                 // Trigger autoplay if enabled AND currently at near completion position
                 qDebug() << "Operations_VP_Shows: Checking autoplay conditions:";
                 qDebug() << "Operations_VP_Shows:   - Autoplay enabled:" << m_currentShowSettings.autoplay;
                 qDebug() << "Operations_VP_Shows:   - Autoplay not in progress:" << !m_isAutoplayInProgress;
                 qDebug() << "Operations_VP_Shows:   - Should autoplay (based on current position):" << shouldAutoplay;
-                
+
                 if (m_currentShowSettings.autoplay && !m_isAutoplayInProgress && shouldAutoplay) {
                     qDebug() << "Operations_VP_Shows: All conditions met - triggering autoplay";
                     autoplayNextEpisode();
@@ -3103,17 +3107,17 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 } else {
                     qDebug() << "Operations_VP_Shows: Autoplay conditions not met, skipping";
                 }
-                
+
                 // Force the media player to release the file
                 forceReleaseVideoFile();
                 // Use a timer to delay cleanup to ensure file handle is fully released
                 QTimer::singleShot(1000, this, &Operations_VP_Shows::cleanupTempFile);
-                
+
                 // Refresh the episode list to update watched status colors
                 if (!m_currentShowFolder.isEmpty()) {
                     QTimer::singleShot(1500, this, [this]() {
                         qDebug() << "Operations_VP_Shows: Refreshing episode list after playback";
-                        
+
                         // Reload watch history to get the updated watch states
                         if (m_watchHistory) {
                             qDebug() << "Operations_VP_Shows: Reloading watch history for updated states";
@@ -3121,41 +3125,41 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                                 qDebug() << "Operations_VP_Shows: Failed to reload watch history";
                             }
                         }
-                        
+
                         // Now refresh the episode list with updated watch states
                         loadShowEpisodes(m_currentShowFolder);
-                        
+
                         // Update the Play/Resume button text after refreshing
                         updatePlayButtonText();
                     });
                 }
             }
         });
-        
+
         // Note: We can't connect to destroyed signal directly since unique_ptr manages the object
         // The cleanup will happen through playback state changes or when closing the window
     }
-    
+
     // Start tracking with the integration layer after loading but before playing
     // We'll set this up after the video loads successfully
-    
+
     // Store the actual decrypted file path (with proper extension) for cleanup
     m_currentTempFile = m_lastDecryptedFilePath;
     qDebug() << "Operations_VP_Shows: Actual decrypted file with extension:" << m_currentTempFile;
-    
+
     // Load and play the video using the actual decrypted file path
     qDebug() << "Operations_VP_Shows: Loading decrypted video:" << m_lastDecryptedFilePath;
     if (m_episodePlayer->loadVideo(m_lastDecryptedFilePath)) {
         // Show the window first
         m_episodePlayer->show();
-        
+
         // Set window title to episode name
         m_episodePlayer->setWindowTitle(tr("Playing: %1").arg(episodeName));
-        
+
         // Raise and activate to ensure it's on top
         m_episodePlayer->raise();
         m_episodePlayer->activateWindow();
-        
+
         // Start in fullscreen mode if the setting is enabled
         if (m_currentShowSettings.autoFullscreen) {
             qDebug() << "Operations_VP_Shows: Auto-fullscreen is enabled, starting in fullscreen mode";
@@ -3163,7 +3167,7 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         } else {
             qDebug() << "Operations_VP_Shows: Auto-fullscreen is disabled, starting in windowed mode";
         }
-        
+
         // Add a small delay to ensure video widget is properly initialized
         QTimer::singleShot(100, [this, relativeEpisodePath]() {
             if (m_episodePlayer) {
@@ -3171,13 +3175,29 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 if (m_playbackTracker && !relativeEpisodePath.isEmpty()) {
                     qDebug() << "Operations_VP_Shows: Starting playback tracking for episode";
                     m_playbackTracker->startTracking(relativeEpisodePath, m_episodePlayer.get());
-                    
+
                     // Get resume position and seek if needed
                     qint64 resumePosition = m_playbackTracker->getResumePosition(relativeEpisodePath);
-                    if (resumePosition > 1000) { // Only resume if more than 1 second
+
+                    // Check if the resume position is near the end
+                    bool isNearEnd = false;
+                    if (resumePosition > 1000) { // Only check if more than 1 second
+                        EpisodeWatchInfo watchInfo = m_watchHistory->getEpisodeWatchInfo(relativeEpisodePath);
+                        if (watchInfo.totalDuration > 0) {
+                            qint64 remainingTime = watchInfo.totalDuration - resumePosition;
+                            if (remainingTime <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS) {
+                                isNearEnd = true;
+                                qDebug() << "Operations_VP_Shows: Resume position is near end (" << remainingTime
+                                         << "ms remaining), starting from beginning instead";
+                            }
+                        }
+                    }
+
+                    // Only resume if not near the end
+                    if (resumePosition > 1000 && !isNearEnd) {
                         qDebug() << "Operations_VP_Shows: Resuming playback from:" << resumePosition << "ms";
                         m_episodePlayer->setPosition(resumePosition);
-                        
+
                         // Add a small delay to ensure the slider updates properly during autoplay resume
                         QTimer::singleShot(50, [this, resumePosition]() {
                             if (m_episodePlayer) {
@@ -3185,9 +3205,12 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                                 m_episodePlayer->forceUpdateSliderPosition(resumePosition);
                             }
                         });
+                    } else if (isNearEnd) {
+                        qDebug() << "Operations_VP_Shows: Starting from beginning since position was near end";
+                        // Position will default to 0
                     }
                 }
-                
+
                 // Apply the session playback speed for this show
                 if (!m_currentShowFolder.isEmpty()) {
                     qreal sessionSpeed = getSessionPlaybackSpeed(m_currentShowFolder);
@@ -3196,7 +3219,7 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                         m_episodePlayer->setPlaybackSpeed(sessionSpeed);
                     }
                 }
-                
+
                 m_episodePlayer->play();
                 qDebug() << "Operations_VP_Shows: Episode playing";
             }
@@ -6325,109 +6348,173 @@ void Operations_VP_Shows::refreshItemColors(QTreeWidgetItem* item, const QColor&
 QTreeWidgetItem* Operations_VP_Shows::determineEpisodeToPlay()
 {
     qDebug() << "Operations_VP_Shows: Determining episode to play";
-    
+
     // Check if we have the tree widget and a current show folder
     if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
         qDebug() << "Operations_VP_Shows: Tree widget not available";
         return nullptr;
     }
-    
+
     if (m_currentShowFolder.isEmpty()) {
         qDebug() << "Operations_VP_Shows: No current show folder set";
         return nullptr;
     }
-    
+
     QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
-    
+
     // Try to use watch history to find the last watched episode
     QString lastWatchedEpisode;
-    
+
     if (m_watchHistory) {
         lastWatchedEpisode = m_watchHistory->getLastWatchedEpisode();
         qDebug() << "Operations_VP_Shows: Last watched episode from history:" << lastWatchedEpisode;
     }
-    
+
     // If we have a last watched episode, try to find it
     if (!lastWatchedEpisode.isEmpty()) {
-        // Function to recursively search for an episode by its file path
-        std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findEpisodeItem;
-        findEpisodeItem = [&findEpisodeItem](QTreeWidgetItem* parent, const QString& episodePath) -> QTreeWidgetItem* {
-            for (int i = 0; i < parent->childCount(); ++i) {
-                QTreeWidgetItem* child = parent->child(i);
-                
-                // Check if this item has the episode path
-                QString itemPath = child->data(0, Qt::UserRole).toString();
-                if (!itemPath.isEmpty()) {
-                    // Extract just the filename from both paths for comparison
-                    QFileInfo itemInfo(itemPath);
-                    QFileInfo episodeInfo(episodePath);
-                    if (itemInfo.fileName() == episodeInfo.fileName()) {
-                        return child;
+        // Check if this episode has a resume position
+        qint64 resumePosition = m_watchHistory->getResumePosition(lastWatchedEpisode);
+        if (resumePosition > 0) {
+            qDebug() << "Operations_VP_Shows: Last watched episode has resume position" << resumePosition;
+
+            // Check if the resume position is near the end (within COMPLETION_THRESHOLD_MS)
+            // If so, find the next unwatched episode instead
+            bool isNearEnd = false;
+            EpisodeWatchInfo watchInfo = m_watchHistory->getEpisodeWatchInfo(lastWatchedEpisode);
+
+            if (watchInfo.totalDuration > 0) {
+                qint64 remainingTime = watchInfo.totalDuration - resumePosition;
+                if (remainingTime <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS) {
+                    isNearEnd = true;
+                    qDebug() << "Operations_VP_Shows: Resume position is near end (" << remainingTime
+                             << "ms remaining of " << VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS
+                             << "ms threshold), will find next episode instead";
+                }
+            }
+
+            if (!isNearEnd) {
+                // Not near end, so we can resume this episode
+                // Function to recursively search for an episode by its file path
+                std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findEpisodeItem;
+                findEpisodeItem = [&findEpisodeItem](QTreeWidgetItem* parent, const QString& episodePath) -> QTreeWidgetItem* {
+                    for (int i = 0; i < parent->childCount(); ++i) {
+                        QTreeWidgetItem* child = parent->child(i);
+
+                        // Check if this item has the episode path
+                        QString itemPath = child->data(0, Qt::UserRole).toString();
+                        if (!itemPath.isEmpty()) {
+                            // Extract just the filename from both paths for comparison
+                            QFileInfo itemInfo(itemPath);
+                            QFileInfo episodeInfo(episodePath);
+                            if (itemInfo.fileName() == episodeInfo.fileName()) {
+                                return child;
+                            }
+                        }
+
+                        // Recursively search children
+                        if (child->childCount() > 0) {
+                            QTreeWidgetItem* found = findEpisodeItem(child, episodePath);
+                            if (found) return found;
+                        }
+                    }
+                    return nullptr;
+                };
+
+                // Search through all top-level items
+                for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+                    QTreeWidgetItem* found = findEpisodeItem(treeWidget->topLevelItem(i), lastWatchedEpisode);
+                    if (found) {
+                        qDebug() << "Operations_VP_Shows: Found last watched episode in tree:" << found->text(0);
+                        return found;
                     }
                 }
-                
-                // Recursively search children
-                if (child->childCount() > 0) {
-                    QTreeWidgetItem* found = findEpisodeItem(child, episodePath);
-                    if (found) return found;
+            } else {
+                // Near end, so find the next unwatched episode
+                qDebug() << "Operations_VP_Shows: Episode near end, looking for next unwatched episode";
+
+                // Get all available episodes and find the next unwatched one
+                QStringList allEpisodes = getAllAvailableEpisodes();
+                QString nextEpisode = m_watchHistory->getNextUnwatchedEpisode(lastWatchedEpisode, allEpisodes);
+
+                if (!nextEpisode.isEmpty()) {
+                    qDebug() << "Operations_VP_Shows: Found next unwatched episode:" << nextEpisode;
+
+                    // Find this episode in the tree
+                    std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findEpisodeItem;
+                    findEpisodeItem = [&findEpisodeItem](QTreeWidgetItem* parent, const QString& episodePath) -> QTreeWidgetItem* {
+                        for (int i = 0; i < parent->childCount(); ++i) {
+                            QTreeWidgetItem* child = parent->child(i);
+
+                            QString itemPath = child->data(0, Qt::UserRole).toString();
+                            if (!itemPath.isEmpty()) {
+                                QFileInfo itemInfo(itemPath);
+                                QFileInfo episodeInfo(episodePath);
+                                if (itemInfo.fileName() == episodeInfo.fileName()) {
+                                    return child;
+                                }
+                            }
+
+                            if (child->childCount() > 0) {
+                                QTreeWidgetItem* found = findEpisodeItem(child, episodePath);
+                                if (found) return found;
+                            }
+                        }
+                        return nullptr;
+                    };
+
+                    for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+                        QTreeWidgetItem* found = findEpisodeItem(treeWidget->topLevelItem(i), nextEpisode);
+                        if (found) {
+                            qDebug() << "Operations_VP_Shows: Found next episode in tree:" << found->text(0);
+                            return found;
+                        }
+                    }
                 }
             }
-            return nullptr;
-        };
-        
-        // Search through all top-level items
-        for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* found = findEpisodeItem(treeWidget->topLevelItem(i), lastWatchedEpisode);
-            if (found) {
-                qDebug() << "Operations_VP_Shows: Found last watched episode in tree";
-                return found;
-            }
         }
-        
-        qDebug() << "Operations_VP_Shows: Could not find last watched episode in tree widget";
     }
-    
-    qDebug() << "Operations_VP_Shows: No watch history found, looking for first episode";
+
+    qDebug() << "Operations_VP_Shows: No watch history found or no resumable episode, looking for first episode";
     // If no watch history or episode not found, find the first episode
     // Skip Extra/Movies/OVA categories and prioritize Episode 1 or S01E01
-    
+
     QTreeWidgetItem* firstEpisodeToPlay = nullptr;
     QTreeWidgetItem* fallbackEpisode = nullptr;
-    
+
     // Search through all language versions
     for (int langIndex = 0; langIndex < treeWidget->topLevelItemCount(); ++langIndex) {
         QTreeWidgetItem* languageItem = treeWidget->topLevelItem(langIndex);
-        
+
         // Search through all categories under this language
         for (int catIndex = 0; catIndex < languageItem->childCount(); ++catIndex) {
             QTreeWidgetItem* categoryItem = languageItem->child(catIndex);
             QString categoryText = categoryItem->text(0);
-            
+
             // Skip special categories
-            if (categoryText.startsWith("Extra") || 
-                categoryText.startsWith("Movies") || 
+            if (categoryText.startsWith("Extra") ||
+                categoryText.startsWith("Movies") ||
                 categoryText.startsWith("OVA") ||
                 categoryText.contains("Error")) {
                 qDebug() << "Operations_VP_Shows: Skipping category:" << categoryText;
                 continue;
             }
-            
+
             // Check if this is "Episodes" (absolute numbering) or "Season" category
             if (categoryText == tr("Episodes")) {
                 // This is absolute numbering, look for Episode 1
                 qDebug() << "Operations_VP_Shows: Found Episodes category (absolute numbering)";
                 if (categoryItem->childCount() > 0) {
                     QTreeWidgetItem* firstEp = categoryItem->child(0);
-                    
+
                     // Check if this is Episode 1
                     QString epText = firstEp->text(0);
-                    if (epText.contains("Episode 1") || epText.contains("Ep. 1") || 
+                    if (epText.contains("Episode 1") || epText.contains("Ep. 1") ||
                         epText.contains("E1 ") || epText == "1") {
                         qDebug() << "Operations_VP_Shows: Found Episode 1 in absolute numbering";
                         firstEpisodeToPlay = firstEp;
                         break;
                     }
-                    
+
                     // Store as fallback if we don't find Episode 1
                     if (!fallbackEpisode) {
                         fallbackEpisode = firstEp;
@@ -6440,16 +6527,16 @@ QTreeWidgetItem* Operations_VP_Shows::determineEpisodeToPlay()
                     qDebug() << "Operations_VP_Shows: Found Season 1";
                     if (categoryItem->childCount() > 0) {
                         QTreeWidgetItem* firstEp = categoryItem->child(0);
-                        
+
                         // Check if this is Episode 1 of Season 1
                         QString epText = firstEp->text(0);
-                        if (epText.contains("Episode 1") || epText.contains("Ep. 1") || 
+                        if (epText.contains("Episode 1") || epText.contains("Ep. 1") ||
                             epText.contains("E01") || epText.contains("E1 ")) {
                             qDebug() << "Operations_VP_Shows: Found S01E01";
                             firstEpisodeToPlay = firstEp;
                             break;
                         }
-                        
+
                         // Store as fallback if we don't find Episode 1
                         if (!fallbackEpisode) {
                             fallbackEpisode = firstEp;
@@ -6463,22 +6550,22 @@ QTreeWidgetItem* Operations_VP_Shows::determineEpisodeToPlay()
                 }
             }
         }
-        
+
         // If we found the first episode to play, stop searching
         if (firstEpisodeToPlay) {
             break;
         }
     }
-    
+
     // Return the episode we found
     QTreeWidgetItem* episodeToPlay = firstEpisodeToPlay ? firstEpisodeToPlay : fallbackEpisode;
-    
+
     if (episodeToPlay) {
         qDebug() << "Operations_VP_Shows: Episode to play:" << episodeToPlay->text(0);
     } else {
         qDebug() << "Operations_VP_Shows: No episode found to play";
     }
-    
+
     return episodeToPlay;
 }
 

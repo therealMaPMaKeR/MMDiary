@@ -578,11 +578,12 @@ void VP_ShowsPlaybackTracker::updateProgress()
     // Update watch progress
     m_watchHistory->updateWatchProgress(m_currentEpisodePath, position, duration);
     
-    // Check if within 10 seconds of end to mark as completed
+    // Check if within COMPLETION_THRESHOLD_MS of end to mark as completed
     if (duration > 0) {
         qint64 remaining = duration - position;
-        if (remaining <= 10000 && remaining > 0) {
-            qDebug() << "VP_ShowsPlaybackTracker: Within 10 seconds of end, marking as completed";
+        if (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && remaining > 0) {
+            qDebug() << "VP_ShowsPlaybackTracker: Within " << (VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS/1000) 
+                     << " seconds of end, marking as completed";
             markCurrentEpisodeCompleted();
         }
     }

@@ -91,8 +91,8 @@ public:
     static constexpr const char* HISTORY_FILENAME = ".show_history.encrypted";
     static constexpr const char* BACKUP_FILENAME = ".show_history.backup.encrypted";
     static constexpr int MAX_BATCH_SIZE = 100; // Maximum episodes to process in one batch
-    static constexpr qint64 COMPLETION_THRESHOLD_MS = 120000; // 2 minutes in milliseconds
-    static constexpr qint64 RESUME_THRESHOLD_MS = 60000; // 1 minute in milliseconds - if within this of end, start from beginning
+    static constexpr qint64 COMPLETION_THRESHOLD_MS = 120000; // 2 minutes in milliseconds - used for all near-end operations
+    static constexpr qint64 RESUME_THRESHOLD_MS = 60000; // Deprecated - kept for compatibility, use COMPLETION_THRESHOLD_MS instead
     static constexpr int SAVE_INTERVAL_SECONDS = 10; // Save progress every 10 seconds
     
     /**
