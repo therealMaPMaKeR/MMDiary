@@ -192,6 +192,10 @@ void VP_ShowsEditMultipleMetadataDialog::populateUI()
 {
     qDebug() << "VP_ShowsEditMultipleMetadataDialog: Populating UI";
     
+    // Define styling constants
+    const QString disabledLabelStyle = "QLabel { color: #888888; }";
+    const QString disabledWidgetStyle = "QComboBox, QLineEdit { background-color: #f0f0f0; color: #888888; }";
+    
     // Set file count label
     ui->label_FileCount->setText(tr("Editing %1 files").arg(m_allMetadata.size()));
     
@@ -203,6 +207,7 @@ void VP_ShowsEditMultipleMetadataDialog::populateUI()
         ui->label_LanguageStatus->setText(tr("(Mixed values)"));
     }
     ui->comboBox_Language->setEnabled(false);  // Initially disabled until checkbox is checked
+    ui->comboBox_Language->setStyleSheet(disabledWidgetStyle);  // Apply disabled styling
     
     // Translation field
     if (m_hasCommonTranslation) {
@@ -212,6 +217,7 @@ void VP_ShowsEditMultipleMetadataDialog::populateUI()
         ui->label_TranslationStatus->setText(tr("(Mixed values)"));
     }
     ui->comboBox_Translation->setEnabled(false);
+    ui->comboBox_Translation->setStyleSheet(disabledWidgetStyle);  // Apply disabled styling
     
     // Content Type field
     if (m_hasCommonContentType) {
@@ -228,6 +234,7 @@ void VP_ShowsEditMultipleMetadataDialog::populateUI()
         ui->label_ContentTypeStatus->setText(tr("(Mixed values)"));
     }
     ui->comboBox_ContentType->setEnabled(false);
+    ui->comboBox_ContentType->setStyleSheet(disabledWidgetStyle);  // Apply disabled styling
     
     // Season field
     if (m_canEditSeason) {
@@ -236,11 +243,14 @@ void VP_ShowsEditMultipleMetadataDialog::populateUI()
             m_commonSeason.isEmpty() ? tr("Absolute numbering") : m_commonSeason));
         ui->checkBox_Season->setEnabled(true);
         ui->lineEdit_Season->setEnabled(false);
+        ui->lineEdit_Season->setStyleSheet(disabledWidgetStyle);  // Apply disabled styling
     } else {
         ui->label_SeasonStatus->setText(tr("(Different seasons - cannot edit)"));
+        ui->label_SeasonStatus->setStyleSheet(disabledLabelStyle);  // Apply disabled label styling
         ui->checkBox_Season->setEnabled(false);
         ui->lineEdit_Season->setEnabled(false);
         ui->lineEdit_Season->setPlaceholderText(tr("Multiple seasons selected"));
+        ui->lineEdit_Season->setStyleSheet(disabledWidgetStyle);  // Apply disabled styling
     }
     
     // Clear options are always available
@@ -254,8 +264,19 @@ void VP_ShowsEditMultipleMetadataDialog::populateUI()
 
 void VP_ShowsEditMultipleMetadataDialog::onLanguageCheckChanged(int state)
 {
-    ui->comboBox_Language->setEnabled(state == Qt::Checked);
-    if (state != Qt::Checked) {
+    qDebug() << "VP_ShowsEditMultipleMetadataDialog: Language checkbox changed to:" << (state == Qt::Checked);
+    
+    // Define styling constants
+    const QString enabledStyle = "";
+    const QString disabledWidgetStyle = "QComboBox, QLineEdit { background-color: #f0f0f0; color: #888888; }";
+    
+    bool isEnabled = (state == Qt::Checked);
+    ui->comboBox_Language->setEnabled(isEnabled);
+    
+    // Apply styling based on enabled state
+    ui->comboBox_Language->setStyleSheet(isEnabled ? enabledStyle : disabledWidgetStyle);
+    
+    if (!isEnabled) {
         // Reset to original value if unchecked
         if (m_hasCommonLanguage) {
             ui->comboBox_Language->setCurrentText(m_commonLanguage);
@@ -266,8 +287,19 @@ void VP_ShowsEditMultipleMetadataDialog::onLanguageCheckChanged(int state)
 
 void VP_ShowsEditMultipleMetadataDialog::onTranslationCheckChanged(int state)
 {
-    ui->comboBox_Translation->setEnabled(state == Qt::Checked);
-    if (state != Qt::Checked) {
+    qDebug() << "VP_ShowsEditMultipleMetadataDialog: Translation checkbox changed to:" << (state == Qt::Checked);
+    
+    // Define styling constants
+    const QString enabledStyle = "";
+    const QString disabledWidgetStyle = "QComboBox, QLineEdit { background-color: #f0f0f0; color: #888888; }";
+    
+    bool isEnabled = (state == Qt::Checked);
+    ui->comboBox_Translation->setEnabled(isEnabled);
+    
+    // Apply styling based on enabled state
+    ui->comboBox_Translation->setStyleSheet(isEnabled ? enabledStyle : disabledWidgetStyle);
+    
+    if (!isEnabled) {
         if (m_hasCommonTranslation) {
             ui->comboBox_Translation->setCurrentText(m_commonTranslation);
         }
@@ -277,8 +309,19 @@ void VP_ShowsEditMultipleMetadataDialog::onTranslationCheckChanged(int state)
 
 void VP_ShowsEditMultipleMetadataDialog::onContentTypeCheckChanged(int state)
 {
-    ui->comboBox_ContentType->setEnabled(state == Qt::Checked);
-    if (state != Qt::Checked) {
+    qDebug() << "VP_ShowsEditMultipleMetadataDialog: ContentType checkbox changed to:" << (state == Qt::Checked);
+    
+    // Define styling constants
+    const QString enabledStyle = "";
+    const QString disabledWidgetStyle = "QComboBox, QLineEdit { background-color: #f0f0f0; color: #888888; }";
+    
+    bool isEnabled = (state == Qt::Checked);
+    ui->comboBox_ContentType->setEnabled(isEnabled);
+    
+    // Apply styling based on enabled state
+    ui->comboBox_ContentType->setStyleSheet(isEnabled ? enabledStyle : disabledWidgetStyle);
+    
+    if (!isEnabled) {
         if (m_hasCommonContentType) {
             ui->comboBox_ContentType->setCurrentIndex(static_cast<int>(m_commonContentType));
         }
@@ -288,7 +331,18 @@ void VP_ShowsEditMultipleMetadataDialog::onContentTypeCheckChanged(int state)
 
 void VP_ShowsEditMultipleMetadataDialog::onSeasonCheckChanged(int state)
 {
-    ui->lineEdit_Season->setEnabled(state == Qt::Checked && m_canEditSeason);
+    qDebug() << "VP_ShowsEditMultipleMetadataDialog: Season checkbox changed to:" << (state == Qt::Checked);
+    
+    // Define styling constants
+    const QString enabledStyle = "";
+    const QString disabledWidgetStyle = "QComboBox, QLineEdit { background-color: #f0f0f0; color: #888888; }";
+    
+    bool isEnabled = (state == Qt::Checked && m_canEditSeason);
+    ui->lineEdit_Season->setEnabled(isEnabled);
+    
+    // Apply styling based on enabled state
+    ui->lineEdit_Season->setStyleSheet(isEnabled ? enabledStyle : disabledWidgetStyle);
+    
     if (state != Qt::Checked) {
         if (m_canEditSeason) {
             ui->lineEdit_Season->setText(m_commonSeason);
