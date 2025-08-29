@@ -1626,17 +1626,20 @@ void Operations_VP_Shows::setupListViewMode()
     // Set to list mode
     listWidget->setViewMode(QListView::ListMode);
     listWidget->setResizeMode(QListView::Fixed);
-    listWidget->setSpacing(2);
-    listWidget->setUniformItemSizes(false);
+    listWidget->setSpacing(0);
+    listWidget->setUniformItemSizes(true);
     
     // Reset icon size to default for list mode
     listWidget->setIconSize(QSize(16, 16));
+    
+    // Clear grid size for list mode (this might be causing the issue)
+    listWidget->setGridSize(QSize());
     
     // Set layout mode
     listWidget->setFlow(QListView::TopToBottom);
     listWidget->setWrapping(false);
     
-    qDebug() << "Operations_VP_Shows: List view mode configured";
+    qDebug() << "Operations_VP_Shows: List view mode configured with tighter spacing";
 }
 
 void Operations_VP_Shows::setupIconViewMode()
@@ -1664,7 +1667,12 @@ void Operations_VP_Shows::setupIconViewMode()
     // Enable word wrap for long show names
     listWidget->setWordWrap(true);
     
-    qDebug() << "Operations_VP_Shows: Icon view mode configured";
+    // Disable drag and drop to prevent icon movement
+    listWidget->setDragDropMode(QAbstractItemView::NoDragDrop);
+    listWidget->setMovement(QListView::Static);
+    listWidget->setDragEnabled(false);
+    
+    qDebug() << "Operations_VP_Shows: Icon view mode configured with drag/drop disabled";
 }
 
 void Operations_VP_Shows::refreshShowListItem(QListWidgetItem* item, const QString& showName, const QString& folderPath)
@@ -1708,6 +1716,14 @@ void Operations_VP_Shows::refreshShowListItem(QListWidgetItem* item, const QStri
         // In list mode, clear the icon or set a small one
         item->setIcon(QIcon());  // Clear icon in list mode
         item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        
+        // Reset size hint to default for list mode to prevent large gaps
+        item->setSizeHint(QSize());
+    }
+    
+    // Force layout update after changing item properties
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->listWidget_VP_List_List) {
+        m_mainWindow->ui->listWidget_VP_List_List->doItemsLayout();
     }
 }
 
