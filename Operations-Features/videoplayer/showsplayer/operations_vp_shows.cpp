@@ -329,6 +329,9 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
     
     qDebug() << "Operations_VP_Shows: Selected" << selectedFiles.size() << "files for episodes";
     
+    // Clear the source folder path since we're adding individual files (no folder cleanup needed)
+    m_originalSourceFolderPath.clear();
+    
     // Show the add dialog with empty show name field
     VP_ShowsAddDialog addDialog("", m_mainWindow);  // Pass empty string for show name
     addDialog.setWindowTitle(tr("Add Episodes to Library"));
@@ -521,6 +524,10 @@ void Operations_VP_Shows::importTVShow()
     }
     
     qDebug() << "Operations_VP_Shows: Selected folder:" << folderPath;
+    
+    // Store the original source folder for cleanup boundary (folder import mode)
+    m_originalSourceFolderPath = folderPath;
+    qDebug() << "Operations_VP_Shows: Folder import mode - directory cleanup will be performed after file deletion";
     
     // Get the folder name to pre-populate the dialog
     QDir selectedDir(folderPath);
@@ -1115,6 +1122,81 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                         qDebug() << "Operations_VP_Shows:   File readable:" << fileInfo.isReadable();
                         qDebug() << "Operations_VP_Shows:   File writable:" << fileInfo.isWritable();
                     }
+                }
+                
+                // After deleting files, clean up empty directories (only for folder-based imports)
+                qDebug() << "Operations_VP_Shows: Checking if directory cleanup is needed";
+                
+                // Only perform cleanup if we have a valid source folder path
+                // This will only be set when importing a complete show via folder selection,
+                // not when adding individual episode files
+                if (m_originalSourceFolderPath.isEmpty()) {
+                    qDebug() << "Operations_VP_Shows: No source folder path set (individual files import), skipping directory cleanup";
+                } else {
+                    qDebug() << "Operations_VP_Shows: Directory cleanup enabled (folder import mode)";
+                    qDebug() << "Operations_VP_Shows: Cleanup boundary (original source folder):" << m_originalSourceFolderPath;
+                    
+                    // Helper function to recursively find all subdirectories
+                    std::function<void(const QString&, QSet<QString>&)> collectAllSubdirectories;
+                    collectAllSubdirectories = [&collectAllSubdirectories](const QString& path, QSet<QString>& dirs) {
+                        QDir dir(path);
+                        QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+                        for (const QString& subdir : subdirs) {
+                            QString subdirPath = dir.absoluteFilePath(subdir);
+                            dirs.insert(subdirPath);
+                            // Recursively collect subdirectories
+                            collectAllSubdirectories(subdirPath, dirs);
+                        }
+                    };
+                    
+                    // Collect ALL subdirectories within the source folder
+                    QSet<QString> allDirsToCheck;
+                    collectAllSubdirectories(m_originalSourceFolderPath, allDirsToCheck);
+                    
+                    // Also include the source folder itself
+                    allDirsToCheck.insert(m_originalSourceFolderPath);
+                    
+                    qDebug() << "Operations_VP_Shows: Found" << allDirsToCheck.size() << "directories to check for cleanup";
+                    
+                    // Convert to list and sort by path length (longest first) to delete from deepest level up
+                    QStringList sortedDirs = allDirsToCheck.values();
+                    std::sort(sortedDirs.begin(), sortedDirs.end(), 
+                             [](const QString& a, const QString& b) { return a.length() > b.length(); });
+                    
+                    // Try to remove empty directories
+                    int removedDirCount = 0;
+                    for (const QString& dirPath : sortedDirs) {
+                        QDir dir(dirPath);
+                        if (dir.exists()) {
+                            // Check if directory is empty (only contains . and ..)
+                            QStringList entries = dir.entryList(QDir::NoDotAndDotDot | QDir::AllEntries);
+                            if (entries.isEmpty()) {
+                                qDebug() << "Operations_VP_Shows: Found empty directory:" << dirPath;
+                                
+                                // Try to remove the empty directory
+                                QString dirName = dir.dirName();
+                                if (dir.cdUp()) {
+                                    if (dir.rmdir(dirName)) {
+                                        removedDirCount++;
+                                        qDebug() << "Operations_VP_Shows: Successfully removed empty directory:" << dirPath;
+                                    } else {
+                                        qDebug() << "Operations_VP_Shows: Failed to remove empty directory:" << dirPath;
+                                    }
+                                }
+                            } else {
+                                qDebug() << "Operations_VP_Shows: Directory not empty, skipping:" << dirPath << "(contains" << entries.size() << "items)";
+                            }
+                        }
+                    }
+                    
+                    if (removedDirCount > 0) {
+                        qDebug() << "Operations_VP_Shows: Cleaned up" << removedDirCount << "empty directories";
+                    } else {
+                        qDebug() << "Operations_VP_Shows: No empty directories found to clean up";
+                    }
+                    
+                    // Clear the stored path after cleanup
+                    m_originalSourceFolderPath.clear();
                 }
                 
                 // Show deletion results if there were any failures
@@ -3646,6 +3728,9 @@ void Operations_VP_Shows::addEpisodesToShow()
     }
     
     qDebug() << "Operations_VP_Shows: Selected" << selectedFiles.size() << "files to add";
+    
+    // Clear the source folder path since we're adding individual files (no folder cleanup needed)
+    m_originalSourceFolderPath.clear();
     
     // Get the metadata from an existing episode to know the language and translation
     VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);

@@ -253,6 +253,10 @@ public:
     // Store the import output path for use in onEncryptionComplete
     QString m_currentImportOutputPath;
     
+    // Store the original source folder selected by user for cleanup boundary
+    // Only set when importing a complete show via folder selection (not for individual file imports)
+    QString m_originalSourceFolderPath;
+    
     // REMOVED - Checkbox handlers moved to settings dialog
     // void onSkipContentCheckboxChanged(int state);
     // void onAutoplayCheckboxChanged(int state);
