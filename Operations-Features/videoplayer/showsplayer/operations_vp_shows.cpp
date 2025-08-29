@@ -8,6 +8,7 @@
 #include "vp_shows_settings_dialog.h"
 #include "vp_shows_add_dialog.h"
 #include "vp_shows_edit_metadata_dialog.h"
+#include "vp_shows_edit_multiple_metadata_dialog.h"
 #include "vp_shows_tmdb.h"
 #include "vp_shows_settings.h"  // Add show settings
 #include "inputvalidation.cpp"
@@ -4792,12 +4793,26 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
     }
     connect(exportAction, &QAction::triggered, this, &Operations_VP_Shows::decryptAndExportEpisodeFromContextMenu);
     
-    // Edit metadata action - only for single episode
-    if (itemType == "episode" && !isMultiSelection) {
+    // Edit metadata action - handle both single and multiple episodes
+    // Check if we have any episodes collected (from direct selection or categories)
+    if (hasEpisodes || !m_contextMenuEpisodePaths.isEmpty()) {
         contextMenu->addSeparator();
-        QAction* editMetadataAction = contextMenu->addAction(tr("Edit metadata"));
-        connect(editMetadataAction, &QAction::triggered, this, &Operations_VP_Shows::editEpisodeMetadata);
-        contextMenu->addSeparator();
+        QAction* editMetadataAction = nullptr;
+        
+        if (m_contextMenuEpisodePaths.size() == 1) {
+            // Single episode metadata editing (whether selected directly or from a category with one episode)
+            editMetadataAction = contextMenu->addAction(tr("Edit metadata"));
+            connect(editMetadataAction, &QAction::triggered, this, &Operations_VP_Shows::editEpisodeMetadata);
+        } else if (m_contextMenuEpisodePaths.size() > 1) {
+            // Multiple episodes metadata editing (from multiple episodes, categories, or mixed selection)
+            int episodeCount = m_contextMenuEpisodePaths.size();
+            editMetadataAction = contextMenu->addAction(tr("Edit metadata for %1 files").arg(episodeCount));
+            connect(editMetadataAction, &QAction::triggered, this, &Operations_VP_Shows::editMultipleEpisodesMetadata);
+        }
+        
+        if (editMetadataAction) {
+            contextMenu->addSeparator();
+        }
     }
     
     // Delete action
@@ -5653,6 +5668,50 @@ void Operations_VP_Shows::editEpisodeMetadata()
                                tr("Metadata has been successfully updated."));
     } else {
         qDebug() << "Operations_VP_Shows: User cancelled metadata editing";
+    }
+}
+
+void Operations_VP_Shows::editMultipleEpisodesMetadata()
+{
+    qDebug() << "Operations_VP_Shows: Edit multiple episodes metadata from context menu";
+    
+    // Ensure we have multiple episodes selected
+    if (m_contextMenuEpisodePaths.isEmpty() || m_contextMenuEpisodePaths.size() <= 1) {
+        qDebug() << "Operations_VP_Shows: Invalid selection for multiple metadata editing";
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Editing metadata for" << m_contextMenuEpisodePaths.size() << "episodes";
+    
+    // Check MainWindow validity
+    if (!m_mainWindow) {
+        qDebug() << "Operations_VP_Shows: MainWindow is null";
+        return;
+    }
+    
+    // Basic validation - check if any files are locked
+    for (const QString& videoFilePath : m_contextMenuEpisodePaths) {
+        if (VP_MetadataLockManager::instance()->isLocked(videoFilePath)) {
+            qDebug() << "Operations_VP_Shows: One or more files are currently locked";
+            QMessageBox::warning(m_mainWindow, tr("Files Locked"),
+                               tr("One or more files are currently being edited. Please try again later."));
+            return;
+        }
+    }
+    
+    // Create and show the multiple metadata edit dialog
+    // The dialog will handle all validation, metadata changes, and success messages
+    VP_ShowsEditMultipleMetadataDialog dialog(m_contextMenuEpisodePaths, m_mainWindow->user_Key, m_mainWindow->user_Username, m_mainWindow);
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        qDebug() << "Operations_VP_Shows: User accepted multiple metadata changes";
+        
+        // The dialog has already applied all changes and shown success messages
+        // We just need to refresh the tree widget to show the updated metadata
+        qDebug() << "Operations_VP_Shows: Refreshing episode tree after multiple metadata edit";
+        loadShowEpisodes(m_currentShowFolder);
+    } else {
+        qDebug() << "Operations_VP_Shows: User cancelled multiple metadata editing";
     }
 }
 

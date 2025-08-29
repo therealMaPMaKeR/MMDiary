@@ -199,6 +199,7 @@ public:
     void decryptAndExportEpisodeFromContextMenu();
     void deleteEpisodeFromContextMenu();
     void editEpisodeMetadata();
+    void editMultipleEpisodesMetadata();
     
     // Helper functions for episode operations
     void collectEpisodesFromTreeItem(QTreeWidgetItem* item, QStringList& episodePaths);
