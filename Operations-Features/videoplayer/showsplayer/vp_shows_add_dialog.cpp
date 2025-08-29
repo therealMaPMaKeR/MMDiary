@@ -79,6 +79,9 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     connect(ui->checkBox_UseTMDB, &QCheckBox::toggled,
             this, &VP_ShowsAddDialog::onUseTMDBCheckboxToggled);
     
+    // Apply initial button states based on checkbox state
+    onUseTMDBCheckboxToggled(ui->checkBox_UseTMDB->isChecked());
+    
     // Connect the custom poster and description buttons
     connect(ui->pushButton_UseCustomPoster, &QPushButton::clicked,
             this, &VP_ShowsAddDialog::onUseCustomPosterClicked);
