@@ -433,6 +433,12 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
     QPixmap customPoster;
     QString customDescription;
     
+    // Get the parse mode from the dialog
+    VP_ShowsEncryptionWorker::ParseMode parseMode = 
+        (addDialog.getParseMode() == VP_ShowsAddDialog::ParseFromFolder) ? 
+        VP_ShowsEncryptionWorker::ParseFromFolder : 
+        VP_ShowsEncryptionWorker::ParseFromFile;
+    
     // Get playback settings from the dialog
     bool autoplay = addDialog.isAutoplayEnabled();
     bool skipIntro = addDialog.isSkipIntroEnabled();
@@ -449,6 +455,14 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
     
     qDebug() << "Operations_VP_Shows: Dialog returned - Using TMDB:" << useTMDB;
     qDebug() << "Operations_VP_Shows: Checking for custom data...";
+    
+    // Get the parse mode from the dialog
+    parseMode =
+        (addDialog.getParseMode() == VP_ShowsAddDialog::ParseFromFolder) ? 
+        VP_ShowsEncryptionWorker::ParseFromFolder : 
+        VP_ShowsEncryptionWorker::ParseFromFile;
+    
+    qDebug() << "Operations_VP_Shows: Parse mode:" << (parseMode == VP_ShowsEncryptionWorker::ParseFromFolder ? "Folder" : "File");
     
     if (!useTMDB) {
         qDebug() << "Operations_VP_Shows: TMDB disabled, checking for custom data";
@@ -481,7 +495,7 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
     
     // Start encryption with language and translation info
     m_encryptionDialog->startEncryption(filesToImport, targetFiles, showName, encryptionKey, username, 
-                                       language, translationMode, useTMDB, customPoster, customDescription);
+                                       language, translationMode, useTMDB, customPoster, customDescription, parseMode);
 }
 
 void Operations_VP_Shows::importTVShow()
@@ -669,9 +683,17 @@ void Operations_VP_Shows::importTVShow()
         }
     }
     
+    // Get the parse mode from the dialog
+    VP_ShowsEncryptionWorker::ParseMode parseMode = 
+        (addDialog.getParseMode() == VP_ShowsAddDialog::ParseFromFolder) ? 
+        VP_ShowsEncryptionWorker::ParseFromFolder : 
+        VP_ShowsEncryptionWorker::ParseFromFile;
+    
+    qDebug() << "Operations_VP_Shows: Parse mode:" << (parseMode == VP_ShowsEncryptionWorker::ParseFromFolder ? "Folder" : "File");
+    
     // Start encryption with language and translation info, including custom data if not using TMDB
     m_encryptionDialog->startEncryption(filesToImport, targetFiles, showName, encryptionKey, username, 
-                                       language, translationMode, useTMDB, customPoster, customDescription);
+                                       language, translationMode, useTMDB, customPoster, customDescription, parseMode);
 }
 
 QStringList Operations_VP_Shows::findVideoFiles(const QString& folderPath, bool recursive)

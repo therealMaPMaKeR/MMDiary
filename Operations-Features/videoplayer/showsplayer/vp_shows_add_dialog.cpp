@@ -202,6 +202,17 @@ bool VP_ShowsAddDialog::isSkipOutroEnabled() const
     return skipOutro;
 }
 
+VP_ShowsAddDialog::ParseMode VP_ShowsAddDialog::getParseMode() const
+{
+    if (ui->radioButton_FolderName->isChecked()) {
+        qDebug() << "VP_ShowsAddDialog::getParseMode() returning: ParseFromFolder";
+        return ParseFromFolder;
+    } else {
+        qDebug() << "VP_ShowsAddDialog::getParseMode() returning: ParseFromFile";
+        return ParseFromFile;
+    }
+}
+
 QPixmap VP_ShowsAddDialog::getCustomPoster() const
 {
     qDebug() << "VP_ShowsAddDialog::getCustomPoster() - poster null:" << m_customPoster.isNull()

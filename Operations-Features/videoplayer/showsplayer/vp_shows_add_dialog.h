@@ -39,6 +39,13 @@ public:
     bool isSkipIntroEnabled() const;
     bool isSkipOutroEnabled() const;
     
+    // Getter for parsing mode
+    enum ParseMode {
+        ParseFromFolder = 0,
+        ParseFromFile = 1
+    };
+    ParseMode getParseMode() const;
+    
     // Load settings from existing show
     void loadShowSettings(const QString& showPath, const QByteArray& encryptionKey, const QString& username);
     

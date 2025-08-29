@@ -32,7 +32,8 @@ public:
                          const QString& translation = "Dubbed",
                          bool useTMDB = true,
                          const QPixmap& customPoster = QPixmap(),
-                         const QString& customDescription = QString());
+                         const QString& customDescription = QString(),
+                         VP_ShowsEncryptionWorker::ParseMode parseMode = VP_ShowsEncryptionWorker::ParseFromFile);
 
 signals:
     void encryptionComplete(bool success, const QString& message,

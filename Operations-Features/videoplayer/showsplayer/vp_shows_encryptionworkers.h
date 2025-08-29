@@ -20,6 +20,12 @@ class VP_ShowsEncryptionWorker : public QObject
     Q_OBJECT
 
 public:
+    // Enum for parsing mode
+    enum ParseMode {
+        ParseFromFolder = 0,
+        ParseFromFile = 1
+    };
+    
     // Constructor for multiple files
     VP_ShowsEncryptionWorker(const QStringList& sourceFiles, 
     const QStringList& targetFiles,
@@ -30,7 +36,8 @@ public:
     const QString& translation = "Dubbed",
                              bool useTMDB = true,
                              const QPixmap& customPoster = QPixmap(),
-                             const QString& customDescription = QString());
+                             const QString& customDescription = QString(),
+                             ParseMode parseMode = ParseFromFile);
     
     ~VP_ShowsEncryptionWorker();
     
@@ -70,6 +77,9 @@ private:
     bool m_useTMDB;
     QPixmap m_customPoster;
     QString m_customDescription;
+    
+    // Parsing mode
+    ParseMode m_parseMode;
     VP_ShowsMetadata* m_metadataManager;
     VP_ShowsTMDB* m_tmdbManager;
     
@@ -94,7 +104,7 @@ private:
     bool fetchTMDBShowData();
     bool downloadAndEncryptShowImage(const QString& targetFolder);
     bool saveCustomShowData(const QString& targetFolder);  // Save custom poster and description
-    VP_ShowsMetadata::ShowMetadata createMetadataWithTMDB(const QString& filename);
+    VP_ShowsMetadata::ShowMetadata createMetadataWithTMDB(const QString& filename, const QString& folderName = QString());
     bool checkForDuplicateEpisode(int season, int episode, const QString& language, const QString& translation);
     void loadExistingEpisodes();
 };

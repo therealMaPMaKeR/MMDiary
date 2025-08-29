@@ -24,7 +24,8 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
                                                    const QString& translation,
                                                    bool useTMDB,
                                                    const QPixmap& customPoster,
-                                                   const QString& customDescription)
+                                                   const QString& customDescription,
+                                                   ParseMode parseMode)
     : m_sourceFiles(sourceFiles)
     , m_targetFiles(targetFiles)
     , m_showName(showName)
@@ -36,12 +37,14 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
     , m_useTMDB(useTMDB)
     , m_customPoster(customPoster)
     , m_customDescription(customDescription)
+    , m_parseMode(parseMode)
     , m_tmdbDataAvailable(false)
 {
     qDebug() << "VP_ShowsEncryptionWorker: Constructor called for" << sourceFiles.size() << "files";
     qDebug() << "VP_ShowsEncryptionWorker: Using TMDB:" << useTMDB;
     qDebug() << "VP_ShowsEncryptionWorker: Has custom poster:" << !customPoster.isNull();
     qDebug() << "VP_ShowsEncryptionWorker: Has custom description:" << !customDescription.isEmpty();
+    qDebug() << "VP_ShowsEncryptionWorker: Parse mode:" << (parseMode == ParseFromFolder ? "Folder" : "File");
     
     m_metadataManager = new VP_ShowsMetadata(encryptionKey, username);
     m_tmdbManager = new VP_ShowsTMDB(this);
@@ -227,7 +230,8 @@ bool VP_ShowsEncryptionWorker::encryptSingleFile(const QString& sourceFile,
     
     // Create metadata for this file with TMDB data if available
     QFileInfo fileInfo(sourceFile);
-    VP_ShowsMetadata::ShowMetadata metadata = createMetadataWithTMDB(fileInfo.fileName());
+    QString folderName = fileInfo.dir().dirName();  // Get immediate parent folder name
+    VP_ShowsMetadata::ShowMetadata metadata = createMetadataWithTMDB(fileInfo.fileName(), folderName);
     
     // Write metadata header (fixed size)
     if (!m_metadataManager->writeFixedSizeEncryptedMetadata(&target, metadata)) {
@@ -468,7 +472,7 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
     return true;
 }
 
-VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(const QString& filename)
+VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(const QString& filename, const QString& folderName)
 {
     VP_ShowsMetadata::ShowMetadata metadata;
     metadata.filename = filename;
@@ -479,8 +483,12 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     // Initialize content type to Regular by default
     metadata.contentType = VP_ShowsMetadata::Regular;
     qDebug() << "VP_ShowsEncryptionWorker: Starting content type detection for:" << filename;
+    qDebug() << "VP_ShowsEncryptionWorker: Using parse mode:" << (m_parseMode == ParseFromFolder ? "Folder" : "File");
+    if (m_parseMode == ParseFromFolder) {
+        qDebug() << "VP_ShowsEncryptionWorker: Folder name for parsing:" << folderName;
+    }
     
-    // Try to parse season and episode from filename FIRST
+    // Try to parse season and episode
     int season = 0, episode = 0;
     bool parsedSuccessfully = false;
     
@@ -491,17 +499,26 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
         qDebug() << "VP_ShowsEncryptionWorker: Show is single-season:" << isSingleSeason;
     }
     
-    // Use appropriate parsing method based on season count
-    if (isSingleSeason) {
-        // For single-season shows, only parse episode number
+    // Use appropriate parsing method based on parse mode and season count
+    if (m_parseMode == ParseFromFolder && !folderName.isEmpty()) {
+        // Parse season from folder, episode from filename
+        parsedSuccessfully = VP_ShowsTMDB::parseSeasonFromFolderName(folderName, filename, season, episode);
+        if (parsedSuccessfully) {
+            qDebug() << "VP_ShowsEncryptionWorker: Folder parse succeeded - S" << season << "E" << episode;
+        }
+    } else if (isSingleSeason) {
+        // For single-season shows, only parse episode number from filename
         parsedSuccessfully = VP_ShowsTMDB::parseEpisodeForSingleSeasonShow(filename, episode);
         if (parsedSuccessfully) {
             season = 1;  // Set season to 1 for single-season shows
             qDebug() << "VP_ShowsEncryptionWorker: Single-season parse succeeded - Episode:" << episode;
         }
     } else {
-        // For multi-season shows (or when TMDB data unavailable), use standard parsing
+        // For multi-season shows (or when TMDB data unavailable), use standard parsing from filename
         parsedSuccessfully = VP_ShowsTMDB::parseEpisodeFromFilename(filename, season, episode);
+        if (parsedSuccessfully) {
+            qDebug() << "VP_ShowsEncryptionWorker: Filename parse succeeded - S" << season << "E" << episode;
+        }
     }
     
     qDebug() << "VP_ShowsEncryptionWorker: Parse result - Success:" << parsedSuccessfully 

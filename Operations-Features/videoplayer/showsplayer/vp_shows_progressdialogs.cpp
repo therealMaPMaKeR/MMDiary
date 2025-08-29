@@ -81,12 +81,14 @@ void VP_ShowsEncryptionProgressDialog::startEncryption(const QStringList& source
                                                        const QString& translation,
                                                        bool useTMDB,
                                                        const QPixmap& customPoster,
-                                                       const QString& customDescription)
+                                                       const QString& customDescription,
+                                                       VP_ShowsEncryptionWorker::ParseMode parseMode)
 {
     qDebug() << "VP_ShowsEncryptionProgressDialog: Starting encryption for" << sourceFiles.size() << "files";
     qDebug() << "VP_ShowsEncryptionProgressDialog: Using TMDB:" << useTMDB;
     qDebug() << "VP_ShowsEncryptionProgressDialog: Has custom poster:" << !customPoster.isNull();
     qDebug() << "VP_ShowsEncryptionProgressDialog: Has custom description:" << !customDescription.isEmpty();
+    qDebug() << "VP_ShowsEncryptionProgressDialog: Parse mode:" << (parseMode == VP_ShowsEncryptionWorker::ParseFromFolder ? "Folder" : "File");
     
     // Clean up any previous operation
     cleanup();
@@ -101,7 +103,7 @@ void VP_ShowsEncryptionProgressDialog::startEncryption(const QStringList& source
     // Create worker and thread
     m_workerThread = new QThread();
     m_worker = new VP_ShowsEncryptionWorker(sourceFiles, targetFiles, showName, encryptionKey, username, 
-                                           language, translation, useTMDB, customPoster, customDescription);
+                                           language, translation, useTMDB, customPoster, customDescription, parseMode);
     
     // Move worker to thread
     m_worker->moveToThread(m_workerThread);

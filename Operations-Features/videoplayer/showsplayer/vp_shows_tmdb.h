@@ -117,6 +117,9 @@ public:
     // Only looks for episode numbers, ignores season patterns
     static bool parseEpisodeForSingleSeasonShow(const QString& filename, int& episode);
     
+    // Parse season/content type from folder name (episode still from filename)
+    static bool parseSeasonFromFolderName(const QString& folderName, const QString& filename, int& season, int& episode);
+    
     // Scale image to specified dimensions (for EPImage thumbnail)
     static QByteArray scaleImageToSize(const QByteArray& imageData, int width, int height);
     
