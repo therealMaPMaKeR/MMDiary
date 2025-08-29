@@ -553,71 +553,99 @@ bool VP_ShowsTMDB::parseEpisodeFromFilename(const QString& filename, int& season
     
     qDebug() << "VP_ShowsTMDB: Original filename for parsing:" << filename;
     
-    // Pre-process the filename to remove common resolution patterns that might interfere
+    // Pre-process the filename to remove common patterns that might interfere
     QString cleanedFilename = filename;
     
-    // Remove resolution patterns (must be done before parsing to avoid false matches)
-    // Match resolution patterns with word boundaries or dots to avoid removing legitimate numbers
+    // STEP 1: Remove file extension
+    int lastDot = cleanedFilename.lastIndexOf('.');
+    if (lastDot > 0 && cleanedFilename.length() - lastDot <= 5) {
+        cleanedFilename = cleanedFilename.left(lastDot);
+    }
+    
+    // STEP 2: Remove bracketed content that contains codec/quality info
+    // This removes things like [BD 1080p FLAC], [F1242A6], [720p], etc.
+    QList<QRegularExpression> bracketPatterns = {
+        // Remove any brackets containing resolution indicators
+        QRegularExpression("\\[[^\\]]*(?:720p|1080p|480p|360p|240p|1440p|2160p|4320p|BD|DVD|WEB|HDTV|BluRay|BRRip|WEBRip|FLAC|AAC|AC3|DTS|x264|x265|H264|H265|HEVC)[^\\]]*\\]", QRegularExpression::CaseInsensitiveOption),
+        // Remove brackets with hex-like codes (6+ alphanumeric characters)
+        QRegularExpression("\\[[A-F0-9]{6,}\\]", QRegularExpression::CaseInsensitiveOption),
+        // Remove brackets containing file sizes or bitrates
+        QRegularExpression("\\[[^\\]]*(?:\\d+(?:MB|GB|KB|kbps|Kbps))[^\\]]*\\]", QRegularExpression::CaseInsensitiveOption),
+        // Remove brackets containing only numbers and dots (like release versions)
+        QRegularExpression("\\[[\\d\\.]+\\]")
+    };
+    
+    for (const auto& pattern : bracketPatterns) {
+        cleanedFilename.replace(pattern, " ");
+    }
+    
+    // STEP 3: Remove timestamp patterns (like 0.00.07-0.21.05)
+    QRegularExpression timestampPattern("\\d{1,2}\\.\\d{2}\\.\\d{2}\\s*-\\s*\\d{1,2}\\.\\d{2}\\.\\d{2}");
+    cleanedFilename.replace(timestampPattern, " ");
+    
+    // STEP 4: Remove parentheses containing codec/quality info
+    QList<QRegularExpression> parenPatterns = {
+        QRegularExpression("\\([^\\)]*(?:720p|1080p|480p|BD|DVD|WEB|FLAC|AAC|AC3|x264|x265)[^\\)]*\\)", QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression("\\(\\d+(?:MB|GB|KB)\\)", QRegularExpression::CaseInsensitiveOption)
+    };
+    
+    for (const auto& pattern : parenPatterns) {
+        cleanedFilename.replace(pattern, " ");
+    }
+    
+    // STEP 5: Remove resolution patterns (must be done before parsing to avoid false matches)
     QList<QRegularExpression> resolutionPatterns = {
         // Standard resolutions with 'p' suffix
         QRegularExpression("\\b(240|360|480|720|1080|1440|2160|4320)p\\b", QRegularExpression::CaseInsensitiveOption),
-        // With dots (like .720p)
-        QRegularExpression("\\.(240|360|480|720|1080|1440|2160|4320)p", QRegularExpression::CaseInsensitiveOption),
+        // With dots/dashes before resolution (like .720p or -720p)
+        QRegularExpression("[\\.-](240|360|480|720|1080|1440|2160|4320)p", QRegularExpression::CaseInsensitiveOption),
         // 4K, 8K variations
         QRegularExpression("\\b(4K|8K|UHD|FHD|HD|SD)\\b", QRegularExpression::CaseInsensitiveOption),
         // Resolution with x (like 1920x1080)
-        QRegularExpression("\\b\\d{3,4}x\\d{3,4}\\b")
+        QRegularExpression("\\b\\d{3,4}x\\d{3,4}\\b"),
+        // Video formats and codecs that might contain numbers
+        QRegularExpression("\\b(x264|x265|h264|h265|HEVC|AVC|VP9|VP8|AV1)\\b", QRegularExpression::CaseInsensitiveOption),
+        // Audio formats
+        QRegularExpression("\\b(FLAC|AAC|AC3|DTS|MP3|OGG|WMA|DDP|TrueHD|Atmos)\\b", QRegularExpression::CaseInsensitiveOption),
+        // Release groups and sources
+        QRegularExpression("\\b(RARBG|YIFY|FGT|PSA|AMZN|NF|WEB-DL|WEBRip|BDRip|BluRay|HDTV|DVDRip)\\b", QRegularExpression::CaseInsensitiveOption)
     };
     
     for (const auto& pattern : resolutionPatterns) {
         cleanedFilename.replace(pattern, " ");
     }
     
+    // STEP 6: Remove multiple spaces and trim
+    cleanedFilename = cleanedFilename.simplified();
+    
     qDebug() << "VP_ShowsTMDB: Cleaned filename:" << cleanedFilename;
     
-    // PRIORITY 1: Check for explicit "Episode" patterns first (for absolute numbering)
-    QList<QRegularExpression> explicitEpisodePatterns = {
-        // "Episode 36" or "Ep 36" or "E 36" with word boundaries
-        QRegularExpression("\\bEpisode\\s+(\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption),
-        QRegularExpression("\\bEp\\s+(\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption),
-        // "- Episode 36 -" format (common in anime)
-        QRegularExpression("\\s-\\s*Episode\\s+(\\d{1,4})\\s*-", QRegularExpression::CaseInsensitiveOption),
-        // "E36" without space but with word boundary
-        QRegularExpression("\\bE(\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption)
-    };
-    
-    for (const auto& pattern : explicitEpisodePatterns) {
-        QRegularExpressionMatch match = pattern.match(cleanedFilename);
-        if (match.hasMatch()) {
-            episode = match.captured(1).toInt();
-            if (episode > 0 && episode <= 9999) {
-                season = 0;  // Use 0 to indicate absolute numbering
-                qDebug() << "VP_ShowsTMDB: Parsed absolute episode from explicit pattern:" << filename 
-                        << "-> Episode" << episode;
-                return true;
-            }
-        }
-    }
-    
-    // PRIORITY 2: Try patterns with both season and episode
+    // PRIORITY 1: Try patterns with BOTH season and episode FIRST
+    // These take highest priority to avoid false positives from episode-only patterns
     QList<QRegularExpression> seasonPatterns = {
-        // S##E## or s##e## (most common)
-        QRegularExpression("S(\\d{1,2})E(\\d{1,3})", QRegularExpression::CaseInsensitiveOption),
+        // S##E## or s##e## (most common) - must be bounded properly
+        QRegularExpression("\\bS(\\d{1,2})E(\\d{1,3})\\b", QRegularExpression::CaseInsensitiveOption),
         
-        // ##x## format
-        QRegularExpression("(\\d{1,2})x(\\d{1,3})", QRegularExpression::CaseInsensitiveOption),
+        // ##x## format - must have word boundaries
+        QRegularExpression("\\b(\\d{1,2})x(\\d{1,3})\\b", QRegularExpression::CaseInsensitiveOption),
         
         // S## E## with space
-        QRegularExpression("S(\\d{1,2})\\s+E(\\d{1,3})", QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression("\\bS(\\d{1,2})\\s+E(\\d{1,3})\\b", QRegularExpression::CaseInsensitiveOption),
         
         // Season # Episode #
-        QRegularExpression("Season\\s+(\\d{1,2})\\s+Episode\\s+(\\d{1,3})", QRegularExpression::CaseInsensitiveOption),
-        
-        // [#x##] format
-        QRegularExpression("\\[(\\d{1,2})x(\\d{1,3})\\]", QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression("\\bSeason\\s+(\\d{1,2})\\s+Episode\\s+(\\d{1,3})\\b", QRegularExpression::CaseInsensitiveOption),
         
         // S##.E## with dot
-        QRegularExpression("S(\\d{1,2})\\.E(\\d{1,3})", QRegularExpression::CaseInsensitiveOption)
+        QRegularExpression("\\bS(\\d{1,2})\\.E(\\d{1,3})\\b", QRegularExpression::CaseInsensitiveOption),
+        
+        // S##_E## with underscore
+        QRegularExpression("\\bS(\\d{1,2})_E(\\d{1,3})\\b", QRegularExpression::CaseInsensitiveOption),
+        
+        // Season.#.Episode.#
+        QRegularExpression("\\bSeason\\.(\\d{1,2})\\.Episode\\.(\\d{1,3})\\b", QRegularExpression::CaseInsensitiveOption),
+        
+        // S# - E# format with dash
+        QRegularExpression("\\bS(\\d{1,2})\\s*-\\s*E(\\d{1,3})\\b", QRegularExpression::CaseInsensitiveOption)
     };
     
     // Try season patterns on the cleaned filename
@@ -636,28 +664,84 @@ bool VP_ShowsTMDB::parseEpisodeFromFilename(const QString& filename, int& season
         }
     }
     
-    // PRIORITY 3: Try numeric patterns that might indicate season and episode
-    // These patterns are lower priority to avoid false matches
-    QList<QRegularExpression> numericSeasonPatterns = {
-        // ### format (1st digit = season, last 2 = episode, e.g., 101 = S01E01)
-        // Only match if not preceded by other digits
-        QRegularExpression("(?:^|[^\\d])(\\d)(\\d{2})(?:[^\\d]|$)"),
-        
-        // #### format (first 2 digits = season, last 2 = episode, e.g., 0101 = S01E01)
-        QRegularExpression("(?:^|[^\\d])(\\d{2})(\\d{2})(?:[^\\d]|$)")
+    // PRIORITY 2: Check for explicit "Episode" patterns (for absolute numbering)
+    // Only check these AFTER trying to find season+episode patterns
+    QList<QRegularExpression> explicitEpisodePatterns = {
+        // "Episode 36" or "Ep 36" or "E 36" with word boundaries
+        QRegularExpression("\\bEpisode\\s+(\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression("\\bEp\\.?\\s+(\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption),
+        // "- Episode 36 -" format (common in anime)
+        QRegularExpression("\\s-\\s*Episode\\s+(\\d{1,4})\\s*-", QRegularExpression::CaseInsensitiveOption),
+        // "Episode.36" or "Episode_36" formats
+        QRegularExpression("\\bEpisode[\\._](\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption),
+        // "Ep.36" or "Ep_36" formats
+        QRegularExpression("\\bEp[\\._](\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption),
+        // "#36" format (common in some releases)
+        QRegularExpression("#(\\d{1,4})\\b"),
+        // "- 36 -" format when surrounded by dashes (common in anime)
+        QRegularExpression("\\s-\\s+(\\d{1,4})\\s+-\\s+"),
+        // "ShowName - 36" format (dash before number)
+        QRegularExpression("\\w+\\s*-\\s+(\\d{1,4})(?:\\s|$)"),
+        // "Part 36" format
+        QRegularExpression("\\bPart\\s+(\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption)
     };
     
-    for (const auto& pattern : numericSeasonPatterns) {
+    for (const auto& pattern : explicitEpisodePatterns) {
         QRegularExpressionMatch match = pattern.match(cleanedFilename);
         if (match.hasMatch()) {
-            season = match.captured(1).toInt();
-            episode = match.captured(2).toInt();
-            
-            // More strict validation for numeric patterns
-            if (season > 0 && season <= 20 && episode > 0 && episode <= 99) {
-                qDebug() << "VP_ShowsTMDB: Parsed from numeric pattern:" << filename 
-                        << "-> S" << season << "E" << episode;
+            episode = match.captured(1).toInt();
+            if (episode > 0 && episode <= 9999) {
+                season = 0;  // Use 0 to indicate absolute numbering
+                qDebug() << "VP_ShowsTMDB: Parsed absolute episode from explicit pattern:" << filename 
+                        << "-> Episode" << episode;
                 return true;
+            }
+        }
+    }
+    
+    // PRIORITY 3: Try numeric patterns that might indicate season and episode
+    // These patterns are VERY restricted to avoid false matches
+    // Only use these if the filename doesn't contain many other numbers
+    
+    // Count how many number sequences are in the cleaned filename
+    QRegularExpression numberSequence("\\b\\d+\\b");
+    int numberCount = 0;
+    QRegularExpressionMatchIterator it = numberSequence.globalMatch(cleanedFilename);
+    while (it.hasNext()) {
+        it.next();
+        numberCount++;
+    }
+    
+    // Only try numeric patterns if there aren't too many numbers in the filename
+    // This helps avoid matching timestamps, file sizes, etc.
+    if (numberCount <= 3) {
+        QList<QRegularExpression> numericSeasonPatterns = {
+            // ### format (1st digit = season, last 2 = episode, e.g., 101 = S01E01)
+            // Must be at the beginning or after common separators
+            QRegularExpression("(?:^|\\s|_|-)(\\d)(\\d{2})(?:\\s|_|-|$)"),
+            
+            // #### format (first 2 digits = season, last 2 = episode, e.g., 0101 = S01E01)
+            QRegularExpression("(?:^|\\s|_|-)(\\d{2})(\\d{2})(?:\\s|_|-|$)")
+        };
+        
+        for (const auto& pattern : numericSeasonPatterns) {
+            QRegularExpressionMatch match = pattern.match(cleanedFilename);
+            if (match.hasMatch()) {
+                int testSeason = match.captured(1).toInt();
+                int testEpisode = match.captured(2).toInt();
+                
+                // Very strict validation for numeric patterns
+                // Season must be 1-20, episode must be 1-99
+                // Also check that it's not a year (19xx or 20xx)
+                if (testSeason > 0 && testSeason <= 20 && 
+                    testEpisode > 0 && testEpisode <= 99 &&
+                    !(testSeason == 19 || testSeason == 20)) {
+                    season = testSeason;
+                    episode = testEpisode;
+                    qDebug() << "VP_ShowsTMDB: Parsed from numeric pattern:" << filename 
+                            << "-> S" << season << "E" << episode;
+                    return true;
+                }
             }
         }
     }

@@ -496,9 +496,11 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
             qDebug() << "VP_ShowsEncryptionWorker: Valid S" << season << "E" << episode 
                      << "found - setting as Regular episode (skipping OVA/Movie detection)";
         } else if (season == 0) {
-            // Season 0 episodes are specials/extras
-            metadata.contentType = VP_ShowsMetadata::Extra;
-            qDebug() << "VP_ShowsEncryptionWorker: Season 0 episode detected - setting as Extra";
+            // Season 0 means absolute numbering in our parser, NOT Season 0 (specials)
+            // Default to Regular, will be overridden if TMDB maps it to Season 0
+            metadata.contentType = VP_ShowsMetadata::Regular;
+            qDebug() << "VP_ShowsEncryptionWorker: Absolute numbering (season=0) detected - defaulting to Regular";
+            qDebug() << "VP_ShowsEncryptionWorker: Will check TMDB mapping to determine actual content type";
         }
     } else {
         // Only detect content type for files without valid episode numbers
@@ -543,17 +545,17 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 .arg(m_language)
                 .arg(m_translation);
             
-            // Check if the mapped season is 0 (specials) - override content type
-            // But ONLY if we didn't already determine it's a Regular episode from standard S##E## parsing
-            if (mapping.season == 0 && metadata.contentType != VP_ShowsMetadata::Regular) {
+            // Check if the mapped season determines content type
+            if (mapping.season == 0) {
+                // TMDB maps this to Season 0 (specials) - mark as Extra
                 metadata.contentType = VP_ShowsMetadata::Extra;
-                qDebug() << "VP_ShowsEncryptionWorker: Episode mapped to Season 0 - marking as Extra content";
-            } else if (mapping.season > 0 && season == 0) {
-                // Absolute numbering mapped to a regular season - ensure it's marked as Regular
+                qDebug() << "VP_ShowsEncryptionWorker: Episode mapped to Season 0 (specials) - marking as Extra content";
+            } else if (mapping.season > 0) {
+                // TMDB maps this to a regular season - ensure it's marked as Regular
                 metadata.contentType = VP_ShowsMetadata::Regular;
                 qDebug() << "VP_ShowsEncryptionWorker: Absolute episode" << episode 
                          << "mapped to S" << mapping.season << "E" << mapping.episode 
-                         << "- setting as Regular episode";
+                         << "- confirming as Regular episode";
             }
         } else {
             episodeKey = QString("S%1E%2_%3_%4")
