@@ -38,6 +38,13 @@
       </widget>
      </item>
      <item>
+      <widget class="QCheckBox" name="checkBox_AutoplayRandom">
+       <property name="text">
+        <string>Autoplay Random Episode</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QCheckBox" name="checkBox_SkipIntro">
        <property name="text">
         <string>Skip Intro</string>

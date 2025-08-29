@@ -74,8 +74,8 @@ bool VP_ShowsSettings::loadShowSettings(const QString& showFolderPath, ShowSetti
     qDebug() << "VP_ShowsSettings: Successfully loaded settings - ShowName:"
              << settings.showName << "SkipIntro:" 
              << settings.skipIntro << "SkipOutro:" << settings.skipOutro 
-             << "Autoplay:" << settings.autoplay << "UseTMDB:" << settings.useTMDB
-             << "AutoFullscreen:" << settings.autoFullscreen;
+             << "Autoplay:" << settings.autoplay << "AutoplayRandom:" << settings.autoplayRandom
+             << "UseTMDB:" << settings.useTMDB << "AutoFullscreen:" << settings.autoFullscreen;
     return true;
 }
 
@@ -85,8 +85,8 @@ bool VP_ShowsSettings::saveShowSettings(const QString& showFolderPath, const Sho
     qDebug() << "VP_ShowsSettings: Settings - ShowName:" << settings.showName
              << "SkipIntro:" << settings.skipIntro 
              << "SkipOutro:" << settings.skipOutro 
-             << "Autoplay:" << settings.autoplay << "UseTMDB:" << settings.useTMDB
-             << "AutoFullscreen:" << settings.autoFullscreen;
+             << "Autoplay:" << settings.autoplay << "AutoplayRandom:" << settings.autoplayRandom
+             << "UseTMDB:" << settings.useTMDB << "AutoFullscreen:" << settings.autoFullscreen;
     
     // Validate folder path
     if (showFolderPath.isEmpty()) {
@@ -186,6 +186,10 @@ void VP_ShowsSettings::convertMapToSettings(const QMap<QString, QVariant>& setti
         settings.autoplay = settingsMap["autoplay"].toBool();
     }
     
+    if (settingsMap.contains("autoplayRandom")) {
+        settings.autoplayRandom = settingsMap["autoplayRandom"].toBool();
+    }
+    
     if (settingsMap.contains("useTMDB")) {
         settings.useTMDB = settingsMap["useTMDB"].toBool();
     }
@@ -208,6 +212,7 @@ void VP_ShowsSettings::convertSettingsToMap(const ShowSettings& settings, QMap<Q
     settingsMap["skipIntro"] = settings.skipIntro;
     settingsMap["skipOutro"] = settings.skipOutro;
     settingsMap["autoplay"] = settings.autoplay;
+    settingsMap["autoplayRandom"] = settings.autoplayRandom;
     settingsMap["useTMDB"] = settings.useTMDB;
     settingsMap["autoFullscreen"] = settings.autoFullscreen;
     

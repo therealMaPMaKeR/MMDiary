@@ -13,6 +13,7 @@ public:
         bool skipIntro = false;      // Skip intro for episodes
         bool skipOutro = false;      // Skip outro for episodes
         bool autoplay = true;        // Changed default to true
+        bool autoplayRandom = false; // Autoplay random episodes instead of sequential
         bool useTMDB = true;         // New field for TMDB usage
         bool autoFullscreen = true;  // Auto fullscreen when playing episodes
         

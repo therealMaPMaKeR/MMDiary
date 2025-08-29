@@ -37,6 +37,7 @@ void Operations_VP_Shows::loadShowSettings(const QString& showFolderPath)
     m_currentShowSettings = settings;
     
     qDebug() << "Operations_VP_Shows: Finished loading show settings - Autoplay:" << settings.autoplay
+             << "AutoplayRandom:" << settings.autoplayRandom
              << "SkipIntro:" << settings.skipIntro << "SkipOutro:" << settings.skipOutro << "UseTMDB:" << settings.useTMDB
              << "AutoFullscreen:" << settings.autoFullscreen;
     

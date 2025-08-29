@@ -228,6 +228,7 @@ public:
     bool m_isAutoplayInProgress = false;  // Flag to prevent multiple autoplay triggers
     bool m_episodeWasNearCompletion = false;  // Flag to track if episode reached near-end position
     bool m_forceStartFromBeginning = false;  // Flag to force starting from beginning when near end on direct play
+    bool m_isRandomAutoplay = false;  // Flag to indicate this is random autoplay (for position reset)
     
     // Playback speed management (session-based)
     QMap<QString, qreal> m_sessionPlaybackSpeeds;  // Map of show folder path to playback speed
@@ -265,6 +266,7 @@ public:
     // Autoplay functionality
     QStringList getAllAvailableEpisodes() const;  // Get all episodes in playback order
     QString findNextEpisode(const QString& currentEpisodePath) const;  // Find next episode to play
+    QString findRandomEpisode();  // Find random episode for autoplay based on watch status
     void autoplayNextEpisode();  // Trigger autoplay of next episode
     void handleEpisodeNearCompletion(const QString& episodePath);  // Handle when episode is about to end
     

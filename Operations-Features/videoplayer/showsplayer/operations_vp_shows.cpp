@@ -2980,12 +2980,15 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
 {
     qDebug() << "Operations_VP_Shows: Starting decryption and playback for:" << episodeName;
     qDebug() << "Operations_VP_Shows: Is autoplay:" << m_isAutoplayInProgress;
+    qDebug() << "Operations_VP_Shows: Is random autoplay:" << m_isRandomAutoplay;
 
     // Reset stored window settings if this is NOT autoplay
     // This ensures that manual play uses the autoFullscreen setting instead of previous window state
     if (!m_isAutoplayInProgress) {
         qDebug() << "Operations_VP_Shows: Manual play detected - resetting stored window settings";
         VP_Shows_Videoplayer::resetStoredWindowSettings();
+        // Also reset random autoplay flag for manual play
+        m_isRandomAutoplay = false;
     } else {
         qDebug() << "Operations_VP_Shows: Autoplay detected - keeping stored window settings";
     }
@@ -3107,6 +3110,14 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             qint64 resumePosition = m_playbackTracker->getResumePosition(relativeEpisodePath);
             if (resumePosition > 0) {
                 qDebug() << "Operations_VP_Shows: Found resume position:" << resumePosition << "ms";
+            }
+            
+            // Reset playback position to 0 for random autoplay episodes
+            if (m_isRandomAutoplay) {
+                qDebug() << "Operations_VP_Shows: Random autoplay detected - resetting playback position to 0";
+                m_playbackTracker->resetEpisodePosition(relativeEpisodePath);
+                // Also force starting from beginning
+                m_forceStartFromBeginning = true;
             }
         } else {
             qDebug() << "Operations_VP_Shows: WARNING - Failed to initialize playback tracker";
@@ -6070,6 +6081,86 @@ QString Operations_VP_Shows::findNextEpisode(const QString& currentEpisodePath) 
     return QString();
 }
 
+QString Operations_VP_Shows::findRandomEpisode()
+{
+    qDebug() << "Operations_VP_Shows: Finding random episode for autoplay";
+    
+    if (!m_watchHistory) {
+        qDebug() << "Operations_VP_Shows: No watch history available for random episode selection";
+        return QString();
+    }
+    
+    if (m_currentShowFolder.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No current show folder set";
+        return QString();
+    }
+    
+    // Get all available episodes
+    QStringList allEpisodes = getAllAvailableEpisodes();
+    if (allEpisodes.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No episodes available";
+        return QString();
+    }
+    
+    qDebug() << "Operations_VP_Shows: Total episodes found:" << allEpisodes.size();
+    
+    QDir showDir(m_currentShowFolder);
+    QStringList candidateEpisodes;
+    
+    // Step 1: Try to find unwatched episodes (not marked as completed)
+    qDebug() << "Operations_VP_Shows: Step 1 - Looking for unwatched episodes";
+    for (const QString& episodePath : allEpisodes) {
+        QString relativePath = showDir.relativeFilePath(episodePath);
+        
+        // Check if episode is completed (marked as watched)
+        if (!m_watchHistory->isEpisodeCompleted(relativePath)) {
+            candidateEpisodes.append(episodePath);
+            qDebug() << "Operations_VP_Shows: Found unwatched episode:" << QFileInfo(episodePath).fileName();
+        }
+    }
+    
+    qDebug() << "Operations_VP_Shows: Found" << candidateEpisodes.size() << "unwatched episodes";
+    
+    // Step 2: If no unwatched episodes, find episodes with playback position = 0
+    if (candidateEpisodes.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Step 2 - No unwatched episodes, looking for episodes with position = 0";
+        for (const QString& episodePath : allEpisodes) {
+            QString relativePath = showDir.relativeFilePath(episodePath);
+            
+            // Check if episode has playback position of 0
+            qint64 resumePosition = m_watchHistory->getResumePosition(relativePath);
+            if (resumePosition == 0) {
+                candidateEpisodes.append(episodePath);
+                qDebug() << "Operations_VP_Shows: Found episode with position = 0:" << QFileInfo(episodePath).fileName();
+            }
+        }
+        
+        qDebug() << "Operations_VP_Shows: Found" << candidateEpisodes.size() << "episodes with position = 0";
+    }
+    
+    // Step 3: If still no candidates, use all episodes
+    if (candidateEpisodes.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Step 3 - No episodes with position = 0, using all episodes";
+        candidateEpisodes = allEpisodes;
+        qDebug() << "Operations_VP_Shows: Using all" << candidateEpisodes.size() << "episodes as candidates";
+    }
+    
+    // Select random episode from candidates
+    if (candidateEpisodes.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No candidate episodes found";
+        return QString();
+    }
+    
+    // Use QRandomGenerator for random selection
+    int randomIndex = QRandomGenerator::global()->bounded(candidateEpisodes.size());
+    QString selectedEpisode = candidateEpisodes[randomIndex];
+    
+    qDebug() << "Operations_VP_Shows: Selected random episode (" << (randomIndex + 1) 
+             << "/" << candidateEpisodes.size() << "):" << QFileInfo(selectedEpisode).fileName();
+    
+    return selectedEpisode;
+}
+
 void Operations_VP_Shows::autoplayNextEpisode()
 {
     qDebug() << "Operations_VP_Shows: Autoplay triggered";
@@ -6092,8 +6183,20 @@ void Operations_VP_Shows::autoplayNextEpisode()
         return;
     }
     
-    // Find the next episode
-    QString nextEpisodePath = findNextEpisode(m_currentPlayingEpisodePath);
+    // Find the next episode (random if enabled, sequential otherwise)
+    QString nextEpisodePath;
+    bool isRandomAutoplay = false;
+    if (m_currentShowSettings.autoplayRandom) {
+        nextEpisodePath = findRandomEpisode();
+        isRandomAutoplay = true;
+        qDebug() << "Operations_VP_Shows: Random episode autoplay enabled, selected episode:" << nextEpisodePath;
+    } else {
+        nextEpisodePath = findNextEpisode(m_currentPlayingEpisodePath);
+        qDebug() << "Operations_VP_Shows: Sequential autoplay, next episode:" << nextEpisodePath;
+    }
+    
+    // Store flag for use in decryptAndPlayEpisode
+    m_isRandomAutoplay = isRandomAutoplay;
     
     if (nextEpisodePath.isEmpty()) {
         qDebug() << "Operations_VP_Shows: No next episode available for autoplay";
@@ -6142,8 +6245,9 @@ void Operations_VP_Shows::autoplayNextEpisode()
         // Decrypt and play the next episode
         decryptAndPlayEpisode(nextEpisodePath, episodeName);
         
-        // Reset the autoplay flag
+        // Reset the autoplay and random flags
         m_isAutoplayInProgress = false;
+        m_isRandomAutoplay = false;
     });
 }
 

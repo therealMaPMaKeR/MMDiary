@@ -1251,6 +1251,7 @@ void VP_ShowsSettingsDialog::loadShowSettings()
         // Use defaults if folder doesn't exist
         m_currentSettings = VP_ShowsSettings::ShowSettings();
         ui->checkBox_Autoplay->setChecked(m_currentSettings.autoplay);
+        ui->checkBox_AutoplayRandom->setChecked(m_currentSettings.autoplayRandom);
         ui->checkBox_SkipIntro->setChecked(m_currentSettings.skipIntro);
         ui->checkBox_SkipOutro->setChecked(m_currentSettings.skipOutro);
         ui->checkBox_UseTMDB->setChecked(m_currentSettings.useTMDB);
@@ -1300,12 +1301,14 @@ void VP_ShowsSettingsDialog::loadShowSettings()
     
     // Update UI with loaded settings
     ui->checkBox_Autoplay->setChecked(m_currentSettings.autoplay);
+    ui->checkBox_AutoplayRandom->setChecked(m_currentSettings.autoplayRandom);
     ui->checkBox_SkipIntro->setChecked(m_currentSettings.skipIntro);
     ui->checkBox_SkipOutro->setChecked(m_currentSettings.skipOutro);
     ui->checkBox_UseTMDB->setChecked(m_currentSettings.useTMDB);
     ui->checkBox_AutoFullscreen->setChecked(m_currentSettings.autoFullscreen);
     
     qDebug() << "VP_ShowsSettingsDialog: Settings loaded - Autoplay:" << m_currentSettings.autoplay
+             << "AutoplayRandom:" << m_currentSettings.autoplayRandom
              << "SkipIntro:" << m_currentSettings.skipIntro
              << "SkipOutro:" << m_currentSettings.skipOutro
              << "UseTMDB:" << m_currentSettings.useTMDB
@@ -1352,12 +1355,14 @@ void VP_ShowsSettingsDialog::saveShowSettings()
     // Update settings from UI
     m_currentSettings.showName = m_showName;  // Preserve the show name
     m_currentSettings.autoplay = ui->checkBox_Autoplay->isChecked();
+    m_currentSettings.autoplayRandom = ui->checkBox_AutoplayRandom->isChecked();
     m_currentSettings.skipIntro = ui->checkBox_SkipIntro->isChecked();
     m_currentSettings.skipOutro = ui->checkBox_SkipOutro->isChecked();
     m_currentSettings.useTMDB = ui->checkBox_UseTMDB->isChecked();
     m_currentSettings.autoFullscreen = ui->checkBox_AutoFullscreen->isChecked();
     
     qDebug() << "VP_ShowsSettingsDialog: Settings to save - Autoplay:" << m_currentSettings.autoplay
+             << "AutoplayRandom:" << m_currentSettings.autoplayRandom
              << "SkipIntro:" << m_currentSettings.skipIntro
              << "SkipOutro:" << m_currentSettings.skipOutro
              << "UseTMDB:" << m_currentSettings.useTMDB

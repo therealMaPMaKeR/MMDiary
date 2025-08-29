@@ -42,6 +42,7 @@ void DataStorage_FieldDefinitions::registerTVShowSettingsFields()
     tvShowFields.append(FieldDefinition("skipIntro", Boolean, false, true));
     tvShowFields.append(FieldDefinition("skipOutro", Boolean, false, true));
     tvShowFields.append(FieldDefinition("autoplay", Boolean, true, true));  // Default true to match ShowSettings
+    tvShowFields.append(FieldDefinition("autoplayRandom", Boolean, false, true));  // Random episode autoplay
     tvShowFields.append(FieldDefinition("useTMDB", Boolean, true, true));  // Default to enabled
     tvShowFields.append(FieldDefinition("autoFullscreen", Boolean, true, true));  // Default true to match ShowSettings
     
