@@ -1130,9 +1130,7 @@ bool VP_ShowsSettingsDialog::updateVideoMetadataWithTMDB(const VideoFileInfo& vi
         metadata.EPName = episodeInfo.episodeName;
     }
     if (!episodeInfo.overview.isEmpty()) {
-        // Note: ShowMetadata doesn't have EPDescription field, we'll store it in a future version
-        // For now, we can't store episode-specific description
-        // metadata.EPDescription = episodeInfo.overview;
+        metadata.EPDescription = episodeInfo.overview;
     }
     if (episodeInfo.seasonNumber > 0) {
         metadata.season = QString::number(episodeInfo.seasonNumber);

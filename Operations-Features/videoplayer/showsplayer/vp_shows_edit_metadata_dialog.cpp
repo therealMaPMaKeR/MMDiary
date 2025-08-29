@@ -77,6 +77,8 @@ VP_ShowsEditMetadataDialog::VP_ShowsEditMetadataDialog(const QString& videoFileP
             this, &VP_ShowsEditMetadataDialog::onFieldChanged);
     connect(ui->lineEdit_EPName, &QLineEdit::textChanged,
             this, &VP_ShowsEditMetadataDialog::onFieldChanged);
+    connect(ui->textEdit_EPDescription, &QTextEdit::textChanged,
+            this, &VP_ShowsEditMetadataDialog::onFieldChanged);
     connect(ui->comboBox_Language, &QComboBox::currentTextChanged,
             this, &VP_ShowsEditMetadataDialog::onFieldChanged);
     connect(ui->comboBox_Translation, &QComboBox::currentTextChanged,
@@ -208,6 +210,7 @@ void VP_ShowsEditMetadataDialog::populateUI()
     ui->lineEdit_Season->setText(m_metadata.season);
     ui->lineEdit_Episode->setText(m_metadata.episode);
     ui->lineEdit_EPName->setText(m_metadata.EPName);
+    ui->textEdit_EPDescription->setPlainText(m_metadata.EPDescription);
     
     // Language settings
     ui->comboBox_Language->setCurrentText(m_metadata.language);
@@ -501,6 +504,18 @@ bool VP_ShowsEditMetadataDialog::validateInput()
         }
     }
     
+    // Validate episode description if provided
+    QString epDescription = ui->textEdit_EPDescription->toPlainText().trimmed();
+    if (!epDescription.isEmpty()) {
+        if (epDescription.length() > VP_ShowsMetadata::MAX_EP_DESCRIPTION_LENGTH) {
+            QMessageBox::warning(this, tr("Validation Error"), 
+                               tr("Episode description is too long (maximum %1 characters).")
+                               .arg(VP_ShowsMetadata::MAX_EP_DESCRIPTION_LENGTH));
+            ui->textEdit_EPDescription->setFocus();
+            return false;
+        }
+    }
+    
     qDebug() << "VP_ShowsEditMetadataDialog: Validation successful";
     return true;
 }
@@ -517,6 +532,7 @@ void VP_ShowsEditMetadataDialog::updateMetadataFromUI()
     m_metadata.season = ui->lineEdit_Season->text().trimmed();
     m_metadata.episode = ui->lineEdit_Episode->text().trimmed();
     m_metadata.EPName = ui->lineEdit_EPName->text().trimmed();
+    m_metadata.EPDescription = ui->textEdit_EPDescription->toPlainText().trimmed();
     
     // Language settings
     m_metadata.language = ui->comboBox_Language->currentText();
@@ -559,6 +575,10 @@ void VP_ShowsEditMetadataDialog::checkForModifications()
     }
     if (m_metadata.EPName != m_originalMetadata.EPName) {
         qDebug() << "VP_ShowsEditMetadataDialog: Episode name changed";
+        m_wasModified = true;
+    }
+    if (m_metadata.EPDescription != m_originalMetadata.EPDescription) {
+        qDebug() << "VP_ShowsEditMetadataDialog: Episode description changed";
         m_wasModified = true;
     }
     if (m_metadata.language != m_originalMetadata.language) {

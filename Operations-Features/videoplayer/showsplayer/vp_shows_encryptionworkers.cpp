@@ -672,6 +672,7 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
             
             if (needToFetchEpisodeInfo && m_tmdbManager->getEpisodeInfo(m_showInfo.tmdbId, tmdbSeason, tmdbEpisode, episodeInfo)) {
                 metadata.EPName = episodeInfo.episodeName;
+                metadata.EPDescription = episodeInfo.overview;  // Store the episode description from TMDB
                 metadata.airDate = episodeInfo.airDate;  // Store the air date from TMDB
                 
                 // Download and scale episode thumbnail if available

@@ -138,6 +138,7 @@ QByteArray VP_ShowsMetadata::createMetadataChunk(const ShowMetadata& metadata)
     stream << metadata.season;
     stream << metadata.episode;
     stream << metadata.EPName;
+    stream << metadata.EPDescription;
     stream << metadata.EPImage;
     stream << metadata.language;
     stream << metadata.translation;
@@ -165,6 +166,7 @@ bool VP_ShowsMetadata::parseMetadataChunk(const QByteArray& chunk, ShowMetadata&
     stream >> metadata.season;
     stream >> metadata.episode;
     stream >> metadata.EPName;
+    stream >> metadata.EPDescription;
     stream >> metadata.EPImage;
     stream >> metadata.language;
     stream >> metadata.translation;

@@ -23,6 +23,7 @@ public:
         QString season;         // Season number/name (empty or "0" for absolute numbering)
         QString episode;        // Episode number/name
         QString EPName;         // Episode name from TMDB
+        QString EPDescription;  // Episode description from TMDB
         QByteArray EPImage;     // Episode thumbnail (128x128) from TMDB
         QString language;       // Language of the episode (e.g., "English")
         QString translation;    // Translation mode ("Dubbed" or "Subbed")
@@ -46,11 +47,12 @@ public:
         // Constructor with all fields including TMDB data
         ShowMetadata(const QString& fname, const QString& show, 
                     const QString& seas, const QString& ep,
-                    const QString& epName, const QByteArray& epImage,
+                    const QString& epName, const QString& epDesc,
+                    const QByteArray& epImage,
                     const QString& lang = "English", const QString& trans = "Dubbed",
                     const QString& aDate = QString(), ContentType cType = Regular, bool dual = false)
             : filename(fname), showName(show), season(seas), episode(ep),
-              EPName(epName), EPImage(epImage), language(lang), translation(trans),
+              EPName(epName), EPDescription(epDesc), EPImage(epImage), language(lang), translation(trans),
               airDate(aDate), contentType(cType), isDualDisplay(dual)
         {
             encryptionDateTime = QDateTime::currentDateTime();
@@ -109,6 +111,7 @@ public:
     static const int MAX_SEASON_LENGTH = 50;
     static const int MAX_EPISODE_LENGTH = 100;
     static const int MAX_EP_NAME_LENGTH = 200;
+    static const int MAX_EP_DESCRIPTION_LENGTH = 2000;
     static const int MAX_EP_IMAGE_SIZE = 32768; // 32KB max for thumbnail
     static const int MAX_LANGUAGE_LENGTH = 50;
     static const int MAX_TRANSLATION_LENGTH = 20;

@@ -96,6 +96,23 @@
         </property>
        </widget>
       </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="label_EPDescription">
+        <property name="text">
+         <string>Episode Description:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QTextEdit" name="textEdit_EPDescription">
+        <property name="maximumHeight">
+         <number>80</number>
+        </property>
+        <property name="placeholderText">
+         <string>Episode description from TMDB...</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>
