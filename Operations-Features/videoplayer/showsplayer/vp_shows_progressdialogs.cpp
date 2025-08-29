@@ -6,6 +6,8 @@
 #include <QDebug>
 #include <QMessageBox>
 #include <QApplication>
+#include <QTextEdit>
+#include <QDateTime>
 
 //---------------- VP_ShowsEncryptionProgressDialog ----------------//
 
@@ -705,4 +707,133 @@ void VP_ShowsExportProgressDialog::cleanup()
     }
     
     qDebug() << "VP_ShowsExportProgressDialog: cleanup() completed";
+}
+
+//---------------- VP_ShowsTMDBReacquisitionDialog ----------------//
+
+VP_ShowsTMDBReacquisitionDialog::VP_ShowsTMDBReacquisitionDialog(QWidget* parent)
+    : QDialog(parent)
+    , m_cancelled(false)
+    , m_totalEpisodes(0)
+    , m_currentEpisode(0)
+{
+    qDebug() << "VP_ShowsTMDBReacquisitionDialog: Constructor called";
+    
+    setWindowTitle("Re-acquiring TMDB Data");
+    setModal(true);
+    setMinimumWidth(500);
+    setMinimumHeight(400);
+    
+    QVBoxLayout* mainLayout = new QVBoxLayout(this);
+    
+    // Status label
+    m_statusLabel = new QLabel("Preparing to fetch TMDB data...", this);
+    m_statusLabel->setWordWrap(true);
+    mainLayout->addWidget(m_statusLabel);
+    
+    // Current item label
+    m_currentItemLabel = new QLabel("", this);
+    m_currentItemLabel->setWordWrap(true);
+    mainLayout->addWidget(m_currentItemLabel);
+    
+    // Progress bar
+    m_progressBar = new QProgressBar(this);
+    m_progressBar->setRange(0, 100);
+    m_progressBar->setValue(0);
+    mainLayout->addWidget(m_progressBar);
+    
+    // Log widget (collapsible)
+    QLabel* logLabel = new QLabel("Operation Log:", this);
+    mainLayout->addWidget(logLabel);
+    
+    m_logWidget = new QTextEdit(this);
+    m_logWidget->setReadOnly(true);
+    m_logWidget->setMaximumHeight(150);
+    m_logWidget->setStyleSheet("QTextEdit { background-color: #2b2b2b; color: #ffffff; font-family: monospace; }");
+    mainLayout->addWidget(m_logWidget);
+    
+    // Spacer
+    mainLayout->addStretch();
+    
+    // Cancel button
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    buttonLayout->addStretch();
+    
+    m_cancelButton = new QPushButton("Cancel", this);
+    connect(m_cancelButton, &QPushButton::clicked, this, &VP_ShowsTMDBReacquisitionDialog::onCancelClicked);
+    buttonLayout->addWidget(m_cancelButton);
+    
+    buttonLayout->addStretch();
+    mainLayout->addLayout(buttonLayout);
+}
+
+VP_ShowsTMDBReacquisitionDialog::~VP_ShowsTMDBReacquisitionDialog()
+{
+    qDebug() << "VP_ShowsTMDBReacquisitionDialog: Destructor called";
+}
+
+void VP_ShowsTMDBReacquisitionDialog::setTotalEpisodes(int total)
+{
+    m_totalEpisodes = total;
+    m_currentEpisode = 0;
+    m_progressBar->setRange(0, total);
+    m_progressBar->setValue(0);
+    
+    appendLog(QString("Total episodes to process: %1").arg(total));
+}
+
+void VP_ShowsTMDBReacquisitionDialog::updateProgress(int current, const QString& episodeName)
+{
+    m_currentEpisode = current;
+    m_progressBar->setValue(current);
+    
+    int percentage = (m_totalEpisodes > 0) ? (current * 100 / m_totalEpisodes) : 0;
+    m_statusLabel->setText(QString("Processing: %1/%2 (%3%)").arg(current).arg(m_totalEpisodes).arg(percentage));
+    m_currentItemLabel->setText(QString("Current: %1").arg(episodeName));
+    
+    appendLog(QString("[%1/%2] Processing: %3").arg(current).arg(m_totalEpisodes).arg(episodeName));
+}
+
+void VP_ShowsTMDBReacquisitionDialog::setStatusMessage(const QString& message)
+{
+    m_statusLabel->setText(message);
+    appendLog(message);
+}
+
+void VP_ShowsTMDBReacquisitionDialog::showRateLimitMessage(int retryInSeconds)
+{
+    QString message = QString("Rate limit reached. Retrying in %1 seconds...").arg(retryInSeconds);
+    m_currentItemLabel->setText(message);
+    m_currentItemLabel->setStyleSheet("QLabel { color: #ff9900; }");
+    appendLog(QString("[RATE LIMIT] %1").arg(message));
+    
+    // Reset style after a moment
+    QTimer::singleShot(retryInSeconds * 1000, this, [this]() {
+        m_currentItemLabel->setStyleSheet("");
+    });
+}
+
+void VP_ShowsTMDBReacquisitionDialog::onCancelClicked()
+{
+    qDebug() << "VP_ShowsTMDBReacquisitionDialog: Cancel requested";
+    
+    int result = QMessageBox::question(this,
+                                      "Cancel Operation",
+                                      "Are you sure you want to cancel the TMDB data acquisition?\n\n"
+                                      "Progress will be lost and you'll need to start over.",
+                                      QMessageBox::Yes | QMessageBox::No,
+                                      QMessageBox::No);
+    
+    if (result == QMessageBox::Yes) {
+        m_cancelled = true;
+        appendLog("[CANCELLED] Operation cancelled by user");
+        emit cancelRequested();
+        reject();
+    }
+}
+
+void VP_ShowsTMDBReacquisitionDialog::appendLog(const QString& message)
+{
+    QString timestamp = QDateTime::currentDateTime().toString("hh:mm:ss");
+    m_logWidget->append(QString("[%1] %2").arg(timestamp).arg(message));
 }

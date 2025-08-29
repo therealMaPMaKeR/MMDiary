@@ -7,6 +7,7 @@
 #include <QPushButton>
 #include <QThread>
 #include <QPixmap>
+#include "qtextedit.h"
 #include "vp_shows_encryptionworkers.h"
 
 // Forward declarations
@@ -143,6 +144,42 @@ private:
     VP_ShowsExportWorker* m_worker;
     QString m_showName;
     QStringList m_warnings;
+};
+
+// TMDB Data Reacquisition Progress Dialog
+class VP_ShowsTMDBReacquisitionDialog : public QDialog
+{
+    Q_OBJECT
+
+public:
+    explicit VP_ShowsTMDBReacquisitionDialog(QWidget* parent = nullptr);
+    ~VP_ShowsTMDBReacquisitionDialog();
+    
+    void setTotalEpisodes(int total);
+    void updateProgress(int current, const QString& episodeName);
+    void setStatusMessage(const QString& message);
+    void showRateLimitMessage(int retryInSeconds);
+    
+    bool wasCancelled() const { return m_cancelled; }
+    
+signals:
+    void cancelRequested();
+    
+private slots:
+    void onCancelClicked();
+    
+private:
+    QProgressBar* m_progressBar;
+    QLabel* m_statusLabel;
+    QLabel* m_currentItemLabel;
+    QPushButton* m_cancelButton;
+    QTextEdit* m_logWidget;
+    
+    bool m_cancelled;
+    int m_totalEpisodes;
+    int m_currentEpisode;
+    
+    void appendLog(const QString& message);
 };
 
 #endif // VP_SHOWS_PROGRESSDIALOGS_H

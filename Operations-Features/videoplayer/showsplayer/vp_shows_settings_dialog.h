@@ -52,6 +52,7 @@ private slots:
     void onResetWatchHistoryClicked();
     void onUseCustomPosterClicked();
     void onUseCustomDescClicked();
+    void onReacquireTMDBDataClicked();  // Handler for re-acquiring TMDB data
 
 private:
     // UI setup and initialization
@@ -120,6 +121,19 @@ private:
     bool m_isShowingSuggestions;
     int m_hoveredItemIndex;  // Track hovered item index separately from selection
     bool m_itemJustSelected;  // Flag to prevent restoration after selection
+    
+    // TMDB reacquisition support
+    struct VideoFileInfo {
+        QString filePath;
+        QString relativePath;
+        QString episodeName;
+        int season;
+        int episode;
+        QString language;
+        QString translation;
+    };
+    QList<VideoFileInfo> collectVideoFiles();  // Collect all video files from the show
+    bool updateVideoMetadataWithTMDB(const VideoFileInfo& videoInfo, const VP_ShowsTMDB::EpisodeInfo& episodeInfo);
     
     // Constants
     static constexpr int SEARCH_DELAY_MS = 500;  // Debounce delay for search

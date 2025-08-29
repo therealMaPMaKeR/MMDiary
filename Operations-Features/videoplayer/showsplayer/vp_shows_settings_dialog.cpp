@@ -4,6 +4,7 @@
 #include "vp_shows_metadata.h"
 #include "vp_shows_settings.h"
 #include "vp_shows_watchhistory.h"
+#include "vp_shows_progressdialogs.h"
 #include "inputvalidation.h"
 #include "operations_files.h"
 #include "CryptoUtils.h"
@@ -39,6 +40,8 @@
 #include <QRect>
 #include <QRandomGenerator>
 #include <QBuffer>
+#include <QThread>
+#include <QApplication>
 
 VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QString& showPath, QWidget *parent)
     : QDialog(parent)
@@ -97,6 +100,8 @@ VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QS
             this, &VP_ShowsSettingsDialog::onUseCustomPosterClicked);
     connect(ui->pushButton_UseCustomDesc, &QPushButton::clicked,
             this, &VP_ShowsSettingsDialog::onUseCustomDescClicked);
+    connect(ui->pushButton_ReacquireShowData, &QPushButton::clicked,
+            this, &VP_ShowsSettingsDialog::onReacquireTMDBDataClicked);
     
     // Set initial button states based on checkbox state
     onUseTMDBCheckboxToggled(ui->checkBox_UseTMDB->isChecked());
@@ -843,6 +848,316 @@ qint64 VP_ShowsSettingsDialog::estimatePixmapSize(const QPixmap& pixmap)
     // Estimate: width * height * 4 bytes per pixel (RGBA)
     // This is an approximation as the actual memory usage may vary
     return static_cast<qint64>(pixmap.width()) * pixmap.height() * 4;
+}
+
+void VP_ShowsSettingsDialog::onReacquireTMDBDataClicked()
+{
+    qDebug() << "VP_ShowsSettingsDialog: Re-acquire TMDB data button clicked";
+    
+    // Check if TMDB is enabled
+    if (!ui->checkBox_UseTMDB->isChecked()) {
+        QMessageBox::information(this, tr("TMDB Disabled"),
+                               tr("Please enable TMDB integration to re-acquire show data."));
+        return;
+    }
+    
+    // Check if TMDB API is initialized
+    if (!m_tmdbApi) {
+        QMessageBox::warning(this, tr("TMDB Not Available"),
+                           tr("TMDB API is not initialized. Please check your API key."));
+        return;
+    }
+    
+    // Collect all video files from the show
+    QList<VideoFileInfo> videoFiles = collectVideoFiles();
+    
+    if (videoFiles.isEmpty()) {
+        QMessageBox::information(this, tr("No Videos Found"),
+                               tr("No video files found in this show."));
+        return;
+    }
+    
+    // Get the show name from the line edit
+    QString showName = ui->lineEdit_ShowName->text().trimmed();
+    if (showName.isEmpty()) {
+        QMessageBox::warning(this, tr("Invalid Show Name"),
+                           tr("Please enter a valid show name."));
+        return;
+    }
+    
+    // Confirm the operation
+    int result = QMessageBox::question(this,
+                                      tr("Re-acquire TMDB Data"),
+                                      tr("This will re-fetch metadata from TMDB for all %1 video files in this show.\n\n"
+                                         "This operation may take several minutes due to API rate limits.\n\n"
+                                         "Do you want to continue?").arg(videoFiles.size()),
+                                      QMessageBox::Yes | QMessageBox::No,
+                                      QMessageBox::No);
+    
+    if (result != QMessageBox::Yes) {
+        return;
+    }
+    
+    // Create progress dialog
+    VP_ShowsTMDBReacquisitionDialog* progressDialog = new VP_ShowsTMDBReacquisitionDialog(this);
+    progressDialog->setTotalEpisodes(videoFiles.size());
+    
+    // Connect cancel signal
+    bool operationCancelled = false;
+    connect(progressDialog, &VP_ShowsTMDBReacquisitionDialog::cancelRequested,
+            [&operationCancelled]() { operationCancelled = true; });
+    
+    // First, search for the show to get its ID
+    progressDialog->setStatusMessage(tr("Searching for show: %1").arg(showName));
+    QApplication::processEvents();
+    
+    VP_ShowsTMDB::ShowInfo showInfo;
+    if (!m_tmdbApi->searchTVShow(showName, showInfo)) {
+        progressDialog->setStatusMessage(tr("Failed to find show on TMDB"));
+        QMessageBox::warning(this, tr("Show Not Found"),
+                           tr("Could not find '%1' on TMDB. Please check the show name.").arg(showName));
+        delete progressDialog;
+        return;
+    }
+    
+    // Build episode map for the show
+    progressDialog->setStatusMessage(tr("Building episode information map..."));
+    QApplication::processEvents();
+    
+    QMap<int, VP_ShowsTMDB::EpisodeMapping> episodeMap = m_tmdbApi->buildEpisodeMap(showInfo.tmdbId);
+    
+    // Get parent MainWindow to access encryption key
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        QMessageBox::critical(this, tr("Error"),
+                            tr("Unable to access encryption key."));
+        delete progressDialog;
+        return;
+    }
+    
+    // Process each video file
+    int processedCount = 0;
+    int successCount = 0;
+    int failedCount = 0;
+    int rateLimitRetries = 0;
+    const int MAX_RATE_LIMIT_RETRIES = 60; // Max 60 seconds of retrying
+    
+    progressDialog->show();
+    
+    for (const VideoFileInfo& videoInfo : videoFiles) {
+        if (operationCancelled) {
+            qDebug() << "VP_ShowsSettingsDialog: Operation cancelled by user";
+            break;
+        }
+        
+        processedCount++;
+        progressDialog->updateProgress(processedCount, videoInfo.episodeName);
+        
+        // Search for episode information
+        VP_ShowsTMDB::EpisodeInfo episodeInfo;
+        bool foundEpisode = false;
+        
+        // Try to get episode info with rate limit handling
+        bool rateLimitHit = false;
+        int retryCount = 0;
+        
+        do {
+            rateLimitHit = false;
+            
+            // Try to get episode info
+            if (m_tmdbApi->getEpisodeInfo(showInfo.tmdbId, videoInfo.season, videoInfo.episode, episodeInfo)) {
+                foundEpisode = true;
+                rateLimitRetries = 0; // Reset retry counter on success
+                break;
+            }
+            
+            // Check if we hit rate limit (we can detect this from the API response)
+            // The VP_ShowsTMDB class logs rate limit errors
+            // We'll assume rate limit if the call fails and retry
+            if (!foundEpisode && retryCount < 5) {
+                rateLimitHit = true;
+                retryCount++;
+                rateLimitRetries++;
+                
+                if (rateLimitRetries > MAX_RATE_LIMIT_RETRIES) {
+                    progressDialog->setStatusMessage(tr("Too many rate limit retries. Aborting."));
+                    operationCancelled = true;
+                    break;
+                }
+                
+                // Show rate limit message and wait
+                progressDialog->showRateLimitMessage(1);
+                QThread::sleep(1); // Wait 1 second before retry
+                QApplication::processEvents();
+            }
+        } while (rateLimitHit && !operationCancelled);
+        
+        if (operationCancelled) {
+            break;
+        }
+        
+        if (foundEpisode) {
+            // Update the video metadata
+            if (updateVideoMetadataWithTMDB(videoInfo, episodeInfo)) {
+                successCount++;
+                qDebug() << "VP_ShowsSettingsDialog: Successfully updated metadata for:" << videoInfo.episodeName;
+            } else {
+                failedCount++;
+                qDebug() << "VP_ShowsSettingsDialog: Failed to update metadata for:" << videoInfo.episodeName;
+            }
+        } else {
+            failedCount++;
+            qDebug() << "VP_ShowsSettingsDialog: Could not find TMDB info for:" << videoInfo.episodeName;
+        }
+        
+        // Add a small delay between requests to avoid hitting rate limits
+        QThread::msleep(100); // 100ms delay between requests
+        QApplication::processEvents();
+    }
+    
+    // Close progress dialog
+    progressDialog->close();
+    delete progressDialog;
+    
+    // Show summary
+    QString summary = tr("TMDB data re-acquisition completed.\n\n"
+                        "Processed: %1 files\n"
+                        "Successful: %2\n"
+                        "Failed: %3")
+                     .arg(processedCount)
+                     .arg(successCount)
+                     .arg(failedCount);
+    
+    if (operationCancelled) {
+        summary += tr("\n\nOperation was cancelled by user.");
+    }
+    
+    QMessageBox::information(this, tr("Re-acquisition Complete"), summary);
+    
+    qDebug() << "VP_ShowsSettingsDialog: TMDB reacquisition finished. Success:" << successCount << "Failed:" << failedCount;
+}
+
+QList<VP_ShowsSettingsDialog::VideoFileInfo> VP_ShowsSettingsDialog::collectVideoFiles()
+{
+    QList<VideoFileInfo> videoFiles;
+    
+    qDebug() << "VP_ShowsSettingsDialog: Collecting video files from:" << m_showPath;
+    
+    QDir showDir(m_showPath);
+    if (!showDir.exists()) {
+        qDebug() << "VP_ShowsSettingsDialog: Show directory does not exist";
+        return videoFiles;
+    }
+    
+    // Get all encrypted video files in the directory (using .mmvid extension)
+    QStringList videoExtensions;
+    videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
+    
+    showDir.setNameFilters(videoExtensions);
+    QStringList files = showDir.entryList(QDir::Files);
+    
+    qDebug() << "VP_ShowsSettingsDialog: Found" << files.size() << ".mmvid files in directory";
+    if (files.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Directory contents:" << showDir.entryList(QDir::Files);
+    }
+    
+    // Get parent MainWindow to access encryption key
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsSettingsDialog: Cannot access MainWindow for encryption key";
+        return videoFiles;
+    }
+    
+    // Create VP_ShowsMetadata instance to read metadata
+    VP_ShowsMetadata metadataReader(mainWindow->user_Key, mainWindow->user_Username);
+    
+    for (const QString& fileName : files) {
+        QString filePath = showDir.absoluteFilePath(fileName);
+        
+        // Read metadata from the encrypted video file
+        VP_ShowsMetadata::ShowMetadata metadata;
+        if (metadataReader.readMetadataFromFile(filePath, metadata)) {
+            VideoFileInfo info;
+            info.filePath = filePath;
+            info.relativePath = fileName;
+            info.episodeName = metadata.EPName.isEmpty() ? fileName : metadata.EPName;
+            
+            // Parse season and episode from QString to int
+            bool seasonOk = false, episodeOk = false;
+            int seasonNum = metadata.season.toInt(&seasonOk);
+            int episodeNum = metadata.episode.toInt(&episodeOk);
+            
+            info.season = seasonOk ? seasonNum : 0;
+            info.episode = episodeOk ? episodeNum : 0;
+            info.language = metadata.language;
+            info.translation = metadata.translation;
+            
+            videoFiles.append(info);
+            qDebug() << "VP_ShowsSettingsDialog: Found video:" << info.episodeName 
+                     << "S" << info.season << "E" << info.episode;
+        } else {
+            qDebug() << "VP_ShowsSettingsDialog: Failed to read metadata from:" << fileName;
+        }
+    }
+    
+    qDebug() << "VP_ShowsSettingsDialog: Collected" << videoFiles.size() << "video files";
+    return videoFiles;
+}
+
+bool VP_ShowsSettingsDialog::updateVideoMetadataWithTMDB(const VideoFileInfo& videoInfo, const VP_ShowsTMDB::EpisodeInfo& episodeInfo)
+{
+    qDebug() << "VP_ShowsSettingsDialog: Updating metadata for:" << videoInfo.filePath;
+    
+    // Get parent MainWindow to access encryption key
+    MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    if (!mainWindow) {
+        qDebug() << "VP_ShowsSettingsDialog: Cannot access MainWindow for encryption key";
+        return false;
+    }
+    
+    // Create VP_ShowsMetadata instance
+    VP_ShowsMetadata metadataManager(mainWindow->user_Key, mainWindow->user_Username);
+    
+    // Read current metadata
+    VP_ShowsMetadata::ShowMetadata metadata;
+    if (!metadataManager.readMetadataFromFile(videoInfo.filePath, metadata)) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to read current metadata";
+        return false;
+    }
+    
+    // Update metadata with TMDB info
+    if (!episodeInfo.episodeName.isEmpty()) {
+        metadata.EPName = episodeInfo.episodeName;
+    }
+    if (!episodeInfo.overview.isEmpty()) {
+        // Note: ShowMetadata doesn't have EPDescription field, we'll store it in a future version
+        // For now, we can't store episode-specific description
+        // metadata.EPDescription = episodeInfo.overview;
+    }
+    if (episodeInfo.seasonNumber > 0) {
+        metadata.season = QString::number(episodeInfo.seasonNumber);
+    }
+    if (episodeInfo.episodeNumber > 0) {
+        metadata.episode = QString::number(episodeInfo.episodeNumber);
+    }
+    if (!episodeInfo.airDate.isEmpty()) {
+        metadata.airDate = episodeInfo.airDate;
+    }
+    // Note: EpisodeInfo doesn't have runtime field
+    // metadata.runtime = episodeInfo.runtime;
+    
+    // Note: ShowMetadata doesn't have metadataUpdateDate field
+    // We can update the encryptionDateTime to track when it was modified
+    metadata.encryptionDateTime = QDateTime::currentDateTime();
+    
+    // Write updated metadata back to file
+    if (!metadataManager.updateMetadataInFile(videoInfo.filePath, metadata)) {
+        qDebug() << "VP_ShowsSettingsDialog: Failed to write updated metadata";
+        return false;
+    }
+    
+    qDebug() << "VP_ShowsSettingsDialog: Successfully updated metadata with TMDB info";
+    return true;
 }
 
 void VP_ShowsSettingsDialog::onImageDownloadFinished(QNetworkReply* reply)
