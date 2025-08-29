@@ -99,6 +99,10 @@ public:
     // Get list of OVA/special titles for a show (for content detection)
     QStringList getShowOvaTitles(int tmdbId);
     
+    // Check if a show has only one season (excluding season 0/specials)
+    // Pass the ShowInfo that was returned from searchTVShow
+    static bool hasSingleSeason(const ShowInfo& showInfo);
+    
     // Download image from TMDB to temporary file
     // Available sizes:
     // - Posters: w92, w154, w185, w342, w500, w780, original
@@ -108,6 +112,10 @@ public:
     
     // Parse episode identifiers from filename
     static bool parseEpisodeFromFilename(const QString& filename, int& season, int& episode);
+    
+    // Parse episode from filename for single-season shows
+    // Only looks for episode numbers, ignores season patterns
+    static bool parseEpisodeForSingleSeasonShow(const QString& filename, int& episode);
     
     // Scale image to specified dimensions (for EPImage thumbnail)
     static QByteArray scaleImageToSize(const QByteArray& imageData, int width, int height);

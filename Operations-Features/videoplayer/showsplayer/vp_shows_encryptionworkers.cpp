@@ -482,7 +482,27 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     
     // Try to parse season and episode from filename FIRST
     int season = 0, episode = 0;
-    bool parsedSuccessfully = VP_ShowsTMDB::parseEpisodeFromFilename(filename, season, episode);
+    bool parsedSuccessfully = false;
+    
+    // Check if this is a single-season show (only if we have TMDB data)
+    bool isSingleSeason = false;
+    if (m_tmdbDataAvailable && m_showInfo.tmdbId > 0) {
+        isSingleSeason = VP_ShowsTMDB::hasSingleSeason(m_showInfo);
+        qDebug() << "VP_ShowsEncryptionWorker: Show is single-season:" << isSingleSeason;
+    }
+    
+    // Use appropriate parsing method based on season count
+    if (isSingleSeason) {
+        // For single-season shows, only parse episode number
+        parsedSuccessfully = VP_ShowsTMDB::parseEpisodeForSingleSeasonShow(filename, episode);
+        if (parsedSuccessfully) {
+            season = 1;  // Set season to 1 for single-season shows
+            qDebug() << "VP_ShowsEncryptionWorker: Single-season parse succeeded - Episode:" << episode;
+        }
+    } else {
+        // For multi-season shows (or when TMDB data unavailable), use standard parsing
+        parsedSuccessfully = VP_ShowsTMDB::parseEpisodeFromFilename(filename, season, episode);
+    }
     
     qDebug() << "VP_ShowsEncryptionWorker: Parse result - Success:" << parsedSuccessfully 
              << "Season:" << season << "Episode:" << episode;

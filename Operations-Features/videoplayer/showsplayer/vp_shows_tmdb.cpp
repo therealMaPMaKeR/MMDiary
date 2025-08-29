@@ -419,6 +419,188 @@ bool VP_ShowsTMDB::getEpisodeInfo(int tmdbId, int season, int episode, EpisodeIn
     return true;
 }
 
+bool VP_ShowsTMDB::hasSingleSeason(const ShowInfo& showInfo)
+{
+    // Check if the show has only one regular season (excluding season 0/specials)
+    // Count non-zero seasons from the ShowInfo that was populated during searchTVShow
+    
+    int regularSeasonCount = 0;
+    for (int seasonNum : showInfo.seasonNumbers) {
+        if (seasonNum > 0) {  // Exclude season 0 (specials)
+            regularSeasonCount++;
+        }
+    }
+    
+    qDebug() << "VP_ShowsTMDB: Show '" << showInfo.showName << "' has" << regularSeasonCount << "regular season(s)";
+    return regularSeasonCount == 1;
+}
+
+bool VP_ShowsTMDB::parseEpisodeForSingleSeasonShow(const QString& filename, int& episode)
+{
+    episode = 0;
+    
+    if (filename.isEmpty()) {
+        return false;
+    }
+    
+    qDebug() << "VP_ShowsTMDB: Parsing single-season show filename:" << filename;
+    
+    // Pre-process the filename to remove common patterns that might interfere
+    QString cleanedFilename = filename;
+    
+    // STEP 1: Remove file extension
+    int lastDot = cleanedFilename.lastIndexOf('.');
+    if (lastDot > 0 && cleanedFilename.length() - lastDot <= 5) {
+        cleanedFilename = cleanedFilename.left(lastDot);
+    }
+    
+    // STEP 2: Remove bracketed content that contains codec/quality info
+    QList<QRegularExpression> bracketPatterns = {
+        // Remove any brackets containing resolution indicators
+        QRegularExpression("\\[[^\\]]*(?:720p|1080p|480p|360p|240p|1440p|2160p|4320p|BD|DVD|WEB|HDTV|BluRay|BRRip|WEBRip|FLAC|AAC|AC3|DTS|x264|x265|H264|H265|HEVC)[^\\]]*\\]", QRegularExpression::CaseInsensitiveOption),
+        // Remove brackets with hex-like codes (6+ alphanumeric characters)
+        QRegularExpression("\\[[A-F0-9]{6,}\\]", QRegularExpression::CaseInsensitiveOption),
+        // Remove brackets containing file sizes or bitrates
+        QRegularExpression("\\[[^\\]]*(?:\\d+(?:MB|GB|KB|kbps|Kbps))[^\\]]*\\]", QRegularExpression::CaseInsensitiveOption),
+        // Remove brackets containing only numbers and dots (like release versions)
+        QRegularExpression("\\[[\\d\\.]+\\]")
+    };
+    
+    for (const auto& pattern : bracketPatterns) {
+        cleanedFilename.replace(pattern, " ");
+    }
+    
+    // STEP 3: Remove timestamp patterns
+    QRegularExpression timestampPattern("\\d{1,2}\\.\\d{2}\\.\\d{2}\\s*-\\s*\\d{1,2}\\.\\d{2}\\.\\d{2}");
+    cleanedFilename.replace(timestampPattern, " ");
+    
+    // STEP 4: Remove parentheses containing codec/quality info
+    QList<QRegularExpression> parenPatterns = {
+        QRegularExpression("\\([^\\)]*(?:720p|1080p|480p|BD|DVD|WEB|FLAC|AAC|AC3|x264|x265)[^\\)]*\\)", QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression("\\(\\d+(?:MB|GB|KB)\\)", QRegularExpression::CaseInsensitiveOption)
+    };
+    
+    for (const auto& pattern : parenPatterns) {
+        cleanedFilename.replace(pattern, " ");
+    }
+    
+    // STEP 5: Remove resolution patterns
+    QList<QRegularExpression> resolutionPatterns = {
+        QRegularExpression("\\b(240|360|480|720|1080|1440|2160|4320)p\\b", QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression("[\\.-](240|360|480|720|1080|1440|2160|4320)p", QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression("\\b(4K|8K|UHD|FHD|HD|SD)\\b", QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression("\\b\\d{3,4}x\\d{3,4}\\b"),
+        QRegularExpression("\\b(x264|x265|h264|h265|HEVC|AVC|VP9|VP8|AV1)\\b", QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression("\\b(FLAC|AAC|AC3|DTS|MP3|OGG|WMA|DDP|TrueHD|Atmos)\\b", QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression("\\b(RARBG|YIFY|FGT|PSA|AMZN|NF|WEB-DL|WEBRip|BDRip|BluRay|HDTV|DVDRip)\\b", QRegularExpression::CaseInsensitiveOption)
+    };
+    
+    for (const auto& pattern : resolutionPatterns) {
+        cleanedFilename.replace(pattern, " ");
+    }
+    
+    // STEP 6: Remove multiple spaces and trim
+    cleanedFilename = cleanedFilename.simplified();
+    
+    qDebug() << "VP_ShowsTMDB: Cleaned filename for single-season parsing:" << cleanedFilename;
+    
+    // For single-season shows, look for episode numbers ONLY (no season patterns)
+    // Priority order for episode detection:
+    
+    // 1. Explicit "Episode X" patterns
+    QList<QRegularExpression> explicitEpisodePatterns = {
+        // "Episode 36" or "Ep 36" or "E 36" with word boundaries
+        QRegularExpression("\\bEpisode\\s+(\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression("\\bEp\\.?\\s+(\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption),
+        // "- Episode 36 -" format (common in anime)
+        QRegularExpression("\\s-\\s*Episode\\s+(\\d{1,4})\\s*-", QRegularExpression::CaseInsensitiveOption),
+        // "Episode.36" or "Episode_36" formats
+        QRegularExpression("\\bEpisode[\\._ ](\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption),
+        // "Ep.36" or "Ep_36" formats
+        QRegularExpression("\\bEp[\\._ ](\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption),
+        // "#36" format (common in some releases)
+        QRegularExpression("#(\\d{1,4})\\b"),
+        // Just "E36" or "E 36" (without season)
+        QRegularExpression("\\bE\\s*(\\d{1,4})\\b", QRegularExpression::CaseInsensitiveOption)
+    };
+    
+    for (const auto& pattern : explicitEpisodePatterns) {
+        QRegularExpressionMatch match = pattern.match(cleanedFilename);
+        if (match.hasMatch()) {
+            episode = match.captured(1).toInt();
+            if (episode > 0 && episode <= 9999) {
+                qDebug() << "VP_ShowsTMDB: Single-season parse - found episode" << episode << "from explicit pattern";
+                return true;
+            }
+        }
+    }
+    
+    // 2. Number patterns with dashes (common in anime)
+    QList<QRegularExpression> dashPatterns = {
+        // "ShowName - 18" or "Show - 18 - Title"
+        QRegularExpression("\\s-\\s+(\\d{1,4})(?:\\s|$|-)"),
+        // "- 18 -" format when surrounded by dashes
+        QRegularExpression("\\s-\\s+(\\d{1,4})\\s+-\\s+"),
+        // Just a dash before number at end
+        QRegularExpression("-\\s*(\\d{1,4})$")
+    };
+    
+    for (const auto& pattern : dashPatterns) {
+        QRegularExpressionMatch match = pattern.match(cleanedFilename);
+        if (match.hasMatch()) {
+            episode = match.captured(1).toInt();
+            if (episode > 0 && episode <= 9999) {
+                qDebug() << "VP_ShowsTMDB: Single-season parse - found episode" << episode << "from dash pattern";
+                return true;
+            }
+        }
+    }
+    
+    // 3. Bracketed or parenthesized numbers (less common but still valid)
+    QList<QRegularExpression> bracketPatterns2 = {
+        // [18] or (18) format
+        QRegularExpression("\\[(\\d{1,4})\\]"),
+        QRegularExpression("\\((\\d{1,4})\\)")
+    };
+    
+    for (const auto& pattern : bracketPatterns2) {
+        QRegularExpressionMatch match = pattern.match(cleanedFilename);
+        if (match.hasMatch()) {
+            episode = match.captured(1).toInt();
+            // Be more strict with bracketed numbers to avoid false positives
+            if (episode > 0 && episode <= 999) {
+                qDebug() << "VP_ShowsTMDB: Single-season parse - found episode" << episode << "from bracket pattern";
+                return true;
+            }
+        }
+    }
+    
+    // 4. As a last resort, look for standalone numbers (but be very careful)
+    // Only if there's exactly one number sequence that looks like an episode
+    QRegularExpression standaloneNumber("\\b(\\d{1,3})\\b");
+    QRegularExpressionMatchIterator it = standaloneNumber.globalMatch(cleanedFilename);
+    QList<int> foundNumbers;
+    
+    while (it.hasNext()) {
+        QRegularExpressionMatch match = it.next();
+        int num = match.captured(1).toInt();
+        // Only consider reasonable episode numbers
+        if (num > 0 && num <= 999) {
+            foundNumbers.append(num);
+        }
+    }
+    
+    // If we found exactly one reasonable number, use it
+    if (foundNumbers.size() == 1) {
+        episode = foundNumbers.first();
+        qDebug() << "VP_ShowsTMDB: Single-season parse - found episode" << episode << "as standalone number";
+        return true;
+    }
+    
+    qDebug() << "VP_ShowsTMDB: Single-season parse - no episode number found";
+    return false;
+}
+
 bool VP_ShowsTMDB::downloadImage(const QString& imagePath, const QString& tempFilePath, bool isPoster)
 {
     if (imagePath.isEmpty()) {
