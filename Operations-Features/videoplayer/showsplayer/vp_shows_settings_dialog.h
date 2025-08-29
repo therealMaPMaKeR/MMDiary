@@ -7,6 +7,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <memory>
+#include "vp_shows_metadata.h"
 #include "vp_shows_tmdb.h"
 #include "vp_shows_settings.h"
 
@@ -20,6 +21,17 @@ class VP_ShowsSettingsDialog : public QDialog
 
 public:
     explicit VP_ShowsSettingsDialog(const QString& showName, const QString& showPath, QWidget *parent = nullptr);
+
+    // TMDB reacquisition support
+    struct VideoFileInfo {
+        QString filePath;
+        QString relativePath;
+        QString episodeName;
+        int season;
+        int episode;
+        QString language;
+        QString translation;
+    };
     ~VP_ShowsSettingsDialog();
 
 public slots:
@@ -78,6 +90,8 @@ private:
     
     // Settings management
     VP_ShowsSettings::ShowSettings m_currentSettings;
+
+
     
 private:
     Ui::VP_ShowsSettingsDialog *ui;
@@ -122,16 +136,6 @@ private:
     int m_hoveredItemIndex;  // Track hovered item index separately from selection
     bool m_itemJustSelected;  // Flag to prevent restoration after selection
     
-    // TMDB reacquisition support
-    struct VideoFileInfo {
-        QString filePath;
-        QString relativePath;
-        QString episodeName;
-        int season;
-        int episode;
-        QString language;
-        QString translation;
-    };
     QList<VideoFileInfo> collectVideoFiles();  // Collect all video files from the show
     bool updateVideoMetadataWithTMDB(const VideoFileInfo& videoInfo, const VP_ShowsTMDB::EpisodeInfo& episodeInfo);
     
@@ -139,6 +143,43 @@ private:
     static constexpr int SEARCH_DELAY_MS = 500;  // Debounce delay for search
     static constexpr int MAX_SUGGESTIONS = 8;    // Maximum number of suggestions to show
     // Note: Suggestion item heights are now calculated dynamically based on actual content
+};
+
+// Worker class for TMDB data reacquisition
+class VP_ShowsTMDBReacquisitionWorker : public QObject
+{
+    Q_OBJECT
+
+public:
+    VP_ShowsTMDBReacquisitionWorker(const QList<VP_ShowsSettingsDialog::VideoFileInfo>& videoFiles,
+                                    const QString& showName,
+                                    const QString& username,
+                                    VP_ShowsTMDB* tmdbApi,
+                                    VP_ShowsMetadata* metadataManager,
+                                    QObject* parent = nullptr);
+    ~VP_ShowsTMDBReacquisitionWorker();
+
+public slots:
+    void process();
+    void cancel();
+
+signals:
+    void progressUpdated(int current, int total, const QString& currentFile);
+    void statusMessage(const QString& message);
+    void rateLimitHit(int retryInSeconds);
+    void finished(int successCount, int failedCount, bool cancelled);
+    void error(const QString& errorMessage);
+
+private:
+    QList<VP_ShowsSettingsDialog::VideoFileInfo> m_videoFiles;
+    QString m_showName;
+    QString m_username;
+    VP_ShowsTMDB* m_tmdbApi;
+    VP_ShowsMetadata* m_metadataManager;
+    bool m_cancelled;
+    
+    bool updateVideoMetadataWithTMDB(const VP_ShowsSettingsDialog::VideoFileInfo& videoInfo, 
+                                     const VP_ShowsTMDB::EpisodeInfo& episodeInfo);
 };
 
 #endif // VP_SHOWS_SETTINGS_DIALOG_H
