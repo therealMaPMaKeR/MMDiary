@@ -180,6 +180,10 @@ private:
     int m_currentEpisode;
     
     void appendLog(const QString& message);
+    
+protected:
+    void closeEvent(QCloseEvent* event) override;
+    void reject() override;
 };
 
 #endif // VP_SHOWS_PROGRESSDIALOGS_H

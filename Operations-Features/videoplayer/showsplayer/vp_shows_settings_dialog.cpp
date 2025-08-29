@@ -902,11 +902,18 @@ void VP_ShowsSettingsDialog::onReacquireTMDBDataClicked()
     // Create progress dialog
     VP_ShowsTMDBReacquisitionDialog* progressDialog = new VP_ShowsTMDBReacquisitionDialog(this);
     progressDialog->setTotalEpisodes(videoFiles.size());
+    progressDialog->setWindowModality(Qt::WindowModal);
+    progressDialog->setAttribute(Qt::WA_DeleteOnClose, false);  // We'll delete it manually
     
     // Connect cancel signal
     bool operationCancelled = false;
     connect(progressDialog, &VP_ShowsTMDBReacquisitionDialog::cancelRequested,
             [&operationCancelled]() { operationCancelled = true; });
+    
+    // Show the progress dialog immediately
+    progressDialog->show();
+    progressDialog->raise();
+    progressDialog->activateWindow();
     
     // First, search for the show to get its ID
     progressDialog->setStatusMessage(tr("Searching for show: %1").arg(showName));
@@ -917,6 +924,13 @@ void VP_ShowsSettingsDialog::onReacquireTMDBDataClicked()
         progressDialog->setStatusMessage(tr("Failed to find show on TMDB"));
         QMessageBox::warning(this, tr("Show Not Found"),
                            tr("Could not find '%1' on TMDB. Please check the show name.").arg(showName));
+        delete progressDialog;
+        return;
+    }
+    
+    // Check if operation was cancelled or app is closing
+    if (operationCancelled || !progressDialog->isVisible()) {
+        qDebug() << "VP_ShowsSettingsDialog: Operation cancelled or dialog closed during show search";
         delete progressDialog;
         return;
     }
@@ -943,11 +957,13 @@ void VP_ShowsSettingsDialog::onReacquireTMDBDataClicked()
     int rateLimitRetries = 0;
     const int MAX_RATE_LIMIT_RETRIES = 60; // Max 60 seconds of retrying
     
-    progressDialog->show();
+    // Note: progressDialog->show() was already called above
     
     for (const VideoFileInfo& videoInfo : videoFiles) {
-        if (operationCancelled) {
-            qDebug() << "VP_ShowsSettingsDialog: Operation cancelled by user";
+        // Check if dialog was closed (app closing) or operation cancelled
+        if (operationCancelled || !progressDialog->isVisible()) {
+            qDebug() << "VP_ShowsSettingsDialog: Operation cancelled by user or dialog closed";
+            operationCancelled = true;
             break;
         }
         
@@ -990,6 +1006,12 @@ void VP_ShowsSettingsDialog::onReacquireTMDBDataClicked()
                 progressDialog->showRateLimitMessage(1);
                 QThread::sleep(1); // Wait 1 second before retry
                 QApplication::processEvents();
+                
+                // Check if dialog was closed during wait
+                if (!progressDialog->isVisible()) {
+                    operationCancelled = true;
+                    break;
+                }
             }
         } while (rateLimitHit && !operationCancelled);
         
@@ -1014,10 +1036,18 @@ void VP_ShowsSettingsDialog::onReacquireTMDBDataClicked()
         // Add a small delay between requests to avoid hitting rate limits
         QThread::msleep(100); // 100ms delay between requests
         QApplication::processEvents();
+        
+        // Check if dialog was closed
+        if (!progressDialog->isVisible()) {
+            operationCancelled = true;
+            break;
+        }
     }
     
-    // Close progress dialog
-    progressDialog->close();
+    // Close progress dialog if it's still open
+    if (progressDialog->isVisible()) {
+        progressDialog->close();
+    }
     delete progressDialog;
     
     // Show summary

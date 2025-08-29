@@ -8,6 +8,7 @@
 #include <QApplication>
 #include <QTextEdit>
 #include <QDateTime>
+#include <QCloseEvent>
 
 //---------------- VP_ShowsEncryptionProgressDialog ----------------//
 
@@ -836,4 +837,30 @@ void VP_ShowsTMDBReacquisitionDialog::appendLog(const QString& message)
 {
     QString timestamp = QDateTime::currentDateTime().toString("hh:mm:ss");
     m_logWidget->append(QString("[%1] %2").arg(timestamp).arg(message));
+}
+
+void VP_ShowsTMDBReacquisitionDialog::closeEvent(QCloseEvent* event)
+{
+    qDebug() << "VP_ShowsTMDBReacquisitionDialog: closeEvent - dialog being closed";
+    
+    if (!m_cancelled) {
+        m_cancelled = true;
+        appendLog("[CANCELLED] Operation cancelled by closing dialog");
+        emit cancelRequested();
+    }
+    
+    event->accept();
+}
+
+void VP_ShowsTMDBReacquisitionDialog::reject()
+{
+    qDebug() << "VP_ShowsTMDBReacquisitionDialog: reject - dialog being rejected";
+    
+    if (!m_cancelled) {
+        m_cancelled = true;
+        appendLog("[CANCELLED] Operation cancelled");
+        emit cancelRequested();
+    }
+    
+    QDialog::reject();
 }
