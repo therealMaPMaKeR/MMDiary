@@ -42,6 +42,7 @@
 #include <QBuffer>
 #include <QThread>
 #include <QApplication>
+#include <QUuid>
 
 VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QString& showPath, QWidget *parent)
     : QDialog(parent)
@@ -1141,6 +1142,50 @@ bool VP_ShowsSettingsDialog::updateVideoMetadataWithTMDB(const VideoFileInfo& vi
     if (!episodeInfo.airDate.isEmpty()) {
         metadata.airDate = episodeInfo.airDate;
     }
+    
+    // Download and save episode still image if available
+    if (!episodeInfo.stillPath.isEmpty()) {
+        qDebug() << "VP_ShowsSettingsDialog: Episode has still image, downloading...";
+        
+        // Get temp directory for the user
+        QString tempDir = VP_ShowsConfig::getTempDirectory(mainWindow->user_Username);
+        if (!tempDir.isEmpty()) {
+            // Create unique temp file path
+            QString tempThumbPath = tempDir + "/temp_episode_thumb_" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".jpg";
+            
+            // Download the episode still image (false = not a poster, it's an episode still)
+            if (m_tmdbApi && m_tmdbApi->downloadImage(episodeInfo.stillPath, tempThumbPath, false)) {
+                QFile thumbFile(tempThumbPath);
+                if (thumbFile.open(QIODevice::ReadOnly)) {
+                    QByteArray thumbData = thumbFile.readAll();
+                    thumbFile.close();
+                    
+                    // Scale to 128x128 for metadata storage
+                    QByteArray scaledThumb = VP_ShowsTMDB::scaleImageToSize(thumbData, 128, 128);
+                    
+                    if (!scaledThumb.isEmpty() && scaledThumb.size() <= VP_ShowsMetadata::MAX_EP_IMAGE_SIZE) {
+                        metadata.EPImage = scaledThumb;
+                        qDebug() << "VP_ShowsSettingsDialog: Added episode thumbnail (" 
+                                << scaledThumb.size() << "bytes)";
+                    } else {
+                        qDebug() << "VP_ShowsSettingsDialog: Scaled thumb too large or empty";
+                    }
+                    
+                    // Securely delete temp file (use 1 pass for temp files)
+                    OperationsFiles::secureDelete(tempThumbPath, 1, false);
+                } else {
+                    qDebug() << "VP_ShowsSettingsDialog: Failed to open temp thumb file";
+                }
+            } else {
+                qDebug() << "VP_ShowsSettingsDialog: Failed to download episode still image";
+            }
+        } else {
+            qDebug() << "VP_ShowsSettingsDialog: Could not get temp directory";
+        }
+    } else {
+        qDebug() << "VP_ShowsSettingsDialog: No episode still path available";
+    }
+    
     // Note: EpisodeInfo doesn't have runtime field
     // metadata.runtime = episodeInfo.runtime;
     
