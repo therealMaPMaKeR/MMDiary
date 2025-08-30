@@ -1823,14 +1823,15 @@ void Operations_VP_Shows::openShowSettings()
     if (settingsDialog.exec() == QDialog::Accepted) {
         qDebug() << "Operations_VP_Shows: Show settings saved";
         
+        // Reload show settings first to update m_currentShowSettings with the new values
+        loadShowSettings(m_currentShowFolder);
+        
         // Check if TMDB data was updated or display file names setting changed and reload tree widget if needed
         if (settingsDialog.wasTMDBDataUpdated() || settingsDialog.wasDisplayFileNamesChanged()) {
             qDebug() << "Operations_VP_Shows: TMDB data or display file names setting was updated, reloading episode tree";
+            // Now loadShowEpisodes will use the updated m_currentShowSettings values
             loadShowEpisodes(m_currentShowFolder);
         }
-        
-        // Reload show settings to apply any changes
-        loadShowSettings(m_currentShowFolder);
         
         // Update the show name display if it changed
         // We need to reload the metadata to get the updated show name
@@ -2157,11 +2158,11 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName)
         }
     }
     
-    // Load and display the episode list
-    loadShowEpisodes(showFolderPath);
-    
-    // Load show-specific settings and update checkboxes
+    // Load show-specific settings first so they're available for episode display
     loadShowSettings(showFolderPath);
+    
+    // Load and display the episode list (now using the correct settings)
+    loadShowEpisodes(showFolderPath);
     
     // Update the Play button text based on watch history
     updatePlayButtonText();
