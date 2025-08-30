@@ -5950,8 +5950,21 @@ void Operations_VP_Shows::reacquireTMDBForSingleEpisode(const QString& videoFile
             if (tmdbApi.downloadImage(episodeInfo.stillPath, tempImagePath)) {
                 QFile imageFile(tempImagePath);
                 if (imageFile.open(QIODevice::ReadOnly)) {
-                    updatedMetadata.EPImage = imageFile.readAll();
+                    QByteArray imageData = imageFile.readAll();
                     imageFile.close();
+                    
+                    // Scale the image to 128x128 to reduce size
+                    QByteArray scaledImage = VP_ShowsTMDB::scaleImageToSize(imageData, 128, 128);
+                    
+                    // Only store if scaled image is within size limit (32KB)
+                    if (!scaledImage.isEmpty() && scaledImage.size() <= VP_ShowsMetadata::MAX_EP_IMAGE_SIZE) {
+                        updatedMetadata.EPImage = scaledImage;
+                        qDebug() << "Operations_VP_Shows: Added scaled episode thumbnail (" 
+                                 << scaledImage.size() << "bytes)";
+                    } else {
+                        qDebug() << "Operations_VP_Shows: Episode image too large even after scaling"
+                                 << scaledImage.size() << "bytes (max:" << VP_ShowsMetadata::MAX_EP_IMAGE_SIZE << ")";
+                    }
                 }
                 // Clean up temp file
                 OperationsFiles::secureDelete(tempImagePath, 1, false);
@@ -6159,8 +6172,21 @@ void Operations_VP_Shows::reacquireTMDBForMultipleEpisodesWithMetadata(const QSt
                 if (tmdbApi.downloadImage(episodeInfo.stillPath, tempImagePath)) {
                     QFile imageFile(tempImagePath);
                     if (imageFile.open(QIODevice::ReadOnly)) {
-                        metadata.EPImage = imageFile.readAll();
+                        QByteArray imageData = imageFile.readAll();
                         imageFile.close();
+                        
+                        // Scale the image to 128x128 to reduce size
+                        QByteArray scaledImage = VP_ShowsTMDB::scaleImageToSize(imageData, 128, 128);
+                        
+                        // Only store if scaled image is within size limit (32KB)
+                        if (!scaledImage.isEmpty() && scaledImage.size() <= VP_ShowsMetadata::MAX_EP_IMAGE_SIZE) {
+                            metadata.EPImage = scaledImage;
+                            qDebug() << "Operations_VP_Shows: Added scaled episode thumbnail (" 
+                                     << scaledImage.size() << "bytes) for episode" << i;
+                        } else {
+                            qDebug() << "Operations_VP_Shows: Episode image too large even after scaling for episode" << i
+                                     << scaledImage.size() << "bytes (max:" << VP_ShowsMetadata::MAX_EP_IMAGE_SIZE << ")";
+                        }
                     }
                     // Clean up temp file
                     OperationsFiles::secureDelete(tempImagePath, 1, false);
@@ -6389,8 +6415,21 @@ void Operations_VP_Shows::reacquireTMDBForMultipleEpisodes(const QStringList& vi
                 if (tmdbApi.downloadImage(episodeInfo.stillPath, tempImagePath)) {
                     QFile imageFile(tempImagePath);
                     if (imageFile.open(QIODevice::ReadOnly)) {
-                        metadata.EPImage = imageFile.readAll();
+                        QByteArray imageData = imageFile.readAll();
                         imageFile.close();
+                        
+                        // Scale the image to 128x128 to reduce size
+                        QByteArray scaledImage = VP_ShowsTMDB::scaleImageToSize(imageData, 128, 128);
+                        
+                        // Only store if scaled image is within size limit (32KB)
+                        if (!scaledImage.isEmpty() && scaledImage.size() <= VP_ShowsMetadata::MAX_EP_IMAGE_SIZE) {
+                            metadata.EPImage = scaledImage;
+                            qDebug() << "Operations_VP_Shows: Added scaled episode thumbnail (" 
+                                     << scaledImage.size() << "bytes) for episode" << i;
+                        } else {
+                            qDebug() << "Operations_VP_Shows: Episode image too large even after scaling for episode" << i
+                                     << scaledImage.size() << "bytes (max:" << VP_ShowsMetadata::MAX_EP_IMAGE_SIZE << ")";
+                        }
                     }
                     // Clean up temp file
                     OperationsFiles::secureDelete(tempImagePath, 1, false);

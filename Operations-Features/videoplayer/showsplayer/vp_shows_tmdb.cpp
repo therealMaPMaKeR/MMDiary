@@ -149,11 +149,13 @@ QJsonObject VP_ShowsTMDB::makeApiRequest(const QString& endpoint)
         
         if (httpStatusCode == 429) {
             // Rate limit exceeded
-            qDebug() << "VP_ShowsTMDB: Rate limit exceeded. Please wait before making more requests.";
+            qDebug() << "VP_ShowsTMDB: Rate limit exceeded for endpoint:" << endpoint << "- Please wait before making more requests.";
         } else if (httpStatusCode == 401) {
-            qDebug() << "VP_ShowsTMDB: Authentication failed. Please check your API key.";
+            qDebug() << "VP_ShowsTMDB: Authentication failed for endpoint:" << endpoint << "- Please check your API key.";
+        } else if (httpStatusCode == 404) {
+            qDebug() << "VP_ShowsTMDB: Episode not found (404) for endpoint:" << endpoint;
         } else {
-            qDebug() << "VP_ShowsTMDB: Network error (" << httpStatusCode << "):" << reply->errorString();
+            qDebug() << "VP_ShowsTMDB: Network error (" << httpStatusCode << ") for endpoint:" << endpoint << "- Error:" << reply->errorString();
         }
         
         reply->deleteLater();
@@ -165,7 +167,8 @@ QJsonObject VP_ShowsTMDB::makeApiRequest(const QString& endpoint)
     
     QJsonDocument doc = QJsonDocument::fromJson(data);
     if (doc.isNull() || !doc.isObject()) {
-        qDebug() << "VP_ShowsTMDB: Invalid JSON response";
+        qDebug() << "VP_ShowsTMDB: Invalid JSON response for endpoint:" << endpoint;
+        qDebug() << "VP_ShowsTMDB: Raw response data:" << data.left(500); // Log first 500 chars of response
         return QJsonObject();
     }
     
@@ -391,7 +394,7 @@ QList<VP_ShowsTMDB::ShowInfo> VP_ShowsTMDB::searchTVShows(const QString& showNam
 bool VP_ShowsTMDB::getEpisodeInfo(int tmdbId, int season, int episode, EpisodeInfo& episodeInfo)
 {
     if (tmdbId <= 0 || season <= 0 || episode <= 0) {
-        qDebug() << "VP_ShowsTMDB: Invalid parameters for episode info";
+        qDebug() << "VP_ShowsTMDB: Invalid parameters for episode info - tmdbId:" << tmdbId << "season:" << season << "episode:" << episode;
         return false;
     }
     
@@ -400,10 +403,12 @@ bool VP_ShowsTMDB::getEpisodeInfo(int tmdbId, int season, int episode, EpisodeIn
                       .arg(season)
                       .arg(episode);
     
+    qDebug() << "VP_ShowsTMDB: Requesting episode info from endpoint:" << endpoint;
+    
     QJsonObject response = makeApiRequest(endpoint);
     
     if (response.isEmpty()) {
-        qDebug() << "VP_ShowsTMDB: Failed to get episode info for S" << season << "E" << episode;
+        qDebug() << "VP_ShowsTMDB: Failed to get episode info for S" << season << "E" << episode << "- Empty response from endpoint:" << endpoint;
         return false;
     }
     
