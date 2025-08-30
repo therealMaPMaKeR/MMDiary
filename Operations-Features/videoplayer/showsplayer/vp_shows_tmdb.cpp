@@ -811,7 +811,12 @@ bool VP_ShowsTMDB::downloadImage(const QString& imagePath, const QString& tempFi
     // If a specific temp path was requested and we created our own temp file,
     // move the file to the requested location
     if (!tempFilePath.isEmpty() && tempFilePtr) {
-        QFile::remove(tempFilePath);  // Remove target if it exists
+        // Use secure deletion for temp file if it exists (1 pass for temp files, allowExternalFiles=false)
+        if (QFile::exists(tempFilePath)) {
+            if (!OperationsFiles::secureDelete(tempFilePath, 1, false)) {
+                qDebug() << "VP_ShowsTMDB: Failed to securely delete existing temp file:" << tempFilePath;
+            }
+        }
         if (!QFile::rename(actualTempPath, tempFilePath)) {
             qDebug() << "VP_ShowsTMDB: Failed to move temp file to requested location";
             OperationsFiles::secureDelete(actualTempPath, 1, false);

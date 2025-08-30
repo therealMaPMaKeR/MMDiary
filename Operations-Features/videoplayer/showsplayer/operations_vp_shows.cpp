@@ -3584,7 +3584,10 @@ bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, co
             qDebug() << "Operations_VP_Shows: Invalid chunk size:" << chunkSize;
             source.close();
             target.close();
-            target.remove();
+            // Use secure deletion for partially written temp file (1 pass for temp files, allowExternalFiles=false)
+            if (!OperationsFiles::secureDelete(actualTargetFile, 1, false)) {
+                qDebug() << "Operations_VP_Shows: Failed to securely delete partial temp file:" << actualTargetFile;
+            }
             return false;
         }
         
@@ -3594,7 +3597,10 @@ bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, co
             qDebug() << "Operations_VP_Shows: Failed to read complete chunk";
             source.close();
             target.close();
-            target.remove();
+            // Use secure deletion for partially written temp file (1 pass for temp files, allowExternalFiles=false)
+            if (!OperationsFiles::secureDelete(actualTargetFile, 1, false)) {
+                qDebug() << "Operations_VP_Shows: Failed to securely delete partial temp file:" << actualTargetFile;
+            }
             return false;
         }
         
@@ -3604,7 +3610,10 @@ bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, co
             qDebug() << "Operations_VP_Shows: Failed to decrypt chunk";
             source.close();
             target.close();
-            target.remove();
+            // Use secure deletion for partially written temp file (1 pass for temp files, allowExternalFiles=false)
+            if (!OperationsFiles::secureDelete(actualTargetFile, 1, false)) {
+                qDebug() << "Operations_VP_Shows: Failed to securely delete partial temp file:" << actualTargetFile;
+            }
             return false;
         }
         
@@ -3614,7 +3623,10 @@ bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, co
             qDebug() << "Operations_VP_Shows: Failed to write decrypted chunk";
             source.close();
             target.close();
-            target.remove();
+            // Use secure deletion for partially written temp file (1 pass for temp files, allowExternalFiles=false)
+            if (!OperationsFiles::secureDelete(actualTargetFile, 1, false)) {
+                qDebug() << "Operations_VP_Shows: Failed to securely delete partial temp file:" << actualTargetFile;
+            }
             return false;
         }
         
