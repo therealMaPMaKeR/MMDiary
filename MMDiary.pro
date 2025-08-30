@@ -9,13 +9,13 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 CONFIG += c++17
 
 # Add include paths for project directories
-INCLUDEPATH += $PWD \
-               $PWD/CustomWidgets \
-               $PWD/CustomWidgets/diary \
-               $PWD/CustomWidgets/encrypteddata \
-               $PWD/CustomWidgets/tasklists \
-               $PWD/CustomWidgets/videoplayer \
-               $PWD/Operations-Features \
+INCLUDEPATH += $$PWD \
+               $$PWD/CustomWidgets \
+               $$PWD/CustomWidgets/diary \
+               $$PWD/CustomWidgets/encrypteddata \
+               $$PWD/CustomWidgets/tasklists \
+               $$PWD/CustomWidgets/videoplayer \
+               $$PWD/Operations-Features \
                $$PWD/Operations-Features/diary \
                $$PWD/Operations-Features/encrypteddata \
                $$PWD/Operations-Features/passwordmanager \
