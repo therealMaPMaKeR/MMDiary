@@ -1,6 +1,7 @@
 #include "operations_vp_shows.h"
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "CustomWidgets/videoplayer/qlist_VP_ShowsList.h"
 #include <QRandomGenerator>
 #include "VP_Shows_Videoplayer.h"
 #include "vp_shows_progressdialogs.h"
@@ -1627,7 +1628,12 @@ void Operations_VP_Shows::setupListViewMode()
 {
     qDebug() << "Operations_VP_Shows: Setting up List view mode";
     
-    QListWidget* listWidget = m_mainWindow->ui->listWidget_VP_List_List;
+    qlist_VP_ShowsList* listWidget = qobject_cast<qlist_VP_ShowsList*>(m_mainWindow->ui->listWidget_VP_List_List);
+    
+    if (!listWidget) {
+        qDebug() << "Critical-Operations_VP_Shows: Failed to cast to qlist_VP_ShowsList";
+        return;
+    }
     
     // Set to list mode
     listWidget->setViewMode(QListView::ListMode);
@@ -1652,7 +1658,12 @@ void Operations_VP_Shows::setupIconViewMode()
 {
     qDebug() << "Operations_VP_Shows: Setting up Icon view mode";
     
-    QListWidget* listWidget = m_mainWindow->ui->listWidget_VP_List_List;
+    qlist_VP_ShowsList* listWidget = qobject_cast<qlist_VP_ShowsList*>(m_mainWindow->ui->listWidget_VP_List_List);
+    
+    if (!listWidget) {
+        qDebug() << "Critical-Operations_VP_Shows: Failed to cast to qlist_VP_ShowsList";
+        return;
+    }
     
     // Set to icon mode
     listWidget->setViewMode(QListView::IconMode);
@@ -1678,7 +1689,36 @@ void Operations_VP_Shows::setupIconViewMode()
     listWidget->setMovement(QListView::Static);
     listWidget->setDragEnabled(false);
     
-    qDebug() << "Operations_VP_Shows: Icon view mode configured with drag/drop disabled";
+    // Set the scroll speed multiplier for icon view (10x faster by default)
+    // You can adjust this value to fine-tune the scrolling speed
+    listWidget->setIconViewScrollMultiplier(10.0);
+    
+    qDebug() << "Operations_VP_Shows: Icon view mode configured with drag/drop disabled and 10x scroll speed";
+}
+
+void Operations_VP_Shows::setIconViewScrollMultiplier(double multiplier)
+{
+    qDebug() << "Operations_VP_Shows: Setting icon view scroll multiplier to:" << multiplier;
+    
+    qlist_VP_ShowsList* listWidget = qobject_cast<qlist_VP_ShowsList*>(m_mainWindow->ui->listWidget_VP_List_List);
+    
+    if (listWidget) {
+        listWidget->setIconViewScrollMultiplier(multiplier);
+    } else {
+        qDebug() << "Critical-Operations_VP_Shows: Failed to cast to qlist_VP_ShowsList when setting scroll multiplier";
+    }
+}
+
+double Operations_VP_Shows::getIconViewScrollMultiplier() const
+{
+    qlist_VP_ShowsList* listWidget = qobject_cast<qlist_VP_ShowsList*>(m_mainWindow->ui->listWidget_VP_List_List);
+    
+    if (listWidget) {
+        return listWidget->getIconViewScrollMultiplier();
+    } else {
+        qDebug() << "Critical-Operations_VP_Shows: Failed to cast to qlist_VP_ShowsList when getting scroll multiplier";
+        return 1.0;  // Return default value if cast fails
+    }
 }
 
 void Operations_VP_Shows::refreshShowListItem(QListWidgetItem* item, const QString& showName, const QString& folderPath)

@@ -81,6 +81,13 @@ private:
     void setupListViewMode();
     void setupIconViewMode();
     void refreshShowListItem(QListWidgetItem* item, const QString& showName, const QString& folderPath);
+    
+public:
+    // Scroll speed configuration
+    void setIconViewScrollMultiplier(double multiplier);
+    double getIconViewScrollMultiplier() const;
+    
+private:
     QString generateRandomFileName(const QString& extension);
     bool createShowFolderStructure(QString& outputPath);
     

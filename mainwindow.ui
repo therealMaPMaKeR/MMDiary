@@ -2059,7 +2059,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                  </layout>
                 </item>
                 <item>
-                 <widget class="QListWidget" name="listWidget_VP_List_List"/>
+                 <widget class="qlist_VP_ShowsList" name="listWidget_VP_List_List"/>
                 </item>
                 <item>
                  <layout class="QHBoxLayout" name="horizontalLayout_22">
@@ -2362,6 +2362,11 @@ li.checked::marker { content: &quot;\2612&quot;; }
    <extends>QTabWidget</extends>
    <header>CustomWidgets/qtab_Main.h</header>
    <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>qlist_VP_ShowsList</class>
+   <extends>QListWidget</extends>
+   <header>CustomWidgets/videoplayer/qlist_VP_ShowsList.h</header>
   </customwidget>
  </customwidgets>
  <resources/>
