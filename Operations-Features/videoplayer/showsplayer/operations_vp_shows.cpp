@@ -5787,8 +5787,9 @@ void Operations_VP_Shows::editEpisodeMetadata()
             }
         }
         
-        QMessageBox::information(m_mainWindow, tr("Success"),
-                               tr("Metadata has been successfully updated."));
+        // Success message removed - lack of error dialog is sufficient
+        // QMessageBox::information(m_mainWindow, tr("Success"),
+        //                        tr("Metadata has been successfully updated."));
     } else {
         qDebug() << "Operations_VP_Shows: User cancelled metadata editing";
     }
@@ -5981,8 +5982,9 @@ void Operations_VP_Shows::reacquireTMDBForSingleEpisode(const QString& videoFile
     }
     
     qDebug() << "Operations_VP_Shows: Successfully updated episode with TMDB data";
-    QMessageBox::information(m_mainWindow, tr("Success"),
-                           tr("TMDB metadata has been successfully acquired."));
+    // Success message removed - lack of error dialog is sufficient
+    // QMessageBox::information(m_mainWindow, tr("Success"),
+    //                        tr("TMDB metadata has been successfully acquired."));
 }
 
 void Operations_VP_Shows::reacquireTMDBForMultipleEpisodesWithMetadata(const QStringList& videoFilePaths, 
@@ -6209,6 +6211,10 @@ void Operations_VP_Shows::reacquireTMDBForMultipleEpisodesWithMetadata(const QSt
         }
     }
     
+    // Check if operation was truly cancelled (not just completed)
+    int processedCount = successCount + failedCount;
+    bool wasActuallyCancelled = operationCancelled && (processedCount < videoFilePaths.size());
+    
     // Close progress dialog
     if (progressDialog->isVisible()) {
         progressDialog->close();
@@ -6222,7 +6228,7 @@ void Operations_VP_Shows::reacquireTMDBForMultipleEpisodesWithMetadata(const QSt
                      .arg(successCount)
                      .arg(failedCount);
     
-    if (operationCancelled) {
+    if (wasActuallyCancelled) {
         summary += tr("\n\nOperation was cancelled by user.");
     }
     
@@ -6455,6 +6461,10 @@ void Operations_VP_Shows::reacquireTMDBForMultipleEpisodes(const QStringList& vi
         }
     }
     
+    // Check if operation was truly cancelled (not just completed)
+    int processedCount = successCount + failedCount;
+    bool wasActuallyCancelled = operationCancelled && (processedCount < videoFilePaths.size());
+    
     // Close progress dialog
     if (progressDialog->isVisible()) {
         progressDialog->close();
@@ -6468,7 +6478,7 @@ void Operations_VP_Shows::reacquireTMDBForMultipleEpisodes(const QStringList& vi
                      .arg(successCount)
                      .arg(failedCount);
     
-    if (operationCancelled) {
+    if (wasActuallyCancelled) {
         summary += tr("\n\nOperation was cancelled by user.");
     }
     

@@ -1046,6 +1046,9 @@ void VP_ShowsSettingsDialog::onReacquireTMDBDataClicked()
         }
     }
     
+    // Check if operation was truly cancelled (not just completed)
+    bool wasActuallyCancelled = operationCancelled && (processedCount < videoFiles.size());
+    
     // Close progress dialog if it's still open
     if (progressDialog->isVisible()) {
         progressDialog->close();
@@ -1061,7 +1064,7 @@ void VP_ShowsSettingsDialog::onReacquireTMDBDataClicked()
                      .arg(successCount)
                      .arg(failedCount);
     
-    if (operationCancelled) {
+    if (wasActuallyCancelled) {
         summary += tr("\n\nOperation was cancelled by user.");
     }
     

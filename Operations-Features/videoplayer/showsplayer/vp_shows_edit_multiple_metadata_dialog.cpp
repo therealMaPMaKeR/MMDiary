@@ -634,10 +634,10 @@ void VP_ShowsEditMultipleMetadataDialog::accept()
             }
         }
         
-        // Show success message
-        QMessageBox::information(this, tr("Success"),
-                               tr("Successfully updated metadata for %1 files.")
-                               .arg(m_modifiedFileCount));
+        // Success message removed - lack of error dialog is sufficient
+        // QMessageBox::information(this, tr("Success"),
+        //                        tr("Successfully updated metadata for %1 files.")
+        //                        .arg(m_modifiedFileCount));
     } else {
         // Update changes structure from UI so parent can use them
         updateChangesFromUI();
@@ -662,10 +662,10 @@ bool VP_ShowsEditMultipleMetadataDialog::applyChangesAndSave()
         }
     }
     
-    // Show success message
-    QMessageBox::information(this, tr("Success"),
-                           tr("Successfully updated metadata for %1 files.")
-                           .arg(m_modifiedFileCount));
+    // Success message removed - lack of error dialog is sufficient
+    // QMessageBox::information(this, tr("Success"),
+    //                        tr("Successfully updated metadata for %1 files.")
+    //                        .arg(m_modifiedFileCount));
     
     return true;
 }
