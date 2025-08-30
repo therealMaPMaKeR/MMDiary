@@ -75,7 +75,8 @@ bool VP_ShowsSettings::loadShowSettings(const QString& showFolderPath, ShowSetti
              << settings.showName << "SkipIntro:" 
              << settings.skipIntro << "SkipOutro:" << settings.skipOutro 
              << "Autoplay:" << settings.autoplay << "AutoplayRandom:" << settings.autoplayRandom
-             << "UseTMDB:" << settings.useTMDB << "AutoFullscreen:" << settings.autoFullscreen;
+             << "UseTMDB:" << settings.useTMDB << "AutoFullscreen:" << settings.autoFullscreen
+             << "DisplayFileNames:" << settings.displayFileNames;
     return true;
 }
 
@@ -86,7 +87,8 @@ bool VP_ShowsSettings::saveShowSettings(const QString& showFolderPath, const Sho
              << "SkipIntro:" << settings.skipIntro 
              << "SkipOutro:" << settings.skipOutro 
              << "Autoplay:" << settings.autoplay << "AutoplayRandom:" << settings.autoplayRandom
-             << "UseTMDB:" << settings.useTMDB << "AutoFullscreen:" << settings.autoFullscreen;
+             << "UseTMDB:" << settings.useTMDB << "AutoFullscreen:" << settings.autoFullscreen
+             << "DisplayFileNames:" << settings.displayFileNames;
     
     // Validate folder path
     if (showFolderPath.isEmpty()) {
@@ -198,6 +200,10 @@ void VP_ShowsSettings::convertMapToSettings(const QMap<QString, QVariant>& setti
         settings.autoFullscreen = settingsMap["autoFullscreen"].toBool();
     }
     
+    if (settingsMap.contains("displayFileNames")) {
+        settings.displayFileNames = settingsMap["displayFileNames"].toBool();
+    }
+    
     qDebug() << "VP_ShowsSettings: Conversion completed - converted" << settingsMap.size() << "fields";
 }
 
@@ -215,6 +221,7 @@ void VP_ShowsSettings::convertSettingsToMap(const ShowSettings& settings, QMap<Q
     settingsMap["autoplayRandom"] = settings.autoplayRandom;
     settingsMap["useTMDB"] = settings.useTMDB;
     settingsMap["autoFullscreen"] = settings.autoFullscreen;
+    settingsMap["displayFileNames"] = settings.displayFileNames;
     
     qDebug() << "VP_ShowsSettings: Conversion completed - created" << settingsMap.size() << "fields";
 }

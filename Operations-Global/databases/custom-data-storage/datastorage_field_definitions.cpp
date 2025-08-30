@@ -45,6 +45,7 @@ void DataStorage_FieldDefinitions::registerTVShowSettingsFields()
     tvShowFields.append(FieldDefinition("autoplayRandom", Boolean, false, true));  // Random episode autoplay
     tvShowFields.append(FieldDefinition("useTMDB", Boolean, true, true));  // Default to enabled
     tvShowFields.append(FieldDefinition("autoFullscreen", Boolean, true, true));  // Default true to match ShowSettings
+    tvShowFields.append(FieldDefinition("displayFileNames", Boolean, false, true));  // Display file names instead of episode names
     
     m_fieldRegistry[TVShowSettings] = tvShowFields;
     

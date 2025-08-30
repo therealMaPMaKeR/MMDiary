@@ -1823,9 +1823,9 @@ void Operations_VP_Shows::openShowSettings()
     if (settingsDialog.exec() == QDialog::Accepted) {
         qDebug() << "Operations_VP_Shows: Show settings saved";
         
-        // Check if TMDB data was updated and reload tree widget if needed
-        if (settingsDialog.wasTMDBDataUpdated()) {
-            qDebug() << "Operations_VP_Shows: TMDB data was updated, reloading episode tree";
+        // Check if TMDB data was updated or display file names setting changed and reload tree widget if needed
+        if (settingsDialog.wasTMDBDataUpdated() || settingsDialog.wasDisplayFileNamesChanged()) {
+            qDebug() << "Operations_VP_Shows: TMDB data or display file names setting was updated, reloading episode tree";
             loadShowEpisodes(m_currentShowFolder);
         }
         
@@ -2399,6 +2399,8 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             QFileInfo fileInfo(videoFile);
             QString displayName = fileInfo.fileName();
             
+            // For broken files, we always show the file name regardless of setting
+            // since we can't read metadata to get episode names
             brokenItem->setText(0, displayName);
             brokenItem->setData(0, Qt::UserRole, videoPath);
             
@@ -2426,8 +2428,17 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             
             // Format the error episode name
             QFileInfo fileInfo(metadata.filename);
-            QString baseName = fileInfo.completeBaseName();
-            QString errorName = QString("[ERROR] %1").arg(baseName);
+            QString errorName;
+            
+            if (m_currentShowSettings.displayFileNames) {
+                // Display the actual file name with ERROR prefix
+                errorName = QString("[ERROR] %1").arg(fileInfo.fileName());
+                qDebug() << "Operations_VP_Shows: Using file name for error episode display:" << errorName;
+            } else {
+                // Use base name with ERROR prefix
+                QString baseName = fileInfo.completeBaseName();
+                errorName = QString("[ERROR] %1").arg(baseName);
+            }
             
             errorItem->setText(0, errorName);
             errorItem->setData(0, Qt::UserRole, videoPath);
@@ -2453,15 +2464,22 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             // Create special content item
             QTreeWidgetItem* specialItem = new QTreeWidgetItem();
             
-            // Format the name based on content type
+            // Format the name based on content type and display setting
             QString itemName;
             QFileInfo fileInfo(metadata.filename);
-            QString baseName = fileInfo.completeBaseName();
             
-            if (!metadata.EPName.isEmpty()) {
-                itemName = metadata.EPName;
+            if (m_currentShowSettings.displayFileNames) {
+                // Display the actual file name
+                itemName = fileInfo.fileName();
+                qDebug() << "Operations_VP_Shows: Using file name for special content display:" << itemName;
             } else {
-                itemName = baseName;
+                // Use episode name or base name
+                QString baseName = fileInfo.completeBaseName();
+                if (!metadata.EPName.isEmpty()) {
+                    itemName = metadata.EPName;
+                } else {
+                    itemName = baseName;
+                }
             }
             
             specialItem->setText(0, itemName);
@@ -2532,29 +2550,37 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         // Create episode item
         QTreeWidgetItem* episodeItem = new QTreeWidgetItem();
         
-        // Format the episode name based on numbering type
-        QString episodeName;
-        if (metadata.isAbsoluteNumbering()) {
-            // For absolute numbering, just use episode number without season
-            if (!metadata.EPName.isEmpty()) {
-                episodeName = QString("Episode %1 - %2").arg(episodeNum).arg(metadata.EPName);
-            } else {
-                QFileInfo fileInfo(metadata.filename);
-                QString baseName = fileInfo.completeBaseName();
-                episodeName = QString("Episode %1 - %2").arg(episodeNum).arg(baseName);
-            }
+        // Check if we should display file names instead of episode names
+        QString displayText;
+        if (m_currentShowSettings.displayFileNames) {
+            // Display the actual file name
+            QFileInfo fileInfo(metadata.filename);
+            displayText = fileInfo.fileName();
+            qDebug() << "Operations_VP_Shows: Using file name for display:" << displayText;
         } else {
-            // Traditional season/episode numbering
-            if (!metadata.EPName.isEmpty()) {
-                episodeName = QString("%1 - %2").arg(episodeNum).arg(metadata.EPName);
+            // Format the episode name based on numbering type
+            if (metadata.isAbsoluteNumbering()) {
+                // For absolute numbering, just use episode number without season
+                if (!metadata.EPName.isEmpty()) {
+                    displayText = QString("Episode %1 - %2").arg(episodeNum).arg(metadata.EPName);
+                } else {
+                    QFileInfo fileInfo(metadata.filename);
+                    QString baseName = fileInfo.completeBaseName();
+                    displayText = QString("Episode %1 - %2").arg(episodeNum).arg(baseName);
+                }
             } else {
-                QFileInfo fileInfo(metadata.filename);
-                QString baseName = fileInfo.completeBaseName();
-                episodeName = QString("%1 - %2").arg(episodeNum).arg(baseName);
+                // Traditional season/episode numbering
+                if (!metadata.EPName.isEmpty()) {
+                    displayText = QString("%1 - %2").arg(episodeNum).arg(metadata.EPName);
+                } else {
+                    QFileInfo fileInfo(metadata.filename);
+                    QString baseName = fileInfo.completeBaseName();
+                    displayText = QString("%1 - %2").arg(episodeNum).arg(baseName);
+                }
             }
         }
         
-        episodeItem->setText(0, episodeName);
+        episodeItem->setText(0, displayText);
         
         // Store the file path in the item's data
         episodeItem->setData(0, Qt::UserRole, videoPath);
@@ -2565,7 +2591,7 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             QString relativeEpisodePath = showDir.relativeFilePath(videoPath);
             if (m_watchHistory->isEpisodeCompleted(relativeEpisodePath)) {
                 episodeItem->setForeground(0, QBrush(watchedColor));
-                qDebug() << "Operations_VP_Shows: Episode marked as watched:" << episodeName;
+                //qDebug() << "Operations_VP_Shows: Episode marked as watched:" << episodeName; // episodeName is undeclared identifier, disabled debug output because I'm lazy
             }
         }
         
@@ -2585,8 +2611,8 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             languageVersions[languageKey][seasonNum].append(QPair<int, QTreeWidgetItem*>(episodeNum, episodeItem));
         }
         
-        qDebug() << "Operations_VP_Shows: Added episode" << languageKey 
-                 << "S" << seasonNum << "E" << episodeNum << "-" << episodeName;
+        //qDebug() << "Operations_VP_Shows: Added episode" << languageKey
+        //         << "S" << seasonNum << "E" << episodeNum << "-" << episodeName; // episodeName is undeclared identifier, disabled debug output because I'm lazy
     }
     
     // Create language/translation items, then season items, then add episodes

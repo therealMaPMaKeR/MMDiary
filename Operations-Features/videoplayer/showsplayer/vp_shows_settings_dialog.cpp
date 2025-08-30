@@ -58,6 +58,7 @@ VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QS
     , m_hoveredItemIndex(-1)
     , m_itemJustSelected(false)
     , m_tmdbDataWasUpdated(false)
+    , m_displayFileNamesChanged(false)
 {
     ui->setupUi(this);
     
@@ -1313,13 +1314,15 @@ void VP_ShowsSettingsDialog::loadShowSettings()
     ui->checkBox_SkipOutro->setChecked(m_currentSettings.skipOutro);
     ui->checkBox_UseTMDB->setChecked(m_currentSettings.useTMDB);
     ui->checkBox_AutoFullscreen->setChecked(m_currentSettings.autoFullscreen);
+    ui->checkBox_DisplayFileNames->setChecked(m_currentSettings.displayFileNames);
     
     qDebug() << "VP_ShowsSettingsDialog: Settings loaded - Autoplay:" << m_currentSettings.autoplay
              << "AutoplayRandom:" << m_currentSettings.autoplayRandom
              << "SkipIntro:" << m_currentSettings.skipIntro
              << "SkipOutro:" << m_currentSettings.skipOutro
              << "UseTMDB:" << m_currentSettings.useTMDB
-             << "AutoFullscreen:" << m_currentSettings.autoFullscreen;
+             << "AutoFullscreen:" << m_currentSettings.autoFullscreen
+             << "DisplayFileNames:" << m_currentSettings.displayFileNames;
 }
 
 void VP_ShowsSettingsDialog::saveShowSettings()
@@ -1367,13 +1370,15 @@ void VP_ShowsSettingsDialog::saveShowSettings()
     m_currentSettings.skipOutro = ui->checkBox_SkipOutro->isChecked();
     m_currentSettings.useTMDB = ui->checkBox_UseTMDB->isChecked();
     m_currentSettings.autoFullscreen = ui->checkBox_AutoFullscreen->isChecked();
+    m_currentSettings.displayFileNames = ui->checkBox_DisplayFileNames->isChecked();
     
     qDebug() << "VP_ShowsSettingsDialog: Settings to save - Autoplay:" << m_currentSettings.autoplay
              << "AutoplayRandom:" << m_currentSettings.autoplayRandom
              << "SkipIntro:" << m_currentSettings.skipIntro
              << "SkipOutro:" << m_currentSettings.skipOutro
              << "UseTMDB:" << m_currentSettings.useTMDB
-             << "AutoFullscreen:" << m_currentSettings.autoFullscreen;
+             << "AutoFullscreen:" << m_currentSettings.autoFullscreen
+             << "DisplayFileNames:" << m_currentSettings.displayFileNames;
     
     // Create settings manager
     VP_ShowsSettings settingsManager(encryptionKey, username);
@@ -1880,6 +1885,16 @@ void VP_ShowsSettingsDialog::onUseCustomDescClicked()
 void VP_ShowsSettingsDialog::accept()
 {
     qDebug() << "VP_ShowsSettingsDialog: OK button pressed, processing changes";
+    
+    // Check if displayFileNames setting changed before saving
+    bool oldDisplayFileNames = m_currentSettings.displayFileNames;
+    bool newDisplayFileNames = ui->checkBox_DisplayFileNames->isChecked();
+    
+    if (oldDisplayFileNames != newDisplayFileNames) {
+        m_displayFileNamesChanged = true;
+        qDebug() << "VP_ShowsSettingsDialog: Display file names setting changed from" 
+                 << oldDisplayFileNames << "to" << newDisplayFileNames;
+    }
     
     // First update all video metadata with the new show name
     updateAllVideosMetadata();

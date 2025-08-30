@@ -29,6 +29,8 @@ public slots:
 public:
     // Check if TMDB data was updated (for tree refresh)
     bool wasTMDBDataUpdated() const { return m_tmdbDataWasUpdated; }
+    // Check if display file names setting was changed (for tree refresh)
+    bool wasDisplayFileNamesChanged() const { return m_displayFileNamesChanged; }
 
 private slots:
     // Autofill/Search functionality slots
@@ -144,6 +146,7 @@ private:
     static constexpr int SEARCH_DELAY_MS = 500;  // Debounce delay for search
     static constexpr int MAX_SUGGESTIONS = 8;    // Maximum number of suggestions to show
     // Note: Suggestion item heights are now calculated dynamically based on actual content
+    bool m_displayFileNamesChanged;   // Track if display file names setting changed
 };
 
 #endif // VP_SHOWS_SETTINGS_DIALOG_H

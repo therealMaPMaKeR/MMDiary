@@ -79,6 +79,13 @@
       </widget>
      </item>
      <item>
+      <widget class="QCheckBox" name="checkBox_DisplayFileNames">
+       <property name="text">
+        <string>Display file names instead of episode names</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QPushButton" name="pushButton_ResetWatchHistory">
        <property name="text">
         <string>Reset Watch History</string>
