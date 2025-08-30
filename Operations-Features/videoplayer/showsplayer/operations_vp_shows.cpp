@@ -16,6 +16,7 @@
 #include "CryptoUtils.h"
 #include "vp_shows_watchhistory.h"  // Core watch history data management
 #include "vp_shows_playback_tracker.h"  // Playback tracking integration
+#include "vp_shows_favourites.h"  // Favourites management
 #include "../vp_metadata_lock_manager.h"  // Metadata lock manager for concurrent access protection
 #include <QCheckBox>
 #include <QDataStream>
@@ -229,6 +230,9 @@ Operations_VP_Shows::~Operations_VP_Shows()
     }
     if (m_watchHistory) {
         m_watchHistory.reset();
+    }
+    if (m_showFavourites) {
+        m_showFavourites.reset();
     }
     
     // m_encryptionDialog is a QPointer, will be automatically nulled when deleted
@@ -2087,6 +2091,23 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName)
             m_watchHistory->saveHistory();
         } else {
             qDebug() << "Operations_VP_Shows: Loaded existing watch history";
+        }
+    }
+    
+    // Initialize favourites manager for this show
+    if (m_mainWindow && !m_mainWindow->user_Key.isEmpty() && !m_mainWindow->user_Username.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Initializing favourites manager for show";
+        m_showFavourites = std::make_unique<VP_ShowsFavourites>(
+            showFolderPath,
+            m_mainWindow->user_Key,
+            m_mainWindow->user_Username
+        );
+        
+        // Try to load existing favourites
+        if (!m_showFavourites->loadFavourites()) {
+            qDebug() << "Operations_VP_Shows: No existing favourites found or failed to load";
+        } else {
+            qDebug() << "Operations_VP_Shows: Loaded existing favourites, count:" << m_showFavourites->getFavouriteCount();
         }
     }
     
@@ -4772,8 +4793,48 @@ void Operations_VP_Shows::showEpisodeContextMenu(const QPoint& pos)
 
         markWatchedAction = contextMenu->addAction(actionText);
         connect(markWatchedAction, &QAction::triggered, this, &Operations_VP_Shows::toggleWatchedStateFromContextMenu);
-
-        // Add a separator after the mark watched action
+    }
+    
+    // Add Mark as Favourite action
+    QAction* markFavouriteAction = nullptr;
+    if (m_showFavourites) {
+        // Check favourite status for the selected episodes
+        bool allFavourites = true;
+        bool someFavourites = false;
+        
+        for (const QString& episodePath : m_contextMenuEpisodePaths) {
+            QDir showDir(m_currentShowFolder);
+            QString relativePath = showDir.relativeFilePath(episodePath);
+            
+            if (m_showFavourites->isEpisodeFavourite(relativePath)) {
+                someFavourites = true;
+            } else {
+                allFavourites = false;
+            }
+        }
+        
+        // Determine action text based on current state
+        QString favouriteActionText;
+        if (allFavourites) {
+            favouriteActionText = tr("Mark as Favourite ★");  // Filled star for favourited
+        } else if (someFavourites) {
+            favouriteActionText = tr("Mark as Favourite ☆");  // Half-filled or outline star for partial
+        } else {
+            favouriteActionText = tr("Mark as Favourite ☆");  // Outline star for not favourited
+        }
+        
+        // Add appropriate suffix for multiple items or categories
+        if (isMultiSelection || hasCategories) {
+            int episodeCount = m_contextMenuEpisodePaths.size();
+            favouriteActionText += tr(" (%1 episode%2)").arg(episodeCount).arg(episodeCount > 1 ? "s" : "");
+        }
+        
+        markFavouriteAction = contextMenu->addAction(favouriteActionText);
+        connect(markFavouriteAction, &QAction::triggered, this, &Operations_VP_Shows::toggleFavouriteStateFromContextMenu);
+    }
+    
+    // Add a separator after the mark watched and favourite actions
+    if (markWatchedAction || markFavouriteAction) {
         contextMenu->addSeparator();
     }
 
@@ -6693,6 +6754,9 @@ void Operations_VP_Shows::refreshEpisodeTreeColors()
     // Expand to show the last watched episode location
     expandToLastWatchedEpisode();
     
+    // Update favourite indicators in the tree
+    updateFavouriteIndicators();
+    
     // Update the Play button text after refreshing episode states
     updatePlayButtonText();
 }
@@ -7088,4 +7152,168 @@ void Operations_VP_Shows::toggleWatchedStateFromContextMenu()
 
     // Optional: Show a status message (you can use statusBar if available)
     qDebug() << "Operations_VP_Shows:" << message;
+}
+
+// Slot for handling the mark as favourite/unfavourite action
+void Operations_VP_Shows::toggleFavouriteStateFromContextMenu()
+{
+    if (!m_showFavourites) {
+        qDebug() << "Operations_VP_Shows: Cannot toggle favourite state - favourites manager not available";
+        return;
+    }
+    
+    // Get all selected items
+    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+    QList<QTreeWidgetItem*> selectedItems = treeWidget->selectedItems();
+    
+    if (selectedItems.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No items selected for favourite state toggle";
+        return;
+    }
+    
+    if (m_contextMenuEpisodePaths.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No episode paths for favourite toggle";
+        return;
+    }
+    
+    // Determine if we're marking as favourite or unfavourite
+    // Check if all selected episodes are already favourites
+    bool allFavourites = true;
+    for (const QString& episodePath : m_contextMenuEpisodePaths) {
+        QDir showDir(m_currentShowFolder);
+        QString relativePath = showDir.relativeFilePath(episodePath);
+        
+        if (!m_showFavourites->isEpisodeFavourite(relativePath)) {
+            allFavourites = false;
+            break;
+        }
+    }
+    
+    bool markAsFavourite = !allFavourites;
+    
+    qDebug() << "Operations_VP_Shows: Toggling favourite state for" << m_contextMenuEpisodePaths.size() 
+             << "episodes. Marking as favourite:" << markAsFavourite;
+    
+    // Apply the favourite state to all selected episodes
+    int successCount = 0;
+    int failCount = 0;
+    
+    for (const QString& episodePath : m_contextMenuEpisodePaths) {
+        QDir showDir(m_currentShowFolder);
+        QString relativePath = showDir.relativeFilePath(episodePath);
+        
+        bool success = false;
+        if (markAsFavourite) {
+            success = m_showFavourites->addEpisodeToFavourites(relativePath);
+        } else {
+            success = m_showFavourites->removeEpisodeFromFavourites(relativePath);
+        }
+        
+        if (success) {
+            successCount++;
+        } else {
+            failCount++;
+            qDebug() << "Operations_VP_Shows: Failed to toggle favourite for:" << relativePath;
+        }
+    }
+    
+    // Update visual indicators in the tree widget
+    updateFavouriteIndicators();
+    
+    // Show feedback to user
+    QString message;
+    int episodeCount = m_contextMenuEpisodePaths.size();
+    
+    if (selectedItems.size() == 1 && m_contextMenuTreeItem && m_contextMenuTreeItem->childCount() == 0) {
+        // Single episode
+        message = markAsFavourite ?
+                      tr("Episode \"%1\" marked as favourite").arg(m_contextMenuTreeItem->text(0)) :
+                      tr("Episode \"%1\" removed from favourites").arg(m_contextMenuTreeItem->text(0));
+    } else {
+        // Multiple episodes or category
+        if (failCount == 0) {
+            message = markAsFavourite ?
+                          tr("Marked %1 episode%2 as favourite").arg(episodeCount).arg(episodeCount > 1 ? "s" : "") :
+                          tr("Removed %1 episode%2 from favourites").arg(episodeCount).arg(episodeCount > 1 ? "s" : "");
+        } else {
+            message = tr("Successfully updated %1 of %2 episodes").arg(successCount).arg(episodeCount);
+        }
+    }
+    
+    // Optional: Show a status message
+    qDebug() << "Operations_VP_Shows:" << message;
+    
+    // If there were failures, show a warning
+    if (failCount > 0) {
+        QMessageBox::warning(m_mainWindow, tr("Partial Success"),
+                           tr("%1\n\n%2 episode(s) could not be updated.").arg(message).arg(failCount));
+    }
+}
+
+void Operations_VP_Shows::updateFavouriteIndicators()
+{
+    if (!m_showFavourites) {
+        qDebug() << "Operations_VP_Shows: Cannot update favourite indicators - favourites manager not available";
+        return;
+    }
+    
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList) {
+        qDebug() << "Operations_VP_Shows: Cannot update favourite indicators - tree widget not available";
+        return;
+    }
+    
+    QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
+    
+    // Iterate through all items in the tree
+    for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* languageItem = treeWidget->topLevelItem(i);
+        
+        for (int j = 0; j < languageItem->childCount(); ++j) {
+            QTreeWidgetItem* seasonItem = languageItem->child(j);
+            
+            for (int k = 0; k < seasonItem->childCount(); ++k) {
+                QTreeWidgetItem* episodeItem = seasonItem->child(k);
+                
+                // Get the episode path from user data
+                QString episodePath = episodeItem->data(0, Qt::UserRole).toString();
+                if (!episodePath.isEmpty()) {
+                    // Convert to relative path
+                    QDir showDir(m_currentShowFolder);
+                    QString relativePath = showDir.relativeFilePath(episodePath);
+                    
+                    // Get the original text without any existing indicators
+                    QString originalText = episodeItem->text(0);
+                    
+                    // Remove any existing star indicators (both filled and outline)
+                    originalText.remove(" ★");  // Remove filled star
+                    originalText.remove(" ☆");  // Remove outline star
+                    
+                    // Check if this episode is a favourite
+                    if (m_showFavourites->isEpisodeFavourite(relativePath)) {
+                        // Add a filled star to indicate it's a favourite
+                        episodeItem->setText(0, originalText + " ★");
+                        
+                        // Optional: Set a different color or font for favourites
+                        QFont font = episodeItem->font(0);
+                        font.setBold(true);
+                        episodeItem->setFont(0, font);
+                        
+                        // Optional: Set a golden color for the star
+                        episodeItem->setForeground(0, QBrush(QColor(255, 215, 0)));  // Gold color
+                    } else {
+                        // Reset to original text without star
+                        episodeItem->setText(0, originalText);
+                        
+                        // Reset font and color
+                        QFont font = episodeItem->font(0);
+                        font.setBold(false);
+                        episodeItem->setFont(0, font);
+                        episodeItem->setForeground(0, treeWidget->palette().text());  // Default color
+                    }
+                }
+            }
+        }
+    }
+    
+    qDebug() << "Operations_VP_Shows: Updated favourite indicators in tree widget";
 }

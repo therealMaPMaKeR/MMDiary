@@ -23,6 +23,7 @@ class VP_Shows_Videoplayer;
 class VP_ShowsEncryptionProgressDialog;
 class VP_ShowsWatchHistory;
 class VP_ShowsPlaybackTracker;
+class VP_ShowsFavourites;
 
 class Operations_VP_Shows : public QObject
 {
@@ -36,6 +37,7 @@ private:
     QPointer<VP_ShowsEncryptionProgressDialog> m_encryptionDialog;  // Use QPointer for safety
     std::unique_ptr<VP_ShowsWatchHistory> m_watchHistory;     // Direct watch history access (for non-playback queries)
     std::unique_ptr<VP_ShowsPlaybackTracker> m_playbackTracker; // Playback tracking and integration
+    std::unique_ptr<VP_ShowsFavourites> m_showFavourites;     // Favourites management for current show
     
     // Store mapping between show names and their folder paths
     QMap<QString, QString> m_showFolderMapping;
@@ -200,9 +202,12 @@ public:
     void deleteEpisodeFromContextMenu();
     void editEpisodeMetadata();
     void editMultipleEpisodesMetadata();
+    void toggleWatchedStateFromContextMenu();
+    void toggleFavouriteStateFromContextMenu();
     
     // Helper functions for episode operations
     void collectEpisodesFromTreeItem(QTreeWidgetItem* item, QStringList& episodePaths);
+    void updateFavouriteIndicators();  // Update visual indicators for favourite episodes
     
     // Helper functions for broken file handling
     bool isItemBroken(QTreeWidgetItem* item) const;
@@ -297,7 +302,7 @@ private slots:
     void onSearchTextChanged(const QString& text);
     void onSearchTimerTimeout();
     
-    void toggleWatchedStateFromContextMenu();
+    //void toggleWatchedStateFromContextMenu();
 
 signals:
     void videoPlayerError(const QString& errorMessage);
