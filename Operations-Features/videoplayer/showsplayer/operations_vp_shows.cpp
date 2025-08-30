@@ -7297,6 +7297,9 @@ void Operations_VP_Shows::updateFavouriteIndicators()
     
     QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
     
+    // Define the watched color to match what's used elsewhere
+    QColor watchedColor(128, 128, 128); // Grey color for watched items
+    
     // Iterate through all items in the tree
     for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
         QTreeWidgetItem* languageItem = treeWidget->topLevelItem(i);
@@ -7321,6 +7324,12 @@ void Operations_VP_Shows::updateFavouriteIndicators()
                     originalText.remove(" ★");  // Remove filled star
                     originalText.remove(" ☆");  // Remove outline star
                     
+                    // Check if this episode is watched
+                    bool isWatched = false;
+                    if (m_watchHistory) {
+                        isWatched = m_watchHistory->isEpisodeCompleted(relativePath);
+                    }
+                    
                     // Check if this episode is a favourite
                     if (m_showFavourites->isEpisodeFavourite(relativePath)) {
                         // Add a filled star to indicate it's a favourite
@@ -7337,11 +7346,17 @@ void Operations_VP_Shows::updateFavouriteIndicators()
                         // Reset to original text without star
                         episodeItem->setText(0, originalText);
                         
-                        // Reset font and color
+                        // Reset font
                         QFont font = episodeItem->font(0);
                         font.setBold(false);
                         episodeItem->setFont(0, font);
-                        episodeItem->setForeground(0, treeWidget->palette().text());  // Default color
+                        
+                        // Preserve watched state color or reset to default
+                        if (isWatched) {
+                            episodeItem->setForeground(0, QBrush(watchedColor));  // Keep watched color
+                        } else {
+                            episodeItem->setForeground(0, QBrush());  // Reset to default color
+                        }
                     }
                 }
             }
