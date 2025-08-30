@@ -23,6 +23,42 @@ bool VP_Shows_Videoplayer::s_wasMinimized = false;
 int VP_Shows_Videoplayer::s_lastVolume = 70;  // Default volume
 bool VP_Shows_Videoplayer::s_hasStoredSettings = false;
 
+// Implementation of getCurrentScreen() method - gets the screen the player is currently on
+QScreen* VP_Shows_Videoplayer::getCurrentScreen() const
+{
+    qDebug() << "VP_Shows_Videoplayer: Getting current screen for player window";
+    
+    // First try to get the screen through the window handle (most accurate)
+    if (windowHandle()) {
+        QScreen* screen = windowHandle()->screen();
+        if (screen) {
+            qDebug() << "VP_Shows_Videoplayer: Got screen from window handle:" << screen->name();
+            return screen;
+        }
+    }
+    
+    // Fallback: Find which screen contains the center of our window
+    QPoint center = geometry().center();
+    
+    // If we're a top-level window, the geometry is already in global coordinates
+    if (isWindow()) {
+        center = geometry().center();
+    } else {
+        // If we have a parent, convert to global coordinates
+        center = mapToGlobal(rect().center());
+    }
+    
+    QScreen* screen = QGuiApplication::screenAt(center);
+    if (screen) {
+        qDebug() << "VP_Shows_Videoplayer: Got screen from window center:" << screen->name();
+        return screen;
+    }
+    
+    // Last fallback: return primary screen
+    qDebug() << "VP_Shows_Videoplayer: Falling back to primary screen";
+    return QGuiApplication::primaryScreen();
+}
+
 // Custom clickable slider class for seeking in video
 class VP_Shows_Videoplayer::ClickableSlider : public QSlider
 {
@@ -275,7 +311,21 @@ void VP_Shows_Videoplayer::toggleFullScreen()
             // Move window to the target screen BEFORE going fullscreen
             // This ensures fullscreen happens on the correct monitor
             QRect screenGeometry = screen->geometry();
-            move(screenGeometry.topLeft());
+            
+            // Position the window on the target screen
+            move(screenGeometry.center() - rect().center());
+            
+            // CRITICAL: Activate the window on the correct screen
+            // This ensures focus is on the right monitor before fullscreen
+            show();
+            raise();
+            activateWindow();
+            setFocus();
+            
+            // Process events to ensure window is properly positioned
+            QApplication::processEvents();
+            
+            qDebug() << "VP_Shows_Videoplayer: Window activated on screen before fullscreen";
         }
 
         // Remove window frame for true fullscreen
@@ -1116,11 +1166,19 @@ void VP_Shows_Videoplayer::startInFullScreen()
             // Remember this screen for when we close
             s_lastUsedScreen = screen;
             qDebug() << "VP_Shows_Videoplayer: Going fullscreen on screen:" << screen->name();
-
-            // Move window to the target screen BEFORE going fullscreen
-            // This ensures fullscreen happens on the correct monitor
+            
+            // Position and activate window on the target screen before fullscreen
             QRect screenGeometry = screen->geometry();
-            move(screenGeometry.topLeft());
+            move(screenGeometry.center() - rect().center());
+            
+            // Ensure window is activated on the correct screen
+            show();
+            raise();
+            activateWindow();
+            setFocus();
+            
+            // Process events to ensure proper positioning
+            QApplication::processEvents();
         }
 
         // Remove window frame for true fullscreen
@@ -1297,6 +1355,42 @@ void VP_Shows_Videoplayer::showEvent(QShowEvent *event)
         qDebug() << "VP_Shows_Videoplayer: Using screen at mouse position:" << (screenToUse ? screenToUse->name() : "primary");
     }
 
+    // CRITICAL: First, position the window on the correct screen BEFORE any state changes
+    // This ensures the window is on the right monitor before going fullscreen
+    if (screenToUse) {
+        QRect screenGeometry = screenToUse->availableGeometry();
+        
+        // If we have stored geometry, position it on the target screen
+        if (s_hasStoredSettings && !s_lastWindowGeometry.isNull()) {
+            // Calculate the position relative to the target screen
+            QRect adjustedGeometry = s_lastWindowGeometry;
+            
+            // If the stored geometry is on a different screen, adjust the position
+            if (!screenGeometry.contains(adjustedGeometry.center())) {
+                // Keep the same size but center on the target screen
+                adjustedGeometry.moveCenter(screenGeometry.center());
+                qDebug() << "VP_Shows_Videoplayer: Adjusted geometry to target screen";
+            }
+            
+            setGeometry(adjustedGeometry);
+            qDebug() << "VP_Shows_Videoplayer: Positioned window on screen:" << screenToUse->name() << "at" << adjustedGeometry;
+        } else {
+            // No stored geometry, center on the target screen
+            move(screenGeometry.center() - rect().center());
+            qDebug() << "VP_Shows_Videoplayer: Centered window on screen:" << screenToUse->name();
+        }
+        
+        // IMPORTANT: Ensure the window is activated on the correct screen
+        // This prevents focus issues when another app has focus on a different monitor
+        show();
+        raise();
+        activateWindow();
+        setFocus();
+        
+        // Small delay to ensure window is properly positioned before state changes
+        QApplication::processEvents();
+    }
+    
     // Restore window state if we have stored settings (from autoplay)
     if (s_hasStoredSettings) {
         qDebug() << "VP_Shows_Videoplayer: Restoring saved window state";
@@ -1306,11 +1400,7 @@ void VP_Shows_Videoplayer::showEvent(QShowEvent *event)
         s_hasStoredSettings = false;
         qDebug() << "VP_Shows_Videoplayer: Cleared stored settings flag to prevent re-application";
 
-        // Restore geometry first (unless we're going to fullscreen/maximize/minimize)
-        if (!s_lastWindowGeometry.isNull() && !s_wasFullScreen && !s_wasMaximized && !s_wasMinimized) {
-            setGeometry(s_lastWindowGeometry);
-            qDebug() << "VP_Shows_Videoplayer: Restored geometry:" << s_lastWindowGeometry;
-        }
+        // Geometry has already been set above, skip restoring it here
 
         // Handle fullscreen restoration
         if (s_wasFullScreen) {
@@ -1551,22 +1641,6 @@ void VP_Shows_Videoplayer::showCursor()
 
         // No need to deal with override cursors since we're not using them anymore
     }
-}
-
-QScreen* VP_Shows_Videoplayer::getCurrentScreen() const
-{
-    // Get the screen this window is currently on
-    if (windowHandle() && windowHandle()->screen()) {
-        return windowHandle()->screen();
-    }
-
-    // Fallback: get screen based on geometry
-    QPoint center = geometry().center();
-    if (parentWidget()) {
-        center = mapToGlobal(center);
-    }
-
-    return QGuiApplication::screenAt(center);
 }
 
 void VP_Shows_Videoplayer::checkMouseMovement()
