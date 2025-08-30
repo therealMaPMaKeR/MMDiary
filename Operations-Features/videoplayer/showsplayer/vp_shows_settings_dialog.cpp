@@ -57,6 +57,7 @@ VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QS
     , m_isShowingSuggestions(false)
     , m_hoveredItemIndex(-1)
     , m_itemJustSelected(false)
+    , m_tmdbDataWasUpdated(false)
 {
     ui->setupUi(this);
     
@@ -1064,6 +1065,12 @@ void VP_ShowsSettingsDialog::onReacquireTMDBDataClicked()
     }
     
     QMessageBox::information(this, tr("Re-acquisition Complete"), summary);
+    
+    // Set flag to indicate TMDB data was updated if any files were successfully processed
+    if (successCount > 0) {
+        m_tmdbDataWasUpdated = true;
+        qDebug() << "VP_ShowsSettingsDialog: TMDB data was updated for" << successCount << "files";
+    }
     
     qDebug() << "VP_ShowsSettingsDialog: TMDB reacquisition finished. Success:" << successCount << "Failed:" << failedCount;
 }

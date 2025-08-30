@@ -1823,6 +1823,12 @@ void Operations_VP_Shows::openShowSettings()
     if (settingsDialog.exec() == QDialog::Accepted) {
         qDebug() << "Operations_VP_Shows: Show settings saved";
         
+        // Check if TMDB data was updated and reload tree widget if needed
+        if (settingsDialog.wasTMDBDataUpdated()) {
+            qDebug() << "Operations_VP_Shows: TMDB data was updated, reloading episode tree";
+            loadShowEpisodes(m_currentShowFolder);
+        }
+        
         // Reload show settings to apply any changes
         loadShowSettings(m_currentShowFolder);
         

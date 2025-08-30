@@ -25,6 +25,10 @@ public:
 public slots:
     // Override accept to handle OK button
     void accept() override;
+    
+public:
+    // Check if TMDB data was updated (for tree refresh)
+    bool wasTMDBDataUpdated() const { return m_tmdbDataWasUpdated; }
 
 private slots:
     // Autofill/Search functionality slots
@@ -121,6 +125,7 @@ private:
     bool m_isShowingSuggestions;
     int m_hoveredItemIndex;  // Track hovered item index separately from selection
     bool m_itemJustSelected;  // Flag to prevent restoration after selection
+    bool m_tmdbDataWasUpdated = false;  // Flag to track if TMDB data was successfully updated
     
     // TMDB reacquisition support
     struct VideoFileInfo {
