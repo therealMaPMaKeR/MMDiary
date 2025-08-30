@@ -5862,6 +5862,16 @@ void Operations_VP_Shows::reacquireTMDBForSingleEpisode(const QString& videoFile
     // Create TMDB API instance
     VP_ShowsTMDB tmdbApi;
     
+    // Get and set API key
+    QString apiKey = VP_ShowsConfig::getTMDBApiKey();
+    if (apiKey.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No TMDB API key available";
+        QMessageBox::warning(m_mainWindow, tr("API Key Missing"),
+                           tr("TMDB API key is not configured. Please check tmdb_api_key.h."));
+        return;
+    }
+    tmdbApi.setApiKey(apiKey);
+    
     // Search for the show first
     VP_ShowsTMDB::ShowInfo showInfo;
     if (!tmdbApi.searchTVShow(metadata.showName, showInfo)) {
@@ -5951,6 +5961,19 @@ void Operations_VP_Shows::reacquireTMDBForMultipleEpisodes(const QStringList& vi
     
     // Create TMDB API instance
     VP_ShowsTMDB tmdbApi;
+    
+    // Get and set API key
+    QString apiKey = VP_ShowsConfig::getTMDBApiKey();
+    if (apiKey.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No TMDB API key available for multiple episodes";
+        progressDialog->close();
+        delete progressDialog;
+        QMessageBox::warning(m_mainWindow, tr("API Key Missing"),
+                           tr("TMDB API key is not configured. Please check tmdb_api_key.h."));
+        return;
+    }
+    tmdbApi.setApiKey(apiKey);
+    
     VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
     
     // Track results
