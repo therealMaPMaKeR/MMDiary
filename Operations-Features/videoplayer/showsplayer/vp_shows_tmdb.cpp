@@ -480,17 +480,22 @@ bool VP_ShowsTMDB::parseSeasonFromFolderName(const QString& folderName, const QS
         qDebug() << "VP_ShowsTMDB: Folder name contains extra/special/bonus - overriding content type to Extra";
     }
     
+    // If we have a content type override for non-episodic content (Movie, OVA, Extra),
+    // force season and episode to be empty (0) and skip filename parsing
+    if (hasContentOverride) {
+        season = 0;
+        episode = 0;
+        qDebug() << "VP_ShowsTMDB: Content type override detected - forcing empty season/episode values";
+        qDebug() << "VP_ShowsTMDB: Skipping filename parsing for non-episodic content";
+        return true;  // Return success with content type override and empty season/episode
+    }
+    
     // STEP 2: Parse both season and episode from filename using existing complex logic
+    // Only do this for regular episodes (no content type override)
     bool parsedFromFile = parseEpisodeFromFilename(filename, season, episode);
     
     if (!parsedFromFile) {
         qDebug() << "VP_ShowsTMDB: Failed to parse episode from filename";
-        // Even if we can't parse episode numbers, we may have content type override
-        // Return true if we have a content type override, false otherwise
-        if (hasContentOverride) {
-            qDebug() << "VP_ShowsTMDB: Returning true due to content type override despite no episode parsing";
-            return true;
-        }
         return false;
     }
     
