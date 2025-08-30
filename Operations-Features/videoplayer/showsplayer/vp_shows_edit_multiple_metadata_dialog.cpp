@@ -623,11 +623,42 @@ void VP_ShowsEditMultipleMetadataDialog::accept()
     m_shouldReacquireTMDB = ui->checkBox_ReacquireTMDB->isChecked();
     qDebug() << "VP_ShowsEditMultipleMetadataDialog: TMDB re-acquisition requested:" << m_shouldReacquireTMDB;
     
-    // Apply changes
+    // If TMDB re-acquisition is NOT requested, apply changes and save now
+    // If TMDB IS requested, we'll save after TMDB updates in the parent function
+    if (!m_shouldReacquireTMDB) {
+        // Apply changes
+        if (!applyChangesToFiles()) {
+            // If all files failed, don't accept the dialog
+            if (m_modifiedFileCount == 0) {
+                return;
+            }
+        }
+        
+        // Show success message
+        QMessageBox::information(this, tr("Success"),
+                               tr("Successfully updated metadata for %1 files.")
+                               .arg(m_modifiedFileCount));
+    } else {
+        // Update changes structure from UI so parent can use them
+        updateChangesFromUI();
+        qDebug() << "VP_ShowsEditMultipleMetadataDialog: Deferring file save until after TMDB processing";
+    }
+    
+    // Call base class accept
+    QDialog::accept();
+}
+
+bool VP_ShowsEditMultipleMetadataDialog::applyChangesAndSave()
+{
+    qDebug() << "VP_ShowsEditMultipleMetadataDialog: Applying changes and saving after TMDB processing";
+    
+    // Update changes structure from UI (in case it wasn't done yet)
+    updateChangesFromUI();
+    
+    // Apply changes and save
     if (!applyChangesToFiles()) {
-        // If all files failed, don't accept the dialog
         if (m_modifiedFileCount == 0) {
-            return;
+            return false;
         }
     }
     
@@ -636,6 +667,5 @@ void VP_ShowsEditMultipleMetadataDialog::accept()
                            tr("Successfully updated metadata for %1 files.")
                            .arg(m_modifiedFileCount));
     
-    // Call base class accept
-    QDialog::accept();
+    return true;
 }

@@ -5824,13 +5824,13 @@ void Operations_VP_Shows::editMultipleEpisodesMetadata()
     
     // Create and show the multiple metadata edit dialog
     // The dialog will handle all validation, metadata changes, and success messages
-    VP_ShowsEditMultipleMetadataDialog dialog(m_contextMenuEpisodePaths, m_mainWindow->user_Key, m_mainWindow->user_Username, m_mainWindow);
+    VP_ShowsEditMultipleMetadataDialog* dialog = new VP_ShowsEditMultipleMetadataDialog(m_contextMenuEpisodePaths, m_mainWindow->user_Key, m_mainWindow->user_Username, m_mainWindow);
     
-    if (dialog.exec() == QDialog::Accepted) {
+    if (dialog->exec() == QDialog::Accepted) {
         qDebug() << "Operations_VP_Shows: User accepted multiple metadata changes";
         
         // Check if TMDB re-acquisition was requested
-        if (dialog.shouldReacquireTMDB()) {
+        if (dialog->shouldReacquireTMDB()) {
             qDebug() << "Operations_VP_Shows: TMDB re-acquisition requested for multiple episodes";
             
             // Check if TMDB is enabled and API is available
@@ -5841,8 +5841,11 @@ void Operations_VP_Shows::editMultipleEpisodesMetadata()
                 QMessageBox::warning(m_mainWindow, tr("No API Key"),
                                    tr("TMDB API key is not configured."));
             } else {
-                // Perform TMDB re-acquisition for multiple episodes with progress dialog
-                reacquireTMDBForMultipleEpisodes(dialog.getVideoFilePaths());
+                // Perform TMDB re-acquisition using pre-loaded metadata from dialog
+                reacquireTMDBForMultipleEpisodesWithMetadata(dialog->getVideoFilePaths(), dialog->getAllMetadata(), dialog);
+                
+                // After TMDB processing, save all the updated metadata
+                dialog->applyChangesAndSave();
             }
         }
         
@@ -5853,6 +5856,8 @@ void Operations_VP_Shows::editMultipleEpisodesMetadata()
     } else {
         qDebug() << "Operations_VP_Shows: User cancelled multiple metadata editing";
     }
+    
+    delete dialog;
 }
 
 void Operations_VP_Shows::reacquireTMDBForSingleEpisode(const QString& videoFilePath, const VP_ShowsMetadata::ShowMetadata& metadata)
@@ -5891,9 +5896,41 @@ void Operations_VP_Shows::reacquireTMDBForSingleEpisode(const QString& videoFile
         return;
     }
     
+    // Check for absolute numbering and map if needed
+    int tmdbSeason = seasonNum;
+    int tmdbEpisode = episodeNum;
+    
+    if (seasonNum == 0 && episodeNum > 0) {
+        qDebug() << "Operations_VP_Shows: Absolute numbering detected for single episode" << episodeNum;
+        
+        // Build episode map for this show
+        QMap<int, VP_ShowsTMDB::EpisodeMapping> episodeMap = tmdbApi.buildEpisodeMap(showInfo.tmdbId);
+        
+        if (episodeMap.contains(episodeNum)) {
+            const VP_ShowsTMDB::EpisodeMapping& mapping = episodeMap[episodeNum];
+            tmdbSeason = mapping.season;
+            tmdbEpisode = mapping.episode;
+            qDebug() << "Operations_VP_Shows: Mapped absolute episode" << episodeNum 
+                     << "to S" << tmdbSeason << "E" << tmdbEpisode;
+        } else {
+            // Fallback calculation
+            const int episodesPerSeason = 26;
+            tmdbSeason = ((episodeNum - 1) / episodesPerSeason) + 1;
+            tmdbEpisode = ((episodeNum - 1) % episodesPerSeason) + 1;
+            qDebug() << "Operations_VP_Shows: Using fallback mapping to S" << tmdbSeason << "E" << tmdbEpisode;
+        }
+    }
+    
+    // Validate mapped values
+    if (tmdbSeason <= 0 || tmdbEpisode <= 0) {
+        QMessageBox::warning(m_mainWindow, tr("Invalid Episode Info"),
+                           tr("Could not map episode to valid TMDB season/episode."));
+        return;
+    }
+    
     // Get episode info from TMDB
     VP_ShowsTMDB::EpisodeInfo episodeInfo;
-    if (!tmdbApi.getEpisodeInfo(showInfo.tmdbId, seasonNum, episodeNum, episodeInfo)) {
+    if (!tmdbApi.getEpisodeInfo(showInfo.tmdbId, tmdbSeason, tmdbEpisode, episodeInfo)) {
         QMessageBox::warning(m_mainWindow, tr("Episode Not Found"),
                            tr("Could not find S%1E%2 on TMDB.").arg(seasonNum, 2, 10, QChar('0')).arg(episodeNum, 2, 10, QChar('0')));
         return;
@@ -5933,6 +5970,239 @@ void Operations_VP_Shows::reacquireTMDBForSingleEpisode(const QString& videoFile
     qDebug() << "Operations_VP_Shows: Successfully updated episode with TMDB data";
     QMessageBox::information(m_mainWindow, tr("Success"),
                            tr("TMDB metadata has been successfully acquired."));
+}
+
+void Operations_VP_Shows::reacquireTMDBForMultipleEpisodesWithMetadata(const QStringList& videoFilePaths, 
+                                                                       const QList<VP_ShowsMetadata::ShowMetadata>& metadataList,
+                                                                       VP_ShowsEditMultipleMetadataDialog* dialog)
+{
+    qDebug() << "Operations_VP_Shows: Re-acquiring TMDB data for" << videoFilePaths.size() << "episodes with pre-loaded metadata";
+    
+    if (videoFilePaths.isEmpty() || metadataList.isEmpty() || videoFilePaths.size() != metadataList.size()) {
+        qDebug() << "Operations_VP_Shows: Invalid input - paths and metadata count mismatch";
+        return;
+    }
+    
+    // Create progress dialog
+    VP_ShowsTMDBReacquisitionDialog* progressDialog = new VP_ShowsTMDBReacquisitionDialog(m_mainWindow);
+    progressDialog->setTotalEpisodes(videoFilePaths.size());
+    progressDialog->setWindowModality(Qt::WindowModal);
+    progressDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+    
+    // Connect cancel signal
+    bool operationCancelled = false;
+    connect(progressDialog, &VP_ShowsTMDBReacquisitionDialog::cancelRequested,
+            [&operationCancelled]() { operationCancelled = true; });
+    
+    // Show the progress dialog
+    progressDialog->show();
+    progressDialog->raise();
+    progressDialog->activateWindow();
+    
+    // Create TMDB API instance
+    VP_ShowsTMDB tmdbApi;
+    
+    // Get and set API key
+    QString apiKey = VP_ShowsConfig::getTMDBApiKey();
+    if (apiKey.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No TMDB API key available for multiple episodes";
+        progressDialog->close();
+        delete progressDialog;
+        QMessageBox::warning(m_mainWindow, tr("API Key Missing"),
+                           tr("TMDB API key is not configured. Please check tmdb_api_key.h."));
+        return;
+    }
+    tmdbApi.setApiKey(apiKey);
+    
+    // Track results
+    int successCount = 0;
+    int failedCount = 0;
+    QString currentShowName;
+    int currentShowTmdbId = -1;
+    
+    // Process each episode using pre-loaded metadata
+    for (int i = 0; i < videoFilePaths.size(); ++i) {
+        if (operationCancelled) {
+            break;
+        }
+        
+        const QString& videoFilePath = videoFilePaths[i];
+        QString fileName = QFileInfo(videoFilePath).fileName();
+        
+        progressDialog->updateProgress(i + 1, fileName);
+        QApplication::processEvents();
+        
+        // Use pre-loaded metadata - apply any dialog changes first
+        VP_ShowsMetadata::ShowMetadata metadata = metadataList[i];
+        
+        // Apply dialog changes if present (like season updates)
+        auto changes = dialog->getMetadataChanges();
+        if (changes.changeSeason) {
+            metadata.season = changes.season;
+        }
+        
+        // Search for show if it's different from the previous one
+        if (metadata.showName != currentShowName) {
+            currentShowName = metadata.showName;
+            progressDialog->setStatusMessage(tr("Searching for show: %1").arg(currentShowName));
+            QApplication::processEvents();
+            
+            VP_ShowsTMDB::ShowInfo showInfo;
+            if (!tmdbApi.searchTVShow(currentShowName, showInfo)) {
+                failedCount++;
+                continue;
+            }
+            currentShowTmdbId = showInfo.tmdbId;
+        }
+        
+        // Parse season and episode numbers
+        bool seasonOk = false, episodeOk = false;
+        int seasonNum = metadata.season.toInt(&seasonOk);
+        int episodeNum = metadata.episode.toInt(&episodeOk);
+        
+        // Check for absolute numbering (season = 0)
+        bool isAbsoluteNumbering = (seasonNum == 0 && episodeNum > 0);
+        int tmdbSeason = seasonNum;
+        int tmdbEpisode = episodeNum;
+        
+        if (isAbsoluteNumbering) {
+            qDebug() << "Operations_VP_Shows: Absolute numbering detected for episode" << episodeNum;
+            
+            // For absolute numbering, we need to build an episode map
+            // Build it once per show
+            static QMap<int, VP_ShowsTMDB::EpisodeMapping> episodeMap;
+            static int lastShowId = -1;
+            
+            if (currentShowTmdbId != lastShowId) {
+                qDebug() << "Operations_VP_Shows: Building episode map for show ID" << currentShowTmdbId;
+                episodeMap = tmdbApi.buildEpisodeMap(currentShowTmdbId);
+                lastShowId = currentShowTmdbId;
+                qDebug() << "Operations_VP_Shows: Episode map built with" << episodeMap.size() << "entries";
+            }
+            
+            // Try to map the absolute episode number
+            if (episodeMap.contains(episodeNum)) {
+                const VP_ShowsTMDB::EpisodeMapping& mapping = episodeMap[episodeNum];
+                tmdbSeason = mapping.season;
+                tmdbEpisode = mapping.episode;
+                qDebug() << "Operations_VP_Shows: Mapped absolute episode" << episodeNum 
+                         << "to S" << tmdbSeason << "E" << tmdbEpisode;
+            } else {
+                qDebug() << "Operations_VP_Shows: No mapping found for absolute episode" << episodeNum;
+                // Try a fallback calculation (26 episodes per season is common for anime)
+                const int episodesPerSeason = 26;
+                tmdbSeason = ((episodeNum - 1) / episodesPerSeason) + 1;
+                tmdbEpisode = ((episodeNum - 1) % episodesPerSeason) + 1;
+                qDebug() << "Operations_VP_Shows: Using fallback mapping to S" << tmdbSeason << "E" << tmdbEpisode;
+            }
+        }
+        
+        // Skip if we couldn't parse the numbers or if they're invalid for TMDB
+        if (!seasonOk || !episodeOk || episodeNum <= 0 || currentShowTmdbId <= 0) {
+            qDebug() << "Operations_VP_Shows: Skipping episode - Invalid episode numbers."
+                     << "Season:" << metadata.season << "Episode:" << metadata.episode;
+            failedCount++;
+            continue;
+        }
+        
+        // Also skip if the mapped values are invalid for TMDB
+        if (tmdbSeason <= 0 || tmdbEpisode <= 0) {
+            qDebug() << "Operations_VP_Shows: Skipping episode - Invalid TMDB mapping."
+                     << "TMDB Season:" << tmdbSeason << "TMDB Episode:" << tmdbEpisode;
+            failedCount++;
+            continue;
+        }
+        
+        // Get episode info from TMDB with rate limit handling
+        VP_ShowsTMDB::EpisodeInfo episodeInfo;
+        bool foundEpisode = false;
+        int retryCount = 0;
+        
+        do {
+            // Try to get episode info using mapped values for absolute numbering
+            if (tmdbApi.getEpisodeInfo(currentShowTmdbId, tmdbSeason, tmdbEpisode, episodeInfo)) {
+                foundEpisode = true;
+                break;
+            }
+
+            // API call failed, assume rate limit and retry
+            retryCount++;
+            qDebug() << "Operations_VP_Shows: API call failed for episode, retry" << retryCount;
+
+            // Show rate limit message and wait
+            progressDialog->showRateLimitMessage(1);
+            QThread::sleep(1); // Wait 1 second before retry
+            QApplication::processEvents();
+
+            // Check if dialog was closed during wait or operation cancelled
+            if (!progressDialog->isVisible() || operationCancelled) {
+                operationCancelled = true;
+                break;
+            }
+        } while (!foundEpisode && !operationCancelled);
+        
+        if (!foundEpisode) {
+            failedCount++;
+            continue;
+        }
+        
+        // Update metadata with TMDB info
+        metadata.EPName = episodeInfo.episodeName;
+        metadata.EPDescription = episodeInfo.overview;
+        metadata.airDate = episodeInfo.airDate;
+        
+        // Download and update episode image if available
+        if (!episodeInfo.stillPath.isEmpty()) {
+            QString tempDir = VP_ShowsConfig::getTempDirectory(m_mainWindow->user_Username);
+            if (!tempDir.isEmpty()) {
+                QString tempImagePath = QDir(tempDir).absoluteFilePath(QString("tmdb_episode_%1.jpg").arg(i));
+                if (tmdbApi.downloadImage(episodeInfo.stillPath, tempImagePath)) {
+                    QFile imageFile(tempImagePath);
+                    if (imageFile.open(QIODevice::ReadOnly)) {
+                        metadata.EPImage = imageFile.readAll();
+                        imageFile.close();
+                    }
+                    // Clean up temp file
+                    OperationsFiles::secureDelete(tempImagePath, 1, false);
+                }
+            }
+        }
+        
+        // Update the dialog's metadata list with TMDB data
+        dialog->updateMetadataAfterTMDB(i, metadata);
+        successCount++;
+        
+        // Small delay to avoid hitting rate limits
+        QThread::msleep(100);
+        QApplication::processEvents();
+        
+        // Check if dialog was closed
+        if (!progressDialog->isVisible()) {
+            operationCancelled = true;
+            break;
+        }
+    }
+    
+    // Close progress dialog
+    if (progressDialog->isVisible()) {
+        progressDialog->close();
+    }
+    delete progressDialog;
+    
+    // Show summary
+    QString summary = tr("TMDB data re-acquisition completed.\n\n"
+                        "Successful: %1\n"
+                        "Failed: %2")
+                     .arg(successCount)
+                     .arg(failedCount);
+    
+    if (operationCancelled) {
+        summary += tr("\n\nOperation was cancelled by user.");
+    }
+    
+    QMessageBox::information(m_mainWindow, tr("Re-acquisition Complete"), summary);
+    
+    qDebug() << "Operations_VP_Shows: TMDB reacquisition with pre-loaded metadata finished. Success:" << successCount << "Failed:" << failedCount;
 }
 
 void Operations_VP_Shows::reacquireTMDBForMultipleEpisodes(const QStringList& videoFilePaths)
@@ -6019,7 +6289,55 @@ void Operations_VP_Shows::reacquireTMDBForMultipleEpisodes(const QStringList& vi
         int seasonNum = metadata.season.toInt(&seasonOk);
         int episodeNum = metadata.episode.toInt(&episodeOk);
         
-        if (!seasonOk || !episodeOk || currentShowTmdbId <= 0) {
+        // Check for absolute numbering (season = 0)
+        bool isAbsoluteNumbering = (seasonNum == 0 && episodeNum > 0);
+        int tmdbSeason = seasonNum;
+        int tmdbEpisode = episodeNum;
+        
+        if (isAbsoluteNumbering) {
+            qDebug() << "Operations_VP_Shows: Absolute numbering detected for episode" << episodeNum;
+            
+            // For absolute numbering, we need to build an episode map
+            // Build it once per show
+            static QMap<int, VP_ShowsTMDB::EpisodeMapping> episodeMap;
+            static int lastShowId = -1;
+            
+            if (currentShowTmdbId != lastShowId) {
+                qDebug() << "Operations_VP_Shows: Building episode map for show ID" << currentShowTmdbId;
+                episodeMap = tmdbApi.buildEpisodeMap(currentShowTmdbId);
+                lastShowId = currentShowTmdbId;
+                qDebug() << "Operations_VP_Shows: Episode map built with" << episodeMap.size() << "entries";
+            }
+            
+            // Try to map the absolute episode number
+            if (episodeMap.contains(episodeNum)) {
+                const VP_ShowsTMDB::EpisodeMapping& mapping = episodeMap[episodeNum];
+                tmdbSeason = mapping.season;
+                tmdbEpisode = mapping.episode;
+                qDebug() << "Operations_VP_Shows: Mapped absolute episode" << episodeNum 
+                         << "to S" << tmdbSeason << "E" << tmdbEpisode;
+            } else {
+                qDebug() << "Operations_VP_Shows: No mapping found for absolute episode" << episodeNum;
+                // Try a fallback calculation (26 episodes per season is common for anime)
+                const int episodesPerSeason = 26;
+                tmdbSeason = ((episodeNum - 1) / episodesPerSeason) + 1;
+                tmdbEpisode = ((episodeNum - 1) % episodesPerSeason) + 1;
+                qDebug() << "Operations_VP_Shows: Using fallback mapping to S" << tmdbSeason << "E" << tmdbEpisode;
+            }
+        }
+        
+        // Skip if we couldn't parse the numbers or if they're invalid for TMDB
+        if (!seasonOk || !episodeOk || episodeNum <= 0 || currentShowTmdbId <= 0) {
+            qDebug() << "Operations_VP_Shows: Skipping episode - Invalid episode numbers."
+                     << "Season:" << metadata.season << "Episode:" << metadata.episode;
+            failedCount++;
+            continue;
+        }
+        
+        // Also skip if the mapped values are invalid for TMDB
+        if (tmdbSeason <= 0 || tmdbEpisode <= 0) {
+            qDebug() << "Operations_VP_Shows: Skipping episode - Invalid TMDB mapping."
+                     << "TMDB Season:" << tmdbSeason << "TMDB Episode:" << tmdbEpisode;
             failedCount++;
             continue;
         }
@@ -6028,46 +6346,30 @@ void Operations_VP_Shows::reacquireTMDBForMultipleEpisodes(const QStringList& vi
         VP_ShowsTMDB::EpisodeInfo episodeInfo;
         bool foundEpisode = false;
         int retryCount = 0;
-        bool rateLimitHit = false;
-        const int maxRetries = 20; // Adjust as needed
         
         do {
-            rateLimitHit = false;
-
-            // Try to get episode info
-            if (tmdbApi.getEpisodeInfo(currentShowTmdbId, seasonNum, episodeNum, episodeInfo)) {
+            // Try to get episode info using mapped values for absolute numbering
+            if (tmdbApi.getEpisodeInfo(currentShowTmdbId, tmdbSeason, tmdbEpisode, episodeInfo)) {
                 foundEpisode = true;
-                retryCount = 0; // Reset retry counter on success
                 break;
             }
 
-            // Check if we hit rate limit (we can detect this from the API response)
+            // API call failed, assume rate limit and retry
             // The VP_ShowsTMDB class logs rate limit errors
-            // We'll assume rate limit if the call fails and retry
-            if (!foundEpisode && retryCount < maxRetries) {
-                rateLimitHit = true;
-                retryCount++;
+            retryCount++;
+            qDebug() << "Operations_VP_Shows: API call failed for episode, retry" << retryCount;
 
-                if (retryCount > maxRetries) {
-                    progressDialog->setStatusMessage(tr("Too many rate limit retries. Aborting."));
-                    operationCancelled = true;
-                    break;
-                }
+            // Show rate limit message and wait
+            progressDialog->showRateLimitMessage(1);
+            QThread::sleep(1); // Wait 1 second before retry
+            QApplication::processEvents();
 
-                // Show rate limit message and wait
-                progressDialog->showRateLimitMessage(1);
-                QThread::sleep(1); // Wait 1 second before retry
-                QApplication::processEvents();
-
-                // Check if dialog was closed during wait
-                if (!progressDialog->isVisible()) {
-                    operationCancelled = true;
-                    break;
-                }
-            } else {
-                break; // Episode not found and not retrying
+            // Check if dialog was closed during wait or operation cancelled
+            if (!progressDialog->isVisible() || operationCancelled) {
+                operationCancelled = true;
+                break;
             }
-        } while (rateLimitHit && !operationCancelled);
+        } while (!foundEpisode && !operationCancelled);
         
         if (!foundEpisode) {
             failedCount++;

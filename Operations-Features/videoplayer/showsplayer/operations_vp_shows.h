@@ -25,6 +25,7 @@ class VP_ShowsEncryptionProgressDialog;
 class VP_ShowsWatchHistory;
 class VP_ShowsPlaybackTracker;
 class VP_ShowsFavourites;
+class VP_ShowsEditMultipleMetadataDialog;
 
 class Operations_VP_Shows : public QObject
 {
@@ -209,6 +210,9 @@ public:
     // TMDB re-acquisition methods
     void reacquireTMDBForSingleEpisode(const QString& videoFilePath, const VP_ShowsMetadata::ShowMetadata& metadata);
     void reacquireTMDBForMultipleEpisodes(const QStringList& videoFilePaths);
+    void reacquireTMDBForMultipleEpisodesWithMetadata(const QStringList& videoFilePaths, 
+                                                       const QList<VP_ShowsMetadata::ShowMetadata>& metadataList,
+                                                       VP_ShowsEditMultipleMetadataDialog* dialog);
     
     // Helper functions for episode operations
     void collectEpisodesFromTreeItem(QTreeWidgetItem* item, QStringList& episodePaths);

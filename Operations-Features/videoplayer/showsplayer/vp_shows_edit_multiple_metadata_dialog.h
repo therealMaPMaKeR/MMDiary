@@ -57,6 +57,19 @@ public:
     
     // Get the list of video file paths for TMDB processing
     QStringList getVideoFilePaths() const { return m_videoFilePaths; }
+    
+    // Get all loaded metadata (for TMDB processing)
+    QList<VP_ShowsMetadata::ShowMetadata> getAllMetadata() const { return m_allMetadata; }
+    
+    // Update metadata after TMDB processing
+    void updateMetadataAfterTMDB(int index, const VP_ShowsMetadata::ShowMetadata& metadata) {
+        if (index >= 0 && index < m_allMetadata.size()) {
+            m_allMetadata[index] = metadata;
+        }
+    }
+    
+    // Apply all changes and save to files (called after TMDB processing)
+    bool applyChangesAndSave();
 
 public slots:
     // Override accept to validate and prepare changes
