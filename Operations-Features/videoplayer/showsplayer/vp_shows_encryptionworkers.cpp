@@ -491,6 +491,7 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     // Try to parse season and episode
     int season = 0, episode = 0;
     bool parsedSuccessfully = false;
+    bool hasContentOverrideFromFolder = false;  // Track if we have a content type override from folder
     
     // Check if this is a single-season show (only if we have TMDB data)
     bool isSingleSeason = false;
@@ -502,9 +503,29 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     // Use appropriate parsing method based on parse mode and season count
     if (m_parseMode == ParseFromFolder && !folderName.isEmpty()) {
         // Parse season from folder, episode from filename
-        parsedSuccessfully = VP_ShowsTMDB::parseSeasonFromFolderName(folderName, filename, season, episode);
-        if (parsedSuccessfully) {
-            qDebug() << "VP_ShowsEncryptionWorker: Folder parse succeeded - S" << season << "E" << episode;
+        // Also get content type override from folder keywords
+        int contentTypeOverride = 0;
+        bool folderParseResult = VP_ShowsTMDB::parseSeasonFromFolderName(folderName, filename, season, episode,
+                                                                         contentTypeOverride, hasContentOverrideFromFolder);
+        if (folderParseResult) {
+            // Check if we actually parsed episode numbers or just got content type override
+            if (episode > 0) {
+                parsedSuccessfully = true;
+                qDebug() << "VP_ShowsEncryptionWorker: Folder parse succeeded - S" << season << "E" << episode;
+            } else if (hasContentOverrideFromFolder) {
+                // We didn't parse episode numbers but we have content type override
+                parsedSuccessfully = false;  // No episode numbers
+                qDebug() << "VP_ShowsEncryptionWorker: No episode numbers parsed, but have content type override from folder";
+            }
+            
+            if (hasContentOverrideFromFolder) {
+                // Override content type based on folder keywords
+                metadata.contentType = static_cast<VP_ShowsMetadata::ContentType>(contentTypeOverride);
+                qDebug() << "VP_ShowsEncryptionWorker: Overriding content type from folder to:" 
+                         << metadata.getContentTypeString();
+            }
+        } else {
+            parsedSuccessfully = false;
         }
     } else if (isSingleSeason) {
         // For single-season shows, only parse episode number from filename
@@ -525,31 +546,39 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
              << "Season:" << season << "Episode:" << episode;
     
     // Determine content type based on parsed results
-    if (parsedSuccessfully && episode > 0) {
-        if (season > 0) {
-            // Valid season and episode - this is ALWAYS a regular episode
-            // No need to check for OVA/Movie patterns
-            metadata.contentType = VP_ShowsMetadata::Regular;
-            qDebug() << "VP_ShowsEncryptionWorker: Valid S" << season << "E" << episode 
-                     << "found - setting as Regular episode (skipping OVA/Movie detection)";
-        } else if (season == 0) {
-            // Season 0 means absolute numbering in our parser, NOT Season 0 (specials)
-            // Default to Regular, will be overridden if TMDB maps it to Season 0
-            metadata.contentType = VP_ShowsMetadata::Regular;
-            qDebug() << "VP_ShowsEncryptionWorker: Absolute numbering (season=0) detected - defaulting to Regular";
-            qDebug() << "VP_ShowsEncryptionWorker: Will check TMDB mapping to determine actual content type";
+    // Only determine content type if we don't have a folder override
+    if (!hasContentOverrideFromFolder) {
+        if (parsedSuccessfully && episode > 0) {
+            if (season > 0) {
+                // Valid season and episode - this is ALWAYS a regular episode
+                // No need to check for OVA/Movie patterns
+                metadata.contentType = VP_ShowsMetadata::Regular;
+                qDebug() << "VP_ShowsEncryptionWorker: Valid S" << season << "E" << episode 
+                         << "found - setting as Regular episode (skipping OVA/Movie detection)";
+            } else if (season == 0) {
+                // Season 0 means absolute numbering in our parser, NOT Season 0 (specials)
+                // Default to Regular, will be overridden if TMDB maps it to Season 0
+                metadata.contentType = VP_ShowsMetadata::Regular;
+                qDebug() << "VP_ShowsEncryptionWorker: Absolute numbering (season=0) detected - defaulting to Regular";
+                qDebug() << "VP_ShowsEncryptionWorker: Will check TMDB mapping to determine actual content type";
+            }
+        } else {
+            // Only detect content type for files without valid episode numbers
+            metadata.contentType = VP_ShowsMetadata::detectContentType(filename, m_movieTitles, m_ovaTitles);
+            qDebug() << "VP_ShowsEncryptionWorker: No valid episode numbers - auto-detected content type:" 
+                     << metadata.contentType << "(" << metadata.getContentTypeString() << ")";
         }
     } else {
-        // Only detect content type for files without valid episode numbers
-        metadata.contentType = VP_ShowsMetadata::detectContentType(filename, m_movieTitles, m_ovaTitles);
-        qDebug() << "VP_ShowsEncryptionWorker: No valid episode numbers - auto-detected content type:" 
-                 << metadata.contentType << "(" << metadata.getContentTypeString() << ")";
+        qDebug() << "VP_ShowsEncryptionWorker: Content type override from folder is active - keeping:" 
+                 << metadata.getContentTypeString();
     }
     
     // Check if this is a movie that should also appear in regular episodes (dual display)
     // This is for movies that are part of the series continuity
     // BUT don't apply this if we already determined it's a Regular episode from S##E## parsing
-    if (metadata.contentType == VP_ShowsMetadata::Movie && parsedSuccessfully && episode > 0 && season <= 0) {
+    // Also don't apply if we have a folder-based content type override
+    if (!hasContentOverrideFromFolder && metadata.contentType == VP_ShowsMetadata::Movie && 
+        parsedSuccessfully && episode > 0 && season <= 0) {
         metadata.isDualDisplay = true;
         qDebug() << "VP_ShowsEncryptionWorker: Movie with episode numbering detected - will display in both categories";
     }
@@ -714,9 +743,14 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
     } else {
         qDebug() << "VP_ShowsEncryptionWorker: Could not parse episode info from filename:" << filename;
         
-        // If we couldn't parse valid episode numbers and it's not Movie or OVA, mark it as Extra
-        if (metadata.contentType != VP_ShowsMetadata::Movie && 
-            metadata.contentType != VP_ShowsMetadata::OVA) {
+        // If we have a folder-based content type override, use it
+        // Otherwise, if we couldn't parse valid episode numbers and it's not Movie or OVA, mark it as Extra
+        if (hasContentOverrideFromFolder) {
+            qDebug() << "VP_ShowsEncryptionWorker: Using folder-based content type override:" << metadata.getContentTypeString();
+            metadata.season = "0";
+            metadata.episode = "0";
+        } else if (metadata.contentType != VP_ShowsMetadata::Movie && 
+                   metadata.contentType != VP_ShowsMetadata::OVA) {
             qDebug() << "VP_ShowsEncryptionWorker: No valid episode number found, marking as Extra content";
             metadata.contentType = VP_ShowsMetadata::Extra;
             metadata.season = "0";

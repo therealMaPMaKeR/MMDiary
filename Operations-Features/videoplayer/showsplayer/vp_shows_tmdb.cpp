@@ -435,10 +435,14 @@ bool VP_ShowsTMDB::hasSingleSeason(const ShowInfo& showInfo)
     return regularSeasonCount == 1;
 }
 
-bool VP_ShowsTMDB::parseSeasonFromFolderName(const QString& folderName, const QString& filename, int& season, int& episode)
+bool VP_ShowsTMDB::parseSeasonFromFolderName(const QString& folderName, const QString& filename, 
+                                            int& season, int& episode,
+                                            int& contentTypeOverride, bool& hasContentOverride)
 {
     season = 0;
     episode = 0;
+    contentTypeOverride = 0;  // Default to Regular (0)
+    hasContentOverride = false;
     
     if (folderName.isEmpty() || filename.isEmpty()) {
         return false;
@@ -447,62 +451,101 @@ bool VP_ShowsTMDB::parseSeasonFromFolderName(const QString& folderName, const QS
     qDebug() << "VP_ShowsTMDB: Parsing season from folder:" << folderName;
     qDebug() << "VP_ShowsTMDB: Parsing episode from file:" << filename;
     
-    // STEP 1: First parse both season and episode from filename using existing complex logic
+    // STEP 1: Check folder name for content type keywords FIRST
+    // This should happen regardless of whether we can parse episode numbers
+    QString lowerFolderName = folderName.toLower();
+    
+    // Check for movie/film keywords
+    if (lowerFolderName.contains("movie") || lowerFolderName.contains("film")) {
+        contentTypeOverride = 1;  // VP_ShowsMetadata::Movie = 1
+        hasContentOverride = true;
+        qDebug() << "VP_ShowsTMDB: Folder name contains movie/film - overriding content type to Movie";
+    }
+    // Check for OVA keywords
+    else if (lowerFolderName.contains("ova") || lowerFolderName.contains("oad")) {
+        contentTypeOverride = 2;  // VP_ShowsMetadata::OVA = 2
+        hasContentOverride = true;
+        qDebug() << "VP_ShowsTMDB: Folder name contains OVA/OAD - overriding content type to OVA";
+    }
+    // Check for extra/special keywords
+    else if (lowerFolderName.contains("extra") || lowerFolderName.contains("special") || 
+             lowerFolderName.contains("bonus")) {
+        contentTypeOverride = 3;  // VP_ShowsMetadata::Extra = 3
+        hasContentOverride = true;
+        qDebug() << "VP_ShowsTMDB: Folder name contains extra/special/bonus - overriding content type to Extra";
+    }
+    
+    // STEP 2: Parse both season and episode from filename using existing complex logic
     bool parsedFromFile = parseEpisodeFromFilename(filename, season, episode);
     
     if (!parsedFromFile) {
         qDebug() << "VP_ShowsTMDB: Failed to parse episode from filename";
+        // Even if we can't parse episode numbers, we may have content type override
+        // Return true if we have a content type override, false otherwise
+        if (hasContentOverride) {
+            qDebug() << "VP_ShowsTMDB: Returning true due to content type override despite no episode parsing";
+            return true;
+        }
         return false;
     }
     
     qDebug() << "VP_ShowsTMDB: Filename parsing gave us S" << season << "E" << episode;
     
-    // STEP 2: Now override the season with what we find in the folder name
-    QString cleanedFolderName = folderName;
-    
-    // Remove common folder prefixes/suffixes
-    cleanedFolderName.replace(QRegularExpression("\\[.*?\\]"), " ");  // Remove bracketed content
-    cleanedFolderName.replace(QRegularExpression("\\(.*?\\)"), " ");  // Remove parentheses content
-    cleanedFolderName = cleanedFolderName.simplified();
-    
-    // Try to find season patterns in folder name
-    QList<QRegularExpression> seasonPatterns = {
-        // "Season 1" or "Season 01" format
-        QRegularExpression("\\bSeason\\s+(\\d{1,2})\\b", QRegularExpression::CaseInsensitiveOption),
-        // "S01" or "S1" format
-        QRegularExpression("\\bS(\\d{1,2})\\b", QRegularExpression::CaseInsensitiveOption),
-        // "Season.1" or "Season_1" format
-        QRegularExpression("\\bSeason[\\._](\\d{1,2})\\b", QRegularExpression::CaseInsensitiveOption),
-        // "1st Season", "2nd Season", etc.
-        QRegularExpression("\\b(\\d{1,2})(?:st|nd|rd|th)\\s+Season\\b", QRegularExpression::CaseInsensitiveOption),
-        // Just a number at the end of folder name (like "Show Name 2")
-        QRegularExpression("\\s+(\\d{1,2})$")
-    };
-    
-    bool seasonFoundInFolder = false;
-    int folderSeason = 0;
-    
-    for (const auto& pattern : seasonPatterns) {
-        QRegularExpressionMatch match = pattern.match(cleanedFolderName);
-        if (match.hasMatch()) {
-            folderSeason = match.captured(1).toInt();
-            if (folderSeason > 0 && folderSeason <= 99) {
-                seasonFoundInFolder = true;
-                qDebug() << "VP_ShowsTMDB: Found season" << folderSeason << "in folder name";
-                break;
+    // STEP 3: Check for absolute numbering indicator ("episode" keyword)
+    if (lowerFolderName.contains("episode")) {
+        season = 0;  // Use 0 to indicate absolute numbering
+        qDebug() << "VP_ShowsTMDB: Folder name contains 'episode' - using absolute numbering (season=0)";
+    } else {
+        // STEP 4: Try to find season patterns in folder name (existing logic)
+        QString cleanedFolderName = folderName;
+        
+        // Remove common folder prefixes/suffixes
+        cleanedFolderName.replace(QRegularExpression("\\[.*?\\]"), " ");  // Remove bracketed content
+        cleanedFolderName.replace(QRegularExpression("\\(.*?\\)"), " ");  // Remove parentheses content
+        cleanedFolderName = cleanedFolderName.simplified();
+        
+        // Try to find season patterns in folder name
+        QList<QRegularExpression> seasonPatterns = {
+            // "Season 1" or "Season 01" format
+            QRegularExpression("\\bSeason\\s+(\\d{1,2})\\b", QRegularExpression::CaseInsensitiveOption),
+            // "S01" or "S1" format
+            QRegularExpression("\\bS(\\d{1,2})\\b", QRegularExpression::CaseInsensitiveOption),
+            // "Season.1" or "Season_1" format
+            QRegularExpression("\\bSeason[\\._](\\d{1,2})\\b", QRegularExpression::CaseInsensitiveOption),
+            // "1st Season", "2nd Season", etc.
+            QRegularExpression("\\b(\\d{1,2})(?:st|nd|rd|th)\\s+Season\\b", QRegularExpression::CaseInsensitiveOption),
+            // Just a number at the end of folder name (like "Show Name 2")
+            QRegularExpression("\\s+(\\d{1,2})$")
+        };
+        
+        bool seasonFoundInFolder = false;
+        int folderSeason = 0;
+        
+        for (const auto& pattern : seasonPatterns) {
+            QRegularExpressionMatch match = pattern.match(cleanedFolderName);
+            if (match.hasMatch()) {
+                folderSeason = match.captured(1).toInt();
+                if (folderSeason > 0 && folderSeason <= 99) {
+                    seasonFoundInFolder = true;
+                    qDebug() << "VP_ShowsTMDB: Found season" << folderSeason << "in folder name";
+                    break;
+                }
             }
+        }
+        
+        // Override season with folder value if found, otherwise keep the one from filename
+        if (seasonFoundInFolder) {
+            season = folderSeason;
+            qDebug() << "VP_ShowsTMDB: Using season from folder:" << season;
+        } else {
+            qDebug() << "VP_ShowsTMDB: No season found in folder name, keeping season from filename:" << season;
         }
     }
     
-    // Override season with folder value if found, otherwise keep the one from filename
-    if (seasonFoundInFolder) {
-        season = folderSeason;
-        qDebug() << "VP_ShowsTMDB: Using season from folder:" << season;
-    } else {
-        qDebug() << "VP_ShowsTMDB: No season found in folder name, keeping season from filename:" << season;
-    }
-    
     qDebug() << "VP_ShowsTMDB: Final result - S" << season << "E" << episode;
+    if (hasContentOverride) {
+        qDebug() << "VP_ShowsTMDB: Content type override:" << contentTypeOverride;
+    }
     return true;  // Return true as long as we got valid episode from filename
 }
 

@@ -118,7 +118,10 @@ public:
     static bool parseEpisodeForSingleSeasonShow(const QString& filename, int& episode);
     
     // Parse season/content type from folder name (episode still from filename)
-    static bool parseSeasonFromFolderName(const QString& folderName, const QString& filename, int& season, int& episode);
+    // Also detects content type overrides and absolute numbering from folder keywords
+    static bool parseSeasonFromFolderName(const QString& folderName, const QString& filename, 
+                                         int& season, int& episode,
+                                         int& contentTypeOverride, bool& hasContentOverride);
     
     // Scale image to specified dimensions (for EPImage thumbnail)
     static QByteArray scaleImageToSize(const QByteArray& imageData, int width, int height);
