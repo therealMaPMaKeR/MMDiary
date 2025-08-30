@@ -206,6 +206,16 @@ Operations_VP_Shows::~Operations_VP_Shows()
 {
     qDebug() << "Operations_VP_Shows: Destructor called";
     
+    // Reset autoplay flags to prevent stuck state
+    if (m_isAutoplayInProgress) {
+        qDebug() << "Operations_VP_Shows: WARNING - Destructor called while autoplay in progress, resetting flag";
+        m_isAutoplayInProgress = false;
+    }
+    if (m_episodeWasNearCompletion) {
+        qDebug() << "Operations_VP_Shows: Resetting near-completion flag in destructor";
+        m_episodeWasNearCompletion = false;
+    }
+    
     // Clear context menu data first to prevent dangling references
     clearContextMenuData();
     
@@ -3133,7 +3143,13 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     
     // Check MainWindow validity before proceeding
     if (!m_mainWindow) {
-        qDebug() << "Operations_VP_Shows: MainWindow is null, cannot proceed with playback";
+        qDebug() << "Critical-Operations_VP_Shows: MainWindow is null, cannot proceed with playback";
+        // Reset autoplay flags if this was an autoplay attempt
+        if (m_isAutoplayInProgress) {
+            qDebug() << "Operations_VP_Shows: Resetting autoplay flags due to MainWindow being null";
+            m_isAutoplayInProgress = false;
+            m_isRandomAutoplay = false;
+        }
         return;
     }
     
@@ -3169,17 +3185,26 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             qDebug() << "Operations_VP_Shows: Playback tracker initialized successfully";
 
             // Connect episodeNearCompletion signal to trigger autoplay when episode naturally completes
+            QPointer<Operations_VP_Shows> safeThis = this;
             connect(m_playbackTracker.get(), &VP_ShowsPlaybackTracker::episodeNearCompletion,
-                    this, [this](const QString& episodePath) {
+                    this, [safeThis](const QString& episodePath) {
+                if (!safeThis) {
+                    qDebug() << "Critical-Operations_VP_Shows: episodeNearCompletion lambda but 'this' is invalid";
+                    return;
+                }
+                
                 qDebug() << "Operations_VP_Shows: Episode near completion signal received for:" << episodePath;
                 
                 // Check if autoplay is enabled and not already in progress
-                if (m_currentShowSettings.autoplay && !m_isAutoplayInProgress) {
+                if (safeThis->m_currentShowSettings.autoplay && !safeThis->m_isAutoplayInProgress) {
                     qDebug() << "Operations_VP_Shows: Autoplay enabled - will trigger when playback ends naturally";
                     // Set flag to indicate we should autoplay when episode finishes
-                    m_episodeWasNearCompletion = true;
+                    safeThis->m_episodeWasNearCompletion = true;
+                    qDebug() << "Operations_VP_Shows: m_episodeWasNearCompletion flag set to true";
                 } else {
                     qDebug() << "Operations_VP_Shows: Autoplay disabled or already in progress";
+                    qDebug() << "Operations_VP_Shows:   - Autoplay setting:" << safeThis->m_currentShowSettings.autoplay;
+                    qDebug() << "Operations_VP_Shows:   - Already in progress:" << safeThis->m_isAutoplayInProgress;
                 }
             });
             
@@ -3309,14 +3334,32 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         }
 
         // Connect error signal
+        QPointer<Operations_VP_Shows> safeThisForError = this;
         connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::errorOccurred,
-                this, [this](const QString& error) {
-            qDebug() << "Operations_VP_Shows: VP_Shows_Videoplayer error:" << error;
-            QMessageBox::critical(m_mainWindow,
-                                tr("Video Player Error"),
-                                error);
+                this, [safeThisForError](const QString& error) {
+            if (!safeThisForError) {
+                qDebug() << "Critical-Operations_VP_Shows: Error handler but 'this' is invalid";
+                return;
+            }
+            
+            qDebug() << "Critical-Operations_VP_Shows: VP_Shows_Videoplayer error:" << error;
+            
+            // Reset autoplay flags on error
+            if (safeThisForError->m_isAutoplayInProgress) {
+                qDebug() << "Operations_VP_Shows: Resetting autoplay flags due to player error";
+                safeThisForError->m_isAutoplayInProgress = false;
+                safeThisForError->m_isRandomAutoplay = false;
+                safeThisForError->m_episodeWasNearCompletion = false;
+            }
+            
+            if (safeThisForError->m_mainWindow) {
+                QMessageBox::critical(safeThisForError->m_mainWindow,
+                                    QObject::tr("Video Player Error"),
+                                    error);
+            }
+            
             // Clean up temp file on error
-            cleanupTempFile();
+            safeThisForError->cleanupTempFile();
         });
 
         // Connect playback speed changed signal to save the speed for this show
@@ -3329,63 +3372,94 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         });
 
         // Connect finished signal to trigger autoplay when episode completes naturally
+        QPointer<Operations_VP_Shows> safeThis = this;
         connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::finished,
-                this, [this]() {
+                this, [safeThis]() {
+            if (!safeThis) {
+                qDebug() << "Critical-Operations_VP_Shows: Episode finished lambda but 'this' is invalid";
+                return;
+            }
+            
             qDebug() << "Operations_VP_Shows: Episode finished naturally";
+            qDebug() << "Operations_VP_Shows: Current autoplay state:";
+            qDebug() << "Operations_VP_Shows:   - Autoplay enabled:" << safeThis->m_currentShowSettings.autoplay;
+            qDebug() << "Operations_VP_Shows:   - Not in progress:" << !safeThis->m_isAutoplayInProgress;
+            qDebug() << "Operations_VP_Shows:   - Was near completion:" << safeThis->m_episodeWasNearCompletion;
             
             // Check if we should autoplay next episode
-            if (m_currentShowSettings.autoplay && !m_isAutoplayInProgress && m_episodeWasNearCompletion) {
-                qDebug() << "Operations_VP_Shows: Episode completed naturally and was near completion - triggering autoplay";
-                autoplayNextEpisode();
+            if (safeThis->m_currentShowSettings.autoplay && !safeThis->m_isAutoplayInProgress && safeThis->m_episodeWasNearCompletion) {
+                qDebug() << "Operations_VP_Shows: All conditions met - triggering autoplay";
+                safeThis->autoplayNextEpisode();
             } else {
                 qDebug() << "Operations_VP_Shows: Episode finished but autoplay conditions not met";
-                qDebug() << "Operations_VP_Shows:   - Autoplay enabled:" << m_currentShowSettings.autoplay;
-                qDebug() << "Operations_VP_Shows:   - Not in progress:" << !m_isAutoplayInProgress;
-                qDebug() << "Operations_VP_Shows:   - Was near completion:" << m_episodeWasNearCompletion;
+                if (!safeThis->m_currentShowSettings.autoplay) {
+                    qDebug() << "Operations_VP_Shows:   Reason: Autoplay is disabled";
+                } else if (safeThis->m_isAutoplayInProgress) {
+                    qDebug() << "Operations_VP_Shows:   Reason: Autoplay already in progress";
+                } else if (!safeThis->m_episodeWasNearCompletion) {
+                    qDebug() << "Operations_VP_Shows:   Reason: Episode did not reach near-completion threshold";
+                }
             }
             
             // Reset the flag
-            m_episodeWasNearCompletion = false;
+            safeThis->m_episodeWasNearCompletion = false;
         });
         
         // Connect playback state changed to clean up when stopped
+        QPointer<Operations_VP_Shows> safeThisForState = this;
         connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::playbackStateChanged,
-                this, [this](VP_VLCPlayer::PlayerState state) {
+                this, [safeThisForState](VP_VLCPlayer::PlayerState state) {
+            if (!safeThisForState) {
+                qDebug() << "Critical-Operations_VP_Shows: playbackStateChanged lambda but 'this' is invalid";
+                return;
+            }
+            
             if (state == VP_VLCPlayer::PlayerState::Stopped) {
                 qDebug() << "Operations_VP_Shows: Playback stopped, scheduling cleanup";
 
                 // Stop playback tracking to save final position
-                if (m_playbackTracker) {
+                if (safeThisForState->m_playbackTracker) {
                     qDebug() << "Operations_VP_Shows: Stopping playback tracking";
-                    m_playbackTracker->stopTracking();
+                    safeThisForState->m_playbackTracker->stopTracking();
                 }
 
                 // Note: Autoplay is now handled by the episodeNearCompletion signal or finished signal
                 // We don't trigger autoplay when the user manually closes the player
 
                 // Force the media player to release the file
-                forceReleaseVideoFile();
+                safeThisForState->forceReleaseVideoFile();
+                
                 // Use a timer to delay cleanup to ensure file handle is fully released
-                QTimer::singleShot(1000, this, &Operations_VP_Shows::cleanupTempFile);
+                QPointer<Operations_VP_Shows> safeThisForCleanup = safeThisForState;
+                QTimer::singleShot(1000, safeThisForState, [safeThisForCleanup]() {
+                    if (safeThisForCleanup) {
+                        safeThisForCleanup->cleanupTempFile();
+                    }
+                });
 
                 // Refresh the episode list to update watched status colors
-                if (!m_currentShowFolder.isEmpty()) {
-                    QTimer::singleShot(1500, this, [this]() {
+                if (!safeThisForState->m_currentShowFolder.isEmpty()) {
+                    QString showFolder = safeThisForState->m_currentShowFolder;
+                    QPointer<Operations_VP_Shows> safeThisForRefresh = safeThisForState;
+                    QTimer::singleShot(1500, safeThisForState, [safeThisForRefresh, showFolder]() {
+                        if (!safeThisForRefresh) {
+                            return;
+                        }
                         qDebug() << "Operations_VP_Shows: Refreshing episode list after playback";
 
                         // Reload watch history to get the updated watch states
-                        if (m_watchHistory) {
+                        if (safeThisForRefresh->m_watchHistory) {
                             qDebug() << "Operations_VP_Shows: Reloading watch history for updated states";
-                            if (!m_watchHistory->loadHistory()) {
+                            if (!safeThisForRefresh->m_watchHistory->loadHistory()) {
                                 qDebug() << "Operations_VP_Shows: Failed to reload watch history";
                             }
                         }
 
                         // Now refresh the episode list with updated watch states
-                        loadShowEpisodes(m_currentShowFolder);
+                        safeThisForRefresh->loadShowEpisodes(showFolder);
 
                         // Update the Play/Resume button text after refreshing
-                        updatePlayButtonText();
+                        safeThisForRefresh->updatePlayButtonText();
                     });
                 }
             }
@@ -3497,10 +3571,27 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 // Start playback
                 m_episodePlayer->play();
                 qDebug() << "Operations_VP_Shows: Play command issued";
+                
+                // Reset autoplay flags now that we've successfully started the next episode
+                if (m_isAutoplayInProgress) {
+                    qDebug() << "Operations_VP_Shows: Autoplay successful - resetting flags";
+                    m_isAutoplayInProgress = false;
+                    m_isRandomAutoplay = false;
+                    m_episodeWasNearCompletion = false;
+                }
             }
         });
     } else {
-        qDebug() << "Operations_VP_Shows: Failed to load decrypted video";
+        qDebug() << "Critical-Operations_VP_Shows: Failed to load decrypted video";
+        
+        // Reset autoplay flags if this was an autoplay attempt
+        if (m_isAutoplayInProgress) {
+            qDebug() << "Operations_VP_Shows: Resetting autoplay flags due to video load failure";
+            m_isAutoplayInProgress = false;
+            m_isRandomAutoplay = false;
+            m_episodeWasNearCompletion = false;
+        }
+        
         QMessageBox::warning(m_mainWindow,
                            tr("Load Failed"),
                            tr("Failed to load the decrypted video file."));
@@ -6977,10 +7068,15 @@ QString Operations_VP_Shows::findRandomEpisode()
 void Operations_VP_Shows::autoplayNextEpisode()
 {
     qDebug() << "Operations_VP_Shows: Autoplay triggered";
+    qDebug() << "Operations_VP_Shows: Current state:";
+    qDebug() << "Operations_VP_Shows:   - m_episodePlayer valid:" << (m_episodePlayer != nullptr);
+    qDebug() << "Operations_VP_Shows:   - m_isAutoplayInProgress:" << m_isAutoplayInProgress;
+    qDebug() << "Operations_VP_Shows:   - m_episodeWasNearCompletion:" << m_episodeWasNearCompletion;
     
     // Check if autoplay is enabled
     if (!m_currentShowSettings.autoplay) {
         qDebug() << "Operations_VP_Shows: Autoplay is disabled in settings";
+        m_episodeWasNearCompletion = false;  // Reset flag
         return;
     }
     
@@ -6993,6 +7089,14 @@ void Operations_VP_Shows::autoplayNextEpisode()
     // Check if we have a current episode path
     if (m_currentPlayingEpisodePath.isEmpty()) {
         qDebug() << "Operations_VP_Shows: No current episode path stored";
+        m_episodeWasNearCompletion = false;  // Reset flag
+        return;
+    }
+    
+    // Validate that we're in a valid state for autoplay
+    if (!m_mainWindow) {
+        qDebug() << "Critical-Operations_VP_Shows: MainWindow is null in autoplayNextEpisode";
+        m_episodeWasNearCompletion = false;
         return;
     }
     
@@ -7013,6 +7117,10 @@ void Operations_VP_Shows::autoplayNextEpisode()
     
     if (nextEpisodePath.isEmpty()) {
         qDebug() << "Operations_VP_Shows: No next episode available for autoplay";
+        // Reset flags since we're not proceeding with autoplay
+        m_isAutoplayInProgress = false;
+        m_isRandomAutoplay = false;
+        m_episodeWasNearCompletion = false;
         // No dialog shown - autoplay silently ends when no more episodes are available
         return;
     }
@@ -7054,13 +7162,46 @@ void Operations_VP_Shows::autoplayNextEpisode()
     }
     
     // Small delay to ensure the previous player is fully closed
-    QTimer::singleShot(500, this, [this, nextEpisodePath, episodeName]() {
-        // Decrypt and play the next episode
-        decryptAndPlayEpisode(nextEpisodePath, episodeName);
+    // CRITICAL: Capture by value to avoid dangling references
+    QString capturedPath = nextEpisodePath;
+    QString capturedName = episodeName;
+    QPointer<Operations_VP_Shows> safeThis = this;
+    
+    qDebug() << "Operations_VP_Shows: Scheduling autoplay in 500ms (waiting for current player to close)";
+    
+    QTimer::singleShot(500, this, [safeThis, capturedPath, capturedName, isRandomAutoplay]() {
+        // Validate that 'this' is still valid
+        if (!safeThis) {
+            qDebug() << "Critical-Operations_VP_Shows: Autoplay lambda executed but 'this' is no longer valid!";
+            return;
+        }
         
-        // Reset the autoplay and random flags
-        m_isAutoplayInProgress = false;
-        m_isRandomAutoplay = false;
+        // Double-check that we're still in autoplay mode
+        if (!safeThis->m_isAutoplayInProgress) {
+            qDebug() << "Operations_VP_Shows: Autoplay was cancelled before timer fired";
+            return;
+        }
+        
+        // Validate MainWindow is still valid
+        if (!safeThis->m_mainWindow) {
+            qDebug() << "Critical-Operations_VP_Shows: MainWindow is null in autoplay lambda";
+            safeThis->m_isAutoplayInProgress = false;
+            safeThis->m_isRandomAutoplay = false;
+            safeThis->m_episodeWasNearCompletion = false;
+            return;
+        }
+        
+        qDebug() << "Operations_VP_Shows: Autoplay timer fired - proceeding with decryption";
+        qDebug() << "Operations_VP_Shows:   Next episode path:" << capturedPath;
+        qDebug() << "Operations_VP_Shows:   Episode name:" << capturedName;
+        qDebug() << "Operations_VP_Shows:   Is random:" << isRandomAutoplay;
+        
+        // Decrypt and play the next episode
+        // Note: decryptAndPlayEpisode will reset m_isAutoplayInProgress to false after it completes
+        safeThis->decryptAndPlayEpisode(capturedPath, capturedName);
+        
+        // Note: We do NOT reset the flags here anymore - they're reset in decryptAndPlayEpisode
+        // after it successfully starts playback or encounters an error
     });
 }
 
