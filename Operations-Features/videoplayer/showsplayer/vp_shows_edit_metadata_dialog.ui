@@ -393,6 +393,20 @@
     </spacer>
    </item>
    <item>
+    <widget class="Line" name="line_Bottom">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="checkBox_ReacquireTMDB">
+     <property name="text">
+      <string>Re-acquire TMDB metadata</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QDialogButtonBox" name="buttonBox">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>

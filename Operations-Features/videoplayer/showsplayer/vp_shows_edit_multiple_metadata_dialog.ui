@@ -320,6 +320,13 @@
     </widget>
    </item>
    <item>
+    <widget class="QCheckBox" name="checkBox_ReacquireTMDB">
+     <property name="text">
+      <string>Re-acquire TMDB metadata</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QLabel" name="label_Warning">
      <property name="styleSheet">
       <string>color: #ff6600; font-weight: bold;</string>

@@ -31,6 +31,9 @@ public:
     
     // Check if metadata was actually modified
     bool wasModified() const { return m_wasModified; }
+    
+    // Check if TMDB re-acquisition was requested
+    bool shouldReacquireTMDB() const { return m_shouldReacquireTMDB; }
 
 public slots:
     // Override accept to validate and save metadata
@@ -88,6 +91,7 @@ private:
     bool m_wasModified;
     bool m_repairMode;  // Flag to indicate repair mode
     QString m_providedShowName;  // Show name provided for repair mode
+    bool m_shouldReacquireTMDB;  // Flag to indicate if TMDB re-acquisition was requested
     
     // UI elements that need special handling
     QLabel* m_imagePreviewLabel;

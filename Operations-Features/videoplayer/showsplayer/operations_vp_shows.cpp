@@ -10,6 +10,7 @@
 #include "vp_shows_edit_metadata_dialog.h"
 #include "vp_shows_edit_multiple_metadata_dialog.h"
 #include "vp_shows_tmdb.h"
+#include "vp_shows_config.h"
 #include "vp_shows_settings.h"  // Add show settings
 #include "inputvalidation.cpp"
 #include "operations_files.h"  // Add operations_files for secure file operations
@@ -5769,6 +5770,23 @@ void Operations_VP_Shows::editEpisodeMetadata()
             }
         }
         
+        // Check if TMDB re-acquisition was requested
+        if (dialog.shouldReacquireTMDB()) {
+            qDebug() << "Operations_VP_Shows: TMDB re-acquisition requested for single episode";
+            
+            // Check if TMDB is enabled and API is available
+            if (!VP_ShowsConfig::isTMDBEnabled()) {
+                QMessageBox::information(m_mainWindow, tr("TMDB Disabled"),
+                                       tr("TMDB integration is disabled. Please enable it in the settings."));
+            } else if (!VP_ShowsConfig::hasApiKey()) {
+                QMessageBox::warning(m_mainWindow, tr("No API Key"),
+                                   tr("TMDB API key is not configured."));
+            } else {
+                // Perform TMDB re-acquisition for this single episode
+                reacquireTMDBForSingleEpisode(videoFilePath, updatedMetadata);
+            }
+        }
+        
         QMessageBox::information(m_mainWindow, tr("Success"),
                                tr("Metadata has been successfully updated."));
     } else {
@@ -5811,6 +5829,23 @@ void Operations_VP_Shows::editMultipleEpisodesMetadata()
     if (dialog.exec() == QDialog::Accepted) {
         qDebug() << "Operations_VP_Shows: User accepted multiple metadata changes";
         
+        // Check if TMDB re-acquisition was requested
+        if (dialog.shouldReacquireTMDB()) {
+            qDebug() << "Operations_VP_Shows: TMDB re-acquisition requested for multiple episodes";
+            
+            // Check if TMDB is enabled and API is available
+            if (!VP_ShowsConfig::isTMDBEnabled()) {
+                QMessageBox::information(m_mainWindow, tr("TMDB Disabled"),
+                                       tr("TMDB integration is disabled. Please enable it in the settings."));
+            } else if (!VP_ShowsConfig::hasApiKey()) {
+                QMessageBox::warning(m_mainWindow, tr("No API Key"),
+                                   tr("TMDB API key is not configured."));
+            } else {
+                // Perform TMDB re-acquisition for multiple episodes with progress dialog
+                reacquireTMDBForMultipleEpisodes(dialog.getVideoFilePaths());
+            }
+        }
+        
         // The dialog has already applied all changes and shown success messages
         // We just need to refresh the tree widget to show the updated metadata
         qDebug() << "Operations_VP_Shows: Refreshing episode tree after multiple metadata edit";
@@ -5818,6 +5853,264 @@ void Operations_VP_Shows::editMultipleEpisodesMetadata()
     } else {
         qDebug() << "Operations_VP_Shows: User cancelled multiple metadata editing";
     }
+}
+
+void Operations_VP_Shows::reacquireTMDBForSingleEpisode(const QString& videoFilePath, const VP_ShowsMetadata::ShowMetadata& metadata)
+{
+    qDebug() << "Operations_VP_Shows: Re-acquiring TMDB data for single episode:" << videoFilePath;
+    
+    // Create TMDB API instance
+    VP_ShowsTMDB tmdbApi;
+    
+    // Search for the show first
+    VP_ShowsTMDB::ShowInfo showInfo;
+    if (!tmdbApi.searchTVShow(metadata.showName, showInfo)) {
+        QMessageBox::warning(m_mainWindow, tr("Show Not Found"),
+                           tr("Could not find '%1' on TMDB.").arg(metadata.showName));
+        return;
+    }
+    
+    // Parse season and episode numbers
+    bool seasonOk = false, episodeOk = false;
+    int seasonNum = metadata.season.toInt(&seasonOk);
+    int episodeNum = metadata.episode.toInt(&episodeOk);
+    
+    if (!seasonOk || !episodeOk) {
+        QMessageBox::warning(m_mainWindow, tr("Invalid Episode Info"),
+                           tr("Could not parse season/episode numbers."));
+        return;
+    }
+    
+    // Get episode info from TMDB
+    VP_ShowsTMDB::EpisodeInfo episodeInfo;
+    if (!tmdbApi.getEpisodeInfo(showInfo.tmdbId, seasonNum, episodeNum, episodeInfo)) {
+        QMessageBox::warning(m_mainWindow, tr("Episode Not Found"),
+                           tr("Could not find S%1E%2 on TMDB.").arg(seasonNum, 2, 10, QChar('0')).arg(episodeNum, 2, 10, QChar('0')));
+        return;
+    }
+    
+    // Update the metadata with TMDB info
+    VP_ShowsMetadata::ShowMetadata updatedMetadata = metadata;
+    updatedMetadata.EPName = episodeInfo.episodeName;
+    updatedMetadata.EPDescription = episodeInfo.overview;
+    updatedMetadata.airDate = episodeInfo.airDate;
+    
+    // Download and update episode image if available
+    if (!episodeInfo.stillPath.isEmpty()) {
+        QString tempDir = VP_ShowsConfig::getTempDirectory(m_mainWindow->user_Username);
+        if (!tempDir.isEmpty()) {
+            QString tempImagePath = QDir(tempDir).absoluteFilePath("tmdb_episode_image.jpg");
+            if (tmdbApi.downloadImage(episodeInfo.stillPath, tempImagePath)) {
+                QFile imageFile(tempImagePath);
+                if (imageFile.open(QIODevice::ReadOnly)) {
+                    updatedMetadata.EPImage = imageFile.readAll();
+                    imageFile.close();
+                }
+                // Clean up temp file
+                OperationsFiles::secureDelete(tempImagePath, 1, false);
+            }
+        }
+    }
+    
+    // Save updated metadata
+    VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    if (!metadataManager.writeMetadataToFile(videoFilePath, updatedMetadata)) {
+        QMessageBox::critical(m_mainWindow, tr("Save Error"),
+                            tr("Failed to save TMDB metadata to file."));
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Successfully updated episode with TMDB data";
+    QMessageBox::information(m_mainWindow, tr("Success"),
+                           tr("TMDB metadata has been successfully acquired."));
+}
+
+void Operations_VP_Shows::reacquireTMDBForMultipleEpisodes(const QStringList& videoFilePaths)
+{
+    qDebug() << "Operations_VP_Shows: Re-acquiring TMDB data for" << videoFilePaths.size() << "episodes";
+    
+    if (videoFilePaths.isEmpty()) {
+        return;
+    }
+    
+    // Create progress dialog
+    VP_ShowsTMDBReacquisitionDialog* progressDialog = new VP_ShowsTMDBReacquisitionDialog(m_mainWindow);
+    progressDialog->setTotalEpisodes(videoFilePaths.size());
+    progressDialog->setWindowModality(Qt::WindowModal);
+    progressDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+    
+    // Connect cancel signal
+    bool operationCancelled = false;
+    connect(progressDialog, &VP_ShowsTMDBReacquisitionDialog::cancelRequested,
+            [&operationCancelled]() { operationCancelled = true; });
+    
+    // Show the progress dialog
+    progressDialog->show();
+    progressDialog->raise();
+    progressDialog->activateWindow();
+    
+    // Create TMDB API instance
+    VP_ShowsTMDB tmdbApi;
+    VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    
+    // Track results
+    int successCount = 0;
+    int failedCount = 0;
+    QString currentShowName;
+    int currentShowTmdbId = -1;
+    
+    for (int i = 0; i < videoFilePaths.size(); ++i) {
+        if (operationCancelled) {
+            break;
+        }
+        
+        const QString& videoFilePath = videoFilePaths[i];
+        QString fileName = QFileInfo(videoFilePath).fileName();
+        
+        progressDialog->updateProgress(i + 1, fileName);
+        QApplication::processEvents();
+        
+        // Read current metadata
+        VP_ShowsMetadata::ShowMetadata metadata;
+        if (!metadataManager.readMetadataFromFile(videoFilePath, metadata)) {
+            failedCount++;
+            continue;
+        }
+        
+        // Search for show if it's different from the previous one
+        if (metadata.showName != currentShowName) {
+            currentShowName = metadata.showName;
+            progressDialog->setStatusMessage(tr("Searching for show: %1").arg(currentShowName));
+            QApplication::processEvents();
+            
+            VP_ShowsTMDB::ShowInfo showInfo;
+            if (!tmdbApi.searchTVShow(currentShowName, showInfo)) {
+                failedCount++;
+                continue;
+            }
+            currentShowTmdbId = showInfo.tmdbId;
+        }
+        
+        // Parse season and episode numbers
+        bool seasonOk = false, episodeOk = false;
+        int seasonNum = metadata.season.toInt(&seasonOk);
+        int episodeNum = metadata.episode.toInt(&episodeOk);
+        
+        if (!seasonOk || !episodeOk || currentShowTmdbId <= 0) {
+            failedCount++;
+            continue;
+        }
+        
+        // Get episode info from TMDB with rate limit handling
+        VP_ShowsTMDB::EpisodeInfo episodeInfo;
+        bool foundEpisode = false;
+        int retryCount = 0;
+        bool rateLimitHit = false;
+        const int maxRetries = 20; // Adjust as needed
+        
+        do {
+            rateLimitHit = false;
+
+            // Try to get episode info
+            if (tmdbApi.getEpisodeInfo(currentShowTmdbId, seasonNum, episodeNum, episodeInfo)) {
+                foundEpisode = true;
+                retryCount = 0; // Reset retry counter on success
+                break;
+            }
+
+            // Check if we hit rate limit (we can detect this from the API response)
+            // The VP_ShowsTMDB class logs rate limit errors
+            // We'll assume rate limit if the call fails and retry
+            if (!foundEpisode && retryCount < maxRetries) {
+                rateLimitHit = true;
+                retryCount++;
+
+                if (retryCount > maxRetries) {
+                    progressDialog->setStatusMessage(tr("Too many rate limit retries. Aborting."));
+                    operationCancelled = true;
+                    break;
+                }
+
+                // Show rate limit message and wait
+                progressDialog->showRateLimitMessage(1);
+                QThread::sleep(1); // Wait 1 second before retry
+                QApplication::processEvents();
+
+                // Check if dialog was closed during wait
+                if (!progressDialog->isVisible()) {
+                    operationCancelled = true;
+                    break;
+                }
+            } else {
+                break; // Episode not found and not retrying
+            }
+        } while (rateLimitHit && !operationCancelled);
+        
+        if (!foundEpisode) {
+            failedCount++;
+            continue;
+        }
+        
+        // Update metadata with TMDB info
+        metadata.EPName = episodeInfo.episodeName;
+        metadata.EPDescription = episodeInfo.overview;
+        metadata.airDate = episodeInfo.airDate;
+        
+        // Download and update episode image if available
+        if (!episodeInfo.stillPath.isEmpty()) {
+            QString tempDir = VP_ShowsConfig::getTempDirectory(m_mainWindow->user_Username);
+            if (!tempDir.isEmpty()) {
+                QString tempImagePath = QDir(tempDir).absoluteFilePath(QString("tmdb_episode_%1.jpg").arg(i));
+                if (tmdbApi.downloadImage(episodeInfo.stillPath, tempImagePath)) {
+                    QFile imageFile(tempImagePath);
+                    if (imageFile.open(QIODevice::ReadOnly)) {
+                        metadata.EPImage = imageFile.readAll();
+                        imageFile.close();
+                    }
+                    // Clean up temp file
+                    OperationsFiles::secureDelete(tempImagePath, 1, false);
+                }
+            }
+        }
+        
+        // Save updated metadata
+        if (metadataManager.writeMetadataToFile(videoFilePath, metadata)) {
+            successCount++;
+        } else {
+            failedCount++;
+        }
+        
+        // Small delay to avoid hitting rate limits
+        QThread::msleep(100);
+        QApplication::processEvents();
+        
+        // Check if dialog was closed
+        if (!progressDialog->isVisible()) {
+            operationCancelled = true;
+            break;
+        }
+    }
+    
+    // Close progress dialog
+    if (progressDialog->isVisible()) {
+        progressDialog->close();
+    }
+    delete progressDialog;
+    
+    // Show summary
+    QString summary = tr("TMDB data re-acquisition completed.\n\n"
+                        "Successful: %1\n"
+                        "Failed: %2")
+                     .arg(successCount)
+                     .arg(failedCount);
+    
+    if (operationCancelled) {
+        summary += tr("\n\nOperation was cancelled by user.");
+    }
+    
+    QMessageBox::information(m_mainWindow, tr("Re-acquisition Complete"), summary);
+    
+    qDebug() << "Operations_VP_Shows: TMDB reacquisition finished. Success:" << successCount << "Failed:" << failedCount;
 }
 
 void Operations_VP_Shows::deleteEpisodeFromContextMenu()

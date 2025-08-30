@@ -51,6 +51,12 @@ public:
     
     // Get count of files that will be modified
     int getModifiedFileCount() const { return m_modifiedFileCount; }
+    
+    // Check if TMDB re-acquisition was requested
+    bool shouldReacquireTMDB() const { return m_shouldReacquireTMDB; }
+    
+    // Get the list of video file paths for TMDB processing
+    QStringList getVideoFilePaths() const { return m_videoFilePaths; }
 
 public slots:
     // Override accept to validate and prepare changes
@@ -115,6 +121,9 @@ private:
     
     // Count of files that will be modified
     int m_modifiedFileCount;
+    
+    // Flag to indicate if TMDB re-acquisition was requested
+    bool m_shouldReacquireTMDB;
 };
 
 #endif // VP_SHOWS_EDIT_MULTIPLE_METADATA_DIALOG_H

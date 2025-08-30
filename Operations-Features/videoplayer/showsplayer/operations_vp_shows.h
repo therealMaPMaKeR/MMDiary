@@ -16,6 +16,7 @@
 #include <QStorageInfo>
 #include <QTimer>
 #include "vp_shows_settings.h"
+#include "vp_shows_metadata.h"
 
 // Forward declarations
 class MainWindow;
@@ -204,6 +205,10 @@ public:
     void editMultipleEpisodesMetadata();
     void toggleWatchedStateFromContextMenu();
     void toggleFavouriteStateFromContextMenu();
+    
+    // TMDB re-acquisition methods
+    void reacquireTMDBForSingleEpisode(const QString& videoFilePath, const VP_ShowsMetadata::ShowMetadata& metadata);
+    void reacquireTMDBForMultipleEpisodes(const QStringList& videoFilePaths);
     
     // Helper functions for episode operations
     void collectEpisodesFromTreeItem(QTreeWidgetItem* item, QStringList& episodePaths);

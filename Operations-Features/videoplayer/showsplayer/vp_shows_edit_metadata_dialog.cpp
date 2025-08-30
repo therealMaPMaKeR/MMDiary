@@ -1,5 +1,6 @@
 #include "vp_shows_edit_metadata_dialog.h"
 #include "ui_vp_shows_edit_metadata_dialog.h"
+#include "vp_shows_settings.h"
 #include "inputvalidation.h"
 #include "operations_files.h"
 #include <QDebug>
@@ -9,6 +10,7 @@
 #include <QBuffer>
 #include <QDate>
 #include <QImageReader>
+#include <QFileInfo>
 
 VP_ShowsEditMetadataDialog::VP_ShowsEditMetadataDialog(const QString& videoFilePath,
                                                        const QByteArray& encryptionKey,
@@ -24,6 +26,7 @@ VP_ShowsEditMetadataDialog::VP_ShowsEditMetadataDialog(const QString& videoFileP
     , m_wasModified(false)
     , m_repairMode(repairMode)
     , m_providedShowName(showName)
+    , m_shouldReacquireTMDB(false)
     , m_imagePreviewLabel(nullptr)
     , m_contentTypeCombo(nullptr)
 {
@@ -258,6 +261,24 @@ void VP_ShowsEditMetadataDialog::populateUI()
             m_metadata.encryptionDateTime.toString("yyyy-MM-dd hh:mm:ss"));
     } else {
         ui->label_EncryptionDateValue->setText(tr("Unknown"));
+    }
+    
+    // Initialize the Re-acquire TMDB checkbox based on show settings
+    // Get the show folder path from the video file path
+    QFileInfo fileInfo(m_videoFilePath);
+    QString showFolderPath = fileInfo.absolutePath();
+    
+    // Load show settings to get UseTMDB setting
+    VP_ShowsSettings settingsManager(m_encryptionKey, m_username);
+    VP_ShowsSettings::ShowSettings showSettings;
+    if (settingsManager.loadShowSettings(showFolderPath, showSettings)) {
+        // Set checkbox default state based on UseTMDB setting
+        ui->checkBox_ReacquireTMDB->setChecked(showSettings.useTMDB);
+        qDebug() << "VP_ShowsEditMetadataDialog: Set Re-acquire TMDB checkbox to:" << showSettings.useTMDB;
+    } else {
+        // Default to true if settings can't be loaded
+        ui->checkBox_ReacquireTMDB->setChecked(true);
+        qDebug() << "VP_ShowsEditMetadataDialog: Could not load show settings, defaulting Re-acquire TMDB to true";
     }
 }
 
@@ -623,6 +644,10 @@ void VP_ShowsEditMetadataDialog::accept()
     if (!m_repairMode) {
         checkForModifications();
     }
+    
+    // Store whether TMDB re-acquisition was requested
+    m_shouldReacquireTMDB = ui->checkBox_ReacquireTMDB->isChecked();
+    qDebug() << "VP_ShowsEditMetadataDialog: TMDB re-acquisition requested:" << m_shouldReacquireTMDB;
     
     if (m_wasModified || m_repairMode) {
         qDebug() << "VP_ShowsEditMetadataDialog: Saving metadata" << (m_repairMode ? "(repair mode)" : "(normal mode)");

@@ -1,11 +1,13 @@
 #include "vp_shows_edit_multiple_metadata_dialog.h"
 #include "ui_vp_shows_edit_multiple_metadata_dialog.h"
 #include "vp_shows_metadata.h"
+#include "vp_shows_settings.h"
 #include "inputvalidation.h"
 #include "operations_files.h"
 #include <QDebug>
 #include <QMessageBox>
 #include <QFileInfo>
+#include <QDir>
 
 VP_ShowsEditMultipleMetadataDialog::VP_ShowsEditMultipleMetadataDialog(const QStringList& videoFilePaths,
                                                                        const QByteArray& encryptionKey,
@@ -21,6 +23,7 @@ VP_ShowsEditMultipleMetadataDialog::VP_ShowsEditMultipleMetadataDialog(const QSt
     , m_hasCommonTranslation(false)
     , m_hasCommonContentType(false)
     , m_modifiedFileCount(0)
+    , m_shouldReacquireTMDB(false)
 {
     ui->setupUi(this);
     
@@ -79,6 +82,26 @@ VP_ShowsEditMultipleMetadataDialog::VP_ShowsEditMultipleMetadataDialog(const QSt
     
     // Initial preview update
     updatePreview();
+    
+    // Initialize the Re-acquire TMDB checkbox based on show settings
+    // Get the show folder path from the first video file path (all should be in same show)
+    if (!m_videoFilePaths.isEmpty()) {
+        QFileInfo fileInfo(m_videoFilePaths.first());
+        QString showFolderPath = fileInfo.absolutePath();
+        
+        // Load show settings to get UseTMDB setting
+        VP_ShowsSettings settingsManager(m_encryptionKey, m_username);
+        VP_ShowsSettings::ShowSettings showSettings;
+        if (settingsManager.loadShowSettings(showFolderPath, showSettings)) {
+            // Set checkbox default state based on UseTMDB setting
+            ui->checkBox_ReacquireTMDB->setChecked(showSettings.useTMDB);
+            qDebug() << "VP_ShowsEditMultipleMetadataDialog: Set Re-acquire TMDB checkbox to:" << showSettings.useTMDB;
+        } else {
+            // Default to true if settings can't be loaded
+            ui->checkBox_ReacquireTMDB->setChecked(true);
+            qDebug() << "VP_ShowsEditMultipleMetadataDialog: Could not load show settings, defaulting Re-acquire TMDB to true";
+        }
+    }
 }
 
 VP_ShowsEditMultipleMetadataDialog::~VP_ShowsEditMultipleMetadataDialog()
@@ -595,6 +618,10 @@ void VP_ShowsEditMultipleMetadataDialog::accept()
     if (result != QMessageBox::Yes) {
         return;
     }
+    
+    // Store whether TMDB re-acquisition was requested
+    m_shouldReacquireTMDB = ui->checkBox_ReacquireTMDB->isChecked();
+    qDebug() << "VP_ShowsEditMultipleMetadataDialog: TMDB re-acquisition requested:" << m_shouldReacquireTMDB;
     
     // Apply changes
     if (!applyChangesToFiles()) {
