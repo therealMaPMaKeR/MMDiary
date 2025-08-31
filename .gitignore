@@ -44,8 +44,10 @@
 
 
 # Ignore everything in folders
-build/*
-3rdparty/
+3rdparty/*
+
+
+# rest of ignored files
 RCa13632
 RCa47628
 RCa50376
