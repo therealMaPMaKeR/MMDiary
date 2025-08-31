@@ -16,6 +16,7 @@
 #include "vr_openvr_manager.h"
 #include "vr_video_renderer.h"
 #include "vr_vlc_frame_extractor.h"
+#include "../vp_vlcplayer.h"
 
 class VRRenderThread;
 
@@ -84,6 +85,7 @@ private slots:
     void onVRStatusChanged(VROpenVRManager::VRStatus status);
     void onVRError(const QString& error);
     void onRenderFrame();
+    void onFrameReady();
     void updateVideoFrame();
     void onPlayPauseClicked();
     void onStopClicked();
@@ -131,8 +133,12 @@ private:
     QString m_currentFilePath;
     bool m_isPlaying;
     bool m_videoLoaded;
+    bool m_isSliderBeingMoved;
     qint64 m_duration;
     qint64 m_position;
+    
+    // VLC player for video decoding
+    std::unique_ptr<VP_VLCPlayer> m_vlcPlayer;
     
     // Video format
     VRVideoRenderer::VideoFormat m_videoFormat;

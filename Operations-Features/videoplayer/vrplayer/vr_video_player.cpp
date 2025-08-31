@@ -1,4 +1,5 @@
 #include "vr_video_player.h"
+#include "../vp_vlcplayer.h"
 #include <QDebug>
 #include <QMessageBox>
 #include <QOpenGLWidget>
@@ -34,6 +35,7 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     , m_vrInitialized(false)
     , m_isPlaying(false)
     , m_videoLoaded(false)
+    , m_isSliderBeingMoved(false)
     , m_duration(0)
     , m_position(0)
     , m_videoFormat(VRVideoRenderer::VideoFormat::Mono360)
@@ -41,6 +43,36 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     , m_positionTimer(new QTimer(this))
 {
     qDebug() << "VRVideoPlayer: Constructor called";
+    
+    // Initialize VLC player
+    m_vlcPlayer = std::make_unique<VP_VLCPlayer>(this);
+    if (!m_vlcPlayer->initialize()) {
+        qDebug() << "VRVideoPlayer: Failed to initialize VLC player";
+    }
+    
+    // Connect VLC player signals
+    connect(m_vlcPlayer.get(), &VP_VLCPlayer::durationChanged,
+            this, [this](qint64 duration) {
+                qDebug() << "VRVideoPlayer: Duration changed to" << duration << "ms";
+                m_duration = duration;
+                emit durationChanged(duration);
+                updatePlaybackPosition();
+            });
+    
+    connect(m_vlcPlayer.get(), &VP_VLCPlayer::positionChanged,
+            this, [this](qint64 position) {
+                m_position = position;
+                if (!m_isSliderBeingMoved) {
+                    updatePlaybackPosition();
+                }
+                emit positionChanged(position);
+            });
+    
+    connect(m_vlcPlayer.get(), &VP_VLCPlayer::errorOccurred,
+            this, [this](const QString& error) {
+                qDebug() << "VRVideoPlayer: VLC error:" << error;
+                QMessageBox::critical(this, "Video Player Error", error);
+            });
     
     // Set up UI
     setupUI();
@@ -64,6 +96,12 @@ VRVideoPlayer::~VRVideoPlayer()
     // Stop playback
     if (m_isPlaying) {
         stop();
+    }
+    
+    // Clean up VLC player
+    if (m_vlcPlayer) {
+        m_vlcPlayer->stop();
+        m_vlcPlayer->unloadMedia();
     }
     
     // Shutdown VR
@@ -330,14 +368,30 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
         return false;
     }
     
+    // Load video with VLC player
+    if (!m_vlcPlayer->loadMedia(filePath)) {
+        qDebug() << "VRVideoPlayer: Failed to load media in VLC";
+        QMessageBox::critical(this, "Error", "Failed to load video file: " + filePath);
+        return false;
+    }
+    
     // Store file path
     m_currentFilePath = filePath;
     m_videoLoaded = true;
     
-    // TODO: Get actual duration from VLC
-    // For now, set a dummy duration for testing
-    m_duration = 300000; // 5 minutes in milliseconds
-    emit durationChanged(m_duration);
+    // Initialize frame extractor if VLC player has a media player instance
+    if (m_vlcPlayer->getMediaPlayer()) {
+        qDebug() << "VRVideoPlayer: Initializing frame extractor";
+        m_frameExtractor = std::make_unique<VRVLCFrameExtractor>(m_vlcPlayer->getMediaPlayer(), this);
+        if (!m_frameExtractor->initialize()) {
+            qDebug() << "VRVideoPlayer: Failed to initialize frame extractor";
+            m_frameExtractor.reset();
+        } else {
+            // Connect frame ready signal
+            connect(m_frameExtractor.get(), &VRVLCFrameExtractor::frameReady,
+                    this, &VRVideoPlayer::onFrameReady);
+        }
+    }
     
     // Update UI
     m_fileLabel->setText(fileInfo.fileName());
@@ -381,68 +435,75 @@ void VRVideoPlayer::play()
         return;
     }
     
-    m_isPlaying = true;
-    
-    // Start frame timer if in VR mode
-    if (m_vrActive) {
-        m_frameTimer->start();
+    // Play using VLC player
+    if (m_vlcPlayer) {
+        m_vlcPlayer->play();
+        m_isPlaying = true;
+        
+        // Start frame timer if in VR mode
+        if (m_vrActive) {
+            m_frameTimer->start();
+        }
+        
+        // Update UI
+        m_playPauseButton->setText("Pause");
+        m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
+        m_statusLabel->setText("Playing in VR headset");
+        
+        emit playbackStateChanged(true);
     }
-    
-    // Start position timer
-    m_positionTimer->start();
-    
-    // Update UI
-    m_playPauseButton->setText("Pause");
-    m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
-    m_statusLabel->setText("Playing in VR headset");
-    
-    emit playbackStateChanged(true);
 }
 
 void VRVideoPlayer::pause()
 {
     qDebug() << "VRVideoPlayer: Pause requested";
     
-    m_isPlaying = false;
-    
-    // Stop timers
-    if (m_vrActive) {
-        m_frameTimer->stop();
+    // Pause using VLC player
+    if (m_vlcPlayer) {
+        m_vlcPlayer->pause();
+        m_isPlaying = false;
+        
+        // Stop frame timer if in VR mode
+        if (m_vrActive) {
+            m_frameTimer->stop();
+        }
+        
+        // Update UI
+        m_playPauseButton->setText("Play");
+        m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+        m_statusLabel->setText("Paused");
+        
+        emit playbackStateChanged(false);
     }
-    m_positionTimer->stop();
-    
-    // Update UI
-    m_playPauseButton->setText("Play");
-    m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-    m_statusLabel->setText("Paused");
-    
-    emit playbackStateChanged(false);
 }
 
 void VRVideoPlayer::stop()
 {
     qDebug() << "VRVideoPlayer: Stop requested";
     
-    m_isPlaying = false;
-    m_position = 0;
-    
-    // Stop timers
-    m_frameTimer->stop();
-    m_positionTimer->stop();
-    
-    // Exit VR mode if active
-    if (m_vrActive) {
-        exitVRMode();
+    // Stop using VLC player
+    if (m_vlcPlayer) {
+        m_vlcPlayer->stop();
+        m_isPlaying = false;
+        m_position = 0;
+        
+        // Stop frame timer
+        m_frameTimer->stop();
+        
+        // Exit VR mode if active
+        if (m_vrActive) {
+            exitVRMode();
+        }
+        
+        // Update UI
+        m_playPauseButton->setText("Play");
+        m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+        m_statusLabel->setText("Stopped");
+        updatePlaybackPosition();
+        
+        emit playbackStateChanged(false);
+        emit positionChanged(0);
     }
-    
-    // Update UI
-    m_playPauseButton->setText("Play");
-    m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-    m_statusLabel->setText("Stopped");
-    updatePlaybackPosition();
-    
-    emit playbackStateChanged(false);
-    emit positionChanged(0);
 }
 
 void VRVideoPlayer::seek(qint64 position)
@@ -453,9 +514,13 @@ void VRVideoPlayer::seek(qint64 position)
         return;
     }
     
-    m_position = qBound(qint64(0), position, m_duration);
-    emit positionChanged(m_position);
-    updatePlaybackPosition();
+    // Seek using VLC player
+    if (m_vlcPlayer) {
+        m_vlcPlayer->setPosition(position);
+        m_position = position;
+        emit positionChanged(m_position);
+        updatePlaybackPosition();
+    }
 }
 
 qint64 VRVideoPlayer::duration() const
@@ -594,7 +659,11 @@ bool VRVideoPlayer::startVRRendering()
     }
     
     m_renderThread->startRendering();
-    m_frameTimer->start();
+    
+    // Start frame timer only if playing
+    if (m_isPlaying) {
+        m_frameTimer->start();
+    }
     
     return true;
 }
@@ -721,18 +790,37 @@ void VRVideoPlayer::onRenderFrame()
     // This slot can be used for additional frame rendering logic
 }
 
-void VRVideoPlayer::updateVideoFrame()
+void VRVideoPlayer::onFrameReady()
 {
-    if (!m_vrActive || !m_renderThread) {
+    qDebug() << "VRVideoPlayer: Frame ready from VLC";
+    
+    if (!m_vrActive || !m_renderThread || !m_frameExtractor) {
         return;
     }
     
-    // Get current frame from video player
-    // This is a simplified version - you'll need to extract frames from libVLC
-    // For now, we'll use a placeholder
+    // Get the current frame from the extractor
+    QImage frame = m_frameExtractor->getCurrentFrame();
+    if (!frame.isNull()) {
+        // Pass frame to render thread
+        m_renderThread->updateVideoFrame(frame);
+    }
+}
+
+void VRVideoPlayer::updateVideoFrame()
+{
+    if (!m_vrActive || !m_renderThread || !m_frameExtractor) {
+        return;
+    }
     
-    // TODO: Extract current frame from libVLC and pass to render thread
-    // m_renderThread->updateVideoFrame(currentFrame);
+    // Check if frame extractor has a new frame
+    if (m_frameExtractor->hasNewFrame()) {
+        QImage frame = m_frameExtractor->getCurrentFrame();
+        if (!frame.isNull()) {
+            // Pass frame to render thread
+            m_renderThread->updateVideoFrame(frame);
+            m_frameExtractor->markFrameUsed();
+        }
+    }
 }
 
 void VRVideoPlayer::onPlayPauseClicked()
@@ -761,6 +849,12 @@ void VRVideoPlayer::updatePlaybackPosition()
         return;
     }
     
+    // Get current position from VLC player
+    if (m_vlcPlayer && m_vlcPlayer->hasMedia()) {
+        m_position = m_vlcPlayer->position();
+        m_duration = m_vlcPlayer->duration();
+    }
+    
     // Format time
     auto formatTime = [](qint64 ms) -> QString {
         int seconds = (ms / 1000) % 60;
@@ -782,16 +876,6 @@ void VRVideoPlayer::updatePlaybackPosition()
     m_positionLabel->setText(QString("%1 / %2")
         .arg(formatTime(m_position))
         .arg(formatTime(m_duration)));
-    
-    // Simulate position increment for demo
-    if (m_isPlaying && m_position < m_duration) {
-        m_position += 100; // Increment by 100ms
-        if (m_position > m_duration) {
-            m_position = m_duration;
-            stop();
-        }
-        emit positionChanged(m_position);
-    }
 }
 
 void VRVideoPlayer::updateUIState()
