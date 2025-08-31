@@ -102,6 +102,8 @@ private:
     // Video texture
     GLuint m_videoTexture;
     bool m_ownVideoTexture;
+    unsigned int m_textureWidth;
+    unsigned int m_textureHeight;
     
     // Settings
     VideoFormat m_videoFormat;

@@ -12,6 +12,8 @@ VRVideoRenderer::VRVideoRenderer(QObject *parent)
     , m_renderHeight(2048)
     , m_videoTexture(0)
     , m_ownVideoTexture(false)
+    , m_textureWidth(0)
+    , m_textureHeight(0)
     , m_videoFormat(VideoFormat::Mono360)
     , m_brightness(1.0f)
     , m_contrast(1.0f)
@@ -93,6 +95,8 @@ void VRVideoRenderer::cleanup()
     if (m_ownVideoTexture && m_videoTexture) {
         glDeleteTextures(1, &m_videoTexture);
         m_videoTexture = 0;
+        m_textureWidth = 0;
+        m_textureHeight = 0;
     }
     
     // Clean up shaders
@@ -369,40 +373,84 @@ bool VRVideoRenderer::updateVideoTextureDirect(void* buffer, unsigned int width,
         return false;
     }
     
+    // Check if we have a valid OpenGL context
+    QOpenGLContext* context = QOpenGLContext::currentContext();
+    if (!context) {
+        if (updateCount % 30 == 0) {
+            qDebug() << "VRVideoRenderer: No OpenGL context current";
+        }
+        return false;
+    }
+    
+    // Clear any existing OpenGL errors
+    while (glGetError() != GL_NO_ERROR) {}
+    
     // Create texture if it doesn't exist
     if (!m_videoTexture) {
         glGenTextures(1, &m_videoTexture);
         m_ownVideoTexture = true;
         qDebug() << "VRVideoRenderer: Created new video texture with ID:" << m_videoTexture;
+        
+        // Bind and initialize texture with proper parameters first
+        glBindTexture(GL_TEXTURE_2D, m_videoTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        
+        // Allocate texture storage
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 
+                     width, height, 
+                     0, GL_RGBA, GL_UNSIGNED_BYTE, 
+                     nullptr);
+        m_textureWidth = width;
+        m_textureHeight = height;
+    } else {
+        glBindTexture(GL_TEXTURE_2D, m_videoTexture);
     }
-    
-    glBindTexture(GL_TEXTURE_2D, m_videoTexture);
     
     if (updateCount % 30 == 0) {
         qDebug() << "VRVideoRenderer: Direct texture update" << m_videoTexture 
                  << "with buffer" << width << "x" << height;
     }
     
-    // Upload texture data directly from buffer (no QImage conversion)
-    // Note: VLC provides bottom-up image data, but OpenGL expects top-down
-    // We handle this in texture coordinates rather than flipping the data
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 
-                 width, height, 
-                 0, GL_RGBA, GL_UNSIGNED_BYTE, 
-                 buffer);
-    
-    // Set texture parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    // Check if texture dimensions have changed
+    if (m_textureWidth != width || m_textureHeight != height) {
+        // Dimensions changed, need to reallocate texture
+        if (updateCount % 10 == 0) {
+            qDebug() << "VRVideoRenderer: Texture dimensions changed from" 
+                     << m_textureWidth << "x" << m_textureHeight << "to" << width << "x" << height;
+        }
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+                     width, height,
+                     0, GL_RGBA, GL_UNSIGNED_BYTE,
+                     buffer);
+        m_textureWidth = width;
+        m_textureHeight = height;
+    } else {
+        // Update texture data using glTexSubImage2D (more efficient for updates)
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
+                        width, height,
+                        GL_RGBA, GL_UNSIGNED_BYTE,
+                        buffer);
+    }
     
     glBindTexture(GL_TEXTURE_2D, 0);
     
     // Check for OpenGL errors
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
-        qDebug() << "VRVideoRenderer: OpenGL error during direct texture update:" << err;
+        if (updateCount % 30 == 0) {
+            const char* errorString = "Unknown";
+            switch(err) {
+                case GL_INVALID_ENUM: errorString = "GL_INVALID_ENUM"; break;
+                case GL_INVALID_VALUE: errorString = "GL_INVALID_VALUE"; break;
+                case GL_INVALID_OPERATION: errorString = "GL_INVALID_OPERATION"; break;
+                case GL_OUT_OF_MEMORY: errorString = "GL_OUT_OF_MEMORY"; break;
+            }
+            qDebug() << "VRVideoRenderer: OpenGL error during direct texture update:" 
+                     << err << "(" << errorString << ")";
+        }
         return false;
     }
     
@@ -425,6 +473,8 @@ bool VRVideoRenderer::updateVideoTexture(const QImage& frame)
     if (!m_videoTexture) {
         glGenTextures(1, &m_videoTexture);
         m_ownVideoTexture = true;
+        m_textureWidth = 0;  // Force allocation on first update
+        m_textureHeight = 0;
         qDebug() << "VRVideoRenderer: Created new video texture with ID:" << m_videoTexture;
     }
     
@@ -438,17 +488,29 @@ bool VRVideoRenderer::updateVideoTexture(const QImage& frame)
                  << "with frame" << glFrame.width() << "x" << glFrame.height();
     }
     
-    // Upload texture data
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 
-                 glFrame.width(), glFrame.height(), 
-                 0, GL_RGBA, GL_UNSIGNED_BYTE, 
-                 glFrame.constBits());
-    
-    // Set texture parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    // Check if we need to reallocate texture
+    if (m_textureWidth != (unsigned int)glFrame.width() || m_textureHeight != (unsigned int)glFrame.height()) {
+        // Upload texture data
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 
+                     glFrame.width(), glFrame.height(), 
+                     0, GL_RGBA, GL_UNSIGNED_BYTE, 
+                     glFrame.constBits());
+        
+        // Set texture parameters
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        
+        m_textureWidth = glFrame.width();
+        m_textureHeight = glFrame.height();
+    } else {
+        // Just update the texture data
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
+                        glFrame.width(), glFrame.height(),
+                        GL_RGBA, GL_UNSIGNED_BYTE,
+                        glFrame.constBits());
+    }
     
     glBindTexture(GL_TEXTURE_2D, 0);
     
@@ -508,13 +570,9 @@ void VRVideoRenderer::renderEye(bool leftEye, const QMatrix4x4& view, const QMat
     QOpenGLFramebufferObject* fbo = leftEye ? m_leftEyeFBO.get() : m_rightEyeFBO.get();
     fbo->bind();
     
-    // Clear with distinct colors for each eye to debug rendering
+    // Clear to black (video should overlay this)
     glViewport(0, 0, m_renderWidth, m_renderHeight);
-    if (leftEye) {
-        glClearColor(0.2f, 0.0f, 0.0f, 1.0f); // Dark red for left eye
-    } else {
-        glClearColor(0.0f, 0.0f, 0.2f, 1.0f); // Dark blue for right eye
-    }
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f); // Black background
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     // Enable depth testing
@@ -566,7 +624,18 @@ void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye)
     static int sphereRenderCount = 0;
     sphereRenderCount++;
     
-    m_sphereShader->bind();
+    // Clear any existing OpenGL errors
+    while (glGetError() != GL_NO_ERROR) {}
+    
+    if (!m_sphereShader) {
+        qDebug() << "VRVideoRenderer: No sphere shader available";
+        return;
+    }
+    
+    if (!m_sphereShader->bind()) {
+        qDebug() << "VRVideoRenderer: Failed to bind sphere shader";
+        return;
+    }
     
     // Set uniforms
     m_sphereShader->setUniformValue("mvpMatrix", mvpMatrix);
@@ -583,17 +652,35 @@ void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye)
     
     // Bind video texture
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, m_videoTexture);
-    
-    if (sphereRenderCount % 180 == 0) {
-        qDebug() << "VRVideoRenderer: Rendering sphere for" << (leftEye ? "left" : "right") 
-                 << "eye with texture" << m_videoTexture 
-                 << "indices:" << m_sphereIndexCount;
+    if (m_videoTexture) {
+        glBindTexture(GL_TEXTURE_2D, m_videoTexture);
+        
+        // Verify texture is bound
+        GLint boundTexture = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTexture);
+        if (sphereRenderCount % 180 == 0) {
+            qDebug() << "VRVideoRenderer: Rendering sphere for" << (leftEye ? "left" : "right") 
+                     << "eye with texture" << m_videoTexture 
+                     << "(bound:" << boundTexture << ")"
+                     << "indices:" << m_sphereIndexCount
+                     << "texOffset:" << texOffset << "texScale:" << texScale;
+        }
+    } else {
+        if (sphereRenderCount % 180 == 0) {
+            qDebug() << "VRVideoRenderer: No video texture available for sphere rendering";
+        }
     }
     
     // Render sphere
     m_sphereVAO.bind();
     glDrawElements(GL_TRIANGLES, m_sphereIndexCount, GL_UNSIGNED_INT, nullptr);
+    
+    // Check for errors after drawing
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR && sphereRenderCount % 180 == 0) {
+        qDebug() << "VRVideoRenderer: OpenGL error after sphere draw:" << err;
+    }
+    
     m_sphereVAO.release();
     
     glBindTexture(GL_TEXTURE_2D, 0);

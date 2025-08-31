@@ -309,18 +309,9 @@ bool VRVideoPlayer::setupVRComponents()
     // Store the context for sharing
     m_glContext = QOpenGLContext::currentContext();
     
-    // Create VR renderer
+    // Create VR renderer (but don't initialize it here - let the render thread do it)
     m_vrRenderer = std::make_unique<VRVideoRenderer>(this);
-    if (!m_vrRenderer->initialize()) {
-        qDebug() << "VRVideoPlayer: Failed to initialize VR renderer";
-        m_glWidget->doneCurrent();
-        return false;
-    }
-    
-    // Set render target size from VR system
-    uint32_t width, height;
-    m_vrManager->getRecommendedRenderTargetSize(width, height);
-    m_vrRenderer->setRenderTargetSize(width, height);
+    qDebug() << "VRVideoPlayer: Created VR renderer (will initialize in render thread)";
     
     // Create render thread with shared context
     // Note: frameExtractor will be set when video is loaded
@@ -1064,6 +1055,8 @@ void VRRenderThread::run()
     QSurfaceFormat format;
     format.setVersion(3, 3);
     format.setProfile(QSurfaceFormat::CoreProfile);
+    format.setDepthBufferSize(24);
+    format.setStencilBufferSize(8);
     context->setFormat(format);
     
     // Share with the main context if available
@@ -1071,7 +1064,7 @@ void VRRenderThread::run()
         context->setShareContext(m_shareContext);
         qDebug() << "VRRenderThread: Sharing OpenGL context with main thread";
     } else {
-        qDebug() << "VRRenderThread: No share context available";
+        qDebug() << "VRRenderThread: Warning - No share context available";
     }
     
     if (!context->create()) {
@@ -1085,6 +1078,13 @@ void VRRenderThread::run()
     surface->setFormat(context->format());
     surface->create();
     
+    if (!surface->isValid()) {
+        qDebug() << "VRRenderThread: Failed to create valid surface";
+        delete surface;
+        delete context;
+        return;
+    }
+    
     if (!context->makeCurrent(surface)) {
         qDebug() << "VRRenderThread: Failed to make context current";
         delete surface;
@@ -1093,23 +1093,56 @@ void VRRenderThread::run()
     }
     
     qDebug() << "VRRenderThread: OpenGL context created and made current";
+    qDebug() << "VRRenderThread: OpenGL version:" << context->format().majorVersion() 
+             << "." << context->format().minorVersion();
     
     // Initialize OpenGL functions
     QOpenGLFunctions* gl = context->functions();
     if (gl) {
         gl->initializeOpenGLFunctions();
         qDebug() << "VRRenderThread: OpenGL functions initialized";
+        
+        // Log OpenGL info
+        const GLubyte* vendor = gl->glGetString(GL_VENDOR);
+        const GLubyte* renderer = gl->glGetString(GL_RENDERER);
+        const GLubyte* version = gl->glGetString(GL_VERSION);
+        qDebug() << "VRRenderThread: OpenGL Vendor:" << reinterpret_cast<const char*>(vendor);
+        qDebug() << "VRRenderThread: OpenGL Renderer:" << reinterpret_cast<const char*>(renderer);
+        qDebug() << "VRRenderThread: OpenGL Version:" << reinterpret_cast<const char*>(version);
     }
     
     // Ensure VR renderer is initialized in this context
-    if (m_vrRenderer && !m_vrRenderer->isInitialized()) {
-        qDebug() << "VRRenderThread: Initializing VR renderer in render thread context";
-        if (!m_vrRenderer->initialize()) {
-            qDebug() << "VRRenderThread: Failed to initialize VR renderer";
+    if (m_vrRenderer) {
+        if (!m_vrRenderer->isInitialized()) {
+            qDebug() << "VRRenderThread: Initializing VR renderer in render thread context";
+            if (!m_vrRenderer->initialize()) {
+                qDebug() << "VRRenderThread: Failed to initialize VR renderer";
+                context->doneCurrent();
+                delete surface;
+                delete context;
+                return;
+            }
+            
+            // Set render target size from VR system
+            if (m_vrManager) {
+                uint32_t width, height;
+                m_vrManager->getRecommendedRenderTargetSize(width, height);
+                m_vrRenderer->setRenderTargetSize(width, height);
+                qDebug() << "VRRenderThread: Set render target size to" << width << "x" << height;
+            }
+        } else {
+            qDebug() << "VRRenderThread: VR renderer already initialized";
         }
     }
     
     while (!m_stopRequested) {
+        // Ensure context is current before rendering
+        if (!context->makeCurrent(surface)) {
+            qDebug() << "VRRenderThread: Lost OpenGL context, attempting to restore";
+            msleep(100);
+            continue;
+        }
+        
         renderFrame();
         
         // Sleep briefly to maintain frame rate
