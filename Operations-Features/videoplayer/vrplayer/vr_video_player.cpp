@@ -187,7 +187,13 @@ void VRVideoPlayer::cleanupVRComponents()
 
 bool VRVideoPlayer::loadVideo(const QString& filePath)
 {
-    qDebug() << "VRVideoPlayer: Loading video:" << filePath;
+    // Call the overloaded version with autoEnterVR = false
+    return loadVideo(filePath, false);
+}
+
+bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
+{
+    qDebug() << "VRVideoPlayer: Loading video:" << filePath << "(autoEnterVR:" << autoEnterVR << ")";
     
     // Load video using base class
     if (!BaseVideoPlayer::loadVideo(filePath)) {
@@ -200,8 +206,13 @@ bool VRVideoPlayer::loadVideo(const QString& filePath)
     
     qDebug() << "VRVideoPlayer: Detected video format:" << static_cast<int>(format);
     
-    // If VR is available and it's a VR video format, offer to enter VR mode
-    if (isVRAvailable() && format != VRVideoRenderer::VideoFormat::Flat2D) {
+    // If autoEnterVR is true, enter VR mode regardless of format (user explicitly chose VR player)
+    if (autoEnterVR && isVRAvailable()) {
+        qDebug() << "VRVideoPlayer: Auto-entering VR mode as requested";
+        enterVRMode();
+    }
+    // Otherwise, only offer for VR-formatted videos
+    else if (!autoEnterVR && isVRAvailable() && format != VRVideoRenderer::VideoFormat::Flat2D) {
         QMessageBox::StandardButton reply = QMessageBox::question(
             this, 
             "VR Video Detected",

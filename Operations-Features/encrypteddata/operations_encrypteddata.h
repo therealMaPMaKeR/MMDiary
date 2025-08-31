@@ -119,6 +119,7 @@ private slots:
     void onContextMenuOpenWith();
     void onContextMenuOpenWithImageViewer();
     void onContextMenuOpenWithVideoPlayer();
+    void onContextMenuOpenWithVRVideoPlayer();
     void onContextMenuEdit();
     void onContextMenuDecryptExport();
     void onContextMenuDelete();
@@ -259,6 +260,7 @@ private:
     // Helper functions - Video player
     bool isVideoFile(const QString& filename) const;
     void openWithVideoPlayer(const QString& encryptedFilePath, const QString& originalFilename);
+    void openWithVRVideoPlayer(const QString& encryptedFilePath, const QString& originalFilename);
 
     // Helper functions - Filtering
     QStringList parseHiddenItems(const QString& hiddenString);

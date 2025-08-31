@@ -33,6 +33,7 @@ public:
 
     // Override base class methods
     bool loadVideo(const QString& filePath) override;
+    bool loadVideo(const QString& filePath, bool autoEnterVR);  // Overload with VR auto-enter option
     void play() override;
     void pause() override;
     void stop() override;

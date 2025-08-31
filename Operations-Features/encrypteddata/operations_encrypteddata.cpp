@@ -1,4 +1,6 @@
 #include "operations_encrypteddata.h"
+#include "../videoplayer/BaseVideoPlayer.h"
+#include "../videoplayer/vrplayer/vr_video_player.h"
 #include "CryptoUtils.h"
 #include "operations_files.h"
 #include "constants.h"
@@ -749,6 +751,77 @@ void Operations_EncryptedData::decryptSelectedFile()
     m_progressDialog->exec();
 }
 
+void Operations_EncryptedData::openWithVRVideoPlayer(const QString& encryptedFilePath, const QString& originalFilename)
+{
+    qDebug() << "Operations_EncryptedData: Opening video with VR VideoPlayer:" << originalFilename;
+
+    // Verify the encrypted file still exists
+    if (!QFile::exists(encryptedFilePath)) {
+        QMessageBox::critical(m_mainWindow, "File Not Found",
+                              "The encrypted file no longer exists.");
+        populateEncryptedFilesList(); // Refresh the list
+        return;
+    }
+
+    // Validate encryption key before proceeding
+    qDebug() << "Operations_EncryptedData: Validating encryption key for VR VideoPlayer:" << encryptedFilePath;
+    QByteArray encryptionKey = m_mainWindow->user_Key;
+    if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey, true)) {
+        QMessageBox::critical(m_mainWindow, "Invalid Encryption Key",
+                              "The encryption key is invalid or the file is corrupted. "
+                              "Please ensure you are using the correct user account.");
+        return;
+    }
+    qDebug() << "Operations_EncryptedData: Encryption key validation successful for VR VideoPlayer";
+
+    // Verify this is actually a video file
+    if (!isVideoFile(originalFilename)) {
+        QMessageBox::warning(m_mainWindow, "Not a Video",
+                             "The selected file is not a video file.");
+        return;
+    }
+
+    // Create temp file path with obfuscated name
+    QString tempFilePath = createTempFilePath(originalFilename);
+    if (tempFilePath.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to create temporary file path.");
+        return;
+    }
+
+    // Store "vrvideoplayer" as the app to open
+    m_pendingAppToOpen = "vrvideoplayer";
+    qDebug() << "Operations_EncryptedData: Stored 'vrvideoplayer' in m_pendingAppToOpen";
+
+    qDebug() << "Operations_EncryptedData: Starting temporary decryption for VR VideoPlayer";
+
+    // Set up progress dialog
+    m_progressDialog = new QProgressDialog("Decrypting video for VR playback...", "Cancel", 0, 100, m_mainWindow);
+    m_progressDialog->setWindowTitle("Opening VR Video File");
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setMinimumDuration(0);
+    m_progressDialog->setValue(0);
+
+    // Set up worker thread for temp decryption
+    m_tempDecryptWorkerThread = new QThread(this);
+    m_tempDecryptWorker = new TempDecryptionWorker(encryptedFilePath, tempFilePath, encryptionKey);
+    m_tempDecryptWorker->moveToThread(m_tempDecryptWorkerThread);
+
+    // Connect signals
+    connect(m_tempDecryptWorkerThread, &QThread::started,
+            m_tempDecryptWorker, &TempDecryptionWorker::doDecryption);
+    connect(m_tempDecryptWorker, &TempDecryptionWorker::progressUpdated,
+            this, &Operations_EncryptedData::onTempDecryptionProgress);
+    connect(m_tempDecryptWorker, &TempDecryptionWorker::decryptionFinished,
+            this, &Operations_EncryptedData::onTempDecryptionFinished);
+    connect(m_progressDialog, &QProgressDialog::canceled,
+            this, &Operations_EncryptedData::onTempDecryptionCancelled);
+
+    // Start decryption
+    m_tempDecryptWorkerThread->start();
+    m_progressDialog->exec();
+}
+
 void Operations_EncryptedData::onDecryptionProgress(int percentage)
 {
     if (m_progressDialog) {
@@ -1064,6 +1137,31 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
                         QMessageBox::critical(m_mainWindow, "Video Player Error",
                                               "Failed to load the video in the Video Player.");
                         player->deleteLater();
+                    }
+                } else if (localAppToOpen == "vrvideoplayer") {
+                    qDebug() << "Operations_EncryptedData: Opening with VRVideoPlayer:" << tempFilePath;
+
+                    // Create VRVideoPlayer instance without parent for independent window
+                    VRVideoPlayer* vrPlayer = new VRVideoPlayer(nullptr);
+                    
+                    // Set auto-delete for this instance since it's not managed by a smart pointer
+                    vrPlayer->setAttribute(Qt::WA_DeleteOnClose);
+                    
+                    // Load the video file with autoEnterVR=true since user explicitly chose VR player
+                    if (vrPlayer->loadVideo(tempFilePath, true)) {
+                        vrPlayer->show();
+                        vrPlayer->play();
+                        qDebug() << "Operations_EncryptedData: VRVideoPlayer opened successfully";
+                        
+                        // VRVideoPlayer will handle VR availability checking internally
+                        // and show appropriate messages if VR is not available
+                        
+                        // Player will auto-delete on close due to WA_DeleteOnClose set above
+                        // Temp file will be cleaned by the existing cleanup timer
+                    } else {
+                        QMessageBox::critical(m_mainWindow, "VR Video Player Error",
+                                              "Failed to load the video in the VR Video Player.");
+                        vrPlayer->deleteLater();
                     }
                 } else {
                     qDebug() << "Operations_EncryptedData: About to call openFileWithApp with localAppToOpen:"
@@ -3205,6 +3303,11 @@ void Operations_EncryptedData::showContextMenu_FileList(const QPoint& pos)
         QAction* videoPlayerAction = contextMenu.addAction("Open with Video Player");
         videoPlayerAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_MediaPlay));
         connect(videoPlayerAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuOpenWithVideoPlayer);
+        
+        // Add "Open With VR Video Player" action for videos
+        QAction* vrVideoPlayerAction = contextMenu.addAction("Open with VR Video Player");
+        vrVideoPlayerAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_MediaPlay));
+        connect(vrVideoPlayerAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuOpenWithVRVideoPlayer);
     }
 
     // Add "Open With Image Viewer" action only for images
@@ -3481,6 +3584,35 @@ void Operations_EncryptedData::onContextMenuOpenWithVideoPlayer()
 
     // Use the VideoPlayer opening functionality
     openWithVideoPlayer(encryptedFilePath, originalFilename);
+}
+
+void Operations_EncryptedData::onContextMenuOpenWithVRVideoPlayer()
+{
+    // Get the currently selected item
+    QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_DataENC_FileList->currentItem();
+    if (!currentItem) {
+        return;
+    }
+
+    // Get the encrypted file path and original filename from the item's user data
+    QString encryptedFilePath = currentItem->data(Qt::UserRole).toString();
+    QString originalFilename = currentItem->data(Qt::UserRole + 2).toString();
+
+    if (encryptedFilePath.isEmpty() || originalFilename.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to retrieve file information.");
+        return;
+    }
+
+    // Verify this is actually a video file
+    if (!isVideoFile(originalFilename)) {
+        QMessageBox::warning(m_mainWindow, "Not a Video",
+                             "The selected file is not a video file.");
+        return;
+    }
+
+    // Use the VR VideoPlayer opening functionality
+    openWithVRVideoPlayer(encryptedFilePath, originalFilename);
 }
 
 
