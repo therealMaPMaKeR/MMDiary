@@ -169,6 +169,7 @@ public:
     void startRendering();
     void stopRendering();
     void updateVideoFrame(const QImage& frame);
+    void setShareContext(QOpenGLContext* context) { m_shareContext = context; }
     
     bool isRendering() const { return m_rendering; }
 
@@ -192,6 +193,8 @@ private:
     QImage m_currentFrame;
     QMutex m_frameMutex;
     bool m_frameUpdated;
+    
+    QOpenGLContext* m_shareContext;
 };
 
 #endif // VR_VIDEO_PLAYER_H

@@ -95,43 +95,26 @@ bool VP_VLCPlayer::initialize()
         // We need to go up from the build directory to find the project
         QDir buildDir(appDir);
         
-        // Try to find the project directory by looking for MMDiary.pro
-        QString projectPath;
-        QDir searchDir = buildDir;
-        
-        // Go up directories until we find MMDiary.pro or reach root
-        for (int i = 0; i < 5; i++) {
-            if (searchDir.exists("MMDiary.pro")) {
-                projectPath = searchDir.absolutePath();
+        // Try to find the project directory by looking for the 3rdparty folder
+        for (int i = 0; i < 5; ++i) {
+            if (buildDir.exists("3rdparty/libvlc/bin/plugins")) {
+                pluginPath = buildDir.absolutePath() + "/3rdparty/libvlc/bin/plugins";
+                qDebug() << "VP_VLCPlayer: Using plugins from project directory:" << pluginPath;
                 break;
             }
-            if (searchDir.exists("MMDiary/MMDiary.pro")) {
-                projectPath = searchDir.absolutePath() + "/MMDiary";
-                break;
-            }
-            if (!searchDir.cdUp()) {
+            if (!buildDir.cdUp()) {
                 break;
             }
         }
         
-        if (!projectPath.isEmpty()) {
-            pluginPath = projectPath + "/3rdparty/libvlc/bin/plugins";
-            if (QDir(pluginPath).exists()) {
-                qDebug() << "VP_VLCPlayer: Using plugins from project directory:" << pluginPath;
-            } else {
-                qDebug() << "VP_VLCPlayer: Warning - plugins not found at:" << pluginPath;
-                // Try one more location - direct path
-                pluginPath = "C:/Users/Gabriel/Storage/Coding/Projects/MMDiary/MMDiary/3rdparty/libvlc/bin/plugins";
-                if (QDir(pluginPath).exists()) {
-                    qDebug() << "VP_VLCPlayer: Using plugins from absolute path:" << pluginPath;
-                } else {
-                    qDebug() << "VP_VLCPlayer: Error - Could not find VLC plugins!";
-                }
-            }
-        } else {
-            // Fallback to absolute path
+        // If still not found, try the fallback path
+        if (pluginPath.isEmpty()) {
             pluginPath = "C:/Users/Gabriel/Storage/Coding/Projects/MMDiary/MMDiary/3rdparty/libvlc/bin/plugins";
-            qDebug() << "VP_VLCPlayer: Using fallback plugin path:" << pluginPath;
+            if (QDir(pluginPath).exists()) {
+                qDebug() << "VP_VLCPlayer: Using fallback plugin path:" << pluginPath;
+            } else {
+                qDebug() << "VP_VLCPlayer: Warning - Could not find VLC plugins!";
+            }
         }
     }
     
@@ -151,6 +134,9 @@ bool VP_VLCPlayer::initialize()
         "--intf=dummy",  // No interface
         "--no-media-library",  // Don't use media library
         "--no-one-instance",  // Allow multiple instances
+        "--vout=dummy",  // Use dummy video output to suppress timing warnings
+        "--verbose=0",  // Minimal verbosity
+        "--no-osd",  // No on-screen display
         pluginArg.c_str()  // Plugin path
     };
     

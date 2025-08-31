@@ -42,6 +42,7 @@ public:
     // Initialization
     bool initialize();
     void cleanup();
+    bool isInitialized() const { return m_initialized; }
     
     // Configuration
     void setVideoFormat(VideoFormat format) { m_videoFormat = format; }

@@ -209,9 +209,18 @@ void VRVLCFrameExtractor::display(void* picture)
 {
     Q_UNUSED(picture);
     
+    static int displayCount = 0;
+    displayCount++;
+    if (displayCount % 30 == 0) { // Log every 30th frame
+        qDebug() << "VRVLCFrameExtractor: Display callback called, frame" << displayCount;
+    }
+    
     QMutexLocker locker(&m_frameMutex);
     
     if (!m_pixelBuffer || m_videoWidth == 0 || m_videoHeight == 0) {
+        if (displayCount % 30 == 0) {
+            qDebug() << "VRVLCFrameExtractor: Invalid buffer or dimensions";
+        }
         return;
     }
     
@@ -224,6 +233,9 @@ void VRVLCFrameExtractor::display(void* picture)
                            QImage::Format_RGBA8888).copy();
     
     m_hasNewFrame = true;
+    if (displayCount % 30 == 0) {
+        qDebug() << "VRVLCFrameExtractor: Frame ready, size:" << m_videoWidth << "x" << m_videoHeight;
+    }
     emit frameReady();
 }
 

@@ -4,6 +4,7 @@
 #include <QMessageBox>
 #include <QOpenGLWidget>
 #include <QOpenGLContext>
+#include <QOffscreenSurface>
 #include <QSurfaceFormat>
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -44,10 +45,13 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
 {
     qDebug() << "VRVideoPlayer: Constructor called";
     
-    // Initialize VLC player
+    // Initialize VLC player first
     m_vlcPlayer = std::make_unique<VP_VLCPlayer>(this);
     if (!m_vlcPlayer->initialize()) {
         qDebug() << "VRVideoPlayer: Failed to initialize VLC player";
+        QMessageBox::critical(this, "Error", "Failed to initialize VLC player. Make sure VLC is properly installed.");
+    } else {
+        qDebug() << "VRVideoPlayer: VLC player initialized successfully";
     }
     
     // Connect VLC player signals
@@ -301,6 +305,9 @@ bool VRVideoPlayer::setupVRComponents()
     // Make context current
     m_glWidget->makeCurrent();
     
+    // Store the context for sharing
+    m_glContext = QOpenGLContext::currentContext();
+    
     // Create VR renderer
     m_vrRenderer = std::make_unique<VRVideoRenderer>(this);
     if (!m_vrRenderer->initialize()) {
@@ -314,12 +321,20 @@ bool VRVideoPlayer::setupVRComponents()
     m_vrManager->getRecommendedRenderTargetSize(width, height);
     m_vrRenderer->setRenderTargetSize(width, height);
     
-    // Create render thread
+    // Create render thread with shared context
     m_renderThread = std::make_unique<VRRenderThread>(
         m_vrManager.get(), m_vrRenderer.get(), this);
     
+    // Pass the context to the render thread for sharing
+    m_renderThread->setShareContext(m_glContext);
+    
     connect(m_renderThread.get(), &VRRenderThread::error,
             this, &VRVideoPlayer::onVRError);
+    
+    connect(m_renderThread.get(), &VRRenderThread::frameRendered,
+            this, [this]() {
+                // Frame successfully rendered to VR
+            });
     
     m_glWidget->doneCurrent();
     
@@ -368,7 +383,34 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
         return false;
     }
     
-    // Load video with VLC player
+    // Initialize frame extractor BEFORE loading media
+    // This ensures VLC callbacks are set up before playing
+    if (m_vlcPlayer->getMediaPlayer()) {
+        qDebug() << "VRVideoPlayer: Initializing frame extractor";
+        
+        // Clean up old frame extractor if it exists
+        if (m_frameExtractor) {
+            m_frameExtractor->cleanup();
+            m_frameExtractor.reset();
+        }
+        
+        m_frameExtractor = std::make_unique<VRVLCFrameExtractor>(m_vlcPlayer->getMediaPlayer(), this);
+        if (!m_frameExtractor->initialize()) {
+            qDebug() << "VRVideoPlayer: Failed to initialize frame extractor";
+            m_frameExtractor.reset();
+        } else {
+            qDebug() << "VRVideoPlayer: Frame extractor initialized successfully";
+            // Connect frame ready signal
+            connect(m_frameExtractor.get(), &VRVLCFrameExtractor::frameReady,
+                    this, &VRVideoPlayer::onFrameReady);
+        }
+    }
+    
+    // IMPORTANT: Set video widget to nullptr BEFORE loading media
+    // This prevents VLC from trying to render to a widget
+    m_vlcPlayer->setVideoWidget(nullptr);
+    
+    // Now load video with VLC player
     if (!m_vlcPlayer->loadMedia(filePath)) {
         qDebug() << "VRVideoPlayer: Failed to load media in VLC";
         QMessageBox::critical(this, "Error", "Failed to load video file: " + filePath);
@@ -378,20 +420,6 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
     // Store file path
     m_currentFilePath = filePath;
     m_videoLoaded = true;
-    
-    // Initialize frame extractor if VLC player has a media player instance
-    if (m_vlcPlayer->getMediaPlayer()) {
-        qDebug() << "VRVideoPlayer: Initializing frame extractor";
-        m_frameExtractor = std::make_unique<VRVLCFrameExtractor>(m_vlcPlayer->getMediaPlayer(), this);
-        if (!m_frameExtractor->initialize()) {
-            qDebug() << "VRVideoPlayer: Failed to initialize frame extractor";
-            m_frameExtractor.reset();
-        } else {
-            // Connect frame ready signal
-            connect(m_frameExtractor.get(), &VRVLCFrameExtractor::frameReady,
-                    this, &VRVideoPlayer::onFrameReady);
-        }
-    }
     
     // Update UI
     m_fileLabel->setText(fileInfo.fileName());
@@ -437,6 +465,9 @@ void VRVideoPlayer::play()
     
     // Play using VLC player
     if (m_vlcPlayer) {
+        // Make sure VLC doesn't render to a widget - we want callbacks only
+        m_vlcPlayer->setVideoWidget(nullptr);
+        
         m_vlcPlayer->play();
         m_isPlaying = true;
         
@@ -792,17 +823,35 @@ void VRVideoPlayer::onRenderFrame()
 
 void VRVideoPlayer::onFrameReady()
 {
-    qDebug() << "VRVideoPlayer: Frame ready from VLC";
+    static int frameCount = 0;
+    frameCount++;
+    if (frameCount % 30 == 0) { // Log every 30th frame to avoid spam
+        qDebug() << "VRVideoPlayer: Frame ready from VLC, count:" << frameCount;
+    }
     
     if (!m_vrActive || !m_renderThread || !m_frameExtractor) {
+        if (frameCount % 30 == 0) {
+            qDebug() << "VRVideoPlayer: Frame ready but VR not active or components missing";
+            qDebug() << "VRVideoPlayer:   m_vrActive:" << m_vrActive 
+                     << "m_renderThread:" << (m_renderThread != nullptr)
+                     << "m_frameExtractor:" << (m_frameExtractor != nullptr);
+        }
         return;
     }
     
     // Get the current frame from the extractor
     QImage frame = m_frameExtractor->getCurrentFrame();
     if (!frame.isNull()) {
+        if (frameCount % 30 == 0) {
+            qDebug() << "VRVideoPlayer: Passing frame to render thread, size:" 
+                     << frame.width() << "x" << frame.height();
+        }
         // Pass frame to render thread
         m_renderThread->updateVideoFrame(frame);
+    } else {
+        if (frameCount % 30 == 0) {
+            qDebug() << "VRVideoPlayer: Frame is null!";
+        }
     }
 }
 
@@ -930,6 +979,7 @@ VRRenderThread::VRRenderThread(VROpenVRManager* vrManager,
     , m_rendering(false)
     , m_stopRequested(false)
     , m_frameUpdated(false)
+    , m_shareContext(nullptr)
 {
     qDebug() << "VRRenderThread: Constructor called";
 }
@@ -986,6 +1036,56 @@ void VRRenderThread::run()
 {
     qDebug() << "VRRenderThread: Thread started";
     
+    // Create OpenGL context for this thread
+    QOpenGLContext* context = new QOpenGLContext();
+    QSurfaceFormat format;
+    format.setVersion(3, 3);
+    format.setProfile(QSurfaceFormat::CoreProfile);
+    context->setFormat(format);
+    
+    // Share with the main context if available
+    if (m_shareContext) {
+        context->setShareContext(m_shareContext);
+        qDebug() << "VRRenderThread: Sharing OpenGL context with main thread";
+    } else {
+        qDebug() << "VRRenderThread: No share context available";
+    }
+    
+    if (!context->create()) {
+        qDebug() << "VRRenderThread: Failed to create OpenGL context";
+        delete context;
+        return;
+    }
+    
+    // Create an offscreen surface for this thread
+    QOffscreenSurface* surface = new QOffscreenSurface();
+    surface->setFormat(context->format());
+    surface->create();
+    
+    if (!context->makeCurrent(surface)) {
+        qDebug() << "VRRenderThread: Failed to make context current";
+        delete surface;
+        delete context;
+        return;
+    }
+    
+    qDebug() << "VRRenderThread: OpenGL context created and made current";
+    
+    // Initialize OpenGL functions
+    QOpenGLFunctions* gl = context->functions();
+    if (gl) {
+        gl->initializeOpenGLFunctions();
+        qDebug() << "VRRenderThread: OpenGL functions initialized";
+    }
+    
+    // Ensure VR renderer is initialized in this context
+    if (m_vrRenderer && !m_vrRenderer->isInitialized()) {
+        qDebug() << "VRRenderThread: Initializing VR renderer in render thread context";
+        if (!m_vrRenderer->initialize()) {
+            qDebug() << "VRRenderThread: Failed to initialize VR renderer";
+        }
+    }
+    
     while (!m_stopRequested) {
         renderFrame();
         
@@ -993,12 +1093,22 @@ void VRRenderThread::run()
         msleep(11); // ~90 FPS to match most VR displays
     }
     
+    context->doneCurrent();
+    delete surface;
+    delete context;
+    
     qDebug() << "VRRenderThread: Thread stopped";
 }
 
 void VRRenderThread::renderFrame()
 {
+    static int renderCount = 0;
+    renderCount++;
+    
     if (!m_vrManager || !m_vrRenderer) {
+        if (renderCount % 90 == 0) { // Log every second at 90 FPS
+            qDebug() << "VRRenderThread: Missing manager or renderer";
+        }
         return;
     }
     
@@ -1008,8 +1118,16 @@ void VRRenderThread::renderFrame()
     // Update video texture if we have a new frame
     if (m_frameUpdated) {
         QMutexLocker locker(&m_frameMutex);
+        if (renderCount % 90 == 0) {
+            qDebug() << "VRRenderThread: Updating video texture with frame" 
+                     << m_currentFrame.width() << "x" << m_currentFrame.height();
+        }
         m_vrRenderer->updateVideoTexture(m_currentFrame);
         m_frameUpdated = false;
+    } else {
+        if (renderCount % 90 == 0) {
+            qDebug() << "VRRenderThread: No new frame to render";
+        }
     }
     
     // Get view and projection matrices for each eye
@@ -1031,8 +1149,21 @@ void VRRenderThread::renderFrame()
     GLuint leftTex = m_vrRenderer->getEyeTexture(true);
     GLuint rightTex = m_vrRenderer->getEyeTexture(false);
     
+    if (leftTex == 0 || rightTex == 0) {
+        if (renderCount % 90 == 0) {
+            qDebug() << "VRRenderThread: Invalid eye textures - left:" << leftTex << "right:" << rightTex;
+        }
+    }
+    
     if (!m_vrManager->submitFrame(leftTex, rightTex)) {
+        if (renderCount % 90 == 0) {
+            qDebug() << "VRRenderThread: Failed to submit frame to VR compositor";
+        }
         emit error("Failed to submit frame to VR compositor");
+    } else {
+        if (renderCount % 900 == 0) { // Log every 10 seconds
+            qDebug() << "VRRenderThread: Successfully submitted frame" << renderCount;
+        }
     }
     
     emit frameRendered();

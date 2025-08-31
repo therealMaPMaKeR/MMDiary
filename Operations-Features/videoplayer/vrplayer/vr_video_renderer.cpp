@@ -235,12 +235,14 @@ bool VRVideoRenderer::createSphereMesh()
             float cosPhi = qCos(phi);
             
             Vertex vertex;
-            vertex.x = cosPhi * sinTheta;
+            // IMPORTANT: Negate X and Z to invert the sphere for viewing from inside
+            vertex.x = -cosPhi * sinTheta;  // Negated
             vertex.y = cosTheta;
-            vertex.z = sinPhi * sinTheta;
+            vertex.z = -sinPhi * sinTheta;  // Negated
             
             // Texture coordinates for equirectangular projection
-            vertex.u = 1.0f - (float)segment / m_sphereSegments;
+            // Keep U coordinate as is (no flip needed)
+            vertex.u = (float)segment / m_sphereSegments;
             vertex.v = 1.0f - (float)ring / m_sphereRings;
             
             vertices.append(vertex);
@@ -355,7 +357,13 @@ void VRVideoRenderer::setRenderTargetSize(uint32_t width, uint32_t height)
 
 bool VRVideoRenderer::updateVideoTexture(const QImage& frame)
 {
+    static int updateCount = 0;
+    updateCount++;
+    
     if (!m_initialized) {
+        if (updateCount % 30 == 0) {
+            qDebug() << "VRVideoRenderer: Cannot update texture - not initialized";
+        }
         return false;
     }
     
@@ -363,12 +371,18 @@ bool VRVideoRenderer::updateVideoTexture(const QImage& frame)
     if (!m_videoTexture) {
         glGenTextures(1, &m_videoTexture);
         m_ownVideoTexture = true;
+        qDebug() << "VRVideoRenderer: Created new video texture with ID:" << m_videoTexture;
     }
     
     glBindTexture(GL_TEXTURE_2D, m_videoTexture);
     
     // Convert image to OpenGL format
     QImage glFrame = frame.convertToFormat(QImage::Format_RGBA8888).mirrored();
+    
+    if (updateCount % 30 == 0) {
+        qDebug() << "VRVideoRenderer: Updating texture" << m_videoTexture 
+                 << "with frame" << glFrame.width() << "x" << glFrame.height();
+    }
     
     // Upload texture data
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 
@@ -383,6 +397,13 @@ bool VRVideoRenderer::updateVideoTexture(const QImage& frame)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     
     glBindTexture(GL_TEXTURE_2D, 0);
+    
+    // Check for OpenGL errors
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        qDebug() << "VRVideoRenderer: OpenGL error during texture update:" << err;
+        return false;
+    }
     
     return true;
 }
@@ -406,7 +427,20 @@ bool VRVideoRenderer::updateVideoTexture(GLuint textureId)
 
 void VRVideoRenderer::renderEye(bool leftEye, const QMatrix4x4& view, const QMatrix4x4& projection)
 {
-    if (!m_initialized || !m_videoTexture) {
+    static int renderCount = 0;
+    renderCount++;
+    
+    if (!m_initialized) {
+        if (renderCount % 90 == 0) {
+            qDebug() << "VRVideoRenderer: Not initialized";
+        }
+        return;
+    }
+    
+    if (!m_videoTexture) {
+        if (renderCount % 90 == 0) {
+            qDebug() << "VRVideoRenderer: No video texture available";
+        }
         return;
     }
     
@@ -414,14 +448,17 @@ void VRVideoRenderer::renderEye(bool leftEye, const QMatrix4x4& view, const QMat
     QOpenGLFramebufferObject* fbo = leftEye ? m_leftEyeFBO.get() : m_rightEyeFBO.get();
     fbo->bind();
     
-    // Clear
+    // Clear with a non-black color to see if rendering is working
     glViewport(0, 0, m_renderWidth, m_renderHeight);
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearColor(0.1f, 0.1f, 0.2f, 1.0f); // Dark blue instead of black
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     // Enable depth testing
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
+    
+    // IMPORTANT: Disable face culling so we can see the sphere from inside
+    glDisable(GL_CULL_FACE);
     
     // Calculate MVP matrix
     QMatrix4x4 mvpMatrix = projection * view;
@@ -443,6 +480,17 @@ void VRVideoRenderer::renderEye(bool leftEye, const QMatrix4x4& view, const QMat
         case VideoFormat::Flat2D:
             renderFlat(mvpMatrix);
             break;
+    }
+    
+    if (renderCount % 90 == 0) {
+        // Check for OpenGL errors
+        GLenum err = glGetError();
+        if (err != GL_NO_ERROR) {
+            qDebug() << "VRVideoRenderer: OpenGL error:" << err;
+        } else {
+            qDebug() << "VRVideoRenderer: Rendered" << (leftEye ? "left" : "right") 
+                     << "eye successfully, texture ID:" << m_videoTexture;
+        }
     }
     
     fbo->release();
