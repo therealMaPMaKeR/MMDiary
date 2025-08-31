@@ -34,18 +34,18 @@
 #QT Specific
 *.user
 *.89cd72f
-*.qrc
-*.ico
+
+
 *.Debug
 *.Release
 *.db
 *.stash
 *.moc
-*.rc
-*.md
+
+
 # Ignore everything in folders
 build/*
-icons/*
+3rdparty/
 RCa13632
 RCa47628
 RCa50376
