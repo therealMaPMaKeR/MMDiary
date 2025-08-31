@@ -901,23 +901,19 @@ void BaseVideoPlayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state
 void BaseVideoPlayer::closeEvent(QCloseEvent *event)
 {
     qDebug() << "BaseVideoPlayer: Close event received";
-    qDebug() << "BaseVideoPlayer: Current window states - Minimized:" << isMinimized() 
-             << "Maximized:" << isMaximized() << "FullScreen:" << m_isFullScreen
-             << "WindowState:" << windowState();
     
     if (!m_isClosing) {
         m_isClosing = true;
         
-        // Save window state - check windowState() for minimized as isMinimized() might not be reliable
+        // Save window state
         s_wasFullScreen = m_isFullScreen;
-        s_wasMaximized = (windowState() & Qt::WindowMaximized) != 0;
-        s_wasMinimized = (windowState() & Qt::WindowMinimized) != 0;
+        s_wasMaximized = isMaximized();
+        s_wasMinimized = isMinimized();
         
-        // Debug what we're saving
         qDebug() << "BaseVideoPlayer: Saving window state - Fullscreen:" << s_wasFullScreen
                  << "Maximized:" << s_wasMaximized << "Minimized:" << s_wasMinimized;
         
-        if (!m_isFullScreen && !s_wasMaximized && !s_wasMinimized) {
+        if (!m_isFullScreen && !isMaximized() && !isMinimized()) {
             s_lastWindowGeometry = geometry();
             qDebug() << "BaseVideoPlayer: Saved normal window geometry:" << s_lastWindowGeometry;
         }

@@ -7,6 +7,7 @@
 #include <QApplication>
 #include <QTimer>
 #include <QDateTime>
+#include <QWindowStateChangeEvent>
 
 VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
     : BaseVideoPlayer(parent)
@@ -17,7 +18,8 @@ VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
     , m_shouldRestoreFullscreen(false)
     , m_shouldRestoreMaximized(false)
     , m_shouldRestoreMinimized(false)
-    , m_hasAppliedMinimized(false)
+    , m_minimizeTimer(nullptr)
+    , m_hasBeenMinimized(false)
 {
     qDebug() << "VP_Shows_Videoplayer: Constructor called";
     
@@ -36,10 +38,17 @@ VP_Shows_Videoplayer::~VP_Shows_Videoplayer()
         finalizeWatchProgress();
     }
     
-    // Stop timer
+    // Stop and clean up timers
     if (m_progressSaveTimer) {
         m_progressSaveTimer->stop();
         delete m_progressSaveTimer;
+    }
+    
+    // Clean up minimize timer if it exists
+    if (m_minimizeTimer) {
+        m_minimizeTimer->stop();
+        delete m_minimizeTimer;
+        m_minimizeTimer = nullptr;
     }
 }
 
@@ -141,6 +150,16 @@ void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
 void VP_Shows_Videoplayer::showEvent(QShowEvent *event)
 {
     qDebug() << "VP_Shows_Videoplayer: Show event received (show-specific override)";
+    
+    // Set up window state restoration flags based on static variables
+    // This needs to be done here because initializeFromPreviousSettings() is called
+    // from base class constructor before derived class is fully constructed
+    m_shouldRestoreFullscreen = s_wasFullScreen;
+    m_shouldRestoreMaximized = s_wasMaximized && !s_wasFullScreen;
+    m_shouldRestoreMinimized = s_wasMinimized && !s_wasFullScreen && !s_wasMaximized;
+    
+    qDebug() << "VP_Shows_Videoplayer: Read static states - Fullscreen:" << s_wasFullScreen
+             << "Maximized:" << s_wasMaximized << "Minimized:" << s_wasMinimized;
     qDebug() << "VP_Shows_Videoplayer: Should restore - Fullscreen:" << m_shouldRestoreFullscreen
              << "Maximized:" << m_shouldRestoreMaximized << "Minimized:" << m_shouldRestoreMinimized;
     
@@ -161,11 +180,40 @@ void VP_Shows_Videoplayer::showEvent(QShowEvent *event)
             qDebug() << "VP_Shows_Videoplayer: Restoring maximized state";
             showMaximized();
             m_shouldRestoreMaximized = false;
-        } else if (m_shouldRestoreMinimized) {
-            // For minimized state, we don't minimize here anymore
-            // Instead, we wait for the video to start playing (handled in handlePlaybackStateChanged)
-            qDebug() << "VP_Shows_Videoplayer: Will minimize after video starts playing (for background listening)";
-            // Don't reset m_shouldRestoreMinimized here, it's used in handlePlaybackStateChanged
+        } else if (m_shouldRestoreMinimized && !m_hasBeenMinimized) {
+            qDebug() << "VP_Shows_Videoplayer: Scheduling minimized state restoration (for background listening)";
+            
+            // Cancel any existing timer
+            if (m_minimizeTimer) {
+                m_minimizeTimer->stop();
+                delete m_minimizeTimer;
+            }
+            
+            // Create a new timer for minimizing
+            m_minimizeTimer = new QTimer(this);
+            m_minimizeTimer->setSingleShot(true);
+            
+            connect(m_minimizeTimer, &QTimer::timeout, this, [this]() {
+                if (!m_isClosing && !m_hasBeenMinimized) {
+                    qDebug() << "VP_Shows_Videoplayer: Minimizing window for background playback";
+                    
+                    // Mark that we've minimized to prevent re-minimizing
+                    m_hasBeenMinimized = true;
+                    
+                    // Simply minimize the window - it should be restorable from taskbar
+                    showMinimized();
+                    
+                    qDebug() << "VP_Shows_Videoplayer: Window minimized - State:" << windowState()
+                             << "isMinimized():" << isMinimized()
+                             << "isVisible():" << isVisible();
+                }
+                
+                // Clean up timer
+                m_minimizeTimer = nullptr;
+            });
+            
+            m_minimizeTimer->start(500);
+            m_shouldRestoreMinimized = false;
         }
     }
     
@@ -173,6 +221,42 @@ void VP_Shows_Videoplayer::showEvent(QShowEvent *event)
     if (m_watchHistory && !m_episodePath.isEmpty()) {
         // Could restore playback position here if needed
     }
+}
+
+void VP_Shows_Videoplayer::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::WindowStateChange) {
+        QWindowStateChangeEvent *stateEvent = static_cast<QWindowStateChangeEvent*>(event);
+        Qt::WindowStates oldState = stateEvent->oldState();
+        Qt::WindowStates newState = windowState();
+        
+        qDebug() << "VP_Shows_Videoplayer: Window state changed from" << oldState << "to" << newState;
+        
+        // Handle restoration from minimized state
+        if ((oldState & Qt::WindowMinimized) && !(newState & Qt::WindowMinimized)) {
+            qDebug() << "VP_Shows_Videoplayer: Window restored from minimized state";
+            
+            // Cancel any pending minimize timer
+            if (m_minimizeTimer) {
+                qDebug() << "VP_Shows_Videoplayer: Cancelling pending minimize timer";
+                m_minimizeTimer->stop();
+                delete m_minimizeTimer;
+                m_minimizeTimer = nullptr;
+            }
+            
+            // Clear the minimized flag so we don't re-minimize
+            m_hasBeenMinimized = false;
+            m_shouldRestoreMinimized = false;
+            
+            // Ensure the window is properly shown and activated
+            raise();
+            activateWindow();
+            setFocus();
+        }
+    }
+    
+    // Call base class implementation
+    QWidget::changeEvent(event);
 }
 
 void VP_Shows_Videoplayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state)
@@ -188,27 +272,6 @@ void VP_Shows_Videoplayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState 
             // Start progress timer if not already started
             if (m_progressSaveTimer && !m_progressSaveTimer->isActive()) {
                 m_progressSaveTimer->start();
-            }
-            
-            // Check if we need to minimize the window for background playback
-            // This ensures the video is actually playing before we minimize
-            if (m_shouldRestoreMinimized && !m_hasAppliedMinimized) {
-                m_hasAppliedMinimized = true;
-                qDebug() << "VP_Shows_Videoplayer: Video is playing, now minimizing for background playback";
-                
-                // Minimize after a short delay to ensure playback is stable
-                QTimer::singleShot(200, this, [this]() {
-                    if (!m_isClosing) {
-                        qDebug() << "VP_Shows_Videoplayer: Minimizing window (triggered by playback start)";
-                        setWindowState(windowState() | Qt::WindowMinimized);
-                        
-                        // Verify the state
-                        QTimer::singleShot(100, this, [this]() {
-                            qDebug() << "VP_Shows_Videoplayer: Final window state:" << windowState()
-                                     << "isMinimized():" << isMinimized();
-                        });
-                    }
-                });
             }
             break;
             
@@ -231,33 +294,6 @@ void VP_Shows_Videoplayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState 
         default:
             break;
     }
-}
-
-void VP_Shows_Videoplayer::initializeFromPreviousSettings()
-{
-    qDebug() << "VP_Shows_Videoplayer: Initializing from previous settings (show-specific override)";
-    
-    // Call base class implementation first (handles monitor and geometry)
-    BaseVideoPlayer::initializeFromPreviousSettings();
-    
-    // Reset the minimized application flag
-    m_hasAppliedMinimized = false;
-    
-    // Now handle window state restoration for shows player
-    // This is important for autoplay to maintain the user's preferred window state
-    qDebug() << "VP_Shows_Videoplayer: Checking window state for restoration";
-    qDebug() << "VP_Shows_Videoplayer: Previous state - Fullscreen:" << s_wasFullScreen
-             << "Maximized:" << s_wasMaximized << "Minimized:" << s_wasMinimized;
-    
-    // For autoplay, we want to maintain the exact window state from the previous episode
-    // The window state will be applied in showEvent after the window is visible
-    // Store flags so showEvent knows what to do
-    m_shouldRestoreFullscreen = s_wasFullScreen;
-    m_shouldRestoreMaximized = s_wasMaximized && !s_wasFullScreen;
-    m_shouldRestoreMinimized = s_wasMinimized && !s_wasFullScreen && !s_wasMaximized;
-    
-    qDebug() << "VP_Shows_Videoplayer: Will restore - Fullscreen:" << m_shouldRestoreFullscreen
-             << "Maximized:" << m_shouldRestoreMaximized << "Minimized:" << m_shouldRestoreMinimized;
 }
 
 void VP_Shows_Videoplayer::saveWatchProgress()

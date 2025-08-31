@@ -29,10 +29,8 @@ protected:
     // Override event handlers if show-specific behavior is needed
     void closeEvent(QCloseEvent *event) override;
     void showEvent(QShowEvent *event) override;
+    void changeEvent(QEvent *event) override;  // Handle window state changes
     void handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state) override;
-    
-    // Override initialization for show-specific settings
-    void initializeFromPreviousSettings() override;
 
 private:
     // Show-specific members only
@@ -49,7 +47,8 @@ private:
     bool m_shouldRestoreFullscreen = false;
     bool m_shouldRestoreMaximized = false;
     bool m_shouldRestoreMinimized = false;
-    bool m_hasAppliedMinimized = false;  // Track if we've already applied minimized state
+    QTimer* m_minimizeTimer = nullptr;  // Timer for delayed minimize
+    bool m_hasBeenMinimized = false;    // Track if we've already minimized
     
     // Helper methods
     bool shouldUpdateProgressForShows(qint64 currentPosition) const;
