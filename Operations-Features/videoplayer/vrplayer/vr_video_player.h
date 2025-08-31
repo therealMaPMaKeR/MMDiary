@@ -1,42 +1,52 @@
 #ifndef VR_VIDEO_PLAYER_H
 #define VR_VIDEO_PLAYER_H
 
-#include "../BaseVideoPlayer.h"
-#include "vr_openvr_manager.h"
-#include "vr_video_renderer.h"
+#include <QWidget>
+#include <QString>
+#include <QLabel>
+#include <QVBoxLayout>
+#include <QPushButton>
+#include <QImage>
 #include <QOpenGLContext>
 #include <QOpenGLWidget>
 #include <QThread>
 #include <QTimer>
 #include <QMutex>
 #include <memory>
+#include "vr_openvr_manager.h"
+#include "vr_video_renderer.h"
+#include "vr_vlc_frame_extractor.h"
 
 class VRRenderThread;
 
 /**
  * @class VRVideoPlayer
- * @brief VR-enabled video player that extends BaseVideoPlayer
+ * @brief Standalone VR video player widget
  * 
  * This class provides VR video playback capabilities:
- * - Automatic VR headset detection
+ * - Direct VR rendering without screen display
  * - Support for 360°/180° video formats
  * - Stereoscopic rendering
- * - Falls back to regular player if VR not available
+ * - VLC-based video decoding
  */
-class VRVideoPlayer : public BaseVideoPlayer
+class VRVideoPlayer : public QWidget
 {
     Q_OBJECT
 
 public:
     explicit VRVideoPlayer(QWidget *parent = nullptr);
-    ~VRVideoPlayer() override;
+    ~VRVideoPlayer();
 
-    // Override base class methods
-    bool loadVideo(const QString& filePath) override;
+    // Video control methods
+    bool loadVideo(const QString& filePath);
     bool loadVideo(const QString& filePath, bool autoEnterVR);  // Overload with VR auto-enter option
-    void play() override;
-    void pause() override;
-    void stop() override;
+    void play();
+    void pause();
+    void stop();
+    void seek(qint64 position);
+    qint64 duration() const;
+    qint64 position() const;
+    bool isPlaying() const { return m_isPlaying; }
     
     // VR-specific methods
     bool initializeVR();
@@ -62,6 +72,9 @@ public:
 signals:
     void vrStatusChanged(bool vrActive);
     void vrError(const QString& error);
+    void positionChanged(qint64 position);
+    void durationChanged(qint64 duration);
+    void playbackStateChanged(bool playing);
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
@@ -72,6 +85,10 @@ private slots:
     void onVRError(const QString& error);
     void onRenderFrame();
     void updateVideoFrame();
+    void onPlayPauseClicked();
+    void onStopClicked();
+    void onExitVRClicked();
+    void updatePlaybackPosition();
 
 private:
     bool setupVRComponents();
@@ -82,27 +99,47 @@ private:
     
     // OpenGL widget for VR rendering context
     QOpenGLWidget* createOpenGLWidget();
+    
+    void setupUI();
+    void updateUIState();
 
 private:
     // VR components
     std::unique_ptr<VROpenVRManager> m_vrManager;
     std::unique_ptr<VRVideoRenderer> m_vrRenderer;
     std::unique_ptr<VRRenderThread> m_renderThread;
+    std::unique_ptr<VRVLCFrameExtractor> m_frameExtractor;
     
     // OpenGL context
     QOpenGLWidget* m_glWidget;
     QOpenGLContext* m_glContext;
     
-    // State
+    // UI components  
+    QLabel* m_statusLabel;
+    QLabel* m_fileLabel;
+    QPushButton* m_playPauseButton;
+    QPushButton* m_stopButton;
+    QPushButton* m_exitVRButton;
+    QLabel* m_positionLabel;
+    
+    // VR state
     bool m_vrAvailable;
     bool m_vrActive;
     bool m_vrInitialized;
     
+    // Video state
+    QString m_currentFilePath;
+    bool m_isPlaying;
+    bool m_videoLoaded;
+    qint64 m_duration;
+    qint64 m_position;
+    
     // Video format
     VRVideoRenderer::VideoFormat m_videoFormat;
     
-    // Frame update timer
+    // Timers
     QTimer* m_frameTimer;
+    QTimer* m_positionTimer;
     
     // Current video frame (from libVLC)
     QImage m_currentFrame;

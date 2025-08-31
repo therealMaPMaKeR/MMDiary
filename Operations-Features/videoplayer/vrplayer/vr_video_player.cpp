@@ -7,27 +7,51 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QMutexLocker>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QPushButton>
+#include <QStyle>
+#include <QKeyEvent>
+#include <QCloseEvent>
 
 //=============================================================================
 // VRVideoPlayer Implementation
 //=============================================================================
 
 VRVideoPlayer::VRVideoPlayer(QWidget *parent)
-    : BaseVideoPlayer(parent)
+    : QWidget(parent)
     , m_glWidget(nullptr)
     , m_glContext(nullptr)
+    , m_statusLabel(nullptr)
+    , m_fileLabel(nullptr)
+    , m_playPauseButton(nullptr)
+    , m_stopButton(nullptr)
+    , m_exitVRButton(nullptr)
+    , m_positionLabel(nullptr)
     , m_vrAvailable(false)
     , m_vrActive(false)
     , m_vrInitialized(false)
+    , m_isPlaying(false)
+    , m_videoLoaded(false)
+    , m_duration(0)
+    , m_position(0)
     , m_videoFormat(VRVideoRenderer::VideoFormat::Mono360)
     , m_frameTimer(new QTimer(this))
+    , m_positionTimer(new QTimer(this))
 {
     qDebug() << "VRVideoPlayer: Constructor called";
+    
+    // Set up UI
+    setupUI();
     
     // Set up frame update timer for VR rendering
     m_frameTimer->setInterval(16); // ~60 FPS
     connect(m_frameTimer, &QTimer::timeout, this, &VRVideoPlayer::updateVideoFrame);
+    
+    // Set up position update timer
+    m_positionTimer->setInterval(100); // Update position 10 times per second
+    connect(m_positionTimer, &QTimer::timeout, this, &VRVideoPlayer::updatePlaybackPosition);
     
     // Try to initialize VR on startup to check availability
     initializeVR();
@@ -36,12 +60,116 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
 VRVideoPlayer::~VRVideoPlayer()
 {
     qDebug() << "VRVideoPlayer: Destructor called";
+    
+    // Stop playback
+    if (m_isPlaying) {
+        stop();
+    }
+    
+    // Shutdown VR
     shutdownVR();
+    
+    // Clean up frame extractor
+    if (m_frameExtractor) {
+        m_frameExtractor->cleanup();
+        m_frameExtractor.reset();
+    }
     
     if (m_glWidget) {
         delete m_glWidget;
         m_glWidget = nullptr;
     }
+}
+
+void VRVideoPlayer::setupUI()
+{
+    qDebug() << "VRVideoPlayer: Setting up UI";
+    
+    // Create main layout
+    QVBoxLayout* mainLayout = new QVBoxLayout(this);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
+    
+    // Status label
+    m_statusLabel = new QLabel("VR Video Player Ready", this);
+    m_statusLabel->setAlignment(Qt::AlignCenter);
+    m_statusLabel->setStyleSheet("QLabel { font-size: 16px; font-weight: bold; color: white; background-color: #2c3e50; padding: 10px; border-radius: 5px; }");
+    mainLayout->addWidget(m_statusLabel);
+    
+    // File label
+    m_fileLabel = new QLabel("No video loaded", this);
+    m_fileLabel->setAlignment(Qt::AlignCenter);
+    m_fileLabel->setStyleSheet("QLabel { font-size: 12px; color: #7f8c8d; margin: 5px; }");
+    mainLayout->addWidget(m_fileLabel);
+    
+    // VR status info
+    QLabel* vrInfoLabel = new QLabel(this);
+    vrInfoLabel->setAlignment(Qt::AlignCenter);
+    vrInfoLabel->setWordWrap(true);
+    vrInfoLabel->setStyleSheet("QLabel { font-size: 14px; color: white; background-color: black; padding: 20px; margin: 10px; border: 2px solid #3498db; border-radius: 5px; }");
+    vrInfoLabel->setText("\u25cf Video will be displayed in your VR headset\n\n"
+                         "\u25cf Use headset controls for navigation\n\n"
+                         "\u25cf Press Ctrl+V to toggle VR mode");
+    mainLayout->addWidget(vrInfoLabel, 1);
+    
+    // Control buttons
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    
+    m_playPauseButton = new QPushButton("Play", this);
+    m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    m_playPauseButton->setEnabled(false);
+    connect(m_playPauseButton, &QPushButton::clicked, this, &VRVideoPlayer::onPlayPauseClicked);
+    buttonLayout->addWidget(m_playPauseButton);
+    
+    m_stopButton = new QPushButton("Stop", this);
+    m_stopButton->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
+    m_stopButton->setEnabled(false);
+    connect(m_stopButton, &QPushButton::clicked, this, &VRVideoPlayer::onStopClicked);
+    buttonLayout->addWidget(m_stopButton);
+    
+    m_exitVRButton = new QPushButton("Exit VR Mode", this);
+    m_exitVRButton->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
+    m_exitVRButton->setEnabled(false);
+    connect(m_exitVRButton, &QPushButton::clicked, this, &VRVideoPlayer::onExitVRClicked);
+    buttonLayout->addWidget(m_exitVRButton);
+    
+    mainLayout->addLayout(buttonLayout);
+    
+    // Position label
+    m_positionLabel = new QLabel("00:00 / 00:00", this);
+    m_positionLabel->setAlignment(Qt::AlignCenter);
+    m_positionLabel->setStyleSheet("QLabel { font-size: 12px; color: #95a5a6; margin: 5px; }");
+    mainLayout->addWidget(m_positionLabel);
+    
+    // Set window properties
+    setWindowTitle("VR Video Player");
+    setMinimumSize(400, 300);
+    resize(500, 400);
+    
+    // Dark theme
+    setStyleSheet(
+        "QWidget {"
+        "    background-color: #1e1e1e;"
+        "    color: #ffffff;"
+        "}"
+        "QPushButton {"
+        "    background-color: #3498db;"
+        "    color: white;"
+        "    border: none;"
+        "    padding: 8px;"
+        "    border-radius: 4px;"
+        "    font-weight: bold;"
+        "}"
+        "QPushButton:hover {"
+        "    background-color: #2980b9;"
+        "}"
+        "QPushButton:pressed {"
+        "    background-color: #21618c;"
+        "}"
+        "QPushButton:disabled {"
+        "    background-color: #7f8c8d;"
+        "    color: #bdc3c7;"
+        "}"
+    );
 }
 
 bool VRVideoPlayer::initializeVR()
@@ -64,14 +192,14 @@ bool VRVideoPlayer::initializeVR()
     
     // Try to initialize OpenVR
     if (!m_vrManager->initialize()) {
-        // VR not available - show error and fall back to regular player
+        // VR not available - show error
         QString errorMsg = m_vrManager->getLastError();
         if (errorMsg.contains("SteamVR")) {
-            showVRErrorMessage("SteamVR could not be found. Falling back to regular video player.");
+            showVRErrorMessage("SteamVR could not be found. Please ensure SteamVR is installed and running.");
         } else if (errorMsg.contains("headset")) {
-            showVRErrorMessage("No VR headset detected. Falling back to regular video player.");
+            showVRErrorMessage("No VR headset detected. Please connect your VR headset and try again.");
         } else {
-            showVRErrorMessage(QString("VR initialization failed: %1. Falling back to regular video player.").arg(errorMsg));
+            showVRErrorMessage(QString("VR initialization failed: %1").arg(errorMsg));
         }
         
         m_vrAvailable = false;
@@ -195,10 +323,26 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
 {
     qDebug() << "VRVideoPlayer: Loading video:" << filePath << "(autoEnterVR:" << autoEnterVR << ")";
     
-    // Load video using base class
-    if (!BaseVideoPlayer::loadVideo(filePath)) {
+    // Check if file exists
+    QFileInfo fileInfo(filePath);
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        QMessageBox::critical(this, "Error", "Video file not found: " + filePath);
         return false;
     }
+    
+    // Store file path
+    m_currentFilePath = filePath;
+    m_videoLoaded = true;
+    
+    // TODO: Get actual duration from VLC
+    // For now, set a dummy duration for testing
+    m_duration = 300000; // 5 minutes in milliseconds
+    emit durationChanged(m_duration);
+    
+    // Update UI
+    m_fileLabel->setText(fileInfo.fileName());
+    m_statusLabel->setText("Video loaded - Ready to play in VR");
+    updateUIState();
     
     // Detect video format
     VRVideoRenderer::VideoFormat format = detectVideoFormat(filePath);
@@ -232,34 +376,96 @@ void VRVideoPlayer::play()
 {
     qDebug() << "VRVideoPlayer: Play requested";
     
-    BaseVideoPlayer::play();
+    if (!m_videoLoaded) {
+        qDebug() << "VRVideoPlayer: No video loaded";
+        return;
+    }
     
+    m_isPlaying = true;
+    
+    // Start frame timer if in VR mode
     if (m_vrActive) {
         m_frameTimer->start();
     }
+    
+    // Start position timer
+    m_positionTimer->start();
+    
+    // Update UI
+    m_playPauseButton->setText("Pause");
+    m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
+    m_statusLabel->setText("Playing in VR headset");
+    
+    emit playbackStateChanged(true);
 }
 
 void VRVideoPlayer::pause()
 {
     qDebug() << "VRVideoPlayer: Pause requested";
     
-    BaseVideoPlayer::pause();
+    m_isPlaying = false;
     
+    // Stop timers
     if (m_vrActive) {
         m_frameTimer->stop();
     }
+    m_positionTimer->stop();
+    
+    // Update UI
+    m_playPauseButton->setText("Play");
+    m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    m_statusLabel->setText("Paused");
+    
+    emit playbackStateChanged(false);
 }
 
 void VRVideoPlayer::stop()
 {
     qDebug() << "VRVideoPlayer: Stop requested";
     
-    BaseVideoPlayer::stop();
+    m_isPlaying = false;
+    m_position = 0;
     
+    // Stop timers
+    m_frameTimer->stop();
+    m_positionTimer->stop();
+    
+    // Exit VR mode if active
     if (m_vrActive) {
-        m_frameTimer->stop();
         exitVRMode();
     }
+    
+    // Update UI
+    m_playPauseButton->setText("Play");
+    m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    m_statusLabel->setText("Stopped");
+    updatePlaybackPosition();
+    
+    emit playbackStateChanged(false);
+    emit positionChanged(0);
+}
+
+void VRVideoPlayer::seek(qint64 position)
+{
+    qDebug() << "VRVideoPlayer: Seek to" << position;
+    
+    if (!m_videoLoaded) {
+        return;
+    }
+    
+    m_position = qBound(qint64(0), position, m_duration);
+    emit positionChanged(m_position);
+    updatePlaybackPosition();
+}
+
+qint64 VRVideoPlayer::duration() const
+{
+    return m_duration;
+}
+
+qint64 VRVideoPlayer::position() const
+{
+    return m_position;
 }
 
 void VRVideoPlayer::setVideoFormat(VRVideoRenderer::VideoFormat format)
@@ -337,17 +543,9 @@ void VRVideoPlayer::enterVRMode()
     
     m_vrActive = true;
     
-    // Hide regular video widget and show message
-    if (m_videoWidget) {
-        m_videoWidget->hide();
-    }
-    
-    // Create a label to show VR status
-    QLabel* vrLabel = new QLabel("VR Mode Active - Video is displayed in your headset", this);
-    vrLabel->setAlignment(Qt::AlignCenter);
-    vrLabel->setStyleSheet("QLabel { background-color: black; color: white; font-size: 24px; }");
-    vrLabel->setGeometry(m_videoWidget->geometry());
-    vrLabel->show();
+    // Update UI to show VR is active
+    m_statusLabel->setText("VR Mode Active - Video is displayed in your headset");
+    m_exitVRButton->setEnabled(true);
     
     emit vrStatusChanged(true);
     
@@ -368,10 +566,9 @@ void VRVideoPlayer::exitVRMode()
     
     m_vrActive = false;
     
-    // Show regular video widget
-    if (m_videoWidget) {
-        m_videoWidget->show();
-    }
+    // Update UI
+    m_statusLabel->setText("VR Mode Exited");
+    m_exitVRButton->setEnabled(false);
     
     emit vrStatusChanged(false);
     
@@ -445,13 +642,33 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
         return;
     }
     
-    // Pass to base class
-    BaseVideoPlayer::keyPressEvent(event);
+    // Handle playback controls
+    switch (event->key()) {
+        case Qt::Key_Space:
+            onPlayPauseClicked();
+            break;
+        case Qt::Key_S:
+            onStopClicked();
+            break;
+        case Qt::Key_Escape:
+            if (m_vrActive) {
+                exitVRMode();
+            }
+            break;
+        default:
+            QWidget::keyPressEvent(event);
+            break;
+    }
 }
 
 void VRVideoPlayer::closeEvent(QCloseEvent *event)
 {
     qDebug() << "VRVideoPlayer: Close event received";
+    
+    // Stop playback
+    if (m_isPlaying) {
+        stop();
+    }
     
     // Exit VR mode if active
     if (m_vrActive) {
@@ -461,8 +678,7 @@ void VRVideoPlayer::closeEvent(QCloseEvent *event)
     // Clean up VR
     shutdownVR();
     
-    // Pass to base class
-    BaseVideoPlayer::closeEvent(event);
+    QWidget::closeEvent(event);
 }
 
 void VRVideoPlayer::onVRStatusChanged(VROpenVRManager::VRStatus status)
@@ -517,6 +733,74 @@ void VRVideoPlayer::updateVideoFrame()
     
     // TODO: Extract current frame from libVLC and pass to render thread
     // m_renderThread->updateVideoFrame(currentFrame);
+}
+
+void VRVideoPlayer::onPlayPauseClicked()
+{
+    if (m_isPlaying) {
+        pause();
+    } else {
+        play();
+    }
+}
+
+void VRVideoPlayer::onStopClicked()
+{
+    stop();
+}
+
+void VRVideoPlayer::onExitVRClicked()
+{
+    exitVRMode();
+}
+
+void VRVideoPlayer::updatePlaybackPosition()
+{
+    if (!m_videoLoaded) {
+        m_positionLabel->setText("00:00 / 00:00");
+        return;
+    }
+    
+    // Format time
+    auto formatTime = [](qint64 ms) -> QString {
+        int seconds = (ms / 1000) % 60;
+        int minutes = (ms / 60000) % 60;
+        int hours = (ms / 3600000);
+        
+        if (hours > 0) {
+            return QString("%1:%2:%3")
+                .arg(hours, 2, 10, QChar('0'))
+                .arg(minutes, 2, 10, QChar('0'))
+                .arg(seconds, 2, 10, QChar('0'));
+        } else {
+            return QString("%1:%2")
+                .arg(minutes, 2, 10, QChar('0'))
+                .arg(seconds, 2, 10, QChar('0'));
+        }
+    };
+    
+    m_positionLabel->setText(QString("%1 / %2")
+        .arg(formatTime(m_position))
+        .arg(formatTime(m_duration)));
+    
+    // Simulate position increment for demo
+    if (m_isPlaying && m_position < m_duration) {
+        m_position += 100; // Increment by 100ms
+        if (m_position > m_duration) {
+            m_position = m_duration;
+            stop();
+        }
+        emit positionChanged(m_position);
+    }
+}
+
+void VRVideoPlayer::updateUIState()
+{
+    // Enable/disable buttons based on state
+    bool hasVideo = m_videoLoaded;
+    m_playPauseButton->setEnabled(hasVideo);
+    m_stopButton->setEnabled(hasVideo && (m_isPlaying || m_position > 0));
+    m_exitVRButton->setEnabled(m_vrActive);
 }
 
 void VRVideoPlayer::showVRErrorMessage(const QString& message)
