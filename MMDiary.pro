@@ -2,6 +2,7 @@ QT       += core gui
 QT += core sql
 QT += network
 QT += multimedia multimediawidgets
+QT += opengl
 
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
@@ -189,6 +190,119 @@ win32 {
 
     # Define for conditional compilation
     DEFINES += USE_LIBVLC
+}
+
+# OpenVR configuration for Windows
+win32 {
+    OPENVR_PATH = $$PWD/3rdparty/openvr
+
+    CONFIG(debug, debug|release) {
+        message("Debug build: Configuring OpenVR for VR support")
+
+        # Check if OpenVR library exists
+        !exists($$OPENVR_PATH/lib/win64/openvr_api.lib) {
+            warning("OpenVR library not found at $$OPENVR_PATH/lib/win64/")
+            warning("Please ensure openvr_api.lib is placed in $$OPENVR_PATH/lib/win64/")
+            warning("VR features will not be available!")
+        } else {
+            message("  Found OpenVR library: $$OPENVR_PATH/lib/win64/openvr_api.lib")
+        }
+
+        # Check if OpenVR DLL exists
+        !exists($$OPENVR_PATH/bin/win64/openvr_api.dll) {
+            warning("OpenVR DLL not found at $$OPENVR_PATH/bin/win64/")
+            warning("Please ensure openvr_api.dll is placed in $$OPENVR_PATH/bin/win64/")
+        } else {
+            message("  Found OpenVR DLL: $$OPENVR_PATH/bin/win64/openvr_api.dll")
+        }
+
+        # Check if OpenVR headers exist
+        !exists($$OPENVR_PATH/include/openvr.h) {
+            warning("OpenVR headers not found at $$OPENVR_PATH/include/")
+            warning("Please ensure openvr.h is placed in $$OPENVR_PATH/include/")
+        } else {
+            message("  Found OpenVR headers: $$OPENVR_PATH/include/openvr.h")
+        }
+
+        # Include OpenVR headers
+        INCLUDEPATH += $$OPENVR_PATH/include
+
+        # Link against OpenVR library
+        LIBS += -L$$OPENVR_PATH/lib/win64 -lopenvr_api
+
+        # Copy OpenVR DLL to output directory
+        OPENVR_DLL = $$OPENVR_PATH/bin/win64/openvr_api.dll
+        exists($$OPENVR_DLL) {
+            QMAKE_POST_LINK += $$QMAKE_COPY "$$shell_path($$OPENVR_DLL)" "$$shell_path($$OUT_PWD/debug)" $$escape_expand(\n\t)
+            message("  OpenVR DLL will be copied to debug output directory")
+        } else {
+            warning("  OpenVR DLL copy skipped - file not found!")
+        }
+
+        message("OpenVR configuration complete for debug build")
+    }
+
+    CONFIG(release, debug|release) {
+        message("Release build: Configuring OpenVR for VR support")
+
+        # Check if OpenVR library exists
+        !exists($$OPENVR_PATH/lib/win64/openvr_api.lib) {
+            warning("OpenVR library not found at $$OPENVR_PATH/lib/win64/")
+            warning("Please ensure openvr_api.lib is placed in $$OPENVR_PATH/lib/win64/")
+            warning("VR features will not be available!")
+        } else {
+            message("  Found OpenVR library: $$OPENVR_PATH/lib/win64/openvr_api.lib")
+        }
+
+        # Check if OpenVR DLL exists
+        !exists($$OPENVR_PATH/bin/win64/openvr_api.dll) {
+            warning("OpenVR DLL not found at $$OPENVR_PATH/bin/win64/")
+            warning("Please ensure openvr_api.dll is placed in $$OPENVR_PATH/bin/win64/")
+        } else {
+            message("  Found OpenVR DLL: $$OPENVR_PATH/bin/win64/openvr_api.dll")
+        }
+
+        # Check if OpenVR headers exist
+        !exists($$OPENVR_PATH/include/openvr.h) {
+            warning("OpenVR headers not found at $$OPENVR_PATH/include/")
+            warning("Please ensure openvr.h is placed in $$OPENVR_PATH/include/")
+        } else {
+            message("  Found OpenVR headers: $$OPENVR_PATH/include/openvr.h")
+        }
+
+        # Include OpenVR headers
+        INCLUDEPATH += $$OPENVR_PATH/include
+
+        # Link against OpenVR library
+        LIBS += -L$$OPENVR_PATH/lib/win64 -lopenvr_api
+
+        # Copy OpenVR DLL to output directory
+        OPENVR_DLL = $$OPENVR_PATH/bin/win64/openvr_api.dll
+        exists($$OPENVR_DLL) {
+            QMAKE_POST_LINK += $$QMAKE_COPY "$$shell_path($$OPENVR_DLL)" "$$shell_path($$OUT_PWD/release)" $$escape_expand(\n\t)
+            message("  OpenVR DLL will be copied to release output directory")
+        } else {
+            warning("  OpenVR DLL copy skipped - file not found!")
+        }
+
+        message("OpenVR configuration complete for release build")
+    }
+
+    # Define for conditional compilation
+    DEFINES += USE_OPENVR
+
+    # Add OpenGL support if not already present
+    !contains(QT, opengl) {
+        QT += opengl
+        message("Added OpenGL module for VR rendering support")
+    }
+
+    # Summary message
+    exists($$OPENVR_PATH/lib/win64/openvr_api.lib) {
+        message("=== OpenVR VR support ENABLED ===")
+    } else {
+        message("=== OpenVR VR support DISABLED (missing files) ===")
+    }
 }
 
 win32:LIBS += -lole32 -lshell32 -luuid
