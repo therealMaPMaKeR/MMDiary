@@ -284,6 +284,11 @@ public:
     // void onSkipContentCheckboxChanged(int state);
     // void onAutoplayCheckboxChanged(int state);
     
+    // Pending autoplay information for signal-based synchronization
+    QString m_pendingAutoplayPath;
+    QString m_pendingAutoplayName;
+    bool m_pendingAutoplayIsRandom = false;
+    
     // Autoplay functionality
     QStringList getAllAvailableEpisodes() const;  // Get all episodes in playback order
     QString findNextEpisode(const QString& currentEpisodePath) const;  // Find next episode to play
@@ -312,6 +317,9 @@ public slots:
     
     // Slot for view mode change
     void onViewModeChanged(int index);
+    
+    // Slot for handling player destruction during autoplay
+    void onPlayerDestroyedDuringAutoplay();
 
 private slots:
     // Search functionality slots

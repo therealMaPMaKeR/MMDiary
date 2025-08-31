@@ -1296,11 +1296,7 @@ void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
     // Small delay to allow watch history to save
     QApplication::processEvents();
 
-    // DISCONNECT SIGNALS BEFORE STOPPING to prevent finished signal during manual close
-    if (m_mediaPlayer) {
-        disconnect(m_mediaPlayer.get(), &VP_VLCPlayer::finished, this, nullptr);
-        qDebug() << "VP_Shows_Videoplayer: Disconnected finished signal to prevent autoplay on manual close";
-    }
+
 
     // NOW stop playback and clear media source to release file handle
     if (m_mediaPlayer) {

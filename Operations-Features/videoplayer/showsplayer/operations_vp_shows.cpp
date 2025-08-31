@@ -65,6 +65,7 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     , m_searchDebounceTimer(nullptr)
     , m_isAutoplayInProgress(false)
     , m_episodeWasNearCompletion(false)
+    , m_pendingAutoplayIsRandom(false)
 {
     qDebug() << "Operations_VP_Shows: Constructor called";
     qDebug() << "Operations_VP_Shows: Autoplay system initialized";
@@ -214,6 +215,14 @@ Operations_VP_Shows::~Operations_VP_Shows()
     if (m_episodeWasNearCompletion) {
         qDebug() << "Operations_VP_Shows: Resetting near-completion flag in destructor";
         m_episodeWasNearCompletion = false;
+    }
+    
+    // Clear pending autoplay information
+    if (!m_pendingAutoplayPath.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Clearing pending autoplay information in destructor";
+        m_pendingAutoplayPath.clear();
+        m_pendingAutoplayName.clear();
+        m_pendingAutoplayIsRandom = false;
     }
     
     // Clear context menu data first to prevent dangling references
@@ -3086,6 +3095,14 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     qDebug() << "Operations_VP_Shows: Starting decryption and playback for:" << episodeName;
     qDebug() << "Operations_VP_Shows: Is autoplay:" << m_isAutoplayInProgress;
     qDebug() << "Operations_VP_Shows: Is random autoplay:" << m_isRandomAutoplay;
+    
+    // Clear any pending autoplay info if this is a manual play
+    if (!m_isAutoplayInProgress && !m_pendingAutoplayPath.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Manual play detected, clearing pending autoplay info";
+        m_pendingAutoplayPath.clear();
+        m_pendingAutoplayName.clear();
+        m_pendingAutoplayIsRandom = false;
+    }
 
     // Reset stored window settings if this is NOT autoplay
     // This ensures that manual play uses the autoFullscreen setting instead of previous window state
@@ -3149,6 +3166,11 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             qDebug() << "Operations_VP_Shows: Resetting autoplay flags due to MainWindow being null";
             m_isAutoplayInProgress = false;
             m_isRandomAutoplay = false;
+            
+            // Clear pending autoplay info
+            m_pendingAutoplayPath.clear();
+            m_pendingAutoplayName.clear();
+            m_pendingAutoplayIsRandom = false;
         }
         return;
     }
@@ -3305,6 +3327,20 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
 
     if (!decryptSuccess) {
         qDebug() << "Operations_VP_Shows: Failed to decrypt video file";
+        
+        // Reset autoplay flags if this was an autoplay attempt
+        if (m_isAutoplayInProgress) {
+            qDebug() << "Operations_VP_Shows: Resetting autoplay flags due to decryption failure";
+            m_isAutoplayInProgress = false;
+            m_isRandomAutoplay = false;
+            m_episodeWasNearCompletion = false;
+            
+            // Clear pending autoplay info
+            m_pendingAutoplayPath.clear();
+            m_pendingAutoplayName.clear();
+            m_pendingAutoplayIsRandom = false;
+        }
+        
         QMessageBox::critical(m_mainWindow,
                             tr("Decryption Error"),
                             tr("Failed to decrypt the video file. The file may be corrupted or the encryption key may be incorrect."));
@@ -3354,6 +3390,11 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 safeThisForError->m_isAutoplayInProgress = false;
                 safeThisForError->m_isRandomAutoplay = false;
                 safeThisForError->m_episodeWasNearCompletion = false;
+                
+                // Clear pending autoplay info
+                safeThisForError->m_pendingAutoplayPath.clear();
+                safeThisForError->m_pendingAutoplayName.clear();
+                safeThisForError->m_pendingAutoplayIsRandom = false;
             }
             
             if (safeThisForError->m_mainWindow) {
@@ -3603,6 +3644,11 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             m_isAutoplayInProgress = false;
             m_isRandomAutoplay = false;
             m_episodeWasNearCompletion = false;
+            
+            // Clear pending autoplay info
+            m_pendingAutoplayPath.clear();
+            m_pendingAutoplayName.clear();
+            m_pendingAutoplayIsRandom = false;
         }
         
         QMessageBox::warning(m_mainWindow,
@@ -7174,47 +7220,111 @@ void Operations_VP_Shows::autoplayNextEpisode()
         episodeName = fileInfo.fileName();
     }
     
-    // Small delay to ensure the previous player is fully closed
-    // CRITICAL: Capture by value to avoid dangling references
-    QString capturedPath = nextEpisodePath;
-    QString capturedName = episodeName;
-    QPointer<Operations_VP_Shows> safeThis = this;
+    // Store the pending autoplay information
+    m_pendingAutoplayPath = nextEpisodePath;
+    m_pendingAutoplayName = episodeName;
+    m_pendingAutoplayIsRandom = isRandomAutoplay;
     
-    qDebug() << "Operations_VP_Shows: Scheduling autoplay in 500ms (waiting for current player to close)";
+    qDebug() << "Operations_VP_Shows: Stored pending autoplay information:";
+    qDebug() << "Operations_VP_Shows:   - Path:" << m_pendingAutoplayPath;
+    qDebug() << "Operations_VP_Shows:   - Name:" << m_pendingAutoplayName;
+    qDebug() << "Operations_VP_Shows:   - Is Random:" << m_pendingAutoplayIsRandom;
     
-    QTimer::singleShot(500, this, [safeThis, capturedPath, capturedName, isRandomAutoplay]() {
-        // Validate that 'this' is still valid
-        if (!safeThis) {
-            qDebug() << "Critical-Operations_VP_Shows: Autoplay lambda executed but 'this' is no longer valid!";
-            return;
+    // If we have a current player, connect to its destroyed signal and close it
+    if (m_episodePlayer) {
+        qDebug() << "Operations_VP_Shows: Connecting to player's destroyed signal for autoplay";
+        
+        // Connect to the destroyed signal (use unique connection to prevent duplicates)
+        connect(m_episodePlayer.get(), &QObject::destroyed, 
+                this, &Operations_VP_Shows::onPlayerDestroyedDuringAutoplay,
+                Qt::UniqueConnection);
+        
+        // Stop playback tracking
+        if (m_playbackTracker && m_playbackTracker->isTracking()) {
+            qDebug() << "Operations_VP_Shows: Stopping playback tracking before closing player";
+            m_playbackTracker->stopTracking();
         }
         
-        // Double-check that we're still in autoplay mode
-        if (!safeThis->m_isAutoplayInProgress) {
-            qDebug() << "Operations_VP_Shows: Autoplay was cancelled before timer fired";
-            return;
+        // Force release the video file
+        forceReleaseVideoFile();
+        
+        // Close the player - this will trigger the destroyed signal
+        qDebug() << "Operations_VP_Shows: Closing current player to trigger autoplay";
+        if (m_episodePlayer->isVisible()) {
+            m_episodePlayer->close();
         }
+        m_episodePlayer.reset();  // This will destroy the player and trigger the signal
+    } else {
+        // No current player, directly play the next episode
+        qDebug() << "Operations_VP_Shows: No current player, directly playing next episode";
+        decryptAndPlayEpisode(m_pendingAutoplayPath, m_pendingAutoplayName);
         
-        // Validate MainWindow is still valid
-        if (!safeThis->m_mainWindow) {
-            qDebug() << "Critical-Operations_VP_Shows: MainWindow is null in autoplay lambda";
-            safeThis->m_isAutoplayInProgress = false;
-            safeThis->m_isRandomAutoplay = false;
-            safeThis->m_episodeWasNearCompletion = false;
-            return;
+        // Clear pending autoplay info after playing
+        m_pendingAutoplayPath.clear();
+        m_pendingAutoplayName.clear();
+        m_pendingAutoplayIsRandom = false;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Autoplay setup completed";
+}
+
+void Operations_VP_Shows::onPlayerDestroyedDuringAutoplay()
+{
+    qDebug() << "Operations_VP_Shows: Player destroyed signal received during autoplay";
+    
+    // Check if we have pending autoplay info
+    if (m_pendingAutoplayPath.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No pending autoplay path, nothing to do";
+        return;
+    }
+    
+    // Check if we're still in autoplay mode
+    if (!m_isAutoplayInProgress) {
+        qDebug() << "Operations_VP_Shows: Autoplay was cancelled, clearing pending info";
+        m_pendingAutoplayPath.clear();
+        m_pendingAutoplayName.clear();
+        m_pendingAutoplayIsRandom = false;
+        return;
+    }
+    
+    // Validate MainWindow is still valid
+    if (!m_mainWindow) {
+        qDebug() << "Critical-Operations_VP_Shows: MainWindow is null after player destruction";
+        m_isAutoplayInProgress = false;
+        m_isRandomAutoplay = false;
+        m_episodeWasNearCompletion = false;
+        m_pendingAutoplayPath.clear();
+        m_pendingAutoplayName.clear();
+        m_pendingAutoplayIsRandom = false;
+        return;
+    }
+    
+    qDebug() << "Operations_VP_Shows: Player destroyed - proceeding with autoplay";
+    qDebug() << "Operations_VP_Shows:   Next episode path:" << m_pendingAutoplayPath;
+    qDebug() << "Operations_VP_Shows:   Episode name:" << m_pendingAutoplayName;
+    qDebug() << "Operations_VP_Shows:   Is random:" << m_pendingAutoplayIsRandom;
+    
+    // Store the pending random flag in the member variable used by decryptAndPlayEpisode
+    m_isRandomAutoplay = m_pendingAutoplayIsRandom;
+    
+    // Clean up temp file from previous playback
+    cleanupTempFile();
+    
+    // Small delay to ensure everything is cleaned up
+    QTimer::singleShot(100, this, [this]() {
+        if (!m_pendingAutoplayPath.isEmpty() && m_isAutoplayInProgress) {
+            // Play the next episode
+            QString path = m_pendingAutoplayPath;
+            QString name = m_pendingAutoplayName;
+            
+            // Clear pending info before playing
+            m_pendingAutoplayPath.clear();
+            m_pendingAutoplayName.clear();
+            m_pendingAutoplayIsRandom = false;
+            
+            // Decrypt and play the next episode
+            decryptAndPlayEpisode(path, name);
         }
-        
-        qDebug() << "Operations_VP_Shows: Autoplay timer fired - proceeding with decryption";
-        qDebug() << "Operations_VP_Shows:   Next episode path:" << capturedPath;
-        qDebug() << "Operations_VP_Shows:   Episode name:" << capturedName;
-        qDebug() << "Operations_VP_Shows:   Is random:" << isRandomAutoplay;
-        
-        // Decrypt and play the next episode
-        // Note: decryptAndPlayEpisode will reset m_isAutoplayInProgress to false after it completes
-        safeThis->decryptAndPlayEpisode(capturedPath, capturedName);
-        
-        // Note: We do NOT reset the flags here anymore - they're reset in decryptAndPlayEpisode
-        // after it successfully starts playback or encounters an error
     });
 }
 
