@@ -198,19 +198,46 @@ void BaseVideoPlayer::initializePlayer()
 void BaseVideoPlayer::initializeFromPreviousSettings()
 {
     // This can be overridden by child classes
-    // Base implementation restores window geometry and volume
+    // Base implementation restores window geometry, volume, and monitor
     
-    if (s_hasStoredSettings) {
-        qDebug() << "BaseVideoPlayer: Restoring previous settings";
+    qDebug() << "BaseVideoPlayer: Initializing from previous settings";
+    qDebug() << "BaseVideoPlayer: Has stored settings:" << s_hasStoredSettings;
+    qDebug() << "BaseVideoPlayer: Was fullscreen:" << s_wasFullScreen 
+             << "Was maximized:" << s_wasMaximized 
+             << "Was minimized:" << s_wasMinimized;
+    
+    // Always restore volume (even for first play)
+    setVolume(s_lastVolume);
+    
+    // Always try to restore to the last used monitor if available
+    if (s_lastUsedScreen && QGuiApplication::screens().contains(s_lastUsedScreen)) {
+        qDebug() << "BaseVideoPlayer: Restoring to last used screen";
+        QRect screenGeometry = s_lastUsedScreen->availableGeometry();
         
-        // Restore volume
-        setVolume(s_lastVolume);
-        
-        // Restore window geometry if not in fullscreen
-        if (!s_wasFullScreen && !s_lastWindowGeometry.isEmpty()) {
-            setGeometry(s_lastWindowGeometry);
+        // Move window to the target screen
+        if (!s_lastWindowGeometry.isEmpty()) {
+            // Use the saved geometry but ensure it's on the right screen
+            QRect targetGeometry = s_lastWindowGeometry;
+            
+            // Adjust position to be on the correct screen if needed
+            if (!screenGeometry.contains(targetGeometry.center())) {
+                // Window was on a different screen, center it on the target screen
+                targetGeometry.moveCenter(screenGeometry.center());
+            }
+            
+            setGeometry(targetGeometry);
+        } else {
+            // No saved geometry, center on the target screen
+            move(screenGeometry.center() - rect().center());
         }
+    } else if (!s_lastWindowGeometry.isEmpty()) {
+        // Screen not available but we have geometry, just restore the geometry
+        qDebug() << "BaseVideoPlayer: Last screen not available, using saved geometry";
+        setGeometry(s_lastWindowGeometry);
     }
+    
+    // Note: Window state (minimized, maximized, fullscreen) will be handled by child classes
+    // as they may have different requirements (e.g., autoplay vs manual play)
 }
 
 void BaseVideoPlayer::setupUI()
@@ -874,17 +901,25 @@ void BaseVideoPlayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state
 void BaseVideoPlayer::closeEvent(QCloseEvent *event)
 {
     qDebug() << "BaseVideoPlayer: Close event received";
+    qDebug() << "BaseVideoPlayer: Current window states - Minimized:" << isMinimized() 
+             << "Maximized:" << isMaximized() << "FullScreen:" << m_isFullScreen
+             << "WindowState:" << windowState();
     
     if (!m_isClosing) {
         m_isClosing = true;
         
-        // Save window state
+        // Save window state - check windowState() for minimized as isMinimized() might not be reliable
         s_wasFullScreen = m_isFullScreen;
-        s_wasMaximized = isMaximized();
-        s_wasMinimized = isMinimized();
+        s_wasMaximized = (windowState() & Qt::WindowMaximized) != 0;
+        s_wasMinimized = (windowState() & Qt::WindowMinimized) != 0;
         
-        if (!m_isFullScreen && !isMaximized() && !isMinimized()) {
+        // Debug what we're saving
+        qDebug() << "BaseVideoPlayer: Saving window state - Fullscreen:" << s_wasFullScreen
+                 << "Maximized:" << s_wasMaximized << "Minimized:" << s_wasMinimized;
+        
+        if (!m_isFullScreen && !s_wasMaximized && !s_wasMinimized) {
             s_lastWindowGeometry = geometry();
+            qDebug() << "BaseVideoPlayer: Saved normal window geometry:" << s_lastWindowGeometry;
         }
         
         s_lastUsedScreen = getCurrentScreen();
@@ -908,6 +943,23 @@ void BaseVideoPlayer::closeEvent(QCloseEvent *event)
 void BaseVideoPlayer::showEvent(QShowEvent *event)
 {
     qDebug() << "BaseVideoPlayer: Show event received";
+    qDebug() << "BaseVideoPlayer: Has stored settings:" << s_hasStoredSettings;
+    qDebug() << "BaseVideoPlayer: Last used screen valid:" << (s_lastUsedScreen && QGuiApplication::screens().contains(s_lastUsedScreen));
+    
+    // Always try to restore to the correct monitor if we have one stored
+    if (!m_isClosing && s_lastUsedScreen && QGuiApplication::screens().contains(s_lastUsedScreen)) {
+        // Ensure we're on the correct screen after showing
+        if (windowHandle() && windowHandle()->screen() != s_lastUsedScreen) {
+            qDebug() << "BaseVideoPlayer: Moving window to last used screen after show";
+            windowHandle()->setScreen(s_lastUsedScreen);
+        }
+    }
+    
+    // Mark that we now have stored settings for future use
+    // This ensures monitor persistence works even for the first manual play
+    if (!m_isClosing) {
+        s_hasStoredSettings = true;
+    }
     
     // Ensure we have focus
     setFocus();

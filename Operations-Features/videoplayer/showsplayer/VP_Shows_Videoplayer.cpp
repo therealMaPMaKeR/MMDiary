@@ -14,6 +14,10 @@ VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
     , m_progressSaveTimer(nullptr)
     , m_lastSavedPosition(0)
     , m_hasStartedPlaying(false)
+    , m_shouldRestoreFullscreen(false)
+    , m_shouldRestoreMaximized(false)
+    , m_shouldRestoreMinimized(false)
+    , m_hasAppliedMinimized(false)
 {
     qDebug() << "VP_Shows_Videoplayer: Constructor called";
     
@@ -137,9 +141,33 @@ void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
 void VP_Shows_Videoplayer::showEvent(QShowEvent *event)
 {
     qDebug() << "VP_Shows_Videoplayer: Show event received (show-specific override)";
+    qDebug() << "VP_Shows_Videoplayer: Should restore - Fullscreen:" << m_shouldRestoreFullscreen
+             << "Maximized:" << m_shouldRestoreMaximized << "Minimized:" << m_shouldRestoreMinimized;
     
-    // Call base class implementation
+    // Call base class implementation first
     BaseVideoPlayer::showEvent(event);
+    
+    // Now apply the window state based on what was stored
+    // This needs to happen after the window is shown
+    if (!m_isClosing) {
+        // Apply window state restoration
+        if (m_shouldRestoreFullscreen) {
+            qDebug() << "VP_Shows_Videoplayer: Restoring fullscreen state";
+            // Use a timer to ensure the window is fully shown before going fullscreen
+            QTimer::singleShot(100, this, &BaseVideoPlayer::enterFullScreen);
+            // Reset the flag after scheduling
+            m_shouldRestoreFullscreen = false;
+        } else if (m_shouldRestoreMaximized) {
+            qDebug() << "VP_Shows_Videoplayer: Restoring maximized state";
+            showMaximized();
+            m_shouldRestoreMaximized = false;
+        } else if (m_shouldRestoreMinimized) {
+            // For minimized state, we don't minimize here anymore
+            // Instead, we wait for the video to start playing (handled in handlePlaybackStateChanged)
+            qDebug() << "VP_Shows_Videoplayer: Will minimize after video starts playing (for background listening)";
+            // Don't reset m_shouldRestoreMinimized here, it's used in handlePlaybackStateChanged
+        }
+    }
     
     // Additional show-specific initialization if needed
     if (m_watchHistory && !m_episodePath.isEmpty()) {
@@ -160,6 +188,27 @@ void VP_Shows_Videoplayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState 
             // Start progress timer if not already started
             if (m_progressSaveTimer && !m_progressSaveTimer->isActive()) {
                 m_progressSaveTimer->start();
+            }
+            
+            // Check if we need to minimize the window for background playback
+            // This ensures the video is actually playing before we minimize
+            if (m_shouldRestoreMinimized && !m_hasAppliedMinimized) {
+                m_hasAppliedMinimized = true;
+                qDebug() << "VP_Shows_Videoplayer: Video is playing, now minimizing for background playback";
+                
+                // Minimize after a short delay to ensure playback is stable
+                QTimer::singleShot(200, this, [this]() {
+                    if (!m_isClosing) {
+                        qDebug() << "VP_Shows_Videoplayer: Minimizing window (triggered by playback start)";
+                        setWindowState(windowState() | Qt::WindowMinimized);
+                        
+                        // Verify the state
+                        QTimer::singleShot(100, this, [this]() {
+                            qDebug() << "VP_Shows_Videoplayer: Final window state:" << windowState()
+                                     << "isMinimized():" << isMinimized();
+                        });
+                    }
+                });
             }
             break;
             
@@ -188,11 +237,27 @@ void VP_Shows_Videoplayer::initializeFromPreviousSettings()
 {
     qDebug() << "VP_Shows_Videoplayer: Initializing from previous settings (show-specific override)";
     
-    // Call base class implementation
+    // Call base class implementation first (handles monitor and geometry)
     BaseVideoPlayer::initializeFromPreviousSettings();
     
-    // Add any show-specific initialization here
-    // For example, restore last playback position from watch history
+    // Reset the minimized application flag
+    m_hasAppliedMinimized = false;
+    
+    // Now handle window state restoration for shows player
+    // This is important for autoplay to maintain the user's preferred window state
+    qDebug() << "VP_Shows_Videoplayer: Checking window state for restoration";
+    qDebug() << "VP_Shows_Videoplayer: Previous state - Fullscreen:" << s_wasFullScreen
+             << "Maximized:" << s_wasMaximized << "Minimized:" << s_wasMinimized;
+    
+    // For autoplay, we want to maintain the exact window state from the previous episode
+    // The window state will be applied in showEvent after the window is visible
+    // Store flags so showEvent knows what to do
+    m_shouldRestoreFullscreen = s_wasFullScreen;
+    m_shouldRestoreMaximized = s_wasMaximized && !s_wasFullScreen;
+    m_shouldRestoreMinimized = s_wasMinimized && !s_wasFullScreen && !s_wasMaximized;
+    
+    qDebug() << "VP_Shows_Videoplayer: Will restore - Fullscreen:" << m_shouldRestoreFullscreen
+             << "Maximized:" << m_shouldRestoreMaximized << "Minimized:" << m_shouldRestoreMinimized;
 }
 
 void VP_Shows_Videoplayer::saveWatchProgress()
@@ -270,11 +335,14 @@ bool VP_Shows_Videoplayer::shouldUpdateProgressForShows(qint64 currentPosition) 
 // Static method implementation
 void VP_Shows_Videoplayer::resetStoredWindowSettings()
 {
-    s_hasStoredSettings = false;
-    s_lastWindowGeometry = QRect();
+    // For manual play, we only reset the window state flags
+    // We keep the monitor, volume, and geometry for consistency
     s_wasFullScreen = false;
     s_wasMaximized = false;
     s_wasMinimized = false;
-    // Note: We keep s_lastVolume and s_lastUsedScreen as they persist across shows
-    qDebug() << "VP_Shows_Videoplayer: Reset all stored window settings";
+    // Keep s_hasStoredSettings = true so monitor restoration still works
+    // Keep s_lastWindowGeometry for positioning
+    // Keep s_lastVolume for volume persistence
+    // Keep s_lastUsedScreen for monitor persistence
+    qDebug() << "VP_Shows_Videoplayer: Reset window state flags for manual play, keeping monitor and volume";
 }

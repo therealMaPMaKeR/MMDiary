@@ -45,6 +45,12 @@ private:
     qint64 m_lastSavedPosition;
     bool m_hasStartedPlaying;
     
+    // Window state restoration flags for autoplay
+    bool m_shouldRestoreFullscreen = false;
+    bool m_shouldRestoreMaximized = false;
+    bool m_shouldRestoreMinimized = false;
+    bool m_hasAppliedMinimized = false;  // Track if we've already applied minimized state
+    
     // Helper methods
     bool shouldUpdateProgressForShows(qint64 currentPosition) const;
     void initializeWatchProgress();
