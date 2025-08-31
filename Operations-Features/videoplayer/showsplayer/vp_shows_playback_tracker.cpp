@@ -188,10 +188,20 @@ void VP_ShowsPlaybackTracker::startTracking(const QString& episodePath, VP_Shows
         qDebug() << "VP_ShowsPlaybackTracker: Skipping initial update, resuming from saved position";
     }
     
-    // Start periodic updates with a shorter initial interval
-    qDebug() << "VP_ShowsPlaybackTracker: Starting periodic timer with initial 2-second interval...";
+    // Start periodic updates with appropriate interval based on position
+    // If we're starting near the end, use a faster interval
+    int initialInterval = 2000; // Default 2 seconds for first save
+    if (initialDuration > 0) {
+        qint64 remainingTime = initialDuration - initialPosition;
+        if (remainingTime > 0 && remainingTime <= 180000) { // Within 3 minutes of end
+            initialInterval = 1000; // 1 second interval when starting near end
+            qDebug() << "VP_ShowsPlaybackTracker: Starting near end - using 1-second interval";
+        }
+    }
+    
+    qDebug() << "VP_ShowsPlaybackTracker: Starting periodic timer with" << initialInterval << "ms interval...";
     if (m_progressTimer && !m_progressTimer.isNull()) {
-        m_progressTimer->setInterval(2000);  // 2 seconds for first save
+        m_progressTimer->setInterval(initialInterval);
         m_progressTimer->start();
         
         if (m_progressTimer->isActive()) {
@@ -200,26 +210,38 @@ void VP_ShowsPlaybackTracker::startTracking(const QString& episodePath, VP_Shows
             qDebug() << "VP_ShowsPlaybackTracker: ERROR - Timer failed to start!";
         }
         
-        // After first save, switch to normal interval
-        // Capture the session ID to ensure this lambda only runs for the current session
-        QTimer::singleShot(2100, this, [this, currentSessionId]() {
-            // Check if we're still in the same tracking session
-            if (m_trackingSessionId != currentSessionId) {
-                qDebug() << "VP_ShowsPlaybackTracker: Ignoring timer interval switch - session ID mismatch"
-                         << "(current:" << m_trackingSessionId << "expected:" << currentSessionId << ")";
-                return;
-            }
-            
-            // Now safe to check timer state
-            if (!m_progressTimer.isNull() && m_progressTimer->isActive()) {
-                int normalInterval = VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS * 1000;
-                m_progressTimer->setInterval(normalInterval);
-                qDebug() << "VP_ShowsPlaybackTracker: Switched to normal save interval:" 
-                         << normalInterval << "ms (" << VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS << "seconds)";
-            } else {
-                qDebug() << "VP_ShowsPlaybackTracker: Timer not active when trying to switch interval";
-            }
-        });
+        // Only schedule interval switch if we didn't start near the end
+        if (initialInterval != 1000) {
+            // After first save, switch to normal interval
+            // Capture the session ID to ensure this lambda only runs for the current session
+            QTimer::singleShot(2100, this, [this, currentSessionId, initialDuration]() {
+                // Check if we're still in the same tracking session
+                if (m_trackingSessionId != currentSessionId) {
+                    qDebug() << "VP_ShowsPlaybackTracker: Ignoring timer interval switch - session ID mismatch"
+                             << "(current:" << m_trackingSessionId << "expected:" << currentSessionId << ")";
+                    return;
+                }
+                
+                // Now safe to check timer state
+                if (!m_progressTimer.isNull() && m_progressTimer->isActive()) {
+                    // Get current position to check if we're near the end
+                    qint64 currentPos = m_currentPlayer ? m_currentPlayer->position() : 0;
+                    qint64 remainingTime = initialDuration - currentPos;
+                    
+                    // Only switch to normal interval if we're NOT near the end
+                    if (remainingTime > 180000) { // More than 3 minutes remaining
+                        int normalInterval = VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS * 1000;
+                        m_progressTimer->setInterval(normalInterval);
+                        qDebug() << "VP_ShowsPlaybackTracker: Switched to normal save interval:" 
+                                 << normalInterval << "ms (" << VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS << "seconds)";
+                    } else {
+                        qDebug() << "VP_ShowsPlaybackTracker: Staying with fast interval - near end";
+                    }
+                } else {
+                    qDebug() << "VP_ShowsPlaybackTracker: Timer not active when trying to switch interval";
+                }
+            });
+        }
     } else {
         qDebug() << "VP_ShowsPlaybackTracker: ERROR - Timer is null, cannot start tracking!";
     }
@@ -546,22 +568,43 @@ void VP_ShowsPlaybackTracker::updateProgress()
         return;
     }
     
+    // CRITICAL FIX: Dynamically adjust timer frequency based on position
+    qint64 remainingTime = duration - position;
+    if (m_progressTimer && !m_progressTimer.isNull()) {
+        int currentInterval = m_progressTimer->interval();
+        
+        if (remainingTime > 0 && remainingTime <= 180000) { // Within 3 minutes of end
+            if (currentInterval > 1000) { // Switch to 1-second interval
+                m_progressTimer->setInterval(1000);
+                qDebug() << "VP_ShowsPlaybackTracker: Near end (" << (remainingTime/1000) 
+                         << "s remaining) - switched to 1-second interval for accurate detection";
+            }
+        } else if (remainingTime > 180000) { // More than 3 minutes remaining
+            int normalInterval = VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS * 1000;
+            if (currentInterval != normalInterval) { // Reset to normal interval
+                m_progressTimer->setInterval(normalInterval);
+                qDebug() << "VP_ShowsPlaybackTracker: Not near end - reset to normal" 
+                         << VP_ShowsWatchHistory::SAVE_INTERVAL_SECONDS << "second interval";
+            }
+        }
+    }
+    
     // CRITICAL: Check for near-completion FIRST, before any other early returns
     // This ensures we don't miss the near-completion window
     if (duration > 0) {
-        qint64 remaining = duration - position;
+        // Note: remainingTime already calculated above
         
         // Check if near end (within 2 minutes)
-        if (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && remaining > 0) {
+        if (remainingTime <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && remainingTime > 0) {
             // Only emit once per episode
             if (m_lastNearCompletionEpisode != m_currentEpisodePath) {
                 qDebug() << "VP_ShowsPlaybackTracker: *** EPISODE NEAR COMPLETION DETECTED ***";
-                qDebug() << "VP_ShowsPlaybackTracker: Remaining time:" << remaining << "ms (" << (remaining/1000) << "seconds)";
+                qDebug() << "VP_ShowsPlaybackTracker: Remaining time:" << remainingTime << "ms (" << (remainingTime/1000) << "seconds)";
                 qDebug() << "VP_ShowsPlaybackTracker: Emitting episodeNearCompletion signal for:" << m_currentEpisodePath;
                 emit episodeNearCompletion(m_currentEpisodePath);
                 m_lastNearCompletionEpisode = m_currentEpisodePath;
             }
-        } else if (remaining > VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && 
+        } else if (remainingTime > VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && 
                    m_lastNearCompletionEpisode == m_currentEpisodePath) {
             // If we moved back out of the near-completion zone (e.g., user seeked backward)
             // Reset the flag so we can emit again if they come back
@@ -585,13 +628,18 @@ void VP_ShowsPlaybackTracker::updateProgress()
     // Update last saved position
     m_lastSavedPosition = position;
     
+    // Log position updates when near end for debugging
+    if (remainingTime <= 180000 && updateCallCount % 5 == 0) { // Log every 5th update when near end
+        qDebug() << "VP_ShowsPlaybackTracker: Position update - Pos:" << (position/1000) << "s / Duration:" 
+                 << (duration/1000) << "s - Remaining:" << (remainingTime/1000) << "s";
+    }
+    
     // Update watch progress
     m_watchHistory->updateWatchProgress(m_currentEpisodePath, position, duration);
     
     // Check if within COMPLETION_THRESHOLD_MS of end to mark as completed
     if (duration > 0) {
-        qint64 remaining = duration - position;
-        if (remaining <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && remaining > 0) {
+        if (remainingTime <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS && remainingTime > 0) {
             qDebug() << "VP_ShowsPlaybackTracker: Within " << (VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS/1000) 
                      << " seconds of end, marking as completed";
             markCurrentEpisodeCompleted();

@@ -3183,6 +3183,9 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
 
         if (initSuccess) {
             qDebug() << "Operations_VP_Shows: Playback tracker initialized successfully";
+            qDebug() << "Operations_VP_Shows: Current show settings:";
+            qDebug() << "Operations_VP_Shows:   - autoplay:" << m_currentShowSettings.autoplay;
+            qDebug() << "Operations_VP_Shows:   - autoplayRandom:" << m_currentShowSettings.autoplayRandom;
 
             // Connect episodeNearCompletion signal to trigger autoplay when episode naturally completes
             QPointer<Operations_VP_Shows> safeThis = this;
@@ -3209,6 +3212,7 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             });
             
             qDebug() << "Operations_VP_Shows: Connected episodeNearCompletion signal for autoplay";
+            qDebug() << "Operations_VP_Shows: Ready for autoplay - waiting for episode to near completion";
 
             // Calculate relative path of episode within show folder
             QDir showDir(m_currentShowFolder);
@@ -3509,6 +3513,10 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                 // Start tracking with the playback tracker
                 if (m_playbackTracker && !relativeEpisodePath.isEmpty()) {
                     qDebug() << "Operations_VP_Shows: Starting playback tracking for episode";
+                    qDebug() << "Operations_VP_Shows: Autoplay settings check before tracking:";
+                    qDebug() << "Operations_VP_Shows:   - m_currentShowSettings.autoplay:" << m_currentShowSettings.autoplay;
+                    qDebug() << "Operations_VP_Shows:   - m_isAutoplayInProgress:" << m_isAutoplayInProgress;
+                    qDebug() << "Operations_VP_Shows:   - m_episodeWasNearCompletion:" << m_episodeWasNearCompletion;
                     m_playbackTracker->startTracking(relativeEpisodePath, m_episodePlayer.get());
 
                     // Get resume position and check if we need to resume
@@ -3566,6 +3574,11 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                     } else {
                         qDebug() << "Operations_VP_Shows: No resume position or forced to start from beginning";
                     }
+                } else {
+                    qDebug() << "Critical-Operations_VP_Shows: Cannot start playback tracking!";
+                    qDebug() << "Critical-Operations_VP_Shows:   - m_playbackTracker valid:" << (m_playbackTracker != nullptr);
+                    qDebug() << "Critical-Operations_VP_Shows:   - relativeEpisodePath:" << relativeEpisodePath;
+                    qDebug() << "Critical-Operations_VP_Shows: AUTOPLAY WILL NOT WORK WITHOUT TRACKING!";
                 }
 
                 // Start playback

@@ -4,7 +4,7 @@
 
 qlist_VP_ShowsList::qlist_VP_ShowsList(QWidget *parent)
     : QListWidget(parent)
-    , m_iconViewScrollMultiplier(10.0)  // Default 10x faster for icon view
+    , m_iconViewScrollMultiplier(3.0)  // Default 10x faster for icon view
     , m_listViewScrollMultiplier(1.0)   // Normal speed for list view
 {
     qDebug() << "qlist_VP_ShowsList: Custom TV shows list widget created";
