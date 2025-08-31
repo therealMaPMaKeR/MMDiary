@@ -3845,8 +3845,8 @@ void Operations_VP_Shows::forceReleaseVideoFile()
         qDebug() << "Operations_VP_Shows: Forcing media player to release file";
         // Stop playback
         m_episodePlayer->stop();
-        // Clear the media by loading an empty path
-        m_episodePlayer->loadVideo("");
+        // Unload the media properly without triggering errors
+        m_episodePlayer->unloadVideo();
         // Process events to ensure the release takes effect
         QCoreApplication::processEvents();
     }

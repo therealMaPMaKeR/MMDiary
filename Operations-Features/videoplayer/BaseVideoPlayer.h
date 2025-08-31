@@ -36,6 +36,7 @@ public:
 
     // Core video control functions
     virtual bool loadVideo(const QString& filePath);
+    virtual void unloadVideo();  // Unload current video without errors
     virtual void play();
     virtual void pause();
     virtual void stop();

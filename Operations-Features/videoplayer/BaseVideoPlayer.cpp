@@ -504,6 +504,32 @@ void BaseVideoPlayer::stop()
     m_positionLabel->setText("00:00");
 }
 
+void BaseVideoPlayer::unloadVideo()
+{
+    qDebug() << "BaseVideoPlayer: Unloading video";
+    
+    // Stop playback if active
+    if (m_mediaPlayer->isPlaying()) {
+        m_mediaPlayer->stop();
+    }
+    
+    // Unload the media from VLC player
+    m_mediaPlayer->unloadMedia();
+    
+    // Clear the current video path
+    m_currentVideoPath.clear();
+    
+    // Reset UI elements
+    m_positionSlider->setValue(0);
+    m_positionLabel->setText("00:00");
+    m_durationLabel->setText("00:00");
+    
+    // Update window title
+    setWindowTitle(tr("Video Player"));
+    
+    qDebug() << "BaseVideoPlayer: Video unloaded successfully";
+}
+
 void BaseVideoPlayer::setVolume(int volume)
 {
     qDebug() << "BaseVideoPlayer: Setting volume to" << volume << "%";
