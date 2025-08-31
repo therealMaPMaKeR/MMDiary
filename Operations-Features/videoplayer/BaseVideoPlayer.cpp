@@ -609,10 +609,12 @@ void BaseVideoPlayer::enterFullScreen()
         // Store normal geometry before going fullscreen
         m_normalGeometry = geometry();
         
-        // Determine which screen to use for fullscreen
-        QScreen* screen = m_targetScreen ? m_targetScreen.data() : getCurrentScreen();
+        // Always use the current screen where the player is located
+        // This ensures fullscreen happens on the monitor where the player window currently is
+        QScreen* screen = getCurrentScreen();
         if (!screen) {
-            screen = QGuiApplication::primaryScreen();
+            // Fallback to target screen if set, otherwise primary screen
+            screen = m_targetScreen ? m_targetScreen.data() : QGuiApplication::primaryScreen();
         }
         
         // Store the screen we're using
@@ -931,6 +933,11 @@ void BaseVideoPlayer::keyPressEvent(QKeyEvent *event)
         case Qt::Key_Escape:
             if (m_isFullScreen) {
                 exitFullScreen();
+                event->accept();
+            } else {
+                // Close the player when not in fullscreen
+                qDebug() << "BaseVideoPlayer: ESC pressed while not in fullscreen, closing player";
+                close();
                 event->accept();
             }
             break;
