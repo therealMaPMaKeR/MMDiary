@@ -163,6 +163,7 @@ class VRRenderThread : public QThread
 public:
     explicit VRRenderThread(VROpenVRManager* vrManager, 
                            VRVideoRenderer* vrRenderer,
+                           VRVLCFrameExtractor* frameExtractor,
                            QObject *parent = nullptr);
     ~VRRenderThread();
 
@@ -170,6 +171,7 @@ public:
     void stopRendering();
     void updateVideoFrame(const QImage& frame);
     void setShareContext(QOpenGLContext* context) { m_shareContext = context; }
+    void setFrameExtractor(VRVLCFrameExtractor* extractor) { m_frameExtractor = extractor; }
     
     bool isRendering() const { return m_rendering; }
 
@@ -186,6 +188,7 @@ private:
 private:
     VROpenVRManager* m_vrManager;
     VRVideoRenderer* m_vrRenderer;
+    VRVLCFrameExtractor* m_frameExtractor;
     
     bool m_rendering;
     bool m_stopRequested;

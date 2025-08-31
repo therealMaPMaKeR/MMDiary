@@ -6,6 +6,8 @@
 #include <QMutex>
 #include <QOpenGLFunctions>
 #include <memory>
+#include <chrono>
+#include <atomic>
 
 #ifdef USE_LIBVLC
 #include <vlc/vlc.h>
@@ -38,6 +40,11 @@ public:
     QImage getCurrentFrame() const;
     bool hasNewFrame() const { return m_hasNewFrame; }
     void markFrameUsed() { m_hasNewFrame = false; }
+    
+    // Direct texture access for performance
+    bool lockFrameBuffer(void** buffer, unsigned int& width, unsigned int& height);
+    void unlockFrameBuffer();
+    bool isFrameBufferLocked() const { return m_bufferLocked; }
     
     // OpenGL texture access
     GLuint getTextureId() const { return m_textureId; }
@@ -88,12 +95,18 @@ private:
     
     // Frame state
     mutable QMutex m_frameMutex;
-    QImage m_currentFrame;
+    mutable QImage m_currentFrame;  // Mutable for lazy initialization in const methods
     bool m_hasNewFrame;
+    bool m_bufferLocked;
     
     // OpenGL texture
     GLuint m_textureId;
     bool m_textureInitialized;
+    
+    // Performance tracking
+    uint64_t m_frameCount;
+    uint64_t m_droppedFrames;
+    std::chrono::steady_clock::time_point m_lastFrameTime;
     
     bool m_initialized;
 };

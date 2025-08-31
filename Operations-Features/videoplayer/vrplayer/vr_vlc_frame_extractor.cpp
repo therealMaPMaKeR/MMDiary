@@ -2,6 +2,7 @@
 #include <QDebug>
 #include <QOpenGLContext>
 #include <cstring>
+#include <algorithm>
 
 #ifdef USE_LIBVLC
 VRVLCFrameExtractor::VRVLCFrameExtractor(libvlc_media_player_t* mediaPlayer, QObject *parent)
@@ -14,8 +15,12 @@ VRVLCFrameExtractor::VRVLCFrameExtractor(void* mediaPlayer, QObject *parent)
     , m_videoWidth(0)
     , m_videoHeight(0)
     , m_hasNewFrame(false)
+    , m_bufferLocked(false)
     , m_textureId(0)
     , m_textureInitialized(false)
+    , m_frameCount(0)
+    , m_droppedFrames(0)
+    , m_lastFrameTime(std::chrono::steady_clock::now())
     , m_initialized(false)
 {
     qDebug() << "VRVLCFrameExtractor: Constructor called";
@@ -96,6 +101,17 @@ void VRVLCFrameExtractor::cleanup()
 QImage VRVLCFrameExtractor::getCurrentFrame() const
 {
     QMutexLocker locker(&m_frameMutex);
+    
+    // Create QImage from pixel buffer if we haven't already
+    if (m_currentFrame.isNull() && m_pixelBuffer && m_videoWidth > 0 && m_videoHeight > 0) {
+        // VLC provides RV32 format which is RGBA
+        m_currentFrame = QImage(m_pixelBuffer.get(), 
+                               m_videoWidth, 
+                               m_videoHeight,
+                               m_videoWidth * 4, // bytes per line
+                               QImage::Format_RGBA8888).copy();
+    }
+    
     return m_currentFrame.copy();
 }
 
@@ -147,6 +163,29 @@ bool VRVLCFrameExtractor::updateTexture()
     
     m_hasNewFrame = false;
     return true;
+}
+
+bool VRVLCFrameExtractor::lockFrameBuffer(void** buffer, unsigned int& width, unsigned int& height)
+{
+    QMutexLocker locker(&m_frameMutex);
+    
+    if (!m_pixelBuffer || !m_hasNewFrame || m_bufferLocked) {
+        return false;
+    }
+    
+    *buffer = m_pixelBuffer.get();
+    width = m_videoWidth;
+    height = m_videoHeight;
+    m_bufferLocked = true;
+    
+    return true;
+}
+
+void VRVLCFrameExtractor::unlockFrameBuffer()
+{
+    QMutexLocker locker(&m_frameMutex);
+    m_bufferLocked = false;
+    m_hasNewFrame = false;
 }
 
 #ifdef USE_LIBVLC
@@ -209,34 +248,43 @@ void VRVLCFrameExtractor::display(void* picture)
 {
     Q_UNUSED(picture);
     
-    static int displayCount = 0;
-    displayCount++;
-    if (displayCount % 30 == 0) { // Log every 30th frame
-        qDebug() << "VRVLCFrameExtractor: Display callback called, frame" << displayCount;
+    m_frameCount++;
+    
+    // Calculate frame timing
+    auto now = std::chrono::steady_clock::now();
+    auto frameDuration = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastFrameTime).count();
+    
+    // Check if we should skip this frame (if previous frame hasn't been consumed)
+    if (m_hasNewFrame && frameDuration < 100) { // Skip if frame is less than 100ms old
+        m_droppedFrames++;
+        if (m_frameCount % 30 == 0) {
+            qDebug() << "VRVLCFrameExtractor: Dropping frame, previous not consumed. Total dropped:" << m_droppedFrames;
+        }
+        return;
     }
     
     QMutexLocker locker(&m_frameMutex);
     
     if (!m_pixelBuffer || m_videoWidth == 0 || m_videoHeight == 0) {
-        if (displayCount % 30 == 0) {
+        if (m_frameCount % 30 == 0) {
             qDebug() << "VRVLCFrameExtractor: Invalid buffer or dimensions";
         }
         return;
     }
     
-    // Create QImage from pixel buffer
-    // VLC provides RV32 format which is RGBA
-    m_currentFrame = QImage(m_pixelBuffer.get(), 
-                           m_videoWidth, 
-                           m_videoHeight,
-                           m_videoWidth * 4, // bytes per line
-                           QImage::Format_RGBA8888).copy();
-    
-    m_hasNewFrame = true;
-    if (displayCount % 30 == 0) {
-        qDebug() << "VRVLCFrameExtractor: Frame ready, size:" << m_videoWidth << "x" << m_videoHeight;
+    // Only create QImage copy if absolutely necessary (for fallback)
+    // Primary path should use direct buffer access
+    if (!m_bufferLocked) {
+        m_hasNewFrame = true;
+        m_lastFrameTime = now;
+        
+        if (m_frameCount % 30 == 0) {
+            qDebug() << "VRVLCFrameExtractor: Frame" << m_frameCount << "ready, size:" 
+                     << m_videoWidth << "x" << m_videoHeight 
+                     << "Dropped frames:" << m_droppedFrames;
+        }
+        emit frameReady();
     }
-    emit frameReady();
 }
 
 unsigned VRVLCFrameExtractor::format(char* chroma, unsigned* width, unsigned* height,

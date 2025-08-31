@@ -82,7 +82,8 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     setupUI();
     
     // Set up frame update timer for VR rendering
-    m_frameTimer->setInterval(16); // ~60 FPS
+    // Use a faster interval to match VR display refresh rate
+    m_frameTimer->setInterval(11); // ~90 FPS to match most VR displays
     connect(m_frameTimer, &QTimer::timeout, this, &VRVideoPlayer::updateVideoFrame);
     
     // Set up position update timer
@@ -322,8 +323,9 @@ bool VRVideoPlayer::setupVRComponents()
     m_vrRenderer->setRenderTargetSize(width, height);
     
     // Create render thread with shared context
+    // Note: frameExtractor will be set when video is loaded
     m_renderThread = std::make_unique<VRRenderThread>(
-        m_vrManager.get(), m_vrRenderer.get(), this);
+        m_vrManager.get(), m_vrRenderer.get(), nullptr, this);
     
     // Pass the context to the render thread for sharing
     m_renderThread->setShareContext(m_glContext);
@@ -400,6 +402,12 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
             m_frameExtractor.reset();
         } else {
             qDebug() << "VRVideoPlayer: Frame extractor initialized successfully";
+            
+            // Update render thread with frame extractor if it exists
+            if (m_renderThread) {
+                m_renderThread->setFrameExtractor(m_frameExtractor.get());
+            }
+            
             // Connect frame ready signal
             connect(m_frameExtractor.get(), &VRVLCFrameExtractor::frameReady,
                     this, &VRVideoPlayer::onFrameReady);
@@ -430,7 +438,13 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
     VRVideoRenderer::VideoFormat format = detectVideoFormat(filePath);
     setVideoFormat(format);
     
-    qDebug() << "VRVideoPlayer: Detected video format:" << static_cast<int>(format);
+    // Log the format name for clarity
+    const char* formatNames[] = {
+        "Mono360", "Stereo360_TB", "Stereo360_SBS",
+        "Mono180", "Stereo180_TB", "Stereo180_SBS", "Flat2D"
+    };
+    qDebug() << "VRVideoPlayer: Detected video format:" << formatNames[static_cast<int>(format)]
+             << "(" << static_cast<int>(format) << ")";
     
     // If autoEnterVR is true, enter VR mode regardless of format (user explicitly chose VR player)
     if (autoEnterVR && isVRAvailable()) {
@@ -613,8 +627,10 @@ VRVideoRenderer::VideoFormat VRVideoPlayer::detectVideoFormat(const QString& fil
         return VRVideoRenderer::VideoFormat::Mono360;
     }
     
-    // Default to flat 2D if no VR format detected
-    return VRVideoRenderer::VideoFormat::Flat2D;
+    // Default to Mono360 for VR player (most common VR format)
+    // Since this is a VR player, assume 360 video if format is unclear
+    qDebug() << "VRVideoPlayer: No specific format detected, defaulting to Mono360";
+    return VRVideoRenderer::VideoFormat::Mono360;
 }
 
 void VRVideoPlayer::enterVRMode()
@@ -687,6 +703,14 @@ bool VRVideoPlayer::startVRRendering()
     if (!m_renderThread) {
         qDebug() << "VRVideoPlayer: No render thread available";
         return false;
+    }
+    
+    // Make sure render thread has access to frame extractor
+    if (m_frameExtractor) {
+        m_renderThread->setFrameExtractor(m_frameExtractor.get());
+        qDebug() << "VRVideoPlayer: Frame extractor set in render thread";
+    } else {
+        qDebug() << "VRVideoPlayer: Warning - No frame extractor available";
     }
     
     m_renderThread->startRendering();
@@ -857,19 +881,16 @@ void VRVideoPlayer::onFrameReady()
 
 void VRVideoPlayer::updateVideoFrame()
 {
+    // This method is now mostly deprecated since the render thread
+    // directly accesses frames from the frame extractor for better performance.
+    // Keep it for potential fallback scenarios.
+    
     if (!m_vrActive || !m_renderThread || !m_frameExtractor) {
         return;
     }
     
-    // Check if frame extractor has a new frame
-    if (m_frameExtractor->hasNewFrame()) {
-        QImage frame = m_frameExtractor->getCurrentFrame();
-        if (!frame.isNull()) {
-            // Pass frame to render thread
-            m_renderThread->updateVideoFrame(frame);
-            m_frameExtractor->markFrameUsed();
-        }
-    }
+    // The render thread now handles frame updates directly
+    // This timer just ensures the render thread keeps running
 }
 
 void VRVideoPlayer::onPlayPauseClicked()
@@ -972,10 +993,12 @@ QOpenGLWidget* VRVideoPlayer::createOpenGLWidget()
 
 VRRenderThread::VRRenderThread(VROpenVRManager* vrManager, 
                                VRVideoRenderer* vrRenderer,
+                               VRVLCFrameExtractor* frameExtractor,
                                QObject *parent)
     : QThread(parent)
     , m_vrManager(vrManager)
     , m_vrRenderer(vrRenderer)
+    , m_frameExtractor(frameExtractor)
     , m_rendering(false)
     , m_stopRequested(false)
     , m_frameUpdated(false)
@@ -1116,10 +1139,35 @@ void VRRenderThread::renderFrame()
     m_vrManager->compositorWaitGetPoses();
     
     // Update video texture if we have a new frame
-    if (m_frameUpdated) {
+    // Use direct buffer access if possible to avoid QImage copies
+    if (m_frameExtractor && m_frameExtractor->hasNewFrame()) {
+        void* buffer = nullptr;
+        unsigned int width = 0, height = 0;
+        
+        // Try direct buffer access first (much faster)
+        if (m_frameExtractor->lockFrameBuffer(&buffer, width, height)) {
+            if (renderCount % 90 == 0) {
+                qDebug() << "VRRenderThread: Direct texture update from buffer" 
+                         << width << "x" << height;
+            }
+            m_vrRenderer->updateVideoTextureDirect(buffer, width, height);
+            m_frameExtractor->unlockFrameBuffer();
+        }
+        // Fallback to QImage if direct access fails
+        else if (m_frameUpdated) {
+            QMutexLocker locker(&m_frameMutex);
+            if (renderCount % 90 == 0) {
+                qDebug() << "VRRenderThread: Fallback to QImage update" 
+                         << m_currentFrame.width() << "x" << m_currentFrame.height();
+            }
+            m_vrRenderer->updateVideoTexture(m_currentFrame);
+            m_frameUpdated = false;
+        }
+    } else if (m_frameUpdated) {
+        // No frame extractor, use QImage path
         QMutexLocker locker(&m_frameMutex);
         if (renderCount % 90 == 0) {
-            qDebug() << "VRRenderThread: Updating video texture with frame" 
+            qDebug() << "VRRenderThread: QImage update (no extractor)" 
                      << m_currentFrame.width() << "x" << m_currentFrame.height();
         }
         m_vrRenderer->updateVideoTexture(m_currentFrame);

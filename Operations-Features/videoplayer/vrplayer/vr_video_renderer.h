@@ -51,6 +51,7 @@ public:
     
     // Video texture management
     bool updateVideoTexture(const QImage& frame);
+    bool updateVideoTextureDirect(void* buffer, unsigned int width, unsigned int height);
     bool updateVideoTexture(GLuint textureId);
     
     // Rendering
