@@ -104,7 +104,7 @@ private:
 };
 
 BaseVideoPlayer::BaseVideoPlayer(QWidget *parent)
-    : QWidget(parent)
+    : QWidget(parent, Qt::Window)  // Always create as a window
     , m_videoWidget(nullptr)
     , m_playButton(nullptr)
     , m_stopButton(nullptr)
@@ -131,7 +131,15 @@ BaseVideoPlayer::BaseVideoPlayer(QWidget *parent)
     
     // Set window properties
     setWindowTitle(tr("Video Player"));
+    setWindowFlags(windowFlags() | Qt::Window | Qt::WindowCloseButtonHint | Qt::WindowMinMaxButtonsHint);
+    // Note: WA_DeleteOnClose is NOT set here because VP_Shows_Videoplayer is managed by unique_ptr
     resize(800, 600);
+    
+    // Center window on screen
+    if (QScreen *screen = QGuiApplication::primaryScreen()) {
+        QRect screenGeometry = screen->availableGeometry();
+        move(screenGeometry.center() - rect().center());
+    }
     
     // Initialize the player
     initializePlayer();
@@ -490,8 +498,12 @@ bool BaseVideoPlayer::loadVideo(const QString& filePath)
     // Process events to ensure rendering
     QApplication::processEvents();
     
-    // Update window title
-    setWindowTitle(tr("Video Player - %1").arg(fileInfo.fileName()));
+    // Update window title with filename
+    QString displayName = fileInfo.fileName();
+    // Remove obfuscated extensions if present
+    displayName.replace(".mmenc", "");
+    displayName.replace(".mmvid", "");
+    setWindowTitle(tr("Video Player - %1").arg(displayName));
     
     // Ensure the widget has focus for keyboard input
     setFocus();

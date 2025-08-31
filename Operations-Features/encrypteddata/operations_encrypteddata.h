@@ -118,6 +118,7 @@ private slots:
     void onContextMenuOpen();
     void onContextMenuOpenWith();
     void onContextMenuOpenWithImageViewer();
+    void onContextMenuOpenWithVideoPlayer();
     void onContextMenuEdit();
     void onContextMenuDecryptExport();
     void onContextMenuDelete();
@@ -254,6 +255,10 @@ private:
     bool showMetadataRepairDialog(int corruptedCount);
     bool repairMetadataFiles(const QStringList& corruptedFiles);
     bool repairSingleFileMetadata(const QString& encryptedFilePath);
+
+    // Helper functions - Video player
+    bool isVideoFile(const QString& filename) const;
+    void openWithVideoPlayer(const QString& encryptedFilePath, const QString& originalFilename);
 
     // Helper functions - Filtering
     QStringList parseHiddenItems(const QString& hiddenString);

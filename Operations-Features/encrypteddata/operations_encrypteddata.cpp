@@ -5,6 +5,7 @@
 #include "encryptedfileitemwidget.h"
 #include "encrypteddata_fileiconprovider.h"
 #include "imageviewer.h"
+#include "BaseVideoPlayer.h"
 #include "encrypteddata_editencryptedfiledialog.h"
 #include "ui_mainwindow.h"
 #include <QDir>
@@ -891,6 +892,13 @@ void Operations_EncryptedData::onFileListDoubleClicked(QListWidgetItem* item)
     qDebug() << "Operations_EncryptedData: File extension:" << extension;
     qDebug() << "Operations_EncryptedData: Default app found:" << (defaultApp.isEmpty() ? "None" : defaultApp);
 
+    // Check if this is a video file - if so, use BaseVideoPlayer
+    if (isVideoFile(originalFilename)) {
+        qDebug() << "Operations_EncryptedData: Video file detected, using BaseVideoPlayer";
+        openWithVideoPlayer(encryptedFilePath, originalFilename);
+        return; // Exit early, BaseVideoPlayer will handle everything
+    }
+
     if (defaultApp.isEmpty()) {
         // No default app - check if this is an image file
         if (isImageFile(originalFilename)) {
@@ -1034,6 +1042,28 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
                         QMessageBox::critical(m_mainWindow, "Image Viewer Error",
                                               "Failed to load the image in the Image Viewer.");
                         viewer->deleteLater();
+                    }
+                } else if (localAppToOpen == "videoplayer") {
+                    qDebug() << "Operations_EncryptedData: Opening with BaseVideoPlayer:" << tempFilePath;
+
+                    // Create BaseVideoPlayer instance without parent for independent window
+                    BaseVideoPlayer* player = new BaseVideoPlayer(nullptr);
+                    
+                    // Set auto-delete for this instance since it's not managed by a smart pointer
+                    player->setAttribute(Qt::WA_DeleteOnClose);
+                    
+                    // Load the video file
+                    if (player->loadVideo(tempFilePath)) {
+                        player->show();
+                        player->play();
+                        qDebug() << "Operations_EncryptedData: BaseVideoPlayer opened successfully";
+                        
+                        // Player will auto-delete on close due to WA_DeleteOnClose set above
+                        // Temp file will be cleaned by the existing cleanup timer
+                    } else {
+                        QMessageBox::critical(m_mainWindow, "Video Player Error",
+                                              "Failed to load the video in the Video Player.");
+                        player->deleteLater();
                     }
                 } else {
                     qDebug() << "Operations_EncryptedData: About to call openFileWithApp with localAppToOpen:"
@@ -3142,9 +3172,10 @@ void Operations_EncryptedData::showContextMenu_FileList(const QPoint& pos)
     // Select the item that was right-clicked
     m_mainWindow->ui->listWidget_DataENC_FileList->setCurrentItem(item);
 
-    // Get the original filename to check if it's an image
+    // Get the original filename to check if it's an image or video
     QString originalFilename = item->data(Qt::UserRole + 2).toString();
     bool isImage = isImageFile(originalFilename);
+    bool isVideo = isVideoFile(originalFilename);
 
     // Create context menu
     QMenu contextMenu(m_mainWindow);
@@ -3168,6 +3199,13 @@ void Operations_EncryptedData::showContextMenu_FileList(const QPoint& pos)
     QAction* openWithAction = contextMenu.addAction("Open With...");
     openWithAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_ComputerIcon));
     connect(openWithAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuOpenWith);
+
+    // Add "Open With Video Player" action only for videos
+    if (isVideo) {
+        QAction* videoPlayerAction = contextMenu.addAction("Open with Video Player");
+        videoPlayerAction->setIcon(QApplication::style()->standardIcon(QStyle::SP_MediaPlay));
+        connect(videoPlayerAction, &QAction::triggered, this, &Operations_EncryptedData::onContextMenuOpenWithVideoPlayer);
+    }
 
     // Add "Open With Image Viewer" action only for images
     if (isImage) {
@@ -3414,6 +3452,35 @@ void Operations_EncryptedData::onContextMenuOpenWithImageViewer()
 
     // Use the ImageViewer opening functionality
     openWithImageViewer(encryptedFilePath, originalFilename);
+}
+
+void Operations_EncryptedData::onContextMenuOpenWithVideoPlayer()
+{
+    // Get the currently selected item
+    QListWidgetItem* currentItem = m_mainWindow->ui->listWidget_DataENC_FileList->currentItem();
+    if (!currentItem) {
+        return;
+    }
+
+    // Get the encrypted file path and original filename from the item's user data
+    QString encryptedFilePath = currentItem->data(Qt::UserRole).toString();
+    QString originalFilename = currentItem->data(Qt::UserRole + 2).toString();
+
+    if (encryptedFilePath.isEmpty() || originalFilename.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to retrieve file information.");
+        return;
+    }
+
+    // Verify this is actually a video file
+    if (!isVideoFile(originalFilename)) {
+        QMessageBox::warning(m_mainWindow, "Not a Video",
+                             "The selected file is not a video file.");
+        return;
+    }
+
+    // Use the VideoPlayer opening functionality
+    openWithVideoPlayer(encryptedFilePath, originalFilename);
 }
 
 
@@ -4176,6 +4243,96 @@ bool Operations_EncryptedData::isImageFile(const QString& filename) const
     };
 
     return imageExtensions.contains(extension);
+}
+
+// ============================================================================
+// Video Player Functions
+// ============================================================================
+bool Operations_EncryptedData::isVideoFile(const QString& filename) const
+{
+    QFileInfo fileInfo(filename);
+    QString extension = fileInfo.suffix().toLower();
+
+    // Video file extensions (same list as used in determineFileType)
+    QStringList videoExtensions = {
+        "mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp",
+        "mpg", "mpeg", "m2v", "divx", "xvid", "asf", "rm", "rmvb", "vob",
+        "ts", "mts", "m2ts", "f4v", "ogv", "mxf", "dv", "m1v", "mp2v",
+        "3g2", "3gp2", "amv", "dnxhd", "prores"
+    };
+
+    return videoExtensions.contains(extension);
+}
+
+void Operations_EncryptedData::openWithVideoPlayer(const QString& encryptedFilePath, const QString& originalFilename)
+{
+    qDebug() << "Operations_EncryptedData: Opening video with BaseVideoPlayer:" << originalFilename;
+
+    // Verify the encrypted file still exists
+    if (!QFile::exists(encryptedFilePath)) {
+        QMessageBox::critical(m_mainWindow, "File Not Found",
+                              "The encrypted file no longer exists.");
+        populateEncryptedFilesList(); // Refresh the list
+        return;
+    }
+
+    // Validate encryption key before proceeding
+    qDebug() << "Operations_EncryptedData: Validating encryption key for VideoPlayer:" << encryptedFilePath;
+    QByteArray encryptionKey = m_mainWindow->user_Key;
+    if (!InputValidation::validateEncryptionKey(encryptedFilePath, encryptionKey, true)) {
+        QMessageBox::critical(m_mainWindow, "Invalid Encryption Key",
+                              "The encryption key is invalid or the file is corrupted. "
+                              "Please ensure you are using the correct user account.");
+        return;
+    }
+    qDebug() << "Operations_EncryptedData: Encryption key validation successful for VideoPlayer";
+
+    // Verify this is actually a video file
+    if (!isVideoFile(originalFilename)) {
+        QMessageBox::warning(m_mainWindow, "Not a Video",
+                             "The selected file is not a video file.");
+        return;
+    }
+
+    // Create temp file path with obfuscated name
+    QString tempFilePath = createTempFilePath(originalFilename);
+    if (tempFilePath.isEmpty()) {
+        QMessageBox::critical(m_mainWindow, "Error",
+                              "Failed to create temporary file path.");
+        return;
+    }
+
+    // Store "videoplayer" as the app to open
+    m_pendingAppToOpen = "videoplayer";
+    qDebug() << "Operations_EncryptedData: Stored 'videoplayer' in m_pendingAppToOpen";
+
+    qDebug() << "Operations_EncryptedData: Starting temporary decryption for VideoPlayer";
+
+    // Set up progress dialog
+    m_progressDialog = new QProgressDialog("Decrypting video for playback...", "Cancel", 0, 100, m_mainWindow);
+    m_progressDialog->setWindowTitle("Opening Video File");
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setMinimumDuration(0);
+    m_progressDialog->setValue(0);
+
+    // Set up worker thread for temp decryption
+    m_tempDecryptWorkerThread = new QThread(this);
+    m_tempDecryptWorker = new TempDecryptionWorker(encryptedFilePath, tempFilePath, encryptionKey);
+    m_tempDecryptWorker->moveToThread(m_tempDecryptWorkerThread);
+
+    // Connect signals
+    connect(m_tempDecryptWorkerThread, &QThread::started,
+            m_tempDecryptWorker, &TempDecryptionWorker::doDecryption);
+    connect(m_tempDecryptWorker, &TempDecryptionWorker::progressUpdated,
+            this, &Operations_EncryptedData::onTempDecryptionProgress);
+    connect(m_tempDecryptWorker, &TempDecryptionWorker::decryptionFinished,
+            this, &Operations_EncryptedData::onTempDecryptionFinished);
+    connect(m_progressDialog, &QProgressDialog::canceled,
+            this, &Operations_EncryptedData::onTempDecryptionCancelled);
+
+    // Start decryption
+    m_tempDecryptWorkerThread->start();
+    m_progressDialog->exec();
 }
 
 void Operations_EncryptedData::openWithImageViewer(const QString& encryptedFilePath, const QString& originalFilename)
