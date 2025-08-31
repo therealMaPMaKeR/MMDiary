@@ -1,0 +1,1169 @@
+#include "BaseVideoPlayer.h"
+#include <QGuiApplication>
+#include <QDebug>
+#include <QFileInfo>
+#include <QStyle>
+#include <QTime>
+#include <QCloseEvent>
+#include <QShowEvent>
+#include <QApplication>
+#include <QScreen>
+#include <QWindow>
+#include <QTimer>
+#include <QFocusEvent>
+#include <QDateTime>
+#include <climits>
+
+// Initialize static members for window state persistence
+QScreen* BaseVideoPlayer::s_lastUsedScreen = nullptr;
+QRect BaseVideoPlayer::s_lastWindowGeometry = QRect();
+bool BaseVideoPlayer::s_wasFullScreen = false;
+bool BaseVideoPlayer::s_wasMaximized = false;
+bool BaseVideoPlayer::s_wasMinimized = false;
+int BaseVideoPlayer::s_lastVolume = 70;  // Default volume
+bool BaseVideoPlayer::s_hasStoredSettings = false;
+
+// Custom clickable slider class for seeking in video
+class BaseVideoPlayer::ClickableSlider : public QSlider
+{
+public:
+    explicit ClickableSlider(Qt::Orientation orientation, QWidget *parent = nullptr)
+        : QSlider(orientation, parent), m_isPressed(false) {}
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton)
+        {
+            m_isPressed = true;
+            
+            // Calculate position based on click
+            qint64 value = 0;
+            
+            if (orientation() == Qt::Horizontal) {
+                qreal clickPos = event->position().x();
+                qreal widgetWidth = width();
+                
+                qint64 range = static_cast<qint64>(maximum()) - static_cast<qint64>(minimum());
+                qint64 widgetSize = static_cast<qint64>(widgetWidth);
+                
+                if (widgetSize > 0) {
+                    value = minimum() + (range * clickPos) / widgetSize;
+                } else {
+                    value = minimum();
+                }
+            } else {
+                qreal clickPos = height() - event->position().y();
+                qreal widgetHeight = height();
+                
+                qint64 range = static_cast<qint64>(maximum()) - static_cast<qint64>(minimum());
+                qint64 widgetSize = static_cast<qint64>(widgetHeight);
+                
+                if (widgetSize > 0) {
+                    value = minimum() + (range * clickPos) / widgetSize;
+                } else {
+                    value = minimum();
+                }
+            }
+            
+            value = qBound(static_cast<qint64>(minimum()), value, static_cast<qint64>(maximum()));
+            
+            qDebug() << "BaseVideoPlayer::ClickableSlider: Calculated value:" << value;
+            
+            setValue(static_cast<int>(value));
+            emit sliderMoved(static_cast<int>(value));
+            emit sliderPressed();
+            
+            QSlider::mousePressEvent(event);
+        }
+        else {
+            QSlider::mousePressEvent(event);
+        }
+    }
+
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        if (m_isPressed) {
+            m_isPressed = false;
+            emit sliderReleased();
+        }
+        QSlider::mouseReleaseEvent(event);
+    }
+
+    void focusOutEvent(QFocusEvent *event) override
+    {
+        if (m_isPressed) {
+            m_isPressed = false;
+            emit sliderReleased();
+        }
+        QSlider::focusOutEvent(event);
+    }
+
+private:
+    bool m_isPressed;
+};
+
+BaseVideoPlayer::BaseVideoPlayer(QWidget *parent)
+    : QWidget(parent)
+    , m_videoWidget(nullptr)
+    , m_playButton(nullptr)
+    , m_stopButton(nullptr)
+    , m_fullScreenButton(nullptr)
+    , m_positionSlider(nullptr)
+    , m_volumeSlider(nullptr)
+    , m_positionLabel(nullptr)
+    , m_durationLabel(nullptr)
+    , m_volumeLabel(nullptr)
+    , m_controlsWidget(nullptr)
+    , m_mainLayout(nullptr)
+    , m_controlLayout(nullptr)
+    , m_sliderLayout(nullptr)
+    , m_isSliderBeingMoved(false)
+    , m_isFullScreen(false)
+    , m_isClosing(false)
+    , m_playbackStartedEmitted(false)
+    , m_cursorTimer(nullptr)
+    , m_mouseCheckTimer(nullptr)
+    , m_lastMousePos(QPoint(-1, -1))
+    , m_targetScreen(nullptr)
+{
+    qDebug() << "BaseVideoPlayer: Constructor called";
+    
+    // Set window properties
+    setWindowTitle(tr("Video Player"));
+    resize(800, 600);
+    
+    // Initialize the player
+    initializePlayer();
+}
+
+BaseVideoPlayer::~BaseVideoPlayer()
+{
+    qDebug() << "BaseVideoPlayer: Destructor called";
+    
+    // Stop timers
+    if (m_cursorTimer) {
+        m_cursorTimer->stop();
+        delete m_cursorTimer;
+    }
+    
+    if (m_mouseCheckTimer) {
+        m_mouseCheckTimer->stop();
+        delete m_mouseCheckTimer;
+    }
+    
+    // Stop media player
+    if (m_mediaPlayer) {
+        m_mediaPlayer->stop();
+    }
+}
+
+void BaseVideoPlayer::initializePlayer()
+{
+    qDebug() << "BaseVideoPlayer: Initializing player";
+    
+    // Enable mouse tracking for auto-hide cursor functionality
+    setMouseTracking(true);
+    
+    // Create VLC player instance
+    m_mediaPlayer = std::make_unique<VP_VLCPlayer>(this);
+    
+    if (!m_mediaPlayer->initialize()) {
+        qDebug() << "BaseVideoPlayer: Failed to initialize VLC player";
+        emit errorOccurred(tr("Failed to initialize video player"));
+        return;
+    }
+    
+    // Setup UI
+    setupUI();
+    
+    // Connect signals
+    connectSignals();
+    
+    // Initialize cursor timers for fullscreen auto-hide
+    m_cursorTimer = new QTimer(this);
+    m_cursorTimer->setSingleShot(true);
+    connect(m_cursorTimer, &QTimer::timeout, this, &BaseVideoPlayer::hideCursor);
+    
+    m_mouseCheckTimer = new QTimer(this);
+    m_mouseCheckTimer->setInterval(100);
+    connect(m_mouseCheckTimer, &QTimer::timeout, this, &BaseVideoPlayer::checkMouseMovement);
+    
+    // Initialize from previous settings if available
+    initializeFromPreviousSettings();
+    
+    qDebug() << "BaseVideoPlayer: Initialization complete";
+}
+
+void BaseVideoPlayer::initializeFromPreviousSettings()
+{
+    // This can be overridden by child classes
+    // Base implementation restores window geometry and volume
+    
+    if (s_hasStoredSettings) {
+        qDebug() << "BaseVideoPlayer: Restoring previous settings";
+        
+        // Restore volume
+        setVolume(s_lastVolume);
+        
+        // Restore window geometry if not in fullscreen
+        if (!s_wasFullScreen && !s_lastWindowGeometry.isEmpty()) {
+            setGeometry(s_lastWindowGeometry);
+        }
+    }
+}
+
+void BaseVideoPlayer::setupUI()
+{
+    qDebug() << "BaseVideoPlayer: Setting up UI";
+    
+    // Create video widget - regular QWidget for VLC rendering
+    m_videoWidget = new QWidget(this);
+    m_videoWidget->setMinimumSize(400, 300);
+    
+    // Ensure video widget has a proper background
+    m_videoWidget->setStyleSheet("background-color: black;");
+    m_videoWidget->setAutoFillBackground(true);
+    
+    // Set VLC video output widget
+    m_mediaPlayer->setVideoWidget(m_videoWidget);
+    
+    // Ensure video widget is visible
+    m_videoWidget->show();
+    
+    // Install event filter on video widget for double-click fullscreen
+    m_videoWidget->installEventFilter(this);
+    
+    // Enable mouse tracking on video widget too
+    m_videoWidget->setMouseTracking(true);
+    
+    // Set focus policy to accept keyboard input
+    setFocusPolicy(Qt::StrongFocus);
+    m_videoWidget->setFocusPolicy(Qt::StrongFocus);
+    
+    // Create controls
+    createControls();
+    
+    // Create layouts
+    createLayouts();
+}
+
+BaseVideoPlayer::ClickableSlider* BaseVideoPlayer::createClickableSlider()
+{
+    return new ClickableSlider(Qt::Horizontal, this);
+}
+
+void BaseVideoPlayer::createControls()
+{
+    qDebug() << "BaseVideoPlayer: Creating controls";
+    
+    // Play/Pause button
+    m_playButton = new QPushButton(this);
+    m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    m_playButton->setToolTip(tr("Play"));
+    m_playButton->setFocusPolicy(Qt::NoFocus);
+    
+    // Stop button
+    m_stopButton = new QPushButton(this);
+    m_stopButton->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
+    m_stopButton->setToolTip(tr("Stop"));
+    m_stopButton->setFocusPolicy(Qt::NoFocus);
+    
+    // Fullscreen button
+    m_fullScreenButton = new QPushButton(this);
+    m_fullScreenButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarMaxButton));
+    m_fullScreenButton->setToolTip(tr("Full Screen (F11)"));
+    m_fullScreenButton->setFocusPolicy(Qt::NoFocus);
+    
+    // Position slider - use custom clickable slider
+    m_positionSlider = createClickableSlider();
+    m_positionSlider->setRange(0, 0);
+    m_positionSlider->setToolTip(tr("Click to seek"));
+    m_positionSlider->setFocusPolicy(Qt::ClickFocus);
+    
+    // Volume slider - use custom clickable slider, extended range to 200%
+    m_volumeSlider = createClickableSlider();
+    m_volumeSlider->setRange(0, 200);
+    m_volumeSlider->setValue(s_lastVolume);
+    m_volumeSlider->setMaximumWidth(100);
+    m_volumeSlider->setToolTip(tr("Volume (up to 200%)"));
+    m_volumeSlider->setFocusPolicy(Qt::ClickFocus);
+    
+    // Speed combo box
+    m_speedComboBox = new QComboBox(this);
+    m_speedComboBox->addItem("0.5x", 0.5);
+    m_speedComboBox->addItem("1x", 1.0);
+    m_speedComboBox->addItem("1.5x", 1.5);
+    m_speedComboBox->addItem("2x", 2.0);
+    m_speedComboBox->addItem("3x", 3.0);
+    m_speedComboBox->setCurrentIndex(1);
+    m_speedComboBox->setMaximumWidth(60);
+    m_speedComboBox->setToolTip(tr("Playback Speed"));
+    m_speedComboBox->setFocusPolicy(Qt::NoFocus);
+    
+    // Labels
+    m_positionLabel = new QLabel("00:00", this);
+    m_positionLabel->setMinimumWidth(50);
+    
+    m_durationLabel = new QLabel("00:00", this);
+    m_durationLabel->setMinimumWidth(50);
+    
+    m_volumeLabel = new QLabel(tr("Vol (%1%):").arg(s_lastVolume), this);
+    
+    m_speedLabel = new QLabel(tr("Speed:"), this);
+    
+    // Set initial volume on VLC player
+    m_mediaPlayer->setVolume(s_lastVolume);
+}
+
+void BaseVideoPlayer::createLayouts()
+{
+    qDebug() << "BaseVideoPlayer: Creating layouts";
+    
+    // Create a widget to hold all controls (for fullscreen mode)
+    m_controlsWidget = new QWidget(this);
+    
+    // Enable mouse tracking on controls widget to detect mouse movement
+    m_controlsWidget->setMouseTracking(true);
+    
+    // Install event filter on controls widget for mouse tracking
+    m_controlsWidget->installEventFilter(this);
+    
+    // Control layout (buttons)
+    m_controlLayout = new QHBoxLayout();
+    m_controlLayout->addWidget(m_playButton);
+    m_controlLayout->addWidget(m_stopButton);
+    m_controlLayout->addWidget(m_fullScreenButton);
+    m_controlLayout->addStretch();
+    
+    // Slider layout (position, volume, and speed)
+    m_sliderLayout = new QHBoxLayout();
+    m_sliderLayout->addWidget(m_positionLabel);
+    m_sliderLayout->addWidget(m_positionSlider, 1);
+    m_sliderLayout->addWidget(m_durationLabel);
+    m_sliderLayout->addSpacing(20);
+    m_sliderLayout->addWidget(m_volumeLabel);
+    m_sliderLayout->addWidget(m_volumeSlider);
+    m_sliderLayout->addSpacing(20);
+    m_sliderLayout->addWidget(m_speedLabel);
+    m_sliderLayout->addWidget(m_speedComboBox);
+    
+    // Controls widget layout
+    QVBoxLayout* controlsLayout = new QVBoxLayout(m_controlsWidget);
+    controlsLayout->addLayout(m_controlLayout);
+    controlsLayout->addLayout(m_sliderLayout);
+    controlsLayout->setContentsMargins(5, 5, 5, 5);
+    
+    // Main layout
+    m_mainLayout = new QVBoxLayout(this);
+    m_mainLayout->addWidget(m_videoWidget, 1);
+    m_mainLayout->addWidget(m_controlsWidget);
+    
+    // Store normal margins for restoration later
+    m_normalMargins = m_mainLayout->contentsMargins();
+    
+    setLayout(m_mainLayout);
+}
+
+void BaseVideoPlayer::connectSignals()
+{
+    qDebug() << "BaseVideoPlayer: Connecting signals";
+    
+    // Button signals
+    connect(m_playButton, &QPushButton::clicked,
+            this, &BaseVideoPlayer::on_playButton_clicked);
+    
+    connect(m_stopButton, &QPushButton::clicked,
+            this, &BaseVideoPlayer::close);
+    
+    connect(m_fullScreenButton, &QPushButton::clicked,
+            this, &BaseVideoPlayer::on_fullScreenButton_clicked);
+    
+    // Slider signals
+    connect(m_positionSlider, &QSlider::sliderMoved,
+            this, &BaseVideoPlayer::on_positionSlider_sliderMoved);
+    
+    connect(m_positionSlider, &QSlider::sliderPressed,
+            this, &BaseVideoPlayer::on_positionSlider_sliderPressed);
+    
+    connect(m_positionSlider, &QSlider::sliderReleased,
+            this, &BaseVideoPlayer::on_positionSlider_sliderReleased);
+    
+    // Also connect valueChanged to catch direct clicks
+    connect(m_positionSlider, &QSlider::valueChanged, this, [this](int value) {
+        if (!m_isSliderBeingMoved && 
+            m_mediaPlayer && 
+            m_mediaPlayer->hasMedia() && 
+            m_mediaPlayer->duration() > 0) {
+            
+            qint64 currentPos = m_mediaPlayer->position();
+            qint64 valueDiff = qAbs(static_cast<qint64>(value) - currentPos);
+            
+            if (valueDiff > 1000) {
+                qDebug() << "BaseVideoPlayer: Slider value changed significantly - seeking to" << value;
+                setPosition(value);
+            }
+        }
+    });
+    
+    connect(m_volumeSlider, &QSlider::sliderMoved,
+            this, &BaseVideoPlayer::on_volumeSlider_sliderMoved);
+    
+    connect(m_speedComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &BaseVideoPlayer::on_speedComboBox_currentIndexChanged);
+    
+    // Media player signals
+    connect(m_mediaPlayer.get(), &VP_VLCPlayer::positionChanged,
+            this, &BaseVideoPlayer::updatePosition);
+    
+    connect(m_mediaPlayer.get(), &VP_VLCPlayer::durationChanged,
+            this, &BaseVideoPlayer::updateDuration);
+    
+    connect(m_mediaPlayer.get(), &VP_VLCPlayer::stateChanged,
+            this, &BaseVideoPlayer::handlePlaybackStateChanged);
+    
+    connect(m_mediaPlayer.get(), &VP_VLCPlayer::errorOccurred,
+            this, &BaseVideoPlayer::handleError);
+    
+    connect(m_mediaPlayer.get(), &VP_VLCPlayer::finished,
+            this, &BaseVideoPlayer::finished);
+}
+
+bool BaseVideoPlayer::loadVideo(const QString& filePath)
+{
+    qDebug() << "BaseVideoPlayer: Loading video:" << filePath;
+    
+    QFileInfo fileInfo(filePath);
+    
+    if (!fileInfo.exists()) {
+        qDebug() << "BaseVideoPlayer: File does not exist:" << filePath;
+        emit errorOccurred(tr("File not found: %1").arg(filePath));
+        return false;
+    }
+    
+    // Stop current playback if any
+    if (m_mediaPlayer->isPlaying()) {
+        m_mediaPlayer->stop();
+    }
+    
+    // Load the media with VLC
+    if (!m_mediaPlayer->loadMedia(filePath)) {
+        qDebug() << "BaseVideoPlayer: Failed to load media with VLC";
+        emit errorOccurred(tr("Failed to load video: %1").arg(m_mediaPlayer->lastError()));
+        return false;
+    }
+    
+    // Store the media path
+    m_currentVideoPath = filePath;
+    
+    // Force video widget to update
+    m_videoWidget->update();
+    m_videoWidget->show();
+    
+    // Process events to ensure rendering
+    QApplication::processEvents();
+    
+    // Update window title
+    setWindowTitle(tr("Video Player - %1").arg(fileInfo.fileName()));
+    
+    // Ensure the widget has focus for keyboard input
+    setFocus();
+    
+    qDebug() << "BaseVideoPlayer: Video loaded successfully";
+    return true;
+}
+
+void BaseVideoPlayer::play()
+{
+    qDebug() << "BaseVideoPlayer: Play requested";
+    
+    if (m_currentVideoPath.isEmpty()) {
+        qDebug() << "BaseVideoPlayer: No video loaded";
+        emit errorOccurred(tr("No video loaded"));
+        return;
+    }
+    
+    m_mediaPlayer->play();
+    
+    // Ensure we have focus for keyboard shortcuts
+    setFocus();
+}
+
+void BaseVideoPlayer::pause()
+{
+    qDebug() << "BaseVideoPlayer: Pause requested";
+    m_mediaPlayer->pause();
+}
+
+void BaseVideoPlayer::stop()
+{
+    qDebug() << "BaseVideoPlayer: Stop requested";
+    
+    m_mediaPlayer->stop();
+    m_positionSlider->setValue(0);
+    m_positionLabel->setText("00:00");
+}
+
+void BaseVideoPlayer::setVolume(int volume)
+{
+    qDebug() << "BaseVideoPlayer: Setting volume to" << volume << "%";
+    
+    // Clamp volume to valid range
+    volume = qBound(0, volume, 200);
+    
+    m_mediaPlayer->setVolume(volume);
+    m_volumeLabel->setText(tr("Vol (%1%):").arg(volume));
+    
+    // Update slider position if not being moved by user
+    if (m_volumeSlider->value() != volume && !m_volumeSlider->isSliderDown()) {
+        m_volumeSlider->setValue(volume);
+    }
+    
+    // Save volume for next session
+    s_lastVolume = volume;
+    
+    emit volumeChanged(volume);
+}
+
+void BaseVideoPlayer::setPosition(qint64 position)
+{
+    qDebug() << "BaseVideoPlayer: Setting position to" << position << "ms";
+    
+    if (!m_mediaPlayer->hasMedia()) {
+        qDebug() << "BaseVideoPlayer: No media loaded, cannot set position";
+        return;
+    }
+    
+    // Validate position
+    qint64 duration = m_mediaPlayer->duration();
+    if (duration > 0) {
+        position = qBound(static_cast<qint64>(0), position, duration);
+    }
+    
+    m_mediaPlayer->setPosition(position);
+    
+    // Update display immediately
+    if (!m_isSliderBeingMoved) {
+        m_positionSlider->setValue(static_cast<int>(position));
+    }
+    m_positionLabel->setText(formatTime(position));
+}
+
+void BaseVideoPlayer::setPlaybackSpeed(qreal speed)
+{
+    qDebug() << "BaseVideoPlayer: Setting playback speed to" << speed;
+    
+    m_mediaPlayer->setPlaybackRate(static_cast<float>(speed));
+    
+    // Update combo box to reflect the speed
+    for (int i = 0; i < m_speedComboBox->count(); ++i) {
+        if (qFuzzyCompare(m_speedComboBox->itemData(i).toDouble(), speed)) {
+            m_speedComboBox->setCurrentIndex(i);
+            break;
+        }
+    }
+    
+    emit playbackSpeedChanged(speed);
+}
+
+void BaseVideoPlayer::toggleFullScreen()
+{
+    if (m_isFullScreen) {
+        exitFullScreen();
+    } else {
+        enterFullScreen();
+    }
+}
+
+void BaseVideoPlayer::enterFullScreen()
+{
+    if (!m_isFullScreen) {
+        qDebug() << "BaseVideoPlayer: Entering fullscreen mode";
+        
+        // Store normal geometry before going fullscreen
+        m_normalGeometry = geometry();
+        
+        // Determine which screen to use for fullscreen
+        QScreen* screen = m_targetScreen ? m_targetScreen : getCurrentScreen();
+        if (!screen) {
+            screen = QGuiApplication::primaryScreen();
+        }
+        
+        // Store the screen we're using
+        s_lastUsedScreen = screen;
+        
+        // Get the screen geometry
+        QRect screenGeometry = screen->geometry();
+        
+        // Move to the target screen first
+        move(screenGeometry.topLeft());
+        
+        // Then show fullscreen
+        showFullScreen();
+        
+        // Remove margins in fullscreen
+        m_mainLayout->setContentsMargins(0, 0, 0, 0);
+        
+        // Start timer to auto-hide controls
+        startCursorTimer();
+        m_mouseCheckTimer->start();
+        
+        m_isFullScreen = true;
+        
+        // Update button icon
+        m_fullScreenButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarNormalButton));
+        m_fullScreenButton->setToolTip(tr("Exit Full Screen (F11/Esc)"));
+        
+        emit fullScreenChanged(true);
+    }
+}
+
+void BaseVideoPlayer::exitFullScreen()
+{
+    if (m_isFullScreen) {
+        qDebug() << "BaseVideoPlayer: Exiting fullscreen mode";
+        
+        // Stop cursor hide timers
+        stopCursorTimer();
+        m_mouseCheckTimer->stop();
+        
+        // Show cursor and controls
+        showCursor();
+        m_controlsWidget->setVisible(true);
+        
+        // Restore margins
+        m_mainLayout->setContentsMargins(m_normalMargins);
+        
+        // Exit fullscreen mode
+        showNormal();
+        
+        // Restore geometry
+        if (!m_normalGeometry.isEmpty()) {
+            setGeometry(m_normalGeometry);
+        } else {
+            // If no stored geometry, center on screen
+            QScreen* screen = m_targetScreen;
+            if (!screen) {
+                screen = (s_lastUsedScreen && QGuiApplication::screens().contains(s_lastUsedScreen)) 
+                        ? s_lastUsedScreen 
+                        : QGuiApplication::primaryScreen();
+            }
+            if (screen) {
+                QRect screenGeometry = screen->availableGeometry();
+                move(screenGeometry.center() - rect().center());
+            }
+        }
+        
+        // Ensure window is raised and active
+        raise();
+        activateWindow();
+        
+        m_isFullScreen = false;
+        
+        // Update button icon
+        m_fullScreenButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarMaxButton));
+        m_fullScreenButton->setToolTip(tr("Full Screen (F11)"));
+        
+        emit fullScreenChanged(false);
+    }
+}
+
+void BaseVideoPlayer::startInFullScreen()
+{
+    qDebug() << "BaseVideoPlayer: Starting in fullscreen mode";
+    
+    // Set flag before showing window
+    m_isFullScreen = false;  // Reset flag so enterFullScreen works
+    
+    // Show window first
+    show();
+    
+    // Then enter fullscreen
+    QTimer::singleShot(100, this, &BaseVideoPlayer::enterFullScreen);
+}
+
+// State query functions
+bool BaseVideoPlayer::isPlaying() const
+{
+    return m_mediaPlayer && m_mediaPlayer->isPlaying();
+}
+
+bool BaseVideoPlayer::isPaused() const
+{
+    return m_mediaPlayer && m_mediaPlayer->isPaused();
+}
+
+qint64 BaseVideoPlayer::duration() const
+{
+    return m_mediaPlayer ? m_mediaPlayer->duration() : 0;
+}
+
+qint64 BaseVideoPlayer::position() const
+{
+    return m_mediaPlayer ? m_mediaPlayer->position() : 0;
+}
+
+int BaseVideoPlayer::volume() const
+{
+    return m_mediaPlayer ? m_mediaPlayer->volume() : 0;
+}
+
+qreal BaseVideoPlayer::playbackSpeed() const
+{
+    return m_mediaPlayer ? static_cast<qreal>(m_mediaPlayer->playbackRate()) : 1.0;
+}
+
+QString BaseVideoPlayer::currentVideoPath() const
+{
+    return m_currentVideoPath;
+}
+
+// Slot implementations
+void BaseVideoPlayer::on_playButton_clicked()
+{
+    qDebug() << "BaseVideoPlayer: Play button clicked";
+    
+    if (m_mediaPlayer->isPlaying()) {
+        pause();
+    } else {
+        play();
+    }
+    
+    // Return focus to main widget for keyboard shortcuts
+    ensureKeyboardFocus();
+}
+
+void BaseVideoPlayer::on_positionSlider_sliderMoved(int position)
+{
+    qDebug() << "BaseVideoPlayer: Position slider moved to" << position;
+    setPosition(position);
+}
+
+void BaseVideoPlayer::on_positionSlider_sliderPressed()
+{
+    qDebug() << "BaseVideoPlayer: Position slider pressed";
+    m_isSliderBeingMoved = true;
+}
+
+void BaseVideoPlayer::on_positionSlider_sliderReleased()
+{
+    qDebug() << "BaseVideoPlayer: Position slider released";
+    m_isSliderBeingMoved = false;
+    
+    // Return focus to main widget for keyboard shortcuts after a small delay
+    QTimer::singleShot(100, this, &BaseVideoPlayer::ensureKeyboardFocus);
+}
+
+void BaseVideoPlayer::on_volumeSlider_sliderMoved(int position)
+{
+    qDebug() << "BaseVideoPlayer: Volume slider moved to" << position << "%";
+    setVolume(position);
+}
+
+void BaseVideoPlayer::on_speedComboBox_currentIndexChanged(int index)
+{
+    if (index < 0 || index >= m_speedComboBox->count()) {
+        return;
+    }
+    
+    qreal speed = m_speedComboBox->itemData(index).toDouble();
+    qDebug() << "BaseVideoPlayer: Speed combo box changed to index" << index << "speed" << speed;
+    
+    setPlaybackSpeed(speed);
+    
+    // Return focus to main widget for keyboard shortcuts
+    ensureKeyboardFocus();
+}
+
+void BaseVideoPlayer::on_fullScreenButton_clicked()
+{
+    qDebug() << "BaseVideoPlayer: Fullscreen button clicked";
+    toggleFullScreen();
+    
+    // Return focus to main widget for keyboard shortcuts
+    ensureKeyboardFocus();
+}
+
+void BaseVideoPlayer::updatePosition(qint64 position)
+{
+    if (!m_isSliderBeingMoved) {
+        m_positionSlider->setValue(static_cast<int>(position));
+    }
+    m_positionLabel->setText(formatTime(position));
+    emit positionChanged(position);
+}
+
+void BaseVideoPlayer::updateDuration(qint64 duration)
+{
+    qDebug() << "BaseVideoPlayer: Duration updated to" << duration << "ms";
+    
+    m_positionSlider->setMaximum(static_cast<int>(duration));
+    m_durationLabel->setText(formatTime(duration));
+    
+    emit durationChanged(duration);
+}
+
+void BaseVideoPlayer::handleError(const QString &errorString)
+{
+    qDebug() << "BaseVideoPlayer: Error occurred:" << errorString;
+    emit errorOccurred(errorString);
+}
+
+void BaseVideoPlayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state)
+{
+    qDebug() << "BaseVideoPlayer: Playback state changed to" << static_cast<int>(state);
+    
+    switch (state) {
+        case VP_VLCPlayer::PlayerState::Playing:
+            m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
+            m_playButton->setToolTip(tr("Pause"));
+            
+            if (!m_playbackStartedEmitted) {
+                m_playbackStartedEmitted = true;
+                emit playbackStarted();
+            }
+            break;
+            
+        case VP_VLCPlayer::PlayerState::Paused:
+            m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+            m_playButton->setToolTip(tr("Play"));
+            break;
+            
+        case VP_VLCPlayer::PlayerState::Stopped:
+            m_playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+            m_playButton->setToolTip(tr("Play"));
+            m_playbackStartedEmitted = false;
+            break;
+            
+        default:
+            break;
+    }
+    
+    emit playbackStateChanged(state);
+}
+
+// Event handlers
+void BaseVideoPlayer::closeEvent(QCloseEvent *event)
+{
+    qDebug() << "BaseVideoPlayer: Close event received";
+    
+    if (!m_isClosing) {
+        m_isClosing = true;
+        
+        // Save window state
+        s_wasFullScreen = m_isFullScreen;
+        s_wasMaximized = isMaximized();
+        s_wasMinimized = isMinimized();
+        
+        if (!m_isFullScreen && !isMaximized() && !isMinimized()) {
+            s_lastWindowGeometry = geometry();
+        }
+        
+        s_lastUsedScreen = getCurrentScreen();
+        s_hasStoredSettings = true;
+        
+        // Get final position before stopping
+        qint64 finalPosition = m_mediaPlayer ? m_mediaPlayer->position() : 0;
+        
+        // Stop playback
+        if (m_mediaPlayer) {
+            m_mediaPlayer->stop();
+        }
+        
+        // Emit signal with final position
+        emit aboutToClose(finalPosition);
+    }
+    
+    event->accept();
+}
+
+void BaseVideoPlayer::showEvent(QShowEvent *event)
+{
+    qDebug() << "BaseVideoPlayer: Show event received";
+    
+    // Ensure we have focus
+    setFocus();
+    
+    QWidget::showEvent(event);
+}
+
+void BaseVideoPlayer::keyPressEvent(QKeyEvent *event)
+{
+    qDebug() << "BaseVideoPlayer: Key press event - Key:" << event->key();
+    
+    switch (event->key()) {
+        case Qt::Key_Space:
+            on_playButton_clicked();
+            event->accept();
+            break;
+            
+        case Qt::Key_F11:
+            toggleFullScreen();
+            event->accept();
+            break;
+            
+        case Qt::Key_Escape:
+            if (m_isFullScreen) {
+                exitFullScreen();
+                event->accept();
+            }
+            break;
+            
+        case Qt::Key_Right:
+            // Seek forward 10 seconds
+            if (m_mediaPlayer && m_mediaPlayer->hasMedia()) {
+                qint64 newPos = m_mediaPlayer->position() + 10000;
+                setPosition(newPos);
+                event->accept();
+            }
+            break;
+            
+        case Qt::Key_Left:
+            // Seek backward 10 seconds
+            if (m_mediaPlayer && m_mediaPlayer->hasMedia()) {
+                qint64 newPos = m_mediaPlayer->position() - 10000;
+                setPosition(newPos);
+                event->accept();
+            }
+            break;
+            
+        case Qt::Key_Up:
+            // Increase volume by 5%
+            setVolume(volume() + 5);
+            event->accept();
+            break;
+            
+        case Qt::Key_Down:
+            // Decrease volume by 5%
+            setVolume(volume() - 5);
+            event->accept();
+            break;
+            
+        default:
+            QWidget::keyPressEvent(event);
+            break;
+    }
+}
+
+void BaseVideoPlayer::wheelEvent(QWheelEvent *event)
+{
+    // Adjust volume with mouse wheel
+    int delta = event->angleDelta().y();
+    
+    if (delta > 0) {
+        setVolume(volume() + 5);
+    } else if (delta < 0) {
+        setVolume(volume() - 5);
+    }
+    
+    event->accept();
+}
+
+void BaseVideoPlayer::mouseMoveEvent(QMouseEvent *event)
+{
+    Q_UNUSED(event)
+    
+    if (m_isFullScreen) {
+        // Show cursor and controls
+        showCursor();
+        
+        if (!m_controlsWidget->isVisible()) {
+            m_controlsWidget->setVisible(true);
+        }
+        
+        // Restart the hide timer
+        startCursorTimer();
+    }
+}
+
+bool BaseVideoPlayer::eventFilter(QObject *watched, QEvent *event)
+{
+    // Handle double-click on video widget for fullscreen toggle
+    if (watched == m_videoWidget && event->type() == QEvent::MouseButtonDblClick) {
+        QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            toggleFullScreen();
+            return true;
+        }
+    }
+    
+    // Handle mouse movement on controls to show them in fullscreen
+    if (m_isFullScreen && (watched == m_controlsWidget || watched == m_videoWidget)) {
+        if (event->type() == QEvent::MouseMove) {
+            showCursor();
+            if (!m_controlsWidget->isVisible()) {
+                m_controlsWidget->setVisible(true);
+            }
+            startCursorTimer();
+        }
+    }
+    
+    return QWidget::eventFilter(watched, event);
+}
+
+void BaseVideoPlayer::focusInEvent(QFocusEvent *event)
+{
+    qDebug() << "BaseVideoPlayer: Focus in event - Reason:" << event->reason();
+    QWidget::focusInEvent(event);
+}
+
+// Helper methods
+QString BaseVideoPlayer::formatTime(qint64 milliseconds) const
+{
+    if (milliseconds < 0) {
+        return "00:00";
+    }
+    
+    int hours = milliseconds / 3600000;
+    int minutes = (milliseconds % 3600000) / 60000;
+    int seconds = (milliseconds % 60000) / 1000;
+    
+    if (hours > 0) {
+        return QString("%1:%2:%3")
+            .arg(hours, 2, 10, QChar('0'))
+            .arg(minutes, 2, 10, QChar('0'))
+            .arg(seconds, 2, 10, QChar('0'));
+    } else {
+        return QString("%1:%2")
+            .arg(minutes, 2, 10, QChar('0'))
+            .arg(seconds, 2, 10, QChar('0'));
+    }
+}
+
+void BaseVideoPlayer::ensureKeyboardFocus()
+{
+    qDebug() << "BaseVideoPlayer: Ensuring keyboard focus";
+    
+    // Clear focus from any control widgets
+    if (m_positionSlider->hasFocus()) {
+        m_positionSlider->clearFocus();
+    }
+    if (m_volumeSlider->hasFocus()) {
+        m_volumeSlider->clearFocus();
+    }
+    
+    // Set focus to the main widget
+    setFocus(Qt::OtherFocusReason);
+    
+    // Also raise and activate the window
+    raise();
+    activateWindow();
+}
+
+void BaseVideoPlayer::startCursorTimer()
+{
+    if (m_isFullScreen && m_cursorTimer) {
+        m_cursorTimer->stop();
+        m_cursorTimer->start(3000);  // Hide after 3 seconds
+    }
+}
+
+void BaseVideoPlayer::stopCursorTimer()
+{
+    if (m_cursorTimer) {
+        m_cursorTimer->stop();
+    }
+}
+
+void BaseVideoPlayer::hideCursor()
+{
+    if (m_isFullScreen) {
+        setCursor(Qt::BlankCursor);
+        m_videoWidget->setCursor(Qt::BlankCursor);
+        m_controlsWidget->setVisible(false);
+        qDebug() << "BaseVideoPlayer: Cursor and controls hidden";
+    }
+}
+
+void BaseVideoPlayer::showCursor()
+{
+    setCursor(Qt::ArrowCursor);
+    m_videoWidget->setCursor(Qt::ArrowCursor);
+    qDebug() << "BaseVideoPlayer: Cursor shown";
+}
+
+void BaseVideoPlayer::checkMouseMovement()
+{
+    if (!m_isFullScreen) {
+        return;
+    }
+    
+    QPoint currentPos = QCursor::pos();
+    
+    if (m_lastMousePos != QPoint(-1, -1) && m_lastMousePos != currentPos) {
+        // Mouse moved
+        QScreen* currentScreen = getCurrentScreen();
+        QScreen* mouseScreen = QGuiApplication::screenAt(currentPos);
+        
+        if (currentScreen == mouseScreen) {
+            qDebug() << "BaseVideoPlayer: Mouse movement detected on same screen from"
+                      << m_lastMousePos << "to" << currentPos;
+            
+            // Show cursor and controls
+            showCursor();
+            
+            if (!m_controlsWidget->isVisible()) {
+                m_controlsWidget->setVisible(true);
+            }
+            
+            // Restart the hide timer
+            startCursorTimer();
+        }
+    }
+    
+    m_lastMousePos = currentPos;
+}
+
+QScreen* BaseVideoPlayer::getCurrentScreen() const
+{
+    qDebug() << "BaseVideoPlayer: Getting current screen for player window";
+    
+    // First try to get the screen through the window handle
+    if (windowHandle()) {
+        QScreen* screen = windowHandle()->screen();
+        if (screen) {
+            return screen;
+        }
+    }
+    
+    // Fallback: Find which screen contains the center of our window
+    QPoint center = geometry().center();
+    
+    if (isWindow()) {
+        center = geometry().center();
+    } else {
+        center = mapToGlobal(rect().center());
+    }
+    
+    QScreen* screen = QGuiApplication::screenAt(center);
+    if (screen) {
+        return screen;
+    }
+    
+    // Last fallback: return primary screen
+    return QGuiApplication::primaryScreen();
+}
+
+void BaseVideoPlayer::forceUpdateSliderPosition(qint64 position)
+{
+    qDebug() << "BaseVideoPlayer: Force updating slider position to" << position;
+    
+    // Temporarily disable the flag to force update
+    bool wasBeingMoved = m_isSliderBeingMoved;
+    m_isSliderBeingMoved = false;
+    
+    // Update the slider
+    m_positionSlider->setValue(static_cast<int>(position));
+    m_positionLabel->setText(formatTime(position));
+    
+    // Restore the flag
+    m_isSliderBeingMoved = wasBeingMoved;
+}
+
+bool BaseVideoPlayer::shouldUpdateProgress(qint64 currentPosition) const
+{
+    // This method can be used by derived classes to determine if progress should be saved
+    // For now, always return true in base class
+    Q_UNUSED(currentPosition)
+    return true;
+}

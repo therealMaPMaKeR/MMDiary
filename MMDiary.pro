@@ -213,6 +213,7 @@ SOURCES += \
     Operations-Features/passwordmanager/operations_passwordmanager.cpp \
     Operations-Features/settings/operations_settings.cpp \
     Operations-Features/tasklists/operations_tasklists.cpp \
+    Operations-Features/videoplayer/BaseVideoPlayer.cpp \
     Operations-Features/videoplayer/showsplayer/operations_vp_shows.cpp \
     Operations-Features/videoplayer/showsplayer/operations_vp_shows_settings_handlers.cpp \
     Operations-Features/videoplayer/showsplayer/VP_Shows_Videoplayer.cpp \
@@ -271,6 +272,7 @@ HEADERS += \
     Operations-Features/passwordmanager/operations_passwordmanager.h \
     Operations-Features/settings/operations_settings.h \
     Operations-Features/tasklists/operations_tasklists.h \
+    Operations-Features/videoplayer/BaseVideoPlayer.h \
     Operations-Features/videoplayer/showsplayer/operations_vp_shows.h \
     Operations-Features/videoplayer/showsplayer/VP_Shows_Videoplayer.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_metadata.h \
