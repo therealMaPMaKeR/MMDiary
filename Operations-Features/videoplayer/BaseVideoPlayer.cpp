@@ -584,7 +584,7 @@ void BaseVideoPlayer::enterFullScreen()
         m_normalGeometry = geometry();
         
         // Determine which screen to use for fullscreen
-        QScreen* screen = m_targetScreen ? m_targetScreen : getCurrentScreen();
+        QScreen* screen = m_targetScreen ? m_targetScreen.data() : getCurrentScreen();
         if (!screen) {
             screen = QGuiApplication::primaryScreen();
         }
@@ -642,7 +642,7 @@ void BaseVideoPlayer::exitFullScreen()
             setGeometry(m_normalGeometry);
         } else {
             // If no stored geometry, center on screen
-            QScreen* screen = m_targetScreen;
+            QScreen* screen = m_targetScreen.data();
             if (!screen) {
                 screen = (s_lastUsedScreen && QGuiApplication::screens().contains(s_lastUsedScreen)) 
                         ? s_lastUsedScreen 

@@ -226,7 +226,7 @@ void VP_Shows_Videoplayer::initializeWatchProgress()
     qDebug() << "VP_Shows_Videoplayer: Initializing watch progress for episode:" << m_episodePath;
     
     // Get existing progress if any
-    qint64 savedPosition = m_watchHistory->getWatchProgress(m_episodePath);
+    qint64 savedPosition = m_watchHistory->getResumePosition(m_episodePath);
     if (savedPosition > 0) {
         qDebug() << "VP_Shows_Videoplayer: Found saved position:" << savedPosition << "ms";
         // We could restore position here, but that's handled by Operations_VP_Shows
@@ -254,7 +254,7 @@ void VP_Shows_Videoplayer::finalizeWatchProgress()
         qreal progressPercentage = (static_cast<qreal>(finalPosition) / videoDuration) * 100.0;
         if (progressPercentage >= 90.0) {
             qDebug() << "VP_Shows_Videoplayer: Episode completed (>90% watched)";
-            m_watchHistory->markAsWatched(m_episodePath, m_episodeIdentifier);
+            m_watchHistory->markEpisodeCompleted(m_episodePath);
             m_watchHistory->saveHistory();
         }
     }

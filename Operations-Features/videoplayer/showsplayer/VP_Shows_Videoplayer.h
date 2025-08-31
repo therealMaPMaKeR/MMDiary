@@ -52,15 +52,7 @@ private:
     
 public:
     // Static method to reset stored window settings (for when playing a different show)
-    static void resetStoredWindowSettings() {
-        s_hasStoredSettings = false;
-        s_lastWindowGeometry = QRect();
-        s_wasFullScreen = false;
-        s_wasMaximized = false;
-        s_wasMinimized = false;
-        // Note: We keep s_lastVolume and s_lastUsedScreen as they persist across shows
-        qDebug() << "VP_Shows_Videoplayer: Reset all stored window settings";
-    }
+    static void resetStoredWindowSettings();
 };
 
 #endif // VP_SHOWS_VIDEOPLAYER_H
