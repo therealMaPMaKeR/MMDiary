@@ -2,10 +2,17 @@ QT       += core gui
 QT += core sql
 QT += network
 QT += multimedia multimediawidgets
-QT += opengl
+QT += opengl openglwidgets
 
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
+
+# For Qt 6, ensure we have the required modules
+greaterThan(QT_MAJOR_VERSION, 5) {
+    # Qt 6 specific configuration
+    message("Qt 6 detected - adding required modules")
+    !contains(QT, openglwidgets): QT += openglwidgets
+}
 
 CONFIG += c++17
 
@@ -24,6 +31,7 @@ INCLUDEPATH += $$PWD \
                $$PWD/Operations-Features/tasklists \
                $$PWD/Operations-Features/videoplayer \
                $$PWD/Operations-Features/videoplayer/showsplayer \
+               $$PWD/Operations-Features/videoplayer/vrplayer \
                $$PWD/Operations-Global \
                $$PWD/Operations-Global/databases \
                $$PWD/Operations-Global/databases/sqlite \
@@ -296,6 +304,14 @@ win32 {
         QT += opengl
         message("Added OpenGL module for VR rendering support")
     }
+    
+    # For Qt 6, ensure openglwidgets is included
+    greaterThan(QT_MAJOR_VERSION, 5) {
+        !contains(QT, openglwidgets) {
+            QT += openglwidgets
+            message("Added OpenGLWidgets module for Qt 6 VR support")
+        }
+    }
 
     # Summary message
     exists($$OPENVR_PATH/lib/win64/openvr_api.lib) {
@@ -328,6 +344,10 @@ SOURCES += \
     Operations-Features/settings/operations_settings.cpp \
     Operations-Features/tasklists/operations_tasklists.cpp \
     Operations-Features/videoplayer/BaseVideoPlayer.cpp \
+    Operations-Features/videoplayer/vrplayer/vr_openvr_manager.cpp \
+    Operations-Features/videoplayer/vrplayer/vr_video_renderer.cpp \
+    Operations-Features/videoplayer/vrplayer/vr_video_player.cpp \
+    Operations-Features/videoplayer/vrplayer/vr_vlc_frame_extractor.cpp \
     Operations-Features/videoplayer/showsplayer/operations_vp_shows.cpp \
     Operations-Features/videoplayer/showsplayer/operations_vp_shows_settings_handlers.cpp \
     Operations-Features/videoplayer/showsplayer/VP_Shows_Videoplayer.cpp \
@@ -387,6 +407,10 @@ HEADERS += \
     Operations-Features/settings/operations_settings.h \
     Operations-Features/tasklists/operations_tasklists.h \
     Operations-Features/videoplayer/BaseVideoPlayer.h \
+    Operations-Features/videoplayer/vrplayer/vr_openvr_manager.h \
+    Operations-Features/videoplayer/vrplayer/vr_video_renderer.h \
+    Operations-Features/videoplayer/vrplayer/vr_video_player.h \
+    Operations-Features/videoplayer/vrplayer/vr_vlc_frame_extractor.h \
     Operations-Features/videoplayer/showsplayer/operations_vp_shows.h \
     Operations-Features/videoplayer/showsplayer/VP_Shows_Videoplayer.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_metadata.h \

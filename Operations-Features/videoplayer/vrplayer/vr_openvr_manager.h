@@ -1,0 +1,110 @@
+#ifndef VR_OPENVR_MANAGER_H
+#define VR_OPENVR_MANAGER_H
+
+#include <QObject>
+#include <QString>
+#include <QMatrix4x4>
+#include <memory>
+
+#ifdef USE_OPENVR
+#include <openvr.h>
+#endif
+
+/**
+ * @class VROpenVRManager
+ * @brief Manages OpenVR/SteamVR initialization, shutdown, and HMD operations
+ * 
+ * This class provides a wrapper around OpenVR functionality, handling:
+ * - SteamVR runtime detection
+ * - VR system initialization/shutdown
+ * - HMD presence checking
+ * - Frame submission to the VR compositor
+ */
+class VROpenVRManager : public QObject
+{
+    Q_OBJECT
+
+public:
+    enum class VRStatus {
+        NotInitialized,
+        SteamVRNotFound,
+        NoHMDConnected,
+        InitializationFailed,
+        Ready,
+        Error
+    };
+
+    struct VRSystemInfo {
+        QString hmdName;
+        uint32_t renderWidth;
+        uint32_t renderHeight;
+        float refreshRate;
+        bool hasControllers;
+    };
+
+    explicit VROpenVRManager(QObject *parent = nullptr);
+    ~VROpenVRManager();
+
+    // Initialization and shutdown
+    bool initialize();
+    void shutdown();
+    
+    // Status queries
+    bool isInitialized() const { return m_isInitialized; }
+    bool isSteamVRAvailable() const;
+    bool isHMDPresent() const;
+    VRStatus getStatus() const { return m_status; }
+    QString getStatusMessage() const;
+    QString getLastError() const { return m_lastError; }
+    
+    // System information
+    VRSystemInfo getSystemInfo() const { return m_systemInfo; }
+    void getRecommendedRenderTargetSize(uint32_t& width, uint32_t& height) const;
+    
+    // Matrix operations for VR rendering
+    QMatrix4x4 getHMDPoseMatrix() const;
+    QMatrix4x4 getProjectionMatrix(bool leftEye, float nearPlane, float farPlane) const;
+    QMatrix4x4 getEyePosMatrix(bool leftEye) const;
+    
+    // Frame submission
+    bool submitFrame(uint32_t leftEyeTexture, uint32_t rightEyeTexture);
+    
+    // Compositor operations
+    void compositorWaitGetPoses();
+    bool isCompositorReady() const;
+
+signals:
+    void statusChanged(VRStatus status);
+    void hmdConnected();
+    void hmdDisconnected();
+    void error(const QString& errorMessage);
+
+private:
+    bool checkSteamVRRuntime();
+    bool initializeOpenVR();
+    void updateHMDPose();
+    void setLastError(const QString& error);
+    QString getTrackedDeviceString(uint32_t device, uint32_t prop);
+
+private:
+#ifdef USE_OPENVR
+    vr::IVRSystem* m_vrSystem;
+    vr::IVRCompositor* m_vrCompositor;
+    vr::TrackedDevicePose_t m_trackedDevicePoses[vr::k_unMaxTrackedDeviceCount];
+#else
+    void* m_vrSystem;
+    void* m_vrCompositor;
+    void* m_trackedDevicePoses;
+#endif
+    
+    bool m_isInitialized;
+    VRStatus m_status;
+    VRSystemInfo m_systemInfo;
+    QString m_lastError;
+    
+    // HMD pose matrix
+    QMatrix4x4 m_hmdPoseMatrix;
+    bool m_hmdPoseValid;
+};
+
+#endif // VR_OPENVR_MANAGER_H
