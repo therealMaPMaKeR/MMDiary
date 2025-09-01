@@ -167,11 +167,13 @@ bool VRVideoRenderer::createShaderPrograms()
         uniform vec2 texScale;
         
         out vec2 fragTexCoord;
+        out vec3 worldPos;
         
         void main()
         {
             gl_Position = mvpMatrix * vec4(position, 1.0);
             fragTexCoord = texCoord * texScale + texOffset;
+            worldPos = position;
         }
     )";
     
@@ -179,11 +181,15 @@ bool VRVideoRenderer::createShaderPrograms()
     const char* videoFragmentShader = R"(
         #version 330 core
         in vec2 fragTexCoord;
+        in vec3 worldPos;
         
         uniform sampler2D videoTexture;
         uniform float brightness;
         uniform float contrast;
         uniform float saturation;
+        uniform float fisheyeMode;  // 0.0 = normal, 1.0 = fisheye
+        uniform vec2 texOffset;
+        uniform vec2 texScale;
         
         out vec4 fragColor;
         
@@ -202,9 +208,62 @@ bool VRVideoRenderer::createShaderPrograms()
             return clamp(color, 0.0, 1.0);
         }
         
+        vec2 getFisheyeTexCoord(vec3 pos)
+        {
+            // For fisheye projection, map the hemisphere position to circular texture coordinates
+            // Normalize the position to get direction
+            vec3 dir = normalize(pos);
+            
+            // Calculate spherical coordinates
+            float theta = atan(dir.x, -dir.z); // Horizontal angle from forward
+            float phi = asin(dir.y); // Vertical angle from horizon
+            
+            // For 180° fisheye, we map angles to a circular area
+            // Map theta from [-PI/2, PI/2] to [-1, 1]
+            float x = theta / (3.14159265359 * 0.5);
+            
+            // Map phi from [-PI/2, PI/2] to [-1, 1]
+            float y = phi / (3.14159265359 * 0.5);
+            
+            // Calculate radius for circular fisheye mapping
+            float r = sqrt(x * x + y * y);
+            
+            // Apply equisolid angle mapping (common for fisheye lenses)
+            // This provides better distribution than linear mapping
+            if (r > 0.001) {
+                float angleFromCenter = r * (3.14159265359 * 0.5);
+                float newR = 2.0 * sin(angleFromCenter * 0.5);
+                float scale = newR / r;
+                x *= scale;
+                y *= scale;
+                r = newR;
+            }
+            
+            // Limit to circular area
+            if (r > 1.0) {
+                return vec2(0.5, 0.5); // Center for out-of-bounds
+            }
+            
+            // Convert to texture coordinates [0, 1]
+            vec2 fisheyeCoord;
+            fisheyeCoord.x = 0.5 + x * 0.5;
+            fisheyeCoord.y = 0.5 - y * 0.5; // Flip Y for texture coordinates
+            
+            return fisheyeCoord;
+        }
+        
         void main()
         {
-            vec4 texColor = texture(videoTexture, fragTexCoord);
+            vec2 texCoord = fragTexCoord;
+            
+            // If in fisheye mode, calculate fisheye texture coordinates
+            if (fisheyeMode > 0.5) {
+                texCoord = getFisheyeTexCoord(worldPos);
+                // Apply stereoscopic offset and scale
+                texCoord = texCoord * texScale + texOffset;
+            }
+            
+            vec4 texColor = texture(videoTexture, texCoord);
             texColor.rgb = adjustColor(texColor.rgb);
             fragColor = texColor;
         }
@@ -285,9 +344,11 @@ bool VRVideoRenderer::createSphereMesh()
             
             Vertex vertex;
             // IMPORTANT: Negate X and Z to invert the sphere for viewing from inside
-            vertex.x = -cosPhi * sinTheta;  // Negated
-            vertex.y = cosTheta;
-            vertex.z = -sinPhi * sinTheta;  // Negated
+            // Scale the sphere for consistent viewing
+            float scale = 1.5f;
+            vertex.x = -cosPhi * sinTheta * scale;  // Negated and scaled
+            vertex.y = cosTheta * scale;
+            vertex.z = -sinPhi * sinTheta * scale;  // Negated and scaled
             
             // Texture coordinates for equirectangular projection
             // U coordinate: horizontal wrapping around sphere
@@ -370,8 +431,8 @@ bool VRVideoRenderer::createDomeMesh()
     
     // Generate dome vertices (hemisphere facing forward)
     for (int ring = 0; ring <= m_sphereRings; ++ring) {
-        // Only go to PI/2 for hemisphere
-        float theta = ring * (M_PI / 2.0f) / m_sphereRings;
+        // Go from 0 to PI for full vertical coverage
+        float theta = ring * M_PI / m_sphereRings;
         float sinTheta = qSin(theta);
         float cosTheta = qCos(theta);
         
@@ -383,15 +444,17 @@ bool VRVideoRenderer::createDomeMesh()
             
             Vertex vertex;
             // Position the dome facing forward (negative Z)
-            vertex.x = -cosPhi * sinTheta;  // Negated for inside viewing
-            vertex.y = cosTheta;
-            vertex.z = sinPhi * sinTheta;   // Face forward
+            // Adjusted to create a proper 180° hemisphere
+            // Scale up the dome for better viewing
+            float scale = 1.5f; // Make the dome larger
+            vertex.x = cosPhi * sinTheta * scale;   // Left-right
+            vertex.y = cosTheta * scale;             // Up-down
+            vertex.z = -sinPhi * sinTheta * scale;  // Forward-back (negated for forward)
             
             // Texture coordinates for 180-degree projection
             // U maps from 0 to 1 across the 180-degree horizontal field
             vertex.u = (float)segment / m_sphereSegments;
             // V coordinate: vertical from top to bottom
-            // No need to flip here as we flip the texture when uploading
             vertex.v = (float)ring / m_sphereRings;
             
             vertices.append(vertex);
@@ -764,6 +827,12 @@ void VRVideoRenderer::renderEye(bool leftEye, const QMatrix4x4& view, const QMat
             renderDome(mvpMatrix, leftEye);
             break;
             
+        case VideoFormat::Fisheye180:
+        case VideoFormat::Fisheye180_TB:
+        case VideoFormat::Fisheye180_SBS:
+            renderFisheye(mvpMatrix, leftEye);
+            break;
+            
         case VideoFormat::Flat2D:
             renderFlat(mvpMatrix);
             break;
@@ -812,8 +881,15 @@ void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye)
     // Set texture coordinate offset and scale based on format
     QVector2D texOffset = getTextureCoordOffset(leftEye);
     QVector2D texScale = getTextureCoordScale();
+    m_sphereShader->setUniformValue("fisheyeMode", 0.0f);  // Normal mode, not fisheye
     m_sphereShader->setUniformValue("texOffset", texOffset);
     m_sphereShader->setUniformValue("texScale", texScale);
+    
+    // Log periodically to debug
+    if ((leftEye && leftDomeCount % 90 == 0) || (!leftEye && rightDomeCount % 90 == 0)) {
+        qDebug() << "VRVideoRenderer: Dome rendering for" << (leftEye ? "LEFT" : "RIGHT") 
+                 << "eye - texOffset:" << texOffset << "texScale:" << texScale;
+    }
     
     // Bind video texture
     glActiveTexture(GL_TEXTURE0);
@@ -886,6 +962,7 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye)
     // Set texture coordinate offset and scale based on format
     QVector2D texOffset = getTextureCoordOffset(leftEye);
     QVector2D texScale = getTextureCoordScale();
+    m_sphereShader->setUniformValue("fisheyeMode", 0.0f);  // Normal mode, not fisheye
     m_sphereShader->setUniformValue("texOffset", texOffset);
     m_sphereShader->setUniformValue("texScale", texScale);
     
@@ -917,6 +994,85 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye)
     if (err != GL_NO_ERROR) {
         if ((leftEye && leftDomeCount % 180 == 0) || (!leftEye && rightDomeCount % 180 == 0)) {
             qDebug() << "VRVideoRenderer: OpenGL error after dome draw (" 
+                     << (leftEye ? "LEFT" : "RIGHT") << "eye):" << err;
+        }
+    }
+    
+    m_domeVAO.release();
+    
+    glBindTexture(GL_TEXTURE_2D, 0);
+    m_sphereShader->release();
+}
+
+void VRVideoRenderer::renderFisheye(const QMatrix4x4& mvpMatrix, bool leftEye)
+{
+    static int leftFisheyeCount = 0;
+    static int rightFisheyeCount = 0;
+    
+    if (leftEye) {
+        leftFisheyeCount++;
+    } else {
+        rightFisheyeCount++;
+    }
+    
+    // Clear any existing OpenGL errors
+    while (glGetError() != GL_NO_ERROR) {}
+    
+    if (!m_sphereShader) {
+        qDebug() << "VRVideoRenderer: No sphere shader available for fisheye";
+        return;
+    }
+    
+    if (!m_sphereShader->bind()) {
+        qDebug() << "VRVideoRenderer: Failed to bind shader for fisheye";
+        return;
+    }
+    
+    // Set uniforms
+    m_sphereShader->setUniformValue("mvpMatrix", mvpMatrix);
+    m_sphereShader->setUniformValue("videoTexture", 0);
+    m_sphereShader->setUniformValue("brightness", m_brightness);
+    m_sphereShader->setUniformValue("contrast", m_contrast);
+    m_sphereShader->setUniformValue("saturation", m_saturation);
+    
+    // For fisheye, we use different texture coordinate mapping
+    // The texture offset and scale depend on the stereoscopic format
+    QVector2D texOffset = getTextureCoordOffset(leftEye);
+    QVector2D texScale = getTextureCoordScale();
+    
+    // Set fisheye mode to 1.0 to enable fisheye texture coordinate calculation in shader
+    m_sphereShader->setUniformValue("fisheyeMode", 1.0f);
+    m_sphereShader->setUniformValue("texOffset", texOffset);
+    m_sphereShader->setUniformValue("texScale", texScale);
+    
+    // Bind video texture
+    glActiveTexture(GL_TEXTURE0);
+    if (m_videoTexture) {
+        glBindTexture(GL_TEXTURE_2D, m_videoTexture);
+        
+        // Log separately for each eye
+        if ((leftEye && leftFisheyeCount % 180 == 0) || (!leftEye && rightFisheyeCount % 180 == 0)) {
+            qDebug() << "VRVideoRenderer: Rendering fisheye for" << (leftEye ? "LEFT" : "RIGHT") 
+                     << "eye with texture" << m_videoTexture
+                     << "indices:" << m_domeIndexCount
+                     << "texOffset:" << texOffset << "texScale:" << texScale;
+        }
+    } else {
+        if ((leftEye && leftFisheyeCount % 180 == 0) || (!leftEye && rightFisheyeCount % 180 == 0)) {
+            qDebug() << "VRVideoRenderer: No video texture available for fisheye rendering (" 
+                     << (leftEye ? "LEFT" : "RIGHT") << "eye)";
+        }
+    }
+    
+    // Use dome mesh for fisheye (hemisphere)
+    m_domeVAO.bind();
+    glDrawElements(GL_TRIANGLES, m_domeIndexCount, GL_UNSIGNED_INT, nullptr);
+    
+    // Check for errors after drawing
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        if ((leftEye && leftFisheyeCount % 180 == 0) || (!leftEye && rightFisheyeCount % 180 == 0)) {
+            qDebug() << "VRVideoRenderer: OpenGL error after fisheye draw (" 
                      << (leftEye ? "LEFT" : "RIGHT") << "eye):" << err;
         }
     }
@@ -963,11 +1119,13 @@ QVector2D VRVideoRenderer::getTextureCoordOffset(bool leftEye) const
     switch (m_videoFormat) {
         case VideoFormat::Stereo360_TB:
         case VideoFormat::Stereo180_TB:
+        case VideoFormat::Fisheye180_TB:
             // Top-bottom: left eye uses top half, right eye uses bottom half
             return leftEye ? QVector2D(0.0f, 0.0f) : QVector2D(0.0f, 0.5f);
             
         case VideoFormat::Stereo360_SBS:
         case VideoFormat::Stereo180_SBS:
+        case VideoFormat::Fisheye180_SBS:
             // Side-by-side: left eye uses left half, right eye uses right half
             return leftEye ? QVector2D(0.0f, 0.0f) : QVector2D(0.5f, 0.0f);
             
@@ -981,11 +1139,13 @@ QVector2D VRVideoRenderer::getTextureCoordScale() const
     switch (m_videoFormat) {
         case VideoFormat::Stereo360_TB:
         case VideoFormat::Stereo180_TB:
+        case VideoFormat::Fisheye180_TB:
             // Top-bottom: use half height
             return QVector2D(1.0f, 0.5f);
             
         case VideoFormat::Stereo360_SBS:
         case VideoFormat::Stereo180_SBS:
+        case VideoFormat::Fisheye180_SBS:
             // Side-by-side: use half width
             return QVector2D(0.5f, 1.0f);
             

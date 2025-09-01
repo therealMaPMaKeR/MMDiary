@@ -180,6 +180,26 @@ public:
         m_recenterRotationOffset.setToIdentity(); 
         qDebug() << "VRRenderThread: Recenter offset reset to identity";
     }
+    
+    // Video scale/zoom control
+    float getVideoScale() const { return m_videoScale; }
+    void setVideoScale(float scale) { 
+        m_videoScale = qBound(0.1f, scale, 5.0f);
+        qDebug() << "VRRenderThread: Video scale set to" << m_videoScale;
+    }
+    void adjustVideoScale(float delta) {
+        setVideoScale(m_videoScale + delta);
+    }
+    
+    // IPD (interpupillary distance) adjustment
+    float getIPDScale() const { return m_ipdScale; }
+    void setIPDScale(float scale) {
+        m_ipdScale = qBound(0.1f, scale, 3.0f);
+        qDebug() << "VRRenderThread: IPD scale set to" << m_ipdScale;
+    }
+    void adjustIPDScale(float delta) {
+        setIPDScale(m_ipdScale + delta);
+    }
 
 signals:
     void frameRendered();
@@ -208,6 +228,12 @@ private:
     // VR recentering
     QMatrix4x4 m_recenterRotationOffset;
     bool m_needsRecenter;
+    
+    // Video scale/zoom
+    float m_videoScale;
+    
+    // IPD adjustment
+    float m_ipdScale;
 };
 
 #endif // VR_VIDEO_PLAYER_H

@@ -161,9 +161,12 @@ void VRVideoPlayer::setupUI()
     vrInfoLabel->setText("\u25cf Video will be displayed in your VR headset\n\n"
                          "\u25cf Press Spacebar to recenter the video view\n\n"
                          "\u25cf Press P to play/pause the video\n\n"
+                         "\u25cf Press +/- to zoom, 1-4 for presets (0.5x-3x)\n\n"
+                         "\u25cf Press [/] to adjust IPD (fixes double vision)\n\n"
+                         "\u25cf Hold Shift for fine adjustments\n\n"
                          "\u25cf Press Ctrl+V to toggle VR mode\n\n"
                          "\u25cf Press Escape to exit VR mode\n\n"
-                         "Debug: R=reset recenter, I=info, F=format");
+                         "Debug: R=reset, I=info, F=format");
     mainLayout->addWidget(vrInfoLabel, 1);
     
     // Control buttons
@@ -681,7 +684,7 @@ void VRVideoPlayer::enterVRMode()
     m_vrActive = true;
     
     // Update UI to show VR is active
-    m_statusLabel->setText("VR Mode Active - Spacebar: recenter | P: play/pause");
+    m_statusLabel->setText("VR Mode Active - Space: recenter | +/-: zoom | [/]: IPD");
     m_exitVRButton->setEnabled(true);
     
     // Ensure this widget has keyboard focus for spacebar handling
@@ -856,14 +859,38 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
             if (m_vrActive && m_vrRenderer) {
                 const char* formatNames[] = {
                     "Mono360", "Stereo360_TB", "Stereo360_SBS", 
-                    "Mono180", "Stereo180_TB", "Stereo180_SBS", "Flat2D"
+                    "Mono180", "Stereo180_TB", "Stereo180_SBS", "Flat2D",
+                    "Fisheye180", "Fisheye180_TB", "Fisheye180_SBS"
+                };
+                const char* formatDescriptions[] = {
+                    "360° Equirectangular Mono",
+                    "360° Equirectangular Stereo Top-Bottom", 
+                    "360° Equirectangular Stereo Side-by-Side",
+                    "180° Hemisphere Equirectangular Mono",
+                    "180° Hemisphere Equirectangular Stereo TB",
+                    "180° Hemisphere Equirectangular Stereo SBS",
+                    "Flat 2D Video",
+                    "180° Fisheye/Circular Mono",
+                    "180° Fisheye/Circular Stereo TB",
+                    "180° Fisheye/Circular Stereo SBS"
                 };
                 int format = (int)m_vrRenderer->getVideoFormat();
                 qDebug() << "VRVideoPlayer: I key pressed - Video info:";
-                qDebug() << "VRVideoPlayer: Video format:" << format 
-                         << "(" << formatNames[format] << ")";
+                qDebug() << "VRVideoPlayer: Current format:" << formatNames[format];
+                qDebug() << "VRVideoPlayer: Description:" << formatDescriptions[format];
                 qDebug() << "VRVideoPlayer: VR Active:" << m_vrActive;
                 qDebug() << "VRVideoPlayer: Is Playing:" << m_isPlaying;
+                if (m_renderThread) {
+                    qDebug() << "VRVideoPlayer: Video scale/zoom:" << m_renderThread->getVideoScale();
+                    qDebug() << "VRVideoPlayer: IPD scale:" << m_renderThread->getIPDScale();
+                }
+                qDebug() << "VRVideoPlayer: Tips:";
+                qDebug() << "VRVideoPlayer:   F = cycle formats";
+                qDebug() << "VRVideoPlayer:   +/- = zoom (hold Shift for fine adjustment)";
+                qDebug() << "VRVideoPlayer:   1-4 = zoom presets (0.5x, 1.5x, 2x, 3x)";
+                qDebug() << "VRVideoPlayer:   [/] = adjust IPD (hold Shift for fine adjustment)";
+                qDebug() << "VRVideoPlayer:   0 = reset zoom, \\ = reset IPD";
+                qDebug() << "VRVideoPlayer:   Spacebar = recenter, P = play/pause";
                 event->accept();
             }
             break;
@@ -872,13 +899,103 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
             if (m_vrActive && m_vrRenderer) {
                 const char* formatNames[] = {
                     "Mono360", "Stereo360_TB", "Stereo360_SBS", 
-                    "Mono180", "Stereo180_TB", "Stereo180_SBS", "Flat2D"
+                    "Mono180", "Stereo180_TB", "Stereo180_SBS", "Flat2D",
+                    "Fisheye180", "Fisheye180_TB", "Fisheye180_SBS"
                 };
                 int currentFormat = (int)m_vrRenderer->getVideoFormat();
-                int nextFormat = (currentFormat + 1) % 7; // 7 video formats total
+                int nextFormat = (currentFormat + 1) % 10; // 10 video formats total
                 m_vrRenderer->setVideoFormat((VRVideoRenderer::VideoFormat)nextFormat);
                 qDebug() << "VRVideoPlayer: F key pressed - Changed video format from" 
                          << formatNames[currentFormat] << "to" << formatNames[nextFormat];
+                event->accept();
+            }
+            break;
+        case Qt::Key_Plus:
+        case Qt::Key_Equal:
+            // + key to zoom in
+            if (m_vrActive && m_renderThread) {
+                // Shift for fine adjustment
+                float delta = (event->modifiers() & Qt::ShiftModifier) ? 0.05f : 0.2f;
+                m_renderThread->adjustVideoScale(delta);
+                qDebug() << "VRVideoPlayer: Zoom in - scale:" << m_renderThread->getVideoScale();
+                event->accept();
+            }
+            break;
+        case Qt::Key_Minus:
+            // - key to zoom out
+            if (m_vrActive && m_renderThread) {
+                // Shift for fine adjustment
+                float delta = (event->modifiers() & Qt::ShiftModifier) ? 0.05f : 0.2f;
+                m_renderThread->adjustVideoScale(-delta);
+                qDebug() << "VRVideoPlayer: Zoom out - scale:" << m_renderThread->getVideoScale();
+                event->accept();
+            }
+            break;
+        case Qt::Key_0:
+            // 0 key to reset zoom
+            if (m_vrActive && m_renderThread) {
+                m_renderThread->setVideoScale(1.0f);
+                qDebug() << "VRVideoPlayer: Zoom reset to 1.0";
+                event->accept();
+            }
+            break;
+        case Qt::Key_1:
+            // 1 key for zoom preset 0.5x (zoomed out)
+            if (m_vrActive && m_renderThread) {
+                m_renderThread->setVideoScale(0.5f);
+                qDebug() << "VRVideoPlayer: Zoom preset 0.5x (wide)";
+                event->accept();
+            }
+            break;
+        case Qt::Key_2:
+            // 2 key for zoom preset 1.5x
+            if (m_vrActive && m_renderThread) {
+                m_renderThread->setVideoScale(1.5f);
+                qDebug() << "VRVideoPlayer: Zoom preset 1.5x";
+                event->accept();
+            }
+            break;
+        case Qt::Key_3:
+            // 3 key for zoom preset 2.0x
+            if (m_vrActive && m_renderThread) {
+                m_renderThread->setVideoScale(2.0f);
+                qDebug() << "VRVideoPlayer: Zoom preset 2.0x";
+                event->accept();
+            }
+            break;
+        case Qt::Key_4:
+            // 4 key for zoom preset 3.0x (zoomed in)
+            if (m_vrActive && m_renderThread) {
+                m_renderThread->setVideoScale(3.0f);
+                qDebug() << "VRVideoPlayer: Zoom preset 3.0x (close)";
+                event->accept();
+            }
+            break;
+        case Qt::Key_BracketLeft:
+            // [ key to decrease IPD (eye separation)
+            if (m_vrActive && m_renderThread) {
+                // Shift for fine adjustment
+                float delta = (event->modifiers() & Qt::ShiftModifier) ? 0.02f : 0.1f;
+                m_renderThread->adjustIPDScale(-delta);
+                qDebug() << "VRVideoPlayer: IPD decreased - scale:" << m_renderThread->getIPDScale();
+                event->accept();
+            }
+            break;
+        case Qt::Key_BracketRight:
+            // ] key to increase IPD (eye separation)
+            if (m_vrActive && m_renderThread) {
+                // Shift for fine adjustment
+                float delta = (event->modifiers() & Qt::ShiftModifier) ? 0.02f : 0.1f;
+                m_renderThread->adjustIPDScale(delta);
+                qDebug() << "VRVideoPlayer: IPD increased - scale:" << m_renderThread->getIPDScale();
+                event->accept();
+            }
+            break;
+        case Qt::Key_Backslash:
+            // \ key to reset IPD
+            if (m_vrActive && m_renderThread) {
+                m_renderThread->setIPDScale(1.0f);
+                qDebug() << "VRVideoPlayer: IPD reset to 1.0";
                 event->accept();
             }
             break;
@@ -1087,6 +1204,8 @@ VRRenderThread::VRRenderThread(VROpenVRManager* vrManager,
     , m_frameUpdated(false)
     , m_shareContext(nullptr)
     , m_needsRecenter(false)
+    , m_videoScale(1.0f)
+    , m_ipdScale(1.0f)
 {
     m_recenterRotationOffset.setToIdentity();
     qDebug() << "VRRenderThread: Constructor called";
@@ -1333,6 +1452,23 @@ void VRRenderThread::renderFrame()
     QMatrix4x4 leftEyePos = m_vrManager->getEyePosMatrix(true);
     QMatrix4x4 rightEyePos = m_vrManager->getEyePosMatrix(false);
     
+    // Log original IPD values
+    float originalLeftX = leftEyePos(0, 3);
+    float originalRightX = rightEyePos(0, 3);
+    
+    // Apply IPD scale to adjust eye separation
+    // Scale the X translation component (horizontal eye separation)
+    leftEyePos(0, 3) *= m_ipdScale;
+    rightEyePos(0, 3) *= m_ipdScale;
+    
+    // Log IPD adjustment periodically
+    static int ipdLogCount = 0;
+    if (++ipdLogCount % 300 == 0) { // Every ~3 seconds
+        qDebug() << "VRRenderThread: Original IPD - Left:" << originalLeftX << "Right:" << originalRightX;
+        qDebug() << "VRRenderThread: Scaled IPD - Left:" << leftEyePos(0, 3) << "Right:" << rightEyePos(0, 3);
+        qDebug() << "VRRenderThread: IPD separation:" << (leftEyePos(0, 3) - rightEyePos(0, 3));
+    }
+    
     // Build the complete eye poses with rotation but without HMD translation
     // This keeps the video sphere centered on the viewer while maintaining stereoscopy
     QMatrix4x4 leftEyePose = adjustedRotation * leftEyePos;
@@ -1345,6 +1481,27 @@ void VRRenderThread::renderFrame()
     // Get projection matrices
     QMatrix4x4 leftProj = m_vrManager->getProjectionMatrix(true, 0.1f, 1000.0f);
     QMatrix4x4 rightProj = m_vrManager->getProjectionMatrix(false, 0.1f, 1000.0f);
+    
+    // Apply zoom by modifying the projection FOV
+    // Smaller scale = wider FOV (zoom out), larger scale = narrower FOV (zoom in)
+    if (m_videoScale != 1.0f) {
+        // Scale the projection matrix elements that control FOV
+        leftProj(0, 0) *= m_videoScale;  // Horizontal FOV
+        leftProj(1, 1) *= m_videoScale;  // Vertical FOV
+        rightProj(0, 0) *= m_videoScale;
+        rightProj(1, 1) *= m_videoScale;
+    }
+    
+    // Don't apply scale to view matrices anymore - we're using projection scaling
+    // which is more effective for zoom
+    
+    // Log scale application periodically
+    static int scaleLogCount = 0;
+    if (++scaleLogCount % 300 == 0) { // Every ~3 seconds
+        qDebug() << "VRRenderThread: Video scale (zoom):" << m_videoScale;
+        qDebug() << "VRRenderThread: IPD scale:" << m_ipdScale;
+        qDebug() << "VRRenderThread: Projection FOV scaled by:" << m_videoScale;
+    }
     
     // Render each eye
     m_vrRenderer->renderEye(true, leftView, leftProj);
@@ -1380,9 +1537,11 @@ void VRRenderThread::renderFrame()
         bool isIdentity = m_recenterRotationOffset.isIdentity();
         qDebug() << "VRRenderThread: Recenter offset is identity:" << isIdentity;
         
-        // Log video format
+        // Log video format and scale
         if (m_vrRenderer) {
             qDebug() << "VRRenderThread: Video format:" << (int)m_vrRenderer->getVideoFormat();
+            qDebug() << "VRRenderThread: Video scale/zoom:" << m_videoScale;
+            qDebug() << "VRRenderThread: IPD scale:" << m_ipdScale;
         }
     }
     

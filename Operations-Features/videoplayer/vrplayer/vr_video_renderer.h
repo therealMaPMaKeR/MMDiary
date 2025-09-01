@@ -30,10 +30,13 @@ public:
         Mono360,           // 360° monoscopic (equirectangular)
         Stereo360_TB,      // 360° stereoscopic top-bottom
         Stereo360_SBS,     // 360° stereoscopic side-by-side
-        Mono180,           // 180° monoscopic (half sphere)
+        Mono180,           // 180° monoscopic (half sphere equirectangular)
         Stereo180_TB,      // 180° stereoscopic top-bottom
         Stereo180_SBS,     // 180° stereoscopic side-by-side
-        Flat2D             // Regular 2D video
+        Flat2D,            // Regular 2D video
+        Fisheye180,        // 180° fisheye (circular projection)
+        Fisheye180_TB,     // 180° fisheye stereoscopic top-bottom
+        Fisheye180_SBS     // 180° fisheye stereoscopic side-by-side
     };
 
     explicit VRVideoRenderer(QObject *parent = nullptr);
@@ -78,6 +81,7 @@ private:
     
     void renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye);
     void renderDome(const QMatrix4x4& mvpMatrix, bool leftEye);
+    void renderFisheye(const QMatrix4x4& mvpMatrix, bool leftEye);
     void renderFlat(const QMatrix4x4& mvpMatrix);
     
     QVector2D getTextureCoordOffset(bool leftEye) const;
