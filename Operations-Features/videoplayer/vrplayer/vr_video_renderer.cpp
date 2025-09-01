@@ -1003,11 +1003,18 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye, floa
     if (qAbs(zoomScale - m_currentZoomScale) > 0.001f) {
         float targetHorizontalCoverage, targetVerticalCoverage;
         
-        // Both zoom in and out adjust coverage
-        // Zoom out: reduce coverage (creates "()" circular shape)
-        // Zoom in: increase coverage (creates ")(" wrap-around shape)
-        targetHorizontalCoverage = 180.0f * zoomScale;
-        targetVerticalCoverage = 180.0f * zoomScale;
+        // Calculate coverage while maintaining aspect ratio
+        if (zoomScale <= 1.0f) {
+            // Zoom out: reduce coverage proportionally (creates "()" circular shape)
+            targetHorizontalCoverage = 180.0f * zoomScale;
+            targetVerticalCoverage = 180.0f * zoomScale;
+        } else {
+            // Zoom in: To maintain aspect ratio when vertical hits its limit:
+            // - Both stop expanding at zoom 1.0 (180° coverage)
+            // - Beyond that, use FOV-based zoom instead
+            targetVerticalCoverage = 180.0f; // Cap at hemisphere
+            targetHorizontalCoverage = 180.0f; // Keep horizontal at 180° too to maintain aspect ratio
+        }
         
         // Clamp to reasonable ranges
         targetHorizontalCoverage = qBound(45.0f, targetHorizontalCoverage, 360.0f);

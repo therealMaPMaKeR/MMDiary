@@ -1565,20 +1565,27 @@ void VRRenderThread::renderFrame()
     QMatrix4x4 leftView = leftEyePose.inverted();
     QMatrix4x4 rightView = rightEyePose.inverted();
     
-    // Get projection matrices WITHOUT zoom (pass 1.0) - zoom will be handled by dome angular coverage
-    // DeoVR-style zoom adjusts the dome mesh coverage, not the FOV
-    QMatrix4x4 leftProj = m_vrManager->getProjectionMatrixWithZoom(true, 0.1f, 1000.0f, 1.0f);
-    QMatrix4x4 rightProj = m_vrManager->getProjectionMatrixWithZoom(false, 0.1f, 1000.0f, 1.0f);
+    // Get projection matrices with appropriate zoom:
+    // - For zoom <= 1.0: No FOV zoom (handled by dome angular coverage)
+    // - For zoom > 1.0: Apply FOV zoom (since dome is at max coverage)
+    float fovZoom = (m_videoScale > 1.0f) ? m_videoScale : 1.0f;
+    QMatrix4x4 leftProj = m_vrManager->getProjectionMatrixWithZoom(true, 0.1f, 1000.0f, fovZoom);
+    QMatrix4x4 rightProj = m_vrManager->getProjectionMatrixWithZoom(false, 0.1f, 1000.0f, fovZoom);
     
-    // Using DeoVR-style zoom through dome angular coverage adjustment
-    // Pass the actual zoom scale to renderer to adjust dome mesh
+    // Using hybrid zoom approach:
+    // - Zoom 0-1: Dome angular coverage adjustment (DeoVR-style)
+    // - Zoom >1: FOV-based zoom (maintains aspect ratio)
     
     // Log scale application periodically
     static int scaleLogCount = 0;
     if (++scaleLogCount % 300 == 0) { // Every ~3 seconds
         qDebug() << "VRRenderThread: Video scale (zoom):" << m_videoScale;
         qDebug() << "VRRenderThread: IPD scale:" << m_ipdScale;
-        qDebug() << "VRRenderThread: Using DeoVR-style zoom (dome angular coverage adjustment)";
+        if (m_videoScale <= 1.0f) {
+            qDebug() << "VRRenderThread: Using dome angular coverage adjustment (zoom out)";
+        } else {
+            qDebug() << "VRRenderThread: Using FOV-based zoom (zoom in, maintains aspect ratio)";
+        }
     }
     
     // Render each eye - pass m_videoScale for DeoVR-style dome zoom
