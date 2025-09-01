@@ -284,12 +284,12 @@ void VRVideoPlayer::setupUI()
     m_projectionComboBox->addItem("Flat 2D");
     m_projectionComboBox->addItem("180°");
     m_projectionComboBox->addItem("360°");
+    m_projectionComboBox->setCurrentIndex(1); // Default to 180
     m_projectionComboBox->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
     connect(m_projectionComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &VRVideoPlayer::onProjectionComboBoxChanged);
     formatLayout->addWidget(m_projectionLabel, 0, 2);
     formatLayout->addWidget(m_projectionComboBox, 0, 3);
-    m_projectionComboBox->setCurrentIndex(1); // Default to 180
     
     // IPD adjustment spinbox
     m_ipdLabel = new QLabel("IPD Scale:", this);
@@ -374,13 +374,6 @@ void VRVideoPlayer::setupUI()
     
     mainLayout->addLayout(buttonLayout);
     
-    // Position label
-    /*
-    m_positionLabel = new QLabel("00:00 / 00:00", this);
-    m_positionLabel->setAlignment(Qt::AlignCenter);
-    m_positionLabel->setStyleSheet("QLabel { font-size: 12px; color: #95a5a6; margin: 5px; }");
-    mainLayout->addWidget(m_positionLabel);
-    */
     // Set window properties
     setWindowTitle("VR Video Player");
     setMinimumSize(400, 300);
