@@ -400,3 +400,35 @@ QString VROpenVRManager::getTrackedDeviceString(uint32_t device, uint32_t prop)
     return QString();
 #endif
 }
+
+QVector3D VROpenVRManager::getHMDPosition() const
+{
+    return extractPosition(m_hmdPoseMatrix);
+}
+
+QMatrix4x4 VROpenVRManager::getHMDRotationMatrix() const
+{
+    return extractRotationMatrix(m_hmdPoseMatrix);
+}
+
+QMatrix4x4 VROpenVRManager::extractRotationMatrix(const QMatrix4x4& matrix)
+{
+    // Extract the 3x3 rotation part from the 4x4 matrix
+    QMatrix4x4 rotation;
+    rotation.setToIdentity();
+    
+    // Copy the rotation components (upper-left 3x3)
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            rotation(row, col) = matrix(row, col);
+        }
+    }
+    
+    return rotation;
+}
+
+QVector3D VROpenVRManager::extractPosition(const QMatrix4x4& matrix)
+{
+    // Extract position from the last column of the matrix
+    return QVector3D(matrix(0, 3), matrix(1, 3), matrix(2, 3));
+}

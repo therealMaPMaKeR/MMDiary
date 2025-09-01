@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QMatrix4x4>
+#include <QVector3D>
 #include <memory>
 
 #ifdef USE_OPENVR
@@ -65,6 +66,12 @@ public:
     QMatrix4x4 getHMDPoseMatrix() const;
     QMatrix4x4 getProjectionMatrix(bool leftEye, float nearPlane, float farPlane) const;
     QMatrix4x4 getEyePosMatrix(bool leftEye) const;
+    
+    // Helper methods for position and rotation extraction
+    QVector3D getHMDPosition() const;
+    QMatrix4x4 getHMDRotationMatrix() const;
+    static QMatrix4x4 extractRotationMatrix(const QMatrix4x4& matrix);
+    static QVector3D extractPosition(const QMatrix4x4& matrix);
     
     // Frame submission
     bool submitFrame(uint32_t leftEyeTexture, uint32_t rightEyeTexture);

@@ -80,6 +80,7 @@ signals:
 protected:
     void keyPressEvent(QKeyEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
 private slots:
     void onVRStatusChanged(VROpenVRManager::VRStatus status);
@@ -172,6 +173,13 @@ public:
     void setFrameExtractor(VRVLCFrameExtractor* extractor) { m_frameExtractor = extractor; }
     
     bool isRendering() const { return m_rendering; }
+    
+    // VR recentering
+    void recenterView() { m_needsRecenter = true; }
+    void resetRecenterOffset() { 
+        m_recenterRotationOffset.setToIdentity(); 
+        qDebug() << "VRRenderThread: Recenter offset reset to identity";
+    }
 
 signals:
     void frameRendered();
@@ -196,6 +204,10 @@ private:
     bool m_frameUpdated;
     
     QOpenGLContext* m_shareContext;
+    
+    // VR recentering
+    QMatrix4x4 m_recenterRotationOffset;
+    bool m_needsRecenter;
 };
 
 #endif // VR_VIDEO_PLAYER_H

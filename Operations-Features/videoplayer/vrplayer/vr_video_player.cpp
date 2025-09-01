@@ -1,4 +1,5 @@
 #include "vr_video_player.h"
+#include <QShowEvent>
 #include "../vp_vlcplayer.h"
 #include <QDebug>
 #include <QMessageBox>
@@ -158,8 +159,11 @@ void VRVideoPlayer::setupUI()
     vrInfoLabel->setWordWrap(true);
     vrInfoLabel->setStyleSheet("QLabel { font-size: 14px; color: white; background-color: black; padding: 20px; margin: 10px; border: 2px solid #3498db; border-radius: 5px; }");
     vrInfoLabel->setText("\u25cf Video will be displayed in your VR headset\n\n"
-                         "\u25cf Use headset controls for navigation\n\n"
-                         "\u25cf Press Ctrl+V to toggle VR mode");
+                         "\u25cf Press Spacebar to recenter the video view\n\n"
+                         "\u25cf Press P to play/pause the video\n\n"
+                         "\u25cf Press Ctrl+V to toggle VR mode\n\n"
+                         "\u25cf Press Escape to exit VR mode\n\n"
+                         "Debug: R=reset recenter, I=info, F=format");
     mainLayout->addWidget(vrInfoLabel, 1);
     
     // Control buttons
@@ -195,6 +199,9 @@ void VRVideoPlayer::setupUI()
     setWindowTitle("VR Video Player");
     setMinimumSize(400, 300);
     resize(500, 400);
+    
+    // Set focus policy to receive keyboard events
+    setFocusPolicy(Qt::StrongFocus);
     
     // Dark theme
     setStyleSheet(
@@ -674,8 +681,12 @@ void VRVideoPlayer::enterVRMode()
     m_vrActive = true;
     
     // Update UI to show VR is active
-    m_statusLabel->setText("VR Mode Active - Video is displayed in your headset");
+    m_statusLabel->setText("VR Mode Active - Spacebar: recenter | P: play/pause");
     m_exitVRButton->setEnabled(true);
+    
+    // Ensure this widget has keyboard focus for spacebar handling
+    setFocus(Qt::OtherFocusReason);
+    qDebug() << "VRVideoPlayer: Setting focus to widget for keyboard input";
     
     emit vrStatusChanged(true);
     
@@ -789,6 +800,8 @@ void VRVideoPlayer::setVideoSaturation(float saturation)
 
 void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
 {
+    qDebug() << "VRVideoPlayer: keyPressEvent - Key:" << event->key() << "VR Active:" << m_vrActive;
+    
     // Handle VR-specific keyboard shortcuts
     if (event->key() == Qt::Key_V && event->modifiers() & Qt::ControlModifier) {
         if (isVRAvailable()) {
@@ -800,20 +813,88 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
     // Handle playback controls
     switch (event->key()) {
         case Qt::Key_Space:
+            // In VR mode, spacebar recenters the view
+            if (m_vrActive && m_renderThread) {
+                qDebug() << "VRVideoPlayer: Spacebar pressed - recentering VR view";
+                m_renderThread->recenterView();
+                event->accept();
+                return; // Important: don't let parent handle this
+            } else {
+                // When not in VR, spacebar controls play/pause
+                qDebug() << "VRVideoPlayer: Spacebar pressed - toggling play/pause";
+                onPlayPauseClicked();
+                event->accept();
+                return; // Important: don't let parent handle this
+            }
+            break;
+        case Qt::Key_P:
+            // P key for play/pause (useful in VR mode since spacebar recenters)
+            qDebug() << "VRVideoPlayer: P key pressed - toggling play/pause";
             onPlayPauseClicked();
+            event->accept();
             break;
         case Qt::Key_S:
             onStopClicked();
+            event->accept();
             break;
         case Qt::Key_Escape:
             if (m_vrActive) {
                 exitVRMode();
+            }
+            event->accept();
+            break;
+        case Qt::Key_R:
+            // R key to reset recenter offset (for debugging)
+            if (m_vrActive && m_renderThread) {
+                qDebug() << "VRVideoPlayer: R key pressed - resetting recenter offset";
+                m_renderThread->resetRecenterOffset();
+                event->accept();
+            }
+            break;
+        case Qt::Key_I:
+            // I key for info (debugging)
+            if (m_vrActive && m_vrRenderer) {
+                const char* formatNames[] = {
+                    "Mono360", "Stereo360_TB", "Stereo360_SBS", 
+                    "Mono180", "Stereo180_TB", "Stereo180_SBS", "Flat2D"
+                };
+                int format = (int)m_vrRenderer->getVideoFormat();
+                qDebug() << "VRVideoPlayer: I key pressed - Video info:";
+                qDebug() << "VRVideoPlayer: Video format:" << format 
+                         << "(" << formatNames[format] << ")";
+                qDebug() << "VRVideoPlayer: VR Active:" << m_vrActive;
+                qDebug() << "VRVideoPlayer: Is Playing:" << m_isPlaying;
+                event->accept();
+            }
+            break;
+        case Qt::Key_F:
+            // F key to cycle through video formats (for debugging)
+            if (m_vrActive && m_vrRenderer) {
+                const char* formatNames[] = {
+                    "Mono360", "Stereo360_TB", "Stereo360_SBS", 
+                    "Mono180", "Stereo180_TB", "Stereo180_SBS", "Flat2D"
+                };
+                int currentFormat = (int)m_vrRenderer->getVideoFormat();
+                int nextFormat = (currentFormat + 1) % 7; // 7 video formats total
+                m_vrRenderer->setVideoFormat((VRVideoRenderer::VideoFormat)nextFormat);
+                qDebug() << "VRVideoPlayer: F key pressed - Changed video format from" 
+                         << formatNames[currentFormat] << "to" << formatNames[nextFormat];
+                event->accept();
             }
             break;
         default:
             QWidget::keyPressEvent(event);
             break;
     }
+}
+
+void VRVideoPlayer::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    
+    // Ensure we have keyboard focus when shown
+    setFocus(Qt::OtherFocusReason);
+    qDebug() << "VRVideoPlayer: showEvent - Setting focus for keyboard input";
 }
 
 void VRVideoPlayer::closeEvent(QCloseEvent *event)
@@ -1005,7 +1086,9 @@ VRRenderThread::VRRenderThread(VROpenVRManager* vrManager,
     , m_stopRequested(false)
     , m_frameUpdated(false)
     , m_shareContext(nullptr)
+    , m_needsRecenter(false)
 {
+    m_recenterRotationOffset.setToIdentity();
     qDebug() << "VRRenderThread: Constructor called";
 }
 
@@ -1228,20 +1311,80 @@ void VRRenderThread::renderFrame()
         }
     }
     
-    // Get view and projection matrices for each eye
+    // Get HMD pose components
     QMatrix4x4 hmdPose = m_vrManager->getHMDPoseMatrix();
-    QMatrix4x4 leftProj = m_vrManager->getProjectionMatrix(true, 0.1f, 1000.0f);
-    QMatrix4x4 rightProj = m_vrManager->getProjectionMatrix(false, 0.1f, 1000.0f);
+    QVector3D hmdPosition = m_vrManager->getHMDPosition();
+    QMatrix4x4 hmdRotation = m_vrManager->getHMDRotationMatrix();
+    
+    // Handle recentering if requested
+    if (m_needsRecenter) {
+        // Store the inverse of current rotation to reset orientation
+        // This will make the video appear centered in front of the user
+        m_recenterRotationOffset = hmdRotation.inverted();
+        m_needsRecenter = false;
+        qDebug() << "VRRenderThread: View recentered - video centered in front of user";
+    }
+    
+    // Apply recenter offset to rotation
+    QMatrix4x4 adjustedRotation = m_recenterRotationOffset * hmdRotation;
+    
+    // Get eye position matrices for stereoscopic separation
+    // These contain the IPD (interpupillary distance) offsets
     QMatrix4x4 leftEyePos = m_vrManager->getEyePosMatrix(true);
     QMatrix4x4 rightEyePos = m_vrManager->getEyePosMatrix(false);
     
-    // Calculate view matrices
-    QMatrix4x4 leftView = (hmdPose * leftEyePos).inverted();
-    QMatrix4x4 rightView = (hmdPose * rightEyePos).inverted();
+    // Build the complete eye poses with rotation but without HMD translation
+    // This keeps the video sphere centered on the viewer while maintaining stereoscopy
+    QMatrix4x4 leftEyePose = adjustedRotation * leftEyePos;
+    QMatrix4x4 rightEyePose = adjustedRotation * rightEyePos;
+    
+    // Create view matrices by inverting the eye poses
+    QMatrix4x4 leftView = leftEyePose.inverted();
+    QMatrix4x4 rightView = rightEyePose.inverted();
+    
+    // Get projection matrices
+    QMatrix4x4 leftProj = m_vrManager->getProjectionMatrix(true, 0.1f, 1000.0f);
+    QMatrix4x4 rightProj = m_vrManager->getProjectionMatrix(false, 0.1f, 1000.0f);
     
     // Render each eye
     m_vrRenderer->renderEye(true, leftView, leftProj);
     m_vrRenderer->renderEye(false, rightView, rightProj);
+    
+    // Debug output to verify matrices are different for stereoscopic effect
+    static int debugCount = 0;
+    if (++debugCount % 900 == 0) { // Log every 10 seconds at 90 FPS
+        qDebug() << "VRRenderThread: Stereoscopic check:";
+        
+        // Get the position components from the transforms
+        float leftX = leftEyePose(0, 3);
+        float rightX = rightEyePose(0, 3);
+        float separation = leftX - rightX;
+        
+        qDebug() << "VRRenderThread: Left eye X position:" << leftX;
+        qDebug() << "VRRenderThread: Right eye X position:" << rightX;
+        qDebug() << "VRRenderThread: Eye separation:" << separation;
+        
+        // Also log the raw eye position matrices
+        QVector3D leftEyeOffset(leftEyePos(0,3), leftEyePos(1,3), leftEyePos(2,3));
+        QVector3D rightEyeOffset(rightEyePos(0,3), rightEyePos(1,3), rightEyePos(2,3));
+        qDebug() << "VRRenderThread: Left eye offset from HMD:" << leftEyeOffset;
+        qDebug() << "VRRenderThread: Right eye offset from HMD:" << rightEyeOffset;
+        
+        // Log view matrix info to check sphere positioning
+        QVector3D leftViewPos = leftView.inverted().column(3).toVector3D();
+        QVector3D rightViewPos = rightView.inverted().column(3).toVector3D();
+        qDebug() << "VRRenderThread: Left view position:" << leftViewPos;
+        qDebug() << "VRRenderThread: Right view position:" << rightViewPos;
+        
+        // Check if recenter offset is identity (no offset)
+        bool isIdentity = m_recenterRotationOffset.isIdentity();
+        qDebug() << "VRRenderThread: Recenter offset is identity:" << isIdentity;
+        
+        // Log video format
+        if (m_vrRenderer) {
+            qDebug() << "VRRenderThread: Video format:" << (int)m_vrRenderer->getVideoFormat();
+        }
+    }
     
     // Submit frames to VR compositor
     GLuint leftTex = m_vrRenderer->getEyeTexture(true);
@@ -1251,6 +1394,13 @@ void VRRenderThread::renderFrame()
         if (renderCount % 90 == 0) {
             qDebug() << "VRRenderThread: Invalid eye textures - left:" << leftTex << "right:" << rightTex;
         }
+        return; // Don't submit invalid textures
+    }
+    
+    // Debug: Verify textures are different
+    if (renderCount % 180 == 0) { // Log every 2 seconds
+        qDebug() << "VRRenderThread: Submitting textures - Left:" << leftTex << "Right:" << rightTex
+                 << "(Different:" << (leftTex != rightTex) << ")";
     }
     
     if (!m_vrManager->submitFrame(leftTex, rightTex)) {
