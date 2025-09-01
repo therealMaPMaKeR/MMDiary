@@ -316,76 +316,44 @@ QMatrix4x4 VROpenVRManager::getProjectionMatrixWithZoom(bool leftEye, float near
     // Clamp zoom factor to reasonable range
     zoomFactor = qBound(0.1f, zoomFactor, 5.0f);
     
-    // Get the raw frustum values (tangent of half-angles)
-    float left, right, top, bottom;
-    getProjectionRawValues(leftEye, left, right, top, bottom);
+    // Get the original projection matrix from OpenVR
+    // This ensures we have the correct format and conventions
+    vr::HmdMatrix44_t mat = m_vrSystem->GetProjectionMatrix(
+        leftEye ? vr::Eye_Left : vr::Eye_Right,
+        nearPlane,
+        farPlane);
     
-    // Log original frustum values periodically for debugging
+    // Convert to QMatrix4x4
+    QMatrix4x4 result(
+        mat.m[0][0], mat.m[0][1], mat.m[0][2], mat.m[0][3],
+        mat.m[1][0], mat.m[1][1], mat.m[1][2], mat.m[1][3],
+        mat.m[2][0], mat.m[2][1], mat.m[2][2], mat.m[2][3],
+        mat.m[3][0], mat.m[3][1], mat.m[3][2], mat.m[3][3]
+    );
+    
+    // Apply zoom by scaling the focal length (diagonal elements)
+    // This adjusts the FOV while maintaining the asymmetric stereo offsets
+    result(0, 0) *= zoomFactor;  // Scale horizontal focal length
+    result(1, 1) *= zoomFactor;  // Scale vertical focal length
+    
+    // The (0,2) and (1,2) elements contain the stereo asymmetry
+    // We DON'T scale these as they need to remain constant for proper stereo
+    
+    // Log for debugging
     static int logCount = 0;
-    if (++logCount % 300 == 0) { // Every ~3 seconds at 90-100 FPS
-        qDebug() << "VROpenVRManager: Original frustum for" << (leftEye ? "LEFT" : "RIGHT") << "eye:"
-                 << "L:" << left << "R:" << right << "T:" << top << "B:" << bottom;
-    }
-    
-    // Apply zoom by scaling the frustum
-    // Zoom > 1.0 = zoom in (narrower FOV)
-    // Zoom < 1.0 = zoom out (wider FOV)
-    // We divide by zoom to get the correct behavior:
-    // Higher zoom = smaller frustum = telephoto effect
-    // Lower zoom = larger frustum = wide angle effect
-    float zoomInverse = 1.0f / zoomFactor;
-    left *= zoomInverse;
-    right *= zoomInverse;
-    top *= zoomInverse;
-    bottom *= zoomInverse;
-    
-    // Log adjusted frustum values after zoom
-    if (logCount % 300 == 1) { // Log right after the original values
-        qDebug() << "VROpenVRManager: Adjusted frustum with zoom" << zoomFactor << "for" 
-                 << (leftEye ? "LEFT" : "RIGHT") << "eye:"
-                 << "L:" << left << "R:" << right << "T:" << top << "B:" << bottom;
+    if (++logCount % 300 == 0) { // Every ~3 seconds
+        qDebug() << "VROpenVRManager: Zoom factor:" << zoomFactor << "for" << (leftEye ? "LEFT" : "RIGHT") << "eye";
+        qDebug() << "VROpenVRManager: Projection matrix diagonal:" << result(0,0) << "," << result(1,1);
+        qDebug() << "VROpenVRManager: Stereo offset values:" << result(0,2) << "," << result(1,2);
         
-        // Calculate and log the effective FOV
-        float hFovRad = qAtan(right) - qAtan(left);
-        float vFovRad = qAtan(top) - qAtan(bottom);
-        float hFovDeg = qRadiansToDegrees(hFovRad);
-        float vFovDeg = qRadiansToDegrees(vFovRad);
-        qDebug() << "VROpenVRManager: Effective FOV:" << "H:" << hFovDeg << "deg, V:" << vFovDeg << "deg";
+        // Calculate approximate FOV from the matrix
+        float hFov = 2.0f * qAtan(1.0f / result(0,0));
+        float vFov = 2.0f * qAtan(1.0f / result(1,1));
+        qDebug() << "VROpenVRManager: Approximate FOV - H:" << qRadiansToDegrees(hFov) 
+                 << "deg, V:" << qRadiansToDegrees(vFov) << "deg";
     }
     
-    // Build the projection matrix manually
-    // This is the standard OpenGL perspective projection matrix formula
-    // but with asymmetric frustum to maintain proper stereoscopy
-    QMatrix4x4 projection;
-    
-    float x = (2.0f * nearPlane) / (right - left);
-    float y = (2.0f * nearPlane) / (top - bottom);
-    float a = (right + left) / (right - left);
-    float b = (top + bottom) / (top - bottom);
-    float c = -(farPlane + nearPlane) / (farPlane - nearPlane);
-    float d = -(2.0f * farPlane * nearPlane) / (farPlane - nearPlane);
-    
-    projection(0, 0) = x;
-    projection(0, 1) = 0.0f;
-    projection(0, 2) = a;
-    projection(0, 3) = 0.0f;
-    
-    projection(1, 0) = 0.0f;
-    projection(1, 1) = y;
-    projection(1, 2) = b;
-    projection(1, 3) = 0.0f;
-    
-    projection(2, 0) = 0.0f;
-    projection(2, 1) = 0.0f;
-    projection(2, 2) = c;
-    projection(2, 3) = d;
-    
-    projection(3, 0) = 0.0f;
-    projection(3, 1) = 0.0f;
-    projection(3, 2) = -1.0f;
-    projection(3, 3) = 0.0f;
-    
-    return projection;
+    return result;
 #else
     Q_UNUSED(leftEye);
     Q_UNUSED(nearPlane);

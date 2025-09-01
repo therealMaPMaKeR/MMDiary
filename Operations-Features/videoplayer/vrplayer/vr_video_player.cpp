@@ -1565,24 +1565,23 @@ void VRRenderThread::renderFrame()
     QMatrix4x4 leftView = leftEyePose.inverted();
     QMatrix4x4 rightView = rightEyePose.inverted();
     
-    // Get projection matrices with zoom applied
-    // Use the new zoom-aware projection matrix method for proper FOV adjustment
+    // Get projection matrices with zoom applied via proper FOV adjustment
+    // This maintains correct stereo separation without distortion
     QMatrix4x4 leftProj = m_vrManager->getProjectionMatrixWithZoom(true, 0.1f, 1000.0f, m_videoScale);
     QMatrix4x4 rightProj = m_vrManager->getProjectionMatrixWithZoom(false, 0.1f, 1000.0f, m_videoScale);
     
-    // Now using proper FOV-based zoom through projection matrix rebuilding
-    // This maintains correct stereo separation without distortion
+    // Using proper FOV-based zoom through projection matrix modification
+    // Pass 1.0 as zoom to renderer since zoom is already in projection
     
     // Log scale application periodically
     static int scaleLogCount = 0;
     if (++scaleLogCount % 300 == 0) { // Every ~3 seconds
         qDebug() << "VRRenderThread: Video scale (zoom):" << m_videoScale;
         qDebug() << "VRRenderThread: IPD scale:" << m_ipdScale;
-        qDebug() << "VRRenderThread: Using FOV-based zoom (projection matrix adjustment)";
+        qDebug() << "VRRenderThread: Using FOV-based zoom (projection matrix modification)";
     }
     
-    // Render each eye - no need to pass zoom scale since it's now in the projection matrix
-    // Pass 1.0 as scale since zoom is handled by FOV adjustment in projection
+    // Render each eye - pass 1.0 for zoom since it's already in the projection matrix
     m_vrRenderer->renderEye(true, leftView, leftProj, 1.0f);
     m_vrRenderer->renderEye(false, rightView, rightProj, 1.0f);
     
