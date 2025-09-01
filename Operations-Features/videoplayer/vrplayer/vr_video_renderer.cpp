@@ -858,6 +858,15 @@ void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye)
     static int sphereRenderCount = 0;
     sphereRenderCount++;
     
+    static int leftDomeCount = 0;
+    static int rightDomeCount = 0;
+    
+    if (leftEye) {
+        leftDomeCount++;
+    } else {
+        rightDomeCount++;
+    }
+    
     // Clear any existing OpenGL errors
     while (glGetError() != GL_NO_ERROR) {}
     
