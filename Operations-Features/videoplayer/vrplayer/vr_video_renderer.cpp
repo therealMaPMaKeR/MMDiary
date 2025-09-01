@@ -172,9 +172,9 @@ bool VRVideoRenderer::createShaderPrograms()
         
         void main()
         {
-            // Apply zoom by scaling the vertex position
-            vec3 scaledPosition = position * zoomScale;
-            gl_Position = mvpMatrix * vec4(scaledPosition, 1.0);
+            // DON'T scale the geometry - zoom is handled by FOV adjustment in projection matrix
+            // This prevents distortion when looking around
+            gl_Position = mvpMatrix * vec4(position, 1.0);
             fragTexCoord = texCoord * texScale + texOffset;
             worldPos = position;  // Keep original position for texture calculations
         }
@@ -913,7 +913,7 @@ void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye, fl
     m_sphereShader->setUniformValue("brightness", m_brightness);
     m_sphereShader->setUniformValue("contrast", m_contrast);
     m_sphereShader->setUniformValue("saturation", m_saturation);
-    m_sphereShader->setUniformValue("zoomScale", zoomScale);  // Apply zoom scale
+    m_sphereShader->setUniformValue("zoomScale", 1.0f);  // ALWAYS 1.0 - zoom is handled by FOV
     
     // Set texture coordinate offset and scale based on format
     QVector2D texOffset = getTextureCoordOffset(leftEye);
@@ -997,7 +997,7 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye, floa
     m_sphereShader->setUniformValue("brightness", m_brightness);
     m_sphereShader->setUniformValue("contrast", m_contrast);
     m_sphereShader->setUniformValue("saturation", m_saturation);
-    m_sphereShader->setUniformValue("zoomScale", zoomScale);  // Apply zoom scale
+    m_sphereShader->setUniformValue("zoomScale", 1.0f);  // ALWAYS 1.0 - zoom is handled by FOV
     
     // Set texture coordinate offset and scale based on format
     QVector2D texOffset = getTextureCoordOffset(leftEye);
@@ -1075,7 +1075,7 @@ void VRVideoRenderer::renderFisheye(const QMatrix4x4& mvpMatrix, bool leftEye, f
     m_sphereShader->setUniformValue("brightness", m_brightness);
     m_sphereShader->setUniformValue("contrast", m_contrast);
     m_sphereShader->setUniformValue("saturation", m_saturation);
-    m_sphereShader->setUniformValue("zoomScale", zoomScale);  // Apply zoom scale
+    m_sphereShader->setUniformValue("zoomScale", 1.0f);  // ALWAYS 1.0 - zoom is handled by FOV
     
     // For fisheye, we use different texture coordinate mapping
     // The texture offset and scale depend on the stereoscopic format
