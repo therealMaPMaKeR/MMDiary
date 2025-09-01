@@ -15,6 +15,8 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QStyle>
+#include <QGroupBox>
+#include <QGridLayout>
 #include <QKeyEvent>
 #include <QCloseEvent>
 
@@ -32,6 +34,15 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     , m_stopButton(nullptr)
     , m_exitVRButton(nullptr)
     , m_positionLabel(nullptr)
+    , m_formatComboBox(nullptr)
+    , m_projectionComboBox(nullptr)
+    , m_ipdSpinBox(nullptr)
+    , m_zoomSlider(nullptr)
+    , m_formatLabel(nullptr)
+    , m_projectionLabel(nullptr)
+    , m_ipdLabel(nullptr)
+    , m_zoomLabel(nullptr)
+    , m_zoomValueLabel(nullptr)
     , m_vrAvailable(false)
     , m_vrActive(false)
     , m_vrInitialized(false)
@@ -161,13 +172,70 @@ void VRVideoPlayer::setupUI()
     vrInfoLabel->setText("\u25cf Video will be displayed in your VR headset\n\n"
                          "\u25cf Press Spacebar to recenter the video view\n\n"
                          "\u25cf Press P to play/pause the video\n\n"
-                         "\u25cf Press +/- to zoom, 1-4 for presets (0.5x-3x)\n\n"
-                         "\u25cf Press [/] to adjust IPD (fixes double vision)\n\n"
-                         "\u25cf Hold Shift for fine adjustments\n\n"
                          "\u25cf Press Ctrl+V to toggle VR mode\n\n"
                          "\u25cf Press Escape to exit VR mode\n\n"
-                         "Debug: R=reset, I=info, F=format");
+                         "\u25cf Use the controls below to adjust video format, zoom, and IPD");
     mainLayout->addWidget(vrInfoLabel, 1);
+    
+    // VR Format Controls
+    QGroupBox* formatGroup = new QGroupBox("Video Format Settings", this);
+    formatGroup->setStyleSheet("QGroupBox { font-weight: bold; border: 2px solid #3498db; border-radius: 5px; padding-top: 10px; margin-top: 10px; } "
+                                "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px 0 5px; }");
+    QGridLayout* formatLayout = new QGridLayout(formatGroup);
+    
+    // Video format combo box (mono/stereo)
+    m_formatLabel = new QLabel("Video Mode:", this);
+    m_formatComboBox = new QComboBox(this);
+    m_formatComboBox->addItem("Mono");
+    m_formatComboBox->addItem("Stereo Top-Bottom");
+    m_formatComboBox->addItem("Stereo Side-by-Side");
+    m_formatComboBox->setCurrentIndex(0);
+    connect(m_formatComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &VRVideoPlayer::onFormatComboBoxChanged);
+    formatLayout->addWidget(m_formatLabel, 0, 0);
+    formatLayout->addWidget(m_formatComboBox, 0, 1);
+    
+    // Projection type combo box (flat/180/360)
+    m_projectionLabel = new QLabel("Projection:", this);
+    m_projectionComboBox = new QComboBox(this);
+    m_projectionComboBox->addItem("Flat 2D");
+    m_projectionComboBox->addItem("180°");
+    m_projectionComboBox->addItem("360°");
+    m_projectionComboBox->setCurrentIndex(1); // Default to 180
+    connect(m_projectionComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &VRVideoPlayer::onProjectionComboBoxChanged);
+    formatLayout->addWidget(m_projectionLabel, 0, 2);
+    formatLayout->addWidget(m_projectionComboBox, 0, 3);
+    
+    // IPD adjustment spinbox
+    m_ipdLabel = new QLabel("IPD Scale:", this);
+    m_ipdSpinBox = new QSpinBox(this);
+    m_ipdSpinBox->setRange(10, 300); // 0.1x to 3.0x (as percentage)
+    m_ipdSpinBox->setValue(100); // Default 1.0x
+    m_ipdSpinBox->setSuffix("%");
+    m_ipdSpinBox->setSingleStep(5);
+    m_ipdSpinBox->setToolTip("Adjust eye separation to fix double vision");
+    connect(m_ipdSpinBox, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &VRVideoPlayer::onIPDSpinBoxChanged);
+    formatLayout->addWidget(m_ipdLabel, 1, 0);
+    formatLayout->addWidget(m_ipdSpinBox, 1, 1);
+    
+    // Zoom slider
+    m_zoomLabel = new QLabel("Zoom:", this);
+    m_zoomSlider = new QSlider(Qt::Horizontal, this);
+    m_zoomSlider->setRange(10, 500); // 0.1x to 5.0x (as percentage)
+    m_zoomSlider->setValue(100); // Default 1.0x
+    m_zoomSlider->setSingleStep(10);
+    m_zoomSlider->setPageStep(50);
+    m_zoomSlider->setToolTip("Adjust video zoom level");
+    m_zoomValueLabel = new QLabel("100%", this);
+    m_zoomValueLabel->setFixedWidth(50);
+    connect(m_zoomSlider, &QSlider::valueChanged, this, &VRVideoPlayer::onZoomSliderChanged);
+    formatLayout->addWidget(m_zoomLabel, 1, 2);
+    formatLayout->addWidget(m_zoomSlider, 1, 3);
+    formatLayout->addWidget(m_zoomValueLabel, 1, 4);
+    
+    mainLayout->addWidget(formatGroup);
     
     // Control buttons
     QHBoxLayout* buttonLayout = new QHBoxLayout();
@@ -613,6 +681,56 @@ void VRVideoPlayer::setVideoFormat(VRVideoRenderer::VideoFormat format)
     if (m_vrRenderer) {
         m_vrRenderer->setVideoFormat(format);
     }
+    
+    // Update UI controls to match the format
+    if (m_formatComboBox && m_projectionComboBox) {
+        // Determine combo box indices based on format
+        int formatIndex = 0; // Default to mono
+        int projectionIndex = 1; // Default to 180
+        
+        switch (format) {
+            case VRVideoRenderer::VideoFormat::Flat2D:
+                projectionIndex = 0; // Flat
+                formatIndex = 0; // Mono (doesn't matter for flat)
+                break;
+            case VRVideoRenderer::VideoFormat::Mono180:
+                projectionIndex = 1; // 180
+                formatIndex = 0; // Mono
+                break;
+            case VRVideoRenderer::VideoFormat::Stereo180_TB:
+                projectionIndex = 1; // 180
+                formatIndex = 1; // Stereo TB
+                break;
+            case VRVideoRenderer::VideoFormat::Stereo180_SBS:
+                projectionIndex = 1; // 180
+                formatIndex = 2; // Stereo SBS
+                break;
+            case VRVideoRenderer::VideoFormat::Mono360:
+                projectionIndex = 2; // 360
+                formatIndex = 0; // Mono
+                break;
+            case VRVideoRenderer::VideoFormat::Stereo360_TB:
+                projectionIndex = 2; // 360
+                formatIndex = 1; // Stereo TB
+                break;
+            case VRVideoRenderer::VideoFormat::Stereo360_SBS:
+                projectionIndex = 2; // 360
+                formatIndex = 2; // Stereo SBS
+                break;
+            default:
+                break;
+        }
+        
+        // Block signals to prevent recursive calls
+        m_formatComboBox->blockSignals(true);
+        m_projectionComboBox->blockSignals(true);
+        
+        m_formatComboBox->setCurrentIndex(formatIndex);
+        m_projectionComboBox->setCurrentIndex(projectionIndex);
+        
+        m_formatComboBox->blockSignals(false);
+        m_projectionComboBox->blockSignals(false);
+    }
 }
 
 VRVideoRenderer::VideoFormat VRVideoPlayer::getVideoFormat() const
@@ -684,7 +802,7 @@ void VRVideoPlayer::enterVRMode()
     m_vrActive = true;
     
     // Update UI to show VR is active
-    m_statusLabel->setText("VR Mode Active - Space: recenter | +/-: zoom | [/]: IPD");
+    m_statusLabel->setText("VR Mode Active - Space: recenter | P: play/pause");
     m_exitVRButton->setEnabled(true);
     
     // Ensure this widget has keyboard focus for spacebar handling
@@ -885,119 +1003,13 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
                     qDebug() << "VRVideoPlayer: IPD scale:" << m_renderThread->getIPDScale();
                 }
                 qDebug() << "VRVideoPlayer: Tips:";
-                qDebug() << "VRVideoPlayer:   F = cycle formats";
-                qDebug() << "VRVideoPlayer:   +/- = zoom (hold Shift for fine adjustment)";
-                qDebug() << "VRVideoPlayer:   1-4 = zoom presets (0.5x, 1.5x, 2x, 3x)";
-                qDebug() << "VRVideoPlayer:   [/] = adjust IPD (hold Shift for fine adjustment)";
-                qDebug() << "VRVideoPlayer:   0 = reset zoom, \\ = reset IPD";
-                qDebug() << "VRVideoPlayer:   Spacebar = recenter, P = play/pause";
+                qDebug() << "VRVideoPlayer:   Spacebar = recenter view";
+                qDebug() << "VRVideoPlayer:   P = play/pause";
+                qDebug() << "VRVideoPlayer:   Escape = exit VR mode";
+                qDebug() << "VRVideoPlayer:   Use UI controls for format, zoom, and IPD adjustments";
                 event->accept();
             }
-            break;
-        case Qt::Key_F:
-            // F key to cycle through video formats (for debugging)
-            if (m_vrActive && m_vrRenderer) {
-                const char* formatNames[] = {
-                    "Mono360", "Stereo360_TB", "Stereo360_SBS", 
-                    "Mono180", "Stereo180_TB", "Stereo180_SBS", "Flat2D",
-                    "Fisheye180", "Fisheye180_TB", "Fisheye180_SBS"
-                };
-                int currentFormat = (int)m_vrRenderer->getVideoFormat();
-                int nextFormat = (currentFormat + 1) % 10; // 10 video formats total
-                m_vrRenderer->setVideoFormat((VRVideoRenderer::VideoFormat)nextFormat);
-                qDebug() << "VRVideoPlayer: F key pressed - Changed video format from" 
-                         << formatNames[currentFormat] << "to" << formatNames[nextFormat];
-                event->accept();
-            }
-            break;
-        case Qt::Key_Plus:
-        case Qt::Key_Equal:
-            // + key to zoom in
-            if (m_vrActive && m_renderThread) {
-                // Shift for fine adjustment
-                float delta = (event->modifiers() & Qt::ShiftModifier) ? 0.05f : 0.2f;
-                m_renderThread->adjustVideoScale(delta);
-                qDebug() << "VRVideoPlayer: Zoom in - scale:" << m_renderThread->getVideoScale();
-                event->accept();
-            }
-            break;
-        case Qt::Key_Minus:
-            // - key to zoom out
-            if (m_vrActive && m_renderThread) {
-                // Shift for fine adjustment
-                float delta = (event->modifiers() & Qt::ShiftModifier) ? 0.05f : 0.2f;
-                m_renderThread->adjustVideoScale(-delta);
-                qDebug() << "VRVideoPlayer: Zoom out - scale:" << m_renderThread->getVideoScale();
-                event->accept();
-            }
-            break;
-        case Qt::Key_0:
-            // 0 key to reset zoom
-            if (m_vrActive && m_renderThread) {
-                m_renderThread->setVideoScale(1.0f);
-                qDebug() << "VRVideoPlayer: Zoom reset to 1.0";
-                event->accept();
-            }
-            break;
-        case Qt::Key_1:
-            // 1 key for zoom preset 0.5x (zoomed out)
-            if (m_vrActive && m_renderThread) {
-                m_renderThread->setVideoScale(0.5f);
-                qDebug() << "VRVideoPlayer: Zoom preset 0.5x (wide)";
-                event->accept();
-            }
-            break;
-        case Qt::Key_2:
-            // 2 key for zoom preset 1.5x
-            if (m_vrActive && m_renderThread) {
-                m_renderThread->setVideoScale(1.5f);
-                qDebug() << "VRVideoPlayer: Zoom preset 1.5x";
-                event->accept();
-            }
-            break;
-        case Qt::Key_3:
-            // 3 key for zoom preset 2.0x
-            if (m_vrActive && m_renderThread) {
-                m_renderThread->setVideoScale(2.0f);
-                qDebug() << "VRVideoPlayer: Zoom preset 2.0x";
-                event->accept();
-            }
-            break;
-        case Qt::Key_4:
-            // 4 key for zoom preset 3.0x (zoomed in)
-            if (m_vrActive && m_renderThread) {
-                m_renderThread->setVideoScale(3.0f);
-                qDebug() << "VRVideoPlayer: Zoom preset 3.0x (close)";
-                event->accept();
-            }
-            break;
-        case Qt::Key_BracketLeft:
-            // [ key to decrease IPD (eye separation)
-            if (m_vrActive && m_renderThread) {
-                // Shift for fine adjustment
-                float delta = (event->modifiers() & Qt::ShiftModifier) ? 0.02f : 0.1f;
-                m_renderThread->adjustIPDScale(-delta);
-                qDebug() << "VRVideoPlayer: IPD decreased - scale:" << m_renderThread->getIPDScale();
-                event->accept();
-            }
-            break;
-        case Qt::Key_BracketRight:
-            // ] key to increase IPD (eye separation)
-            if (m_vrActive && m_renderThread) {
-                // Shift for fine adjustment
-                float delta = (event->modifiers() & Qt::ShiftModifier) ? 0.02f : 0.1f;
-                m_renderThread->adjustIPDScale(delta);
-                qDebug() << "VRVideoPlayer: IPD increased - scale:" << m_renderThread->getIPDScale();
-                event->accept();
-            }
-            break;
-        case Qt::Key_Backslash:
-            // \ key to reset IPD
-            if (m_vrActive && m_renderThread) {
-                m_renderThread->setIPDScale(1.0f);
-                qDebug() << "VRVideoPlayer: IPD reset to 1.0";
-                event->accept();
-            }
+
             break;
         default:
             QWidget::keyPressEvent(event);
@@ -1110,6 +1122,76 @@ void VRVideoPlayer::onStopClicked()
 void VRVideoPlayer::onExitVRClicked()
 {
     exitVRMode();
+}
+
+void VRVideoPlayer::onFormatComboBoxChanged(int index)
+{
+    if (!m_vrRenderer || !m_vrActive) return;
+    
+    // Get current projection type from projection combo box
+    int projectionIndex = m_projectionComboBox ? m_projectionComboBox->currentIndex() : 1;
+    
+    // Map combo box indices to video formats
+    // Format: Mono=0, Stereo TB=1, Stereo SBS=2
+    // Projection: Flat=0, 180=1, 360=2
+    
+    VRVideoRenderer::VideoFormat format = VRVideoRenderer::VideoFormat::Mono180;
+    
+    if (projectionIndex == 0) { // Flat 2D
+        format = VRVideoRenderer::VideoFormat::Flat2D;
+    } else if (projectionIndex == 1) { // 180
+        switch (index) {
+            case 0: format = VRVideoRenderer::VideoFormat::Mono180; break;
+            case 1: format = VRVideoRenderer::VideoFormat::Stereo180_TB; break;
+            case 2: format = VRVideoRenderer::VideoFormat::Stereo180_SBS; break;
+        }
+    } else if (projectionIndex == 2) { // 360
+        switch (index) {
+            case 0: format = VRVideoRenderer::VideoFormat::Mono360; break;
+            case 1: format = VRVideoRenderer::VideoFormat::Stereo360_TB; break;
+            case 2: format = VRVideoRenderer::VideoFormat::Stereo360_SBS; break;
+        }
+    }
+    
+    m_vrRenderer->setVideoFormat(format);
+    qDebug() << "VRVideoPlayer: Format changed to index" << index << "with projection" << projectionIndex;
+}
+
+void VRVideoPlayer::onProjectionComboBoxChanged(int index)
+{
+    if (!m_vrRenderer || !m_vrActive) return;
+    
+    // Get current format from format combo box
+    int formatIndex = m_formatComboBox ? m_formatComboBox->currentIndex() : 0;
+    
+    // Trigger format change to update the combined format
+    onFormatComboBoxChanged(formatIndex);
+    
+    qDebug() << "VRVideoPlayer: Projection changed to index" << index;
+}
+
+void VRVideoPlayer::onIPDSpinBoxChanged(int value)
+{
+    if (!m_renderThread || !m_vrActive) return;
+    
+    float scale = value / 100.0f;
+    m_renderThread->setIPDScale(scale);
+    qDebug() << "VRVideoPlayer: IPD scale changed to" << scale;
+}
+
+void VRVideoPlayer::onZoomSliderChanged(int value)
+{
+    if (!m_renderThread || !m_vrActive) return;
+    
+    float scale = value / 100.0f;
+    m_renderThread->setVideoScale(scale);
+    
+    // Update the value label
+    if (m_zoomValueLabel) {
+        m_zoomValueLabel->setText(QString("%1%").arg(value));
+    }
+    
+    qDebug() << "VRVideoPlayer: Zoom scale changed to" << scale;
 }
 
 void VRVideoPlayer::updatePlaybackPosition()

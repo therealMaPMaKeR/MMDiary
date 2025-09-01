@@ -12,6 +12,9 @@
 #include <QThread>
 #include <QTimer>
 #include <QMutex>
+#include <QComboBox>
+#include <QSpinBox>
+#include <QSlider>
 #include <memory>
 #include "vr_openvr_manager.h"
 #include "vr_video_renderer.h"
@@ -90,6 +93,10 @@ private slots:
     void onPlayPauseClicked();
     void onStopClicked();
     void onExitVRClicked();
+    void onFormatComboBoxChanged(int index);
+    void onProjectionComboBoxChanged(int index);
+    void onIPDSpinBoxChanged(int value);
+    void onZoomSliderChanged(int value);
     void updatePlaybackPosition();
 
 private:
@@ -123,6 +130,17 @@ private:
     QPushButton* m_stopButton;
     QPushButton* m_exitVRButton;
     QLabel* m_positionLabel;
+    
+    // VR-specific UI controls
+    QComboBox* m_formatComboBox;      // Video format selection (mono/stereo)
+    QComboBox* m_projectionComboBox;  // Projection type (flat/180/360)
+    QSpinBox* m_ipdSpinBox;           // IPD adjustment
+    QSlider* m_zoomSlider;            // Zoom control
+    QLabel* m_formatLabel;
+    QLabel* m_projectionLabel;
+    QLabel* m_ipdLabel;
+    QLabel* m_zoomLabel;
+    QLabel* m_zoomValueLabel;
     
     // VR state
     bool m_vrAvailable;
