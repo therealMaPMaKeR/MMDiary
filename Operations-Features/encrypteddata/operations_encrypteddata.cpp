@@ -1128,7 +1128,7 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
                     // Load the video file
                     if (player->loadVideo(tempFilePath)) {
                         player->show();
-                        player->play();
+
                         qDebug() << "Operations_EncryptedData: BaseVideoPlayer opened successfully";
                         
                         // Player will auto-delete on close due to WA_DeleteOnClose set above
@@ -1150,7 +1150,7 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
                     // Load the video file with autoEnterVR=true since user explicitly chose VR player
                     if (vrPlayer->loadVideo(tempFilePath, true)) {
                         vrPlayer->show();
-                        vrPlayer->play();
+
                         qDebug() << "Operations_EncryptedData: VRVideoPlayer opened successfully";
                         
                         // VRVideoPlayer will handle VR availability checking internally

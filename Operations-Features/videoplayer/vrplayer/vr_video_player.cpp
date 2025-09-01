@@ -715,10 +715,6 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
             if (m_renderThread) {
                 m_renderThread->setFrameExtractor(m_frameExtractor.get());
             }
-            
-            // Connect frame ready signal
-            //connect(m_frameExtractor.get(), &VRVLCFrameExtractor::frameReady,
-            //        this, &VRVideoPlayer::onFrameReady);
         }
     }
     
@@ -739,7 +735,6 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
     
     // Update UI
     m_fileLabel->setText(fileInfo.fileName());
-    // m_statusLabel->setText("Video loaded - Ready to play in VR"); // Status label hidden
     updateUIState();
     
     // Detect video format
@@ -772,7 +767,8 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
             enterVRMode();
         }
     }
-    
+    play(); // play video right away to prevent temp file cleanup from deleting the file
+    pause(); // pause it right away. While pause, autocleanup will not delete it.
     return true;
 }
 
