@@ -67,6 +67,10 @@ public:
     QMatrix4x4 getProjectionMatrix(bool leftEye, float nearPlane, float farPlane) const;
     QMatrix4x4 getEyePosMatrix(bool leftEye) const;
     
+    // Custom projection matrix with zoom support (proper FOV adjustment)
+    QMatrix4x4 getProjectionMatrixWithZoom(bool leftEye, float nearPlane, float farPlane, float zoomFactor) const;
+    void getProjectionRawValues(bool leftEye, float& left, float& right, float& top, float& bottom) const;
+    
     // Helper methods for position and rotation extraction
     QVector3D getHMDPosition() const;
     QMatrix4x4 getHMDRotationMatrix() const;

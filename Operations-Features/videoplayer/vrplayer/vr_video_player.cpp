@@ -1565,24 +1565,26 @@ void VRRenderThread::renderFrame()
     QMatrix4x4 leftView = leftEyePose.inverted();
     QMatrix4x4 rightView = rightEyePose.inverted();
     
-    // Get projection matrices
-    QMatrix4x4 leftProj = m_vrManager->getProjectionMatrix(true, 0.1f, 1000.0f);
-    QMatrix4x4 rightProj = m_vrManager->getProjectionMatrix(false, 0.1f, 1000.0f);
+    // Get projection matrices with zoom applied
+    // Use the new zoom-aware projection matrix method for proper FOV adjustment
+    QMatrix4x4 leftProj = m_vrManager->getProjectionMatrixWithZoom(true, 0.1f, 1000.0f, m_videoScale);
+    QMatrix4x4 rightProj = m_vrManager->getProjectionMatrixWithZoom(false, 0.1f, 1000.0f, m_videoScale);
     
-    // Don't modify projection matrices - pass zoom to renderer instead
-    // This avoids perspective distortions that occur with FOV manipulation
+    // Now using proper FOV-based zoom through projection matrix rebuilding
+    // This maintains correct stereo separation without distortion
     
     // Log scale application periodically
     static int scaleLogCount = 0;
     if (++scaleLogCount % 300 == 0) { // Every ~3 seconds
         qDebug() << "VRRenderThread: Video scale (zoom):" << m_videoScale;
         qDebug() << "VRRenderThread: IPD scale:" << m_ipdScale;
-        qDebug() << "VRRenderThread: Using geometry scaling for zoom (not FOV modification)";
+        qDebug() << "VRRenderThread: Using FOV-based zoom (projection matrix adjustment)";
     }
     
-    // Render each eye with zoom scale passed to the renderer
-    m_vrRenderer->renderEye(true, leftView, leftProj, m_videoScale);
-    m_vrRenderer->renderEye(false, rightView, rightProj, m_videoScale);
+    // Render each eye - no need to pass zoom scale since it's now in the projection matrix
+    // Pass 1.0 as scale since zoom is handled by FOV adjustment in projection
+    m_vrRenderer->renderEye(true, leftView, leftProj, 1.0f);
+    m_vrRenderer->renderEye(false, rightView, rightProj, 1.0f);
     
     // Debug output to verify matrices are different for stereoscopic effect
     static int debugCount = 0;

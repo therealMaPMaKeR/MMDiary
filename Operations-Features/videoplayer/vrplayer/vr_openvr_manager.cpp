@@ -2,6 +2,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QCoreApplication>
+#include <QtMath>
 
 VROpenVRManager::VROpenVRManager(QObject *parent)
     : QObject(parent)
@@ -273,6 +274,123 @@ QMatrix4x4 VROpenVRManager::getEyePosMatrix(bool leftEye) const
     return result.inverted();
 #else
     Q_UNUSED(leftEye);
+    return QMatrix4x4();
+#endif
+}
+
+void VROpenVRManager::getProjectionRawValues(bool leftEye, float& left, float& right, float& top, float& bottom) const
+{
+#ifdef USE_OPENVR
+    if (!m_vrSystem) {
+        // Default symmetric frustum values
+        left = -1.0f;
+        right = 1.0f;
+        top = 1.0f;
+        bottom = -1.0f;
+        return;
+    }
+    
+    // Get the raw projection values from OpenVR
+    // These define the tangent of the half-angles from the center view axis
+    m_vrSystem->GetProjectionRaw(
+        leftEye ? vr::Eye_Left : vr::Eye_Right,
+        &left, &right, &top, &bottom);
+    
+#else
+    Q_UNUSED(leftEye);
+    // Default symmetric frustum values
+    left = -1.0f;
+    right = 1.0f;
+    top = 1.0f;
+    bottom = -1.0f;
+#endif
+}
+
+QMatrix4x4 VROpenVRManager::getProjectionMatrixWithZoom(bool leftEye, float nearPlane, float farPlane, float zoomFactor) const
+{
+#ifdef USE_OPENVR
+    if (!m_vrSystem) {
+        return QMatrix4x4();
+    }
+    
+    // Clamp zoom factor to reasonable range
+    zoomFactor = qBound(0.1f, zoomFactor, 5.0f);
+    
+    // Get the raw frustum values (tangent of half-angles)
+    float left, right, top, bottom;
+    getProjectionRawValues(leftEye, left, right, top, bottom);
+    
+    // Log original frustum values periodically for debugging
+    static int logCount = 0;
+    if (++logCount % 300 == 0) { // Every ~3 seconds at 90-100 FPS
+        qDebug() << "VROpenVRManager: Original frustum for" << (leftEye ? "LEFT" : "RIGHT") << "eye:"
+                 << "L:" << left << "R:" << right << "T:" << top << "B:" << bottom;
+    }
+    
+    // Apply zoom by scaling the frustum
+    // Zoom > 1.0 = zoom in (narrower FOV)
+    // Zoom < 1.0 = zoom out (wider FOV)
+    // We divide by zoom to get the correct behavior:
+    // Higher zoom = smaller frustum = telephoto effect
+    // Lower zoom = larger frustum = wide angle effect
+    float zoomInverse = 1.0f / zoomFactor;
+    left *= zoomInverse;
+    right *= zoomInverse;
+    top *= zoomInverse;
+    bottom *= zoomInverse;
+    
+    // Log adjusted frustum values after zoom
+    if (logCount % 300 == 1) { // Log right after the original values
+        qDebug() << "VROpenVRManager: Adjusted frustum with zoom" << zoomFactor << "for" 
+                 << (leftEye ? "LEFT" : "RIGHT") << "eye:"
+                 << "L:" << left << "R:" << right << "T:" << top << "B:" << bottom;
+        
+        // Calculate and log the effective FOV
+        float hFovRad = qAtan(right) - qAtan(left);
+        float vFovRad = qAtan(top) - qAtan(bottom);
+        float hFovDeg = qRadiansToDegrees(hFovRad);
+        float vFovDeg = qRadiansToDegrees(vFovRad);
+        qDebug() << "VROpenVRManager: Effective FOV:" << "H:" << hFovDeg << "deg, V:" << vFovDeg << "deg";
+    }
+    
+    // Build the projection matrix manually
+    // This is the standard OpenGL perspective projection matrix formula
+    // but with asymmetric frustum to maintain proper stereoscopy
+    QMatrix4x4 projection;
+    
+    float x = (2.0f * nearPlane) / (right - left);
+    float y = (2.0f * nearPlane) / (top - bottom);
+    float a = (right + left) / (right - left);
+    float b = (top + bottom) / (top - bottom);
+    float c = -(farPlane + nearPlane) / (farPlane - nearPlane);
+    float d = -(2.0f * farPlane * nearPlane) / (farPlane - nearPlane);
+    
+    projection(0, 0) = x;
+    projection(0, 1) = 0.0f;
+    projection(0, 2) = a;
+    projection(0, 3) = 0.0f;
+    
+    projection(1, 0) = 0.0f;
+    projection(1, 1) = y;
+    projection(1, 2) = b;
+    projection(1, 3) = 0.0f;
+    
+    projection(2, 0) = 0.0f;
+    projection(2, 1) = 0.0f;
+    projection(2, 2) = c;
+    projection(2, 3) = d;
+    
+    projection(3, 0) = 0.0f;
+    projection(3, 1) = 0.0f;
+    projection(3, 2) = -1.0f;
+    projection(3, 3) = 0.0f;
+    
+    return projection;
+#else
+    Q_UNUSED(leftEye);
+    Q_UNUSED(nearPlane);
+    Q_UNUSED(farPlane);
+    Q_UNUSED(zoomFactor);
     return QMatrix4x4();
 #endif
 }
