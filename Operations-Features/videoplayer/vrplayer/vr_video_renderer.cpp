@@ -23,6 +23,9 @@ VRVideoRenderer::VRVideoRenderer(QObject *parent)
     , m_saturation(1.0f)
     , m_sphereSegments(64)
     , m_sphereRings(32)
+    , m_domeHorizontalCoverage(180.0f)  // Default to 180 degrees
+    , m_domeVerticalCoverage(180.0f)    // Default to 180 degrees
+    , m_currentZoomScale(1.0f)          // Default zoom at 1.0
     , m_initialized(false)
 {
     qDebug() << "VRVideoRenderer: Constructor called";
@@ -426,8 +429,19 @@ bool VRVideoRenderer::createSphereMesh()
 
 bool VRVideoRenderer::createDomeMesh()
 {
-    qDebug() << "VRVideoRenderer: Creating dome mesh for 180-degree video with" << m_sphereSegments 
-             << "segments and" << m_sphereRings << "rings";
+    // Create dome with default 180-degree coverage
+    return createDomeMeshWithCoverage(180.0f, 180.0f);
+}
+
+bool VRVideoRenderer::createDomeMeshWithCoverage(float horizontalDegrees, float verticalDegrees)
+{
+    qDebug() << "VRVideoRenderer: Creating dome mesh with coverage:" 
+             << horizontalDegrees << "x" << verticalDegrees << "degrees"
+             << "with" << m_sphereSegments << "segments and" << m_sphereRings << "rings";
+    
+    // Store the coverage values
+    m_domeHorizontalCoverage = horizontalDegrees;
+    m_domeVerticalCoverage = verticalDegrees;
     
     struct Vertex {
         float x, y, z;
@@ -437,16 +451,20 @@ bool VRVideoRenderer::createDomeMesh()
     QVector<Vertex> vertices;
     QVector<GLuint> indices;
     
-    // Generate dome vertices (hemisphere facing forward)
+    // Convert degrees to radians
+    float horizontalRadians = qDegreesToRadians(horizontalDegrees);
+    float verticalRadians = qDegreesToRadians(verticalDegrees);
+    
+    // Generate dome vertices with variable angular coverage
     for (int ring = 0; ring <= m_sphereRings; ++ring) {
-        // Go from 0 to PI for full 180 degrees vertical coverage
-        float theta = ring * M_PI / m_sphereRings;
+        // Vertical angle from 0 to verticalRadians
+        float theta = ring * verticalRadians / m_sphereRings;
         float sinTheta = qSin(theta);
         float cosTheta = qCos(theta);
         
         for (int segment = 0; segment <= m_sphereSegments; ++segment) {
-            // Only go from -PI/2 to PI/2 for 180 degrees horizontally
-            float phi = (segment * M_PI / m_sphereSegments) - (M_PI / 2.0f);
+            // Horizontal angle from -horizontalRadians/2 to +horizontalRadians/2
+            float phi = (segment * horizontalRadians / m_sphereSegments) - (horizontalRadians / 2.0f);
             float sinPhi = qSin(phi);
             float cosPhi = qCos(phi);
             
@@ -460,10 +478,9 @@ bool VRVideoRenderer::createDomeMesh()
             vertex.y = cosTheta * scale;             // Up-down
             vertex.z = -sinPhi * sinTheta * scale;  // Forward-back (negated for forward)
             
-            // Texture coordinates for 180-degree projection
-            // U maps from 0 to 1 across the 180-degree horizontal field
+            // Texture coordinates - always map the full texture range [0,1]
+            // This ensures the video fills the dome regardless of angular coverage
             vertex.u = (float)segment / m_sphereSegments;
-            // V coordinate: vertical from top to bottom
             vertex.v = (float)ring / m_sphereRings;
             
             vertices.append(vertex);
@@ -978,6 +995,32 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye, floa
         rightDomeCount++;
     }
     
+    // Update dome angular coverage based on zoom scale
+    // DeoVR-style zoom: Adjust angular coverage instead of FOV
+    // zoom < 1.0: reduce coverage (zoom out, creates () shape)
+    // zoom > 1.0: increase coverage (zoom in, creates )( shape and wraps behind)
+    if (qAbs(zoomScale - m_currentZoomScale) > 0.001f) {
+        // Calculate new angular coverage based on zoom
+        // At zoom 1.0: 180 degrees
+        // At zoom 0.5: 90 degrees (zoomed out, smaller dome)
+        // At zoom 2.0: 360 degrees (zoomed in, wraps all around)
+        float targetHorizontalCoverage = 180.0f * zoomScale;
+        float targetVerticalCoverage = 180.0f * zoomScale;
+        
+        // Clamp to reasonable ranges
+        targetHorizontalCoverage = qBound(45.0f, targetHorizontalCoverage, 360.0f);
+        targetVerticalCoverage = qBound(45.0f, targetVerticalCoverage, 180.0f);  // Don't go beyond hemisphere vertically
+        
+        // Update the dome mesh with new coverage
+        updateDomeAngularCoverage(targetHorizontalCoverage, targetVerticalCoverage);
+        m_currentZoomScale = zoomScale;
+        
+        if ((leftEye && leftDomeCount % 30 == 0) || (!leftEye && rightDomeCount % 30 == 0)) {
+            qDebug() << "VRVideoRenderer: Dome zoom changed to" << zoomScale 
+                     << "- Coverage:" << targetHorizontalCoverage << "x" << targetVerticalCoverage << "degrees";
+        }
+    }
+    
     // Clear any existing OpenGL errors
     while (glGetError() != GL_NO_ERROR) {}
     
@@ -1222,5 +1265,38 @@ void VRVideoRenderer::setSphereTessellation(int segments, int rings)
     
     if (m_initialized) {
         createSphereMesh();
+    }
+}
+
+void VRVideoRenderer::updateDomeAngularCoverage(float horizontalDegrees, float verticalDegrees)
+{
+    // Check if coverage has changed significantly
+    if (qAbs(m_domeHorizontalCoverage - horizontalDegrees) < 0.1f && 
+        qAbs(m_domeVerticalCoverage - verticalDegrees) < 0.1f) {
+        return;  // No significant change
+    }
+    
+    qDebug() << "VRVideoRenderer: Updating dome angular coverage from"
+             << m_domeHorizontalCoverage << "x" << m_domeVerticalCoverage
+             << "to" << horizontalDegrees << "x" << verticalDegrees << "degrees";
+    
+    if (m_initialized) {
+        // Clean up existing dome mesh
+        if (m_domeVAO.isCreated()) {
+            m_domeVAO.destroy();
+        }
+        if (m_domeVertexBuffer.isCreated()) {
+            m_domeVertexBuffer.destroy();
+        }
+        if (m_domeIndexBuffer.isCreated()) {
+            m_domeIndexBuffer.destroy();
+        }
+        
+        // Create new dome mesh with updated coverage
+        createDomeMeshWithCoverage(horizontalDegrees, verticalDegrees);
+    } else {
+        // Just store the values if not initialized yet
+        m_domeHorizontalCoverage = horizontalDegrees;
+        m_domeVerticalCoverage = verticalDegrees;
     }
 }

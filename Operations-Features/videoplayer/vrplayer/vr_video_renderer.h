@@ -68,6 +68,7 @@ public:
     
     // Sphere/dome configuration
     void setSphereTessellation(int segments, int rings);
+    void updateDomeAngularCoverage(float horizontalDegrees, float verticalDegrees);
     
 signals:
     void error(const QString& errorMessage);
@@ -76,6 +77,7 @@ private:
     bool createShaderPrograms();
     bool createSphereMesh();
     bool createDomeMesh();  // Add dome mesh creation for 180-degree video
+    bool createDomeMeshWithCoverage(float horizontalDegrees, float verticalDegrees);
     bool createRenderTargets();
     void destroyRenderTargets();
     
@@ -125,6 +127,11 @@ private:
     // Sphere tessellation
     int m_sphereSegments;
     int m_sphereRings;
+    
+    // Dome angular coverage for zoom effect
+    float m_domeHorizontalCoverage;  // in degrees
+    float m_domeVerticalCoverage;    // in degrees
+    float m_currentZoomScale;        // Track current zoom to avoid unnecessary mesh regeneration
     
     bool m_initialized;
 };

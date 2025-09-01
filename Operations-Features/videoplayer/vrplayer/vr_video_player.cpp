@@ -1565,25 +1565,25 @@ void VRRenderThread::renderFrame()
     QMatrix4x4 leftView = leftEyePose.inverted();
     QMatrix4x4 rightView = rightEyePose.inverted();
     
-    // Get projection matrices with zoom applied via proper FOV adjustment
-    // This maintains correct stereo separation without distortion
-    QMatrix4x4 leftProj = m_vrManager->getProjectionMatrixWithZoom(true, 0.1f, 1000.0f, m_videoScale);
-    QMatrix4x4 rightProj = m_vrManager->getProjectionMatrixWithZoom(false, 0.1f, 1000.0f, m_videoScale);
+    // Get projection matrices WITHOUT zoom (pass 1.0) - zoom will be handled by dome angular coverage
+    // DeoVR-style zoom adjusts the dome mesh coverage, not the FOV
+    QMatrix4x4 leftProj = m_vrManager->getProjectionMatrixWithZoom(true, 0.1f, 1000.0f, 1.0f);
+    QMatrix4x4 rightProj = m_vrManager->getProjectionMatrixWithZoom(false, 0.1f, 1000.0f, 1.0f);
     
-    // Using proper FOV-based zoom through projection matrix modification
-    // Pass 1.0 as zoom to renderer since zoom is already in projection
+    // Using DeoVR-style zoom through dome angular coverage adjustment
+    // Pass the actual zoom scale to renderer to adjust dome mesh
     
     // Log scale application periodically
     static int scaleLogCount = 0;
     if (++scaleLogCount % 300 == 0) { // Every ~3 seconds
         qDebug() << "VRRenderThread: Video scale (zoom):" << m_videoScale;
         qDebug() << "VRRenderThread: IPD scale:" << m_ipdScale;
-        qDebug() << "VRRenderThread: Using FOV-based zoom (projection matrix modification)";
+        qDebug() << "VRRenderThread: Using DeoVR-style zoom (dome angular coverage adjustment)";
     }
     
-    // Render each eye - pass 1.0 for zoom since it's already in the projection matrix
-    m_vrRenderer->renderEye(true, leftView, leftProj, 1.0f);
-    m_vrRenderer->renderEye(false, rightView, rightProj, 1.0f);
+    // Render each eye - pass m_videoScale for DeoVR-style dome zoom
+    m_vrRenderer->renderEye(true, leftView, leftProj, m_videoScale);
+    m_vrRenderer->renderEye(false, rightView, rightProj, m_videoScale);
     
     // Debug output to verify matrices are different for stereoscopic effect
     static int debugCount = 0;
