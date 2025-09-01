@@ -8,13 +8,16 @@ VRVideoRenderer::VRVideoRenderer(QObject *parent)
     , m_sphereVertexBuffer(QOpenGLBuffer::VertexBuffer)
     , m_sphereIndexBuffer(QOpenGLBuffer::IndexBuffer)
     , m_sphereIndexCount(0)
+    , m_domeVertexBuffer(QOpenGLBuffer::VertexBuffer)
+    , m_domeIndexBuffer(QOpenGLBuffer::IndexBuffer)
+    , m_domeIndexCount(0)
     , m_renderWidth(2048)
     , m_renderHeight(2048)
     , m_videoTexture(0)
     , m_ownVideoTexture(false)
     , m_textureWidth(0)
     , m_textureHeight(0)
-    , m_videoFormat(VideoFormat::Mono360)
+    , m_videoFormat(VideoFormat::Mono180)
     , m_brightness(1.0f)
     , m_contrast(1.0f)
     , m_saturation(1.0f)
@@ -57,6 +60,13 @@ bool VRVideoRenderer::initialize()
         return false;
     }
     
+    // Create dome mesh for 180 video
+    if (!createDomeMesh()) {
+        qDebug() << "VRVideoRenderer: Failed to create dome mesh";
+        emit error("Failed to create VR dome mesh");
+        return false;
+    }
+    
     // Create render targets
     if (!createRenderTargets()) {
         qDebug() << "VRVideoRenderer: Failed to create render targets";
@@ -89,6 +99,17 @@ void VRVideoRenderer::cleanup()
     }
     if (m_sphereIndexBuffer.isCreated()) {
         m_sphereIndexBuffer.destroy();
+    }
+    
+    // Clean up dome mesh
+    if (m_domeVAO.isCreated()) {
+        m_domeVAO.destroy();
+    }
+    if (m_domeVertexBuffer.isCreated()) {
+        m_domeVertexBuffer.destroy();
+    }
+    if (m_domeIndexBuffer.isCreated()) {
+        m_domeIndexBuffer.destroy();
     }
     
     // Clean up video texture if we own it
@@ -249,7 +270,7 @@ bool VRVideoRenderer::createSphereMesh()
             vertex.u = (float)segment / m_sphereSegments;
             // V coordinate: vertical from top to bottom
             // VLC provides bottom-up images, so we flip V coordinate
-            vertex.v = (float)ring / m_sphereRings;  // Flipped for VLC
+            vertex.v = 1.0f - (float)ring / m_sphereRings;  // Actually flip for VLC
             
             vertices.append(vertex);
         }
@@ -306,6 +327,104 @@ bool VRVideoRenderer::createSphereMesh()
     m_sphereVAO.release();
     
     qDebug() << "VRVideoRenderer: Sphere mesh created with" << vertices.size() 
+             << "vertices and" << indices.size() / 3 << "triangles";
+    return true;
+}
+
+bool VRVideoRenderer::createDomeMesh()
+{
+    qDebug() << "VRVideoRenderer: Creating dome mesh for 180-degree video with" << m_sphereSegments 
+             << "segments and" << m_sphereRings << "rings";
+    
+    struct Vertex {
+        float x, y, z;
+        float u, v;
+    };
+    
+    QVector<Vertex> vertices;
+    QVector<GLuint> indices;
+    
+    // Generate dome vertices (hemisphere facing forward)
+    for (int ring = 0; ring <= m_sphereRings; ++ring) {
+        // Only go to PI/2 for hemisphere
+        float theta = ring * (M_PI / 2.0f) / m_sphereRings;
+        float sinTheta = qSin(theta);
+        float cosTheta = qCos(theta);
+        
+        for (int segment = 0; segment <= m_sphereSegments; ++segment) {
+            // Only go from -PI/2 to PI/2 for 180 degrees horizontally
+            float phi = (segment * M_PI / m_sphereSegments) - (M_PI / 2.0f);
+            float sinPhi = qSin(phi);
+            float cosPhi = qCos(phi);
+            
+            Vertex vertex;
+            // Position the dome facing forward (negative Z)
+            vertex.x = -cosPhi * sinTheta;  // Negated for inside viewing
+            vertex.y = cosTheta;
+            vertex.z = sinPhi * sinTheta;   // Face forward
+            
+            // Texture coordinates for 180-degree projection
+            // U maps from 0 to 1 across the 180-degree horizontal field
+            vertex.u = (float)segment / m_sphereSegments;
+            // V coordinate: vertical from top to bottom
+            // VLC provides bottom-up images, so we flip V coordinate
+            vertex.v = 1.0f - (float)ring / m_sphereRings;  // Flip for VLC
+            
+            vertices.append(vertex);
+        }
+    }
+    
+    // Generate dome indices
+    for (int ring = 0; ring < m_sphereRings; ++ring) {
+        for (int segment = 0; segment < m_sphereSegments; ++segment) {
+            GLuint first = ring * (m_sphereSegments + 1) + segment;
+            GLuint second = first + m_sphereSegments + 1;
+            
+            // First triangle
+            indices.append(first);
+            indices.append(second);
+            indices.append(first + 1);
+            
+            // Second triangle
+            indices.append(second);
+            indices.append(second + 1);
+            indices.append(first + 1);
+        }
+    }
+    
+    m_domeIndexCount = indices.size();
+    
+    // Create VAO
+    if (!m_domeVAO.isCreated()) {
+        m_domeVAO.create();
+    }
+    m_domeVAO.bind();
+    
+    // Create and upload vertex buffer
+    if (!m_domeVertexBuffer.isCreated()) {
+        m_domeVertexBuffer.create();
+    }
+    m_domeVertexBuffer.bind();
+    m_domeVertexBuffer.allocate(vertices.constData(), vertices.size() * sizeof(Vertex));
+    
+    // Set vertex attributes
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), nullptr);
+    
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), 
+                         reinterpret_cast<void*>(3 * sizeof(float)));
+    
+    // Create and upload index buffer
+    if (!m_domeIndexBuffer.isCreated()) {
+        m_domeIndexBuffer.create();
+    }
+    m_domeIndexBuffer.bind();
+    m_domeIndexBuffer.allocate(indices.constData(), indices.size() * sizeof(GLuint));
+    
+    m_domeVAO.release();
+    
+    qDebug() << "VRVideoRenderer: Dome mesh created with" << vertices.size() 
              << "vertices and" << indices.size() / 3 << "triangles";
     return true;
 }
@@ -689,9 +808,66 @@ void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye)
 
 void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye)
 {
-    // Similar to renderSphere but only render front hemisphere
-    // This is a simplified version - you might want to create a separate dome mesh
-    renderSphere(mvpMatrix, leftEye);
+    static int domeRenderCount = 0;
+    domeRenderCount++;
+    
+    // Clear any existing OpenGL errors
+    while (glGetError() != GL_NO_ERROR) {}
+    
+    if (!m_sphereShader) {
+        qDebug() << "VRVideoRenderer: No sphere shader available for dome";
+        return;
+    }
+    
+    if (!m_sphereShader->bind()) {
+        qDebug() << "VRVideoRenderer: Failed to bind shader for dome";
+        return;
+    }
+    
+    // Set uniforms
+    m_sphereShader->setUniformValue("mvpMatrix", mvpMatrix);
+    m_sphereShader->setUniformValue("videoTexture", 0);
+    m_sphereShader->setUniformValue("brightness", m_brightness);
+    m_sphereShader->setUniformValue("contrast", m_contrast);
+    m_sphereShader->setUniformValue("saturation", m_saturation);
+    
+    // Set texture coordinate offset and scale based on format
+    QVector2D texOffset = getTextureCoordOffset(leftEye);
+    QVector2D texScale = getTextureCoordScale();
+    m_sphereShader->setUniformValue("texOffset", texOffset);
+    m_sphereShader->setUniformValue("texScale", texScale);
+    
+    // Bind video texture
+    glActiveTexture(GL_TEXTURE0);
+    if (m_videoTexture) {
+        glBindTexture(GL_TEXTURE_2D, m_videoTexture);
+        
+        if (domeRenderCount % 180 == 0) {
+            qDebug() << "VRVideoRenderer: Rendering dome for" << (leftEye ? "left" : "right") 
+                     << "eye with texture" << m_videoTexture
+                     << "indices:" << m_domeIndexCount
+                     << "texOffset:" << texOffset << "texScale:" << texScale;
+        }
+    } else {
+        if (domeRenderCount % 180 == 0) {
+            qDebug() << "VRVideoRenderer: No video texture available for dome rendering";
+        }
+    }
+    
+    // Render dome mesh
+    m_domeVAO.bind();
+    glDrawElements(GL_TRIANGLES, m_domeIndexCount, GL_UNSIGNED_INT, nullptr);
+    
+    // Check for errors after drawing
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR && domeRenderCount % 180 == 0) {
+        qDebug() << "VRVideoRenderer: OpenGL error after dome draw:" << err;
+    }
+    
+    m_domeVAO.release();
+    
+    glBindTexture(GL_TEXTURE_2D, 0);
+    m_sphereShader->release();
 }
 
 void VRVideoRenderer::renderFlat(const QMatrix4x4& mvpMatrix)

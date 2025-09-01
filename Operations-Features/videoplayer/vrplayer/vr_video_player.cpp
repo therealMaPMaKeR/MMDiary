@@ -618,10 +618,10 @@ VRVideoRenderer::VideoFormat VRVideoPlayer::detectVideoFormat(const QString& fil
         return VRVideoRenderer::VideoFormat::Mono360;
     }
     
-    // Default to Mono360 for VR player (most common VR format)
-    // Since this is a VR player, assume 360 video if format is unclear
-    qDebug() << "VRVideoPlayer: No specific format detected, defaulting to Mono360";
-    return VRVideoRenderer::VideoFormat::Mono360;
+    // Default to Mono180 for VR player (better for most viewing)
+    // 180-degree provides a more comfortable viewing experience
+    qDebug() << "VRVideoPlayer: No specific format detected, defaulting to Mono180";
+    return VRVideoRenderer::VideoFormat::Mono180;
 }
 
 void VRVideoPlayer::enterVRMode()

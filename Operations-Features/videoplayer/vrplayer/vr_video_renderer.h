@@ -72,6 +72,7 @@ signals:
 private:
     bool createShaderPrograms();
     bool createSphereMesh();
+    bool createDomeMesh();  // Add dome mesh creation for 180-degree video
     bool createRenderTargets();
     void destroyRenderTargets();
     
@@ -92,6 +93,12 @@ private:
     QOpenGLBuffer m_sphereIndexBuffer;
     QOpenGLVertexArrayObject m_sphereVAO;
     int m_sphereIndexCount;
+    
+    // Dome mesh for 180-degree video
+    QOpenGLBuffer m_domeVertexBuffer;
+    QOpenGLBuffer m_domeIndexBuffer;
+    QOpenGLVertexArrayObject m_domeVAO;
+    int m_domeIndexCount;
     
     // Render targets
     std::unique_ptr<QOpenGLFramebufferObject> m_leftEyeFBO;
