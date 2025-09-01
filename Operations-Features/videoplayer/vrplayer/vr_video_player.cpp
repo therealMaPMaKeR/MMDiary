@@ -21,6 +21,108 @@
 #include <QCloseEvent>
 #include <QMouseEvent>
 
+#ifdef Q_OS_WIN
+#include <Windows.h>
+#include <mmdeviceapi.h>
+#include <endpointvolume.h>
+#include <comdef.h>
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "oleaut32.lib")
+#endif
+
+//=============================================================================
+// Windows System Volume Control Functions
+//=============================================================================
+
+#ifdef Q_OS_WIN
+// Function to adjust Windows system volume
+static bool adjustWindowsSystemVolume(float volumeDelta)
+{
+    qDebug() << "VRVideoPlayer: Adjusting Windows system volume by" << volumeDelta;
+    
+    HRESULT hr = CoInitialize(NULL);
+    if (FAILED(hr)) {
+        qDebug() << "VRVideoPlayer: Failed to initialize COM";
+        return false;
+    }
+    
+    IMMDeviceEnumerator* deviceEnumerator = NULL;
+    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_INPROC_SERVER,
+                         __uuidof(IMMDeviceEnumerator), (LPVOID*)&deviceEnumerator);
+    if (FAILED(hr)) {
+        qDebug() << "VRVideoPlayer: Failed to create device enumerator";
+        CoUninitialize();
+        return false;
+    }
+    
+    IMMDevice* defaultDevice = NULL;
+    hr = deviceEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &defaultDevice);
+    if (FAILED(hr)) {
+        qDebug() << "VRVideoPlayer: Failed to get default audio endpoint";
+        deviceEnumerator->Release();
+        CoUninitialize();
+        return false;
+    }
+    
+    IAudioEndpointVolume* endpointVolume = NULL;
+    hr = defaultDevice->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_INPROC_SERVER,
+                                NULL, (LPVOID*)&endpointVolume);
+    if (FAILED(hr)) {
+        qDebug() << "VRVideoPlayer: Failed to activate audio endpoint volume";
+        defaultDevice->Release();
+        deviceEnumerator->Release();
+        CoUninitialize();
+        return false;
+    }
+    
+    // Get current volume
+    float currentVolume = 0.0f;
+    hr = endpointVolume->GetMasterVolumeLevelScalar(&currentVolume);
+    if (FAILED(hr)) {
+        qDebug() << "VRVideoPlayer: Failed to get current volume";
+        endpointVolume->Release();
+        defaultDevice->Release();
+        deviceEnumerator->Release();
+        CoUninitialize();
+        return false;
+    }
+    
+    // Calculate new volume (clamp between 0.0 and 1.0)
+    float newVolume = qBound(0.0f, currentVolume + volumeDelta, 1.0f);
+    
+    // Set new volume
+    hr = endpointVolume->SetMasterVolumeLevelScalar(newVolume, NULL);
+    if (FAILED(hr)) {
+        qDebug() << "VRVideoPlayer: Failed to set new volume";
+        endpointVolume->Release();
+        defaultDevice->Release();
+        deviceEnumerator->Release();
+        CoUninitialize();
+        return false;
+    }
+    
+    qDebug() << "VRVideoPlayer: Windows system volume changed from" << (currentVolume * 100) << "% to" << (newVolume * 100) << "%";
+    
+    // Cleanup
+    endpointVolume->Release();
+    defaultDevice->Release();
+    deviceEnumerator->Release();
+    CoUninitialize();
+    
+    return true;
+}
+
+static void increaseWindowsVolume()
+{
+    adjustWindowsSystemVolume(0.05f); // Increase by 5%
+}
+
+static void decreaseWindowsVolume()
+{
+    adjustWindowsSystemVolume(-0.05f); // Decrease by 5%
+}
+#endif
+
 //=============================================================================
 // ClickableSlider class for VR Video Player
 //=============================================================================
@@ -255,7 +357,9 @@ void VRVideoPlayer::setupUI()
     vrInfoLabel->setStyleSheet("QLabel { font-size: 14px; color: white; background-color: black; padding: 20px; margin: 10px; border: 2px solid #3498db; border-radius: 5px; }");
     vrInfoLabel->setText("\u25cf Video will be displayed in your VR headset\n\n"
                          "\u25cf Press Spacebar to recenter the video view\n\n"
-                         "\u25cf Press P to play/pause the video\n\n"
+                         "\u25cf Press Tab to play/pause the video\n\n"
+                         "\u25cf Press W/S to zoom in/out | A/D to seek backward/forward 10s\n\n"
+                         "\u25cf Press Q/E to decrease/increase Windows system volume\n\n"
                          "\u25cf Use the controls below to adjust video format, zoom, and IPD");
     mainLayout->addWidget(vrInfoLabel, 1);
     
@@ -1052,7 +1156,6 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
 {
     qDebug() << "VRVideoPlayer: keyPressEvent - Key:" << event->key() << "VR Active:" << m_vrActive;
     
-    // Handle only spacebar and P key as requested
     switch (event->key()) {
         case Qt::Key_Space:
             // In VR mode, spacebar recenters the view
@@ -1060,21 +1163,107 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
                 qDebug() << "VRVideoPlayer: Spacebar pressed - recentering VR view";
                 m_renderThread->recenterView();
                 event->accept();
-                return; // Important: don't let parent handle this
+                return;
             } else {
                 // When not in VR, spacebar controls play/pause
                 qDebug() << "VRVideoPlayer: Spacebar pressed - toggling play/pause";
                 onPlayPauseClicked();
                 event->accept();
-                return; // Important: don't let parent handle this
+                return;
             }
             break;
-        case Qt::Key_P:
-            // P key for play/pause (useful in VR mode since spacebar recenters)
-            qDebug() << "VRVideoPlayer: P key pressed - toggling play/pause";
+            
+        case Qt::Key_Tab:
+            // Tab key for play/pause (replaces P key)
+            qDebug() << "VRVideoPlayer: Tab key pressed - toggling play/pause";
             onPlayPauseClicked();
             event->accept();
             break;
+            
+        case Qt::Key_W:
+            // W key for zoom in
+            if (m_renderThread && m_vrActive) {
+                float currentScale = m_renderThread->getVideoScale();
+                float newScale = qBound(0.1f, currentScale + 0.1f, 5.0f);
+                m_renderThread->setVideoScale(newScale);
+                
+                // Update zoom slider UI
+                if (m_zoomSlider) {
+                    m_zoomSlider->blockSignals(true);
+                    m_zoomSlider->setValue(static_cast<int>(newScale * 100));
+                    m_zoomSlider->blockSignals(false);
+                    if (m_zoomValueLabel) {
+                        m_zoomValueLabel->setText(QString("%1%").arg(static_cast<int>(newScale * 100)));
+                    }
+                }
+                
+                qDebug() << "VRVideoPlayer: W key pressed - zoom in to" << newScale;
+            }
+            event->accept();
+            break;
+            
+        case Qt::Key_S:
+            // S key for zoom out
+            if (m_renderThread && m_vrActive) {
+                float currentScale = m_renderThread->getVideoScale();
+                float newScale = qBound(0.1f, currentScale - 0.1f, 5.0f);
+                m_renderThread->setVideoScale(newScale);
+                
+                // Update zoom slider UI
+                if (m_zoomSlider) {
+                    m_zoomSlider->blockSignals(true);
+                    m_zoomSlider->setValue(static_cast<int>(newScale * 100));
+                    m_zoomSlider->blockSignals(false);
+                    if (m_zoomValueLabel) {
+                        m_zoomValueLabel->setText(QString("%1%").arg(static_cast<int>(newScale * 100)));
+                    }
+                }
+                
+                qDebug() << "VRVideoPlayer: S key pressed - zoom out to" << newScale;
+            }
+            event->accept();
+            break;
+            
+        case Qt::Key_D:
+            // D key for seek forward 10 seconds
+            if (m_videoLoaded && m_vlcPlayer) {
+                qDebug() << "VRVideoPlayer: D key pressed - seeking forward 10 seconds";
+                m_vlcPlayer->seekRelative(10000); // 10 seconds in milliseconds
+            }
+            event->accept();
+            break;
+            
+        case Qt::Key_A:
+            // A key for seek backward 10 seconds
+            if (m_videoLoaded && m_vlcPlayer) {
+                qDebug() << "VRVideoPlayer: A key pressed - seeking backward 10 seconds";
+                m_vlcPlayer->seekRelative(-10000); // -10 seconds in milliseconds
+            }
+            event->accept();
+            break;
+            
+        case Qt::Key_E:
+            // E key for Windows volume up
+            qDebug() << "VRVideoPlayer: E key pressed - increasing Windows system volume";
+#ifdef Q_OS_WIN
+            increaseWindowsVolume();
+#else
+            qDebug() << "VRVideoPlayer: Windows volume control only available on Windows";
+#endif
+            event->accept();
+            break;
+            
+        case Qt::Key_Q:
+            // Q key for Windows volume down
+            qDebug() << "VRVideoPlayer: Q key pressed - decreasing Windows system volume";
+#ifdef Q_OS_WIN
+            decreaseWindowsVolume();
+#else
+            qDebug() << "VRVideoPlayer: Windows volume control only available on Windows";
+#endif
+            event->accept();
+            break;
+            
         default:
             QWidget::keyPressEvent(event);
             break;
