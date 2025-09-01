@@ -190,6 +190,7 @@ bool VRVideoRenderer::createShaderPrograms()
         uniform float fisheyeMode;  // 0.0 = normal, 1.0 = fisheye
         uniform vec2 texOffset;
         uniform vec2 texScale;
+        uniform float swapChannels;  // 1.0 = swap R and B channels (for BGRA->RGBA fix)
         
         out vec4 fragColor;
         
@@ -264,6 +265,10 @@ bool VRVideoRenderer::createShaderPrograms()
             }
             
             vec4 texColor = texture(videoTexture, texCoord);
+            // Conditionally swap red and blue channels to fix color tint (BGRA -> RGBA)
+            if (swapChannels > 0.5) {
+                texColor.rgb = texColor.bgr;
+            }
             texColor.rgb = adjustColor(texColor.rgb);
             fragColor = texColor;
         }
@@ -531,6 +536,15 @@ bool VRVideoRenderer::createRenderTargets()
         return false;
     }
     
+    // Clear left eye framebuffer to black to remove any uninitialized data
+    if (m_leftEyeFBO->bind()) {
+        glViewport(0, 0, m_renderWidth, m_renderHeight);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);  // Clear to black
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        m_leftEyeFBO->release();
+        qDebug() << "VRVideoRenderer: Left eye framebuffer cleared to black";
+    }
+    
     // Create right eye framebuffer
     m_rightEyeFBO = std::make_unique<QOpenGLFramebufferObject>(
         QSize(m_renderWidth, m_renderHeight),
@@ -541,7 +555,16 @@ bool VRVideoRenderer::createRenderTargets()
         return false;
     }
     
-    qDebug() << "VRVideoRenderer: Render targets created successfully";
+    // Clear right eye framebuffer to black to remove any uninitialized data (especially blue tint)
+    if (m_rightEyeFBO->bind()) {
+        glViewport(0, 0, m_renderWidth, m_renderHeight);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);  // Clear to black (was potentially blue before)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        m_rightEyeFBO->release();
+        qDebug() << "VRVideoRenderer: Right eye framebuffer cleared to black";
+    }
+    
+    qDebug() << "VRVideoRenderer: Render targets created and cleared successfully";
     return true;
 }
 
@@ -894,6 +917,8 @@ void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye)
     m_sphereShader->setUniformValue("fisheyeMode", 0.0f);  // Normal mode, not fisheye
     m_sphereShader->setUniformValue("texOffset", texOffset);
     m_sphereShader->setUniformValue("texScale", texScale);
+    m_sphereShader->setUniformValue("swapChannels", 1.0f);  // Enable R/B channel swap to fix blue tint
+    m_sphereShader->setUniformValue("swapChannels", 1.0f);  // Enable R/B channel swap to fix blue tint
     
     // Log periodically to debug
     if ((leftEye && leftDomeCount % 90 == 0) || (!leftEye && rightDomeCount % 90 == 0)) {
@@ -975,6 +1000,7 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye)
     m_sphereShader->setUniformValue("fisheyeMode", 0.0f);  // Normal mode, not fisheye
     m_sphereShader->setUniformValue("texOffset", texOffset);
     m_sphereShader->setUniformValue("texScale", texScale);
+    m_sphereShader->setUniformValue("swapChannels", 1.0f);  // Enable R/B channel swap to fix blue tint
     
     // Bind video texture
     glActiveTexture(GL_TEXTURE0);
@@ -1054,6 +1080,7 @@ void VRVideoRenderer::renderFisheye(const QMatrix4x4& mvpMatrix, bool leftEye)
     m_sphereShader->setUniformValue("fisheyeMode", 1.0f);
     m_sphereShader->setUniformValue("texOffset", texOffset);
     m_sphereShader->setUniformValue("texScale", texScale);
+    m_sphereShader->setUniformValue("swapChannels", 1.0f);  // Enable R/B channel swap to fix blue tint
     
     // Bind video texture
     glActiveTexture(GL_TEXTURE0);
