@@ -400,8 +400,8 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
             }
             
             // Connect frame ready signal
-            connect(m_frameExtractor.get(), &VRVLCFrameExtractor::frameReady,
-                    this, &VRVideoPlayer::onFrameReady);
+            //connect(m_frameExtractor.get(), &VRVLCFrameExtractor::frameReady,
+            //        this, &VRVideoPlayer::onFrameReady);
         }
     }
     
@@ -836,40 +836,6 @@ void VRVideoPlayer::onRenderFrame()
     // This slot can be used for additional frame rendering logic
 }
 
-void VRVideoPlayer::onFrameReady()
-{
-    static int frameCount = 0;
-    frameCount++;
-    if (frameCount % 30 == 0) { // Log every 30th frame to avoid spam
-        qDebug() << "VRVideoPlayer: Frame ready from VLC, count:" << frameCount;
-    }
-    
-    if (!m_vrActive || !m_renderThread || !m_frameExtractor) {
-        if (frameCount % 30 == 0) {
-            qDebug() << "VRVideoPlayer: Frame ready but VR not active or components missing";
-            qDebug() << "VRVideoPlayer:   m_vrActive:" << m_vrActive 
-                     << "m_renderThread:" << (m_renderThread != nullptr)
-                     << "m_frameExtractor:" << (m_frameExtractor != nullptr);
-        }
-        return;
-    }
-    
-    // Get the current frame from the extractor
-    QImage frame = m_frameExtractor->getCurrentFrame();
-    if (!frame.isNull()) {
-        if (frameCount % 30 == 0) {
-            qDebug() << "VRVideoPlayer: Passing frame to render thread, size:" 
-                     << frame.width() << "x" << frame.height();
-        }
-        // Pass frame to render thread
-        m_renderThread->updateVideoFrame(frame);
-    } else {
-        if (frameCount % 30 == 0) {
-            qDebug() << "VRVideoPlayer: Frame is null!";
-        }
-    }
-}
-
 void VRVideoPlayer::updateVideoFrame()
 {
     // This method is now mostly deprecated since the render thread
@@ -1039,12 +1005,7 @@ void VRRenderThread::stopRendering()
     m_rendering = false;
 }
 
-void VRRenderThread::updateVideoFrame(const QImage& frame)
-{
-    QMutexLocker locker(&m_frameMutex);
-    m_currentFrame = frame;
-    m_frameUpdated = true;
-}
+
 
 void VRRenderThread::run()
 {
@@ -1186,25 +1147,6 @@ void VRRenderThread::renderFrame()
             m_vrRenderer->updateVideoTextureDirect(buffer, width, height);
             m_frameExtractor->unlockFrameBuffer();
         }
-        // Fallback to QImage if direct access fails
-        else if (m_frameUpdated) {
-            QMutexLocker locker(&m_frameMutex);
-            if (renderCount % 90 == 0) {
-                qDebug() << "VRRenderThread: Fallback to QImage update" 
-                         << m_currentFrame.width() << "x" << m_currentFrame.height();
-            }
-            m_vrRenderer->updateVideoTexture(m_currentFrame);
-            m_frameUpdated = false;
-        }
-    } else if (m_frameUpdated) {
-        // No frame extractor, use QImage path
-        QMutexLocker locker(&m_frameMutex);
-        if (renderCount % 90 == 0) {
-            qDebug() << "VRRenderThread: QImage update (no extractor)" 
-                     << m_currentFrame.width() << "x" << m_currentFrame.height();
-        }
-        m_vrRenderer->updateVideoTexture(m_currentFrame);
-        m_frameUpdated = false;
     } else {
         if (renderCount % 90 == 0) {
             qDebug() << "VRRenderThread: No new frame to render";

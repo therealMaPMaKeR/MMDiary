@@ -269,8 +269,8 @@ bool VRVideoRenderer::createSphereMesh()
             // U coordinate: horizontal wrapping around sphere
             vertex.u = (float)segment / m_sphereSegments;
             // V coordinate: vertical from top to bottom
-            // VLC provides bottom-up images, so we flip V coordinate
-            vertex.v = 1.0f - (float)ring / m_sphereRings;  // Actually flip for VLC
+            // No need to flip here as we flip the texture when uploading
+            vertex.v = (float)ring / m_sphereRings;
             
             vertices.append(vertex);
         }
@@ -367,8 +367,8 @@ bool VRVideoRenderer::createDomeMesh()
             // U maps from 0 to 1 across the 180-degree horizontal field
             vertex.u = (float)segment / m_sphereSegments;
             // V coordinate: vertical from top to bottom
-            // VLC provides bottom-up images, so we flip V coordinate
-            vertex.v = 1.0f - (float)ring / m_sphereRings;  // Flip for VLC
+            // No need to flip here as we flip the texture when uploading
+            vertex.v = (float)ring / m_sphereRings;
             
             vertices.append(vertex);
         }
@@ -556,6 +556,9 @@ bool VRVideoRenderer::updateVideoTextureDirect(void* buffer, unsigned int width,
     
     glBindTexture(GL_TEXTURE_2D, 0);
     
+    // Ensure texture update is completed
+    glFlush();
+    
     // Check for OpenGL errors
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
@@ -600,12 +603,19 @@ bool VRVideoRenderer::updateVideoTexture(const QImage& frame)
     glBindTexture(GL_TEXTURE_2D, m_videoTexture);
     
     // Convert image to OpenGL format
-    QImage glFrame = frame.convertToFormat(QImage::Format_RGBA8888).mirrored();
+    // Only flip vertically (false, true) because OpenGL has origin at bottom-left
+    QImage glFrame = frame.convertToFormat(QImage::Format_RGBA8888).mirrored(false, true);
+    
+    static QImage lastFrame;
+    bool frameChanged = (lastFrame.isNull() || lastFrame != glFrame);
     
     if (updateCount % 30 == 0) {
         qDebug() << "VRVideoRenderer: Updating texture" << m_videoTexture 
-                 << "with frame" << glFrame.width() << "x" << glFrame.height();
+                 << "with frame" << glFrame.width() << "x" << glFrame.height()
+                 << "Frame changed:" << frameChanged;
     }
+    
+    lastFrame = glFrame;
     
     // Check if we need to reallocate texture
     if (m_textureWidth != (unsigned int)glFrame.width() || m_textureHeight != (unsigned int)glFrame.height()) {
@@ -632,6 +642,9 @@ bool VRVideoRenderer::updateVideoTexture(const QImage& frame)
     }
     
     glBindTexture(GL_TEXTURE_2D, 0);
+    
+    // Ensure texture update is completed
+    glFlush();
     
     // Check for OpenGL errors
     GLenum err = glGetError();
@@ -687,12 +700,21 @@ void VRVideoRenderer::renderEye(bool leftEye, const QMatrix4x4& view, const QMat
     
     // Bind appropriate framebuffer
     QOpenGLFramebufferObject* fbo = leftEye ? m_leftEyeFBO.get() : m_rightEyeFBO.get();
-    fbo->bind();
+    if (!fbo->bind()) {
+        qDebug() << "VRVideoRenderer: Failed to bind framebuffer for" << (leftEye ? "left" : "right") << "eye";
+        return;
+    }
     
     // Clear to black (video should overlay this)
     glViewport(0, 0, m_renderWidth, m_renderHeight);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f); // Black background
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    
+    // Verify clear worked
+    GLenum clearErr = glGetError();
+    if (clearErr != GL_NO_ERROR && ((leftEye && leftRenderCount % 90 == 0) || (!leftEye && rightRenderCount % 90 == 0))) {
+        qDebug() << "VRVideoRenderer: OpenGL error after clear for" << (leftEye ? "left" : "right") << "eye:" << clearErr;
+    }
     
     // Enable depth testing
     glEnable(GL_DEPTH_TEST);
@@ -808,8 +830,14 @@ void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye)
 
 void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye)
 {
-    static int domeRenderCount = 0;
-    domeRenderCount++;
+    static int leftDomeCount = 0;
+    static int rightDomeCount = 0;
+    
+    if (leftEye) {
+        leftDomeCount++;
+    } else {
+        rightDomeCount++;
+    }
     
     // Clear any existing OpenGL errors
     while (glGetError() != GL_NO_ERROR) {}
@@ -842,15 +870,17 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye)
     if (m_videoTexture) {
         glBindTexture(GL_TEXTURE_2D, m_videoTexture);
         
-        if (domeRenderCount % 180 == 0) {
-            qDebug() << "VRVideoRenderer: Rendering dome for" << (leftEye ? "left" : "right") 
+        // Log separately for each eye
+        if ((leftEye && leftDomeCount % 180 == 0) || (!leftEye && rightDomeCount % 180 == 0)) {
+            qDebug() << "VRVideoRenderer: Rendering dome for" << (leftEye ? "LEFT" : "RIGHT") 
                      << "eye with texture" << m_videoTexture
                      << "indices:" << m_domeIndexCount
                      << "texOffset:" << texOffset << "texScale:" << texScale;
         }
     } else {
-        if (domeRenderCount % 180 == 0) {
-            qDebug() << "VRVideoRenderer: No video texture available for dome rendering";
+        if ((leftEye && leftDomeCount % 180 == 0) || (!leftEye && rightDomeCount % 180 == 0)) {
+            qDebug() << "VRVideoRenderer: No video texture available for dome rendering (" 
+                     << (leftEye ? "LEFT" : "RIGHT") << "eye)";
         }
     }
     
@@ -860,8 +890,11 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye)
     
     // Check for errors after drawing
     GLenum err = glGetError();
-    if (err != GL_NO_ERROR && domeRenderCount % 180 == 0) {
-        qDebug() << "VRVideoRenderer: OpenGL error after dome draw:" << err;
+    if (err != GL_NO_ERROR) {
+        if ((leftEye && leftDomeCount % 180 == 0) || (!leftEye && rightDomeCount % 180 == 0)) {
+            qDebug() << "VRVideoRenderer: OpenGL error after dome draw (" 
+                     << (leftEye ? "LEFT" : "RIGHT") << "eye):" << err;
+        }
     }
     
     m_domeVAO.release();

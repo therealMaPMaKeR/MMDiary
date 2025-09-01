@@ -85,7 +85,6 @@ private slots:
     void onVRStatusChanged(VROpenVRManager::VRStatus status);
     void onVRError(const QString& error);
     void onRenderFrame();
-    void onFrameReady();
     void updateVideoFrame();
     void onPlayPauseClicked();
     void onStopClicked();
@@ -169,7 +168,6 @@ public:
 
     void startRendering();
     void stopRendering();
-    void updateVideoFrame(const QImage& frame);
     void setShareContext(QOpenGLContext* context) { m_shareContext = context; }
     void setFrameExtractor(VRVLCFrameExtractor* extractor) { m_frameExtractor = extractor; }
     

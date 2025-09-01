@@ -112,7 +112,7 @@ QImage VRVLCFrameExtractor::getCurrentFrame() const
                                QImage::Format_RGBA8888).copy();
     }
     
-    return m_currentFrame.copy();
+    return QImage();
 }
 
 bool VRVLCFrameExtractor::updateTexture()
@@ -226,22 +226,21 @@ void VRVLCFrameExtractor::formatCleanupCallback(void* opaque)
 // Instance method implementations
 void* VRVLCFrameExtractor::lock(void** planes)
 {
-    QMutexLocker locker(&m_frameMutex);
-    
+    m_frameMutex.lock();  // Lock here and hold through VLC write.
     if (!m_pixelBuffer) {
         qDebug() << "VRVLCFrameExtractor: Buffer not allocated";
+        m_frameMutex.unlock();  // Early unlock on error.
         return nullptr;
     }
-    
     *planes = m_pixelBuffer.get();
-    return nullptr; // Picture identifier, not needed
+    return nullptr;  // Return; mutex stays locked.
 }
 
 void VRVLCFrameExtractor::unlock(void* picture, void* const* planes)
 {
     Q_UNUSED(picture);
     Q_UNUSED(planes);
-    // Nothing to do here, buffer remains locked until display
+    m_frameMutex.unlock();  // Unlock after VLC write completes.
 }
 
 void VRVLCFrameExtractor::display(void* picture)
