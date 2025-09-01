@@ -457,25 +457,28 @@ bool VRVideoRenderer::createDomeMeshWithCoverage(float horizontalDegrees, float 
     
     // Generate dome vertices with variable angular coverage
     for (int ring = 0; ring <= m_sphereRings; ++ring) {
-        // Vertical angle from 0 to verticalRadians
-        float theta = ring * verticalRadians / m_sphereRings;
+        // For proper dome shape that stays centered:
+        // Map ring from 0 to 1, then to angle range centered on horizon
+        float ringRatio = (float)ring / m_sphereRings;
+        // Vertical angle from -verticalRadians/2 to +verticalRadians/2 (centered on horizon)
+        float theta = (ringRatio * verticalRadians) - (verticalRadians / 2.0f) + (M_PI / 2.0f);
         float sinTheta = qSin(theta);
         float cosTheta = qCos(theta);
         
         for (int segment = 0; segment <= m_sphereSegments; ++segment) {
             // Horizontal angle from -horizontalRadians/2 to +horizontalRadians/2
-            float phi = (segment * horizontalRadians / m_sphereSegments) - (horizontalRadians / 2.0f);
+            float segmentRatio = (float)segment / m_sphereSegments;
+            float phi = (segmentRatio * horizontalRadians) - (horizontalRadians / 2.0f);
             float sinPhi = qSin(phi);
             float cosPhi = qCos(phi);
             
             Vertex vertex;
             // Position the dome facing forward (negative Z)
-            // Adjusted to create a proper 180° hemisphere
             // Scale up the dome for better viewing
-            float scale = 1.5f; // Make the dome larger
+            float scale = 1.5f;
             // IMPORTANT: Negate X to create an inside-out dome for viewing from inside
             vertex.x = -cosPhi * sinTheta * scale;  // Left-right (negated for inside viewing)
-            vertex.y = cosTheta * scale;             // Up-down
+            vertex.y = cosTheta * scale;             // Up-down (now properly centered)
             vertex.z = -sinPhi * sinTheta * scale;  // Forward-back (negated for forward)
             
             // Texture coordinates - always map the full texture range [0,1]
@@ -995,30 +998,32 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye, floa
         rightDomeCount++;
     }
     
-    // Update dome angular coverage based on zoom scale
-    // DeoVR-style zoom: Adjust angular coverage instead of FOV
-    // zoom < 1.0: reduce coverage (zoom out, creates () shape)
-    // zoom > 1.0: increase coverage (zoom in, creates )( shape and wraps behind)
+    // For DeoVR-style zoom, adjust dome angular coverage
+    // This creates circular viewport when zooming out and wrap-around when zooming in
     if (qAbs(zoomScale - m_currentZoomScale) > 0.001f) {
-        // Calculate new angular coverage based on zoom
-        // At zoom 1.0: 180 degrees
-        // At zoom 0.5: 90 degrees (zoomed out, smaller dome)
-        // At zoom 2.0: 360 degrees (zoomed in, wraps all around)
-        float targetHorizontalCoverage = 180.0f * zoomScale;
-        float targetVerticalCoverage = 180.0f * zoomScale;
+        float targetHorizontalCoverage, targetVerticalCoverage;
+        
+        // Both zoom in and out adjust coverage
+        // Zoom out: reduce coverage (creates "()" circular shape)
+        // Zoom in: increase coverage (creates ")(" wrap-around shape)
+        targetHorizontalCoverage = 180.0f * zoomScale;
+        targetVerticalCoverage = 180.0f * zoomScale;
         
         // Clamp to reasonable ranges
         targetHorizontalCoverage = qBound(45.0f, targetHorizontalCoverage, 360.0f);
-        targetVerticalCoverage = qBound(45.0f, targetVerticalCoverage, 180.0f);  // Don't go beyond hemisphere vertically
+        targetVerticalCoverage = qBound(45.0f, targetVerticalCoverage, 180.0f);
         
         // Update the dome mesh with new coverage
-        updateDomeAngularCoverage(targetHorizontalCoverage, targetVerticalCoverage);
-        m_currentZoomScale = zoomScale;
-        
-        if ((leftEye && leftDomeCount % 30 == 0) || (!leftEye && rightDomeCount % 30 == 0)) {
-            qDebug() << "VRVideoRenderer: Dome zoom changed to" << zoomScale 
-                     << "- Coverage:" << targetHorizontalCoverage << "x" << targetVerticalCoverage << "degrees";
+        if (qAbs(m_domeHorizontalCoverage - targetHorizontalCoverage) > 0.1f || 
+            qAbs(m_domeVerticalCoverage - targetVerticalCoverage) > 0.1f) {
+            updateDomeAngularCoverage(targetHorizontalCoverage, targetVerticalCoverage);
+            m_currentZoomScale = zoomScale;
         }
+    }
+    
+    if ((leftEye && leftDomeCount % 30 == 0) || (!leftEye && rightDomeCount % 30 == 0)) {
+        qDebug() << "VRVideoRenderer: Dome zoom:" << zoomScale 
+                 << "- Coverage:" << m_domeHorizontalCoverage << "x" << m_domeVerticalCoverage << "degrees";
     }
     
     // Clear any existing OpenGL errors
