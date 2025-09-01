@@ -165,6 +165,7 @@ bool VRVideoRenderer::createShaderPrograms()
         uniform mat4 mvpMatrix;
         uniform vec2 texOffset;
         uniform vec2 texScale;
+        uniform float is180Mode;  // 1.0 for 180 degree videos, 0.0 otherwise
         
         out vec2 fragTexCoord;
         out vec3 worldPos;
@@ -172,7 +173,29 @@ bool VRVideoRenderer::createShaderPrograms()
         void main()
         {
             gl_Position = mvpMatrix * vec4(position, 1.0);
-            fragTexCoord = texCoord * texScale + texOffset;
+            
+            // For 180-degree SBS/TB videos, we need special handling
+            // Each eye's image already contains the full 180-degree FOV
+            if (is180Mode > 0.5) {
+                // For 180 SBS: map the full dome U coordinates (0-1) to either the left half (0-0.5) or right half (0.5-1)
+                // For 180 TB: map the full dome V coordinates (0-1) to either the top half (0-0.5) or bottom half (0.5-1)
+                if (texScale.x < 0.6) { // SBS mode (texScale.x = 0.5)
+                    // Map full U range to half the texture width
+                    fragTexCoord.x = texCoord.x * 0.5 + texOffset.x;
+                    fragTexCoord.y = texCoord.y;
+                } else if (texScale.y < 0.6) { // TB mode (texScale.y = 0.5)
+                    // Map full V range to half the texture height
+                    fragTexCoord.x = texCoord.x;
+                    fragTexCoord.y = texCoord.y * 0.5 + texOffset.y;
+                } else {
+                    // Mono 180 mode
+                    fragTexCoord = texCoord;
+                }
+            } else {
+                // 360-degree mode or flat - use normal scaling
+                fragTexCoord = texCoord * texScale + texOffset;
+            }
+            
             worldPos = position;
         }
     )";
@@ -289,6 +312,8 @@ bool VRVideoRenderer::createShaderPrograms()
         #version 330 core
         layout(location = 0) in vec2 position;
         layout(location = 1) in vec2 texCoord;
+        
+        uniform float is180Mode;  // For consistency, though not used in flat mode
         
         out vec2 fragTexCoord;
         
@@ -431,8 +456,8 @@ bool VRVideoRenderer::createDomeMesh()
     
     // Generate dome vertices (hemisphere facing forward)
     for (int ring = 0; ring <= m_sphereRings; ++ring) {
-        // Go from 0 to PI for full vertical coverage
-        float theta = ring * M_PI / m_sphereRings;
+        // Go from 0 to PI/2 for 90 degrees vertical coverage (hemisphere)
+        float theta = ring * M_PI * 0.5f / m_sphereRings;
         float sinTheta = qSin(theta);
         float cosTheta = qCos(theta);
         
@@ -893,6 +918,7 @@ void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye)
     m_sphereShader->setUniformValue("fisheyeMode", 0.0f);  // Normal mode, not fisheye
     m_sphereShader->setUniformValue("texOffset", texOffset);
     m_sphereShader->setUniformValue("texScale", texScale);
+    m_sphereShader->setUniformValue("is180Mode", 0.0f);  // 360-degree mode
     
     // Log periodically to debug
     if ((leftEye && leftDomeCount % 90 == 0) || (!leftEye && rightDomeCount % 90 == 0)) {
@@ -975,6 +1001,12 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye)
     m_sphereShader->setUniformValue("texOffset", texOffset);
     m_sphereShader->setUniformValue("texScale", texScale);
     
+    // Set 180 mode flag for proper texture coordinate handling
+    float is180Mode = (m_videoFormat == VideoFormat::Mono180 || 
+                       m_videoFormat == VideoFormat::Stereo180_TB || 
+                       m_videoFormat == VideoFormat::Stereo180_SBS) ? 1.0f : 0.0f;
+    m_sphereShader->setUniformValue("is180Mode", is180Mode);
+    
     // Bind video texture
     glActiveTexture(GL_TEXTURE0);
     if (m_videoTexture) {
@@ -1054,6 +1086,9 @@ void VRVideoRenderer::renderFisheye(const QMatrix4x4& mvpMatrix, bool leftEye)
     m_sphereShader->setUniformValue("texOffset", texOffset);
     m_sphereShader->setUniformValue("texScale", texScale);
     
+    // Set 180 mode flag for fisheye videos (they are all 180-degree)
+    m_sphereShader->setUniformValue("is180Mode", 1.0f);
+    
     // Bind video texture
     glActiveTexture(GL_TEXTURE0);
     if (m_videoTexture) {
@@ -1103,6 +1138,7 @@ void VRVideoRenderer::renderFlat(const QMatrix4x4& mvpMatrix)
     m_flatShader->setUniformValue("brightness", m_brightness);
     m_flatShader->setUniformValue("contrast", m_contrast);
     m_flatShader->setUniformValue("saturation", m_saturation);
+    m_flatShader->setUniformValue("is180Mode", 0.0f);  // Not used for flat video
     
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_videoTexture);
