@@ -32,8 +32,9 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     , m_fileLabel(nullptr)
     , m_playPauseButton(nullptr)
     , m_stopButton(nullptr)
-    , m_exitVRButton(nullptr)
+    , m_closeButton(nullptr)
     , m_positionLabel(nullptr)
+    , m_positionSlider(nullptr)
     , m_formatComboBox(nullptr)
     , m_projectionComboBox(nullptr)
     , m_ipdSpinBox(nullptr)
@@ -102,6 +103,13 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     m_positionTimer->setInterval(100); // Update position 10 times per second
     connect(m_positionTimer, &QTimer::timeout, this, &VRVideoPlayer::updatePlaybackPosition);
     
+    // Set window flags for modal behavior and always on top
+    setWindowFlags(Qt::Window | Qt::WindowTitleHint | Qt::WindowCloseButtonHint | 
+                   Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint |
+                   Qt::WindowStaysOnTopHint);
+    setWindowModality(Qt::ApplicationModal);
+    qDebug() << "VRVideoPlayer: Set window flags for modal and always on top behavior";
+    
     // Try to initialize VR on startup to check availability
     initializeVR();
 }
@@ -152,11 +160,12 @@ void VRVideoPlayer::setupUI()
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(10, 10, 10, 10);
     
-    // Status label
+    // Status label (hidden per user request)
     m_statusLabel = new QLabel("VR Video Player Ready", this);
     m_statusLabel->setAlignment(Qt::AlignCenter);
     m_statusLabel->setStyleSheet("QLabel { font-size: 16px; font-weight: bold; color: white; background-color: #2c3e50; padding: 10px; border-radius: 5px; }");
-    mainLayout->addWidget(m_statusLabel);
+    m_statusLabel->hide(); // Hide the play status text as requested
+    // mainLayout->addWidget(m_statusLabel); // Commented out to not show
     
     // File label
     m_fileLabel = new QLabel("No video loaded", this);
@@ -190,6 +199,7 @@ void VRVideoPlayer::setupUI()
     m_formatComboBox->addItem("Stereo Top-Bottom");
     m_formatComboBox->addItem("Stereo Side-by-Side");
     m_formatComboBox->setCurrentIndex(0);
+    m_formatComboBox->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
     connect(m_formatComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &VRVideoPlayer::onFormatComboBoxChanged);
     formatLayout->addWidget(m_formatLabel, 0, 0);
@@ -202,6 +212,7 @@ void VRVideoPlayer::setupUI()
     m_projectionComboBox->addItem("180°");
     m_projectionComboBox->addItem("360°");
     m_projectionComboBox->setCurrentIndex(1); // Default to 180
+    m_projectionComboBox->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
     connect(m_projectionComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &VRVideoPlayer::onProjectionComboBoxChanged);
     formatLayout->addWidget(m_projectionLabel, 0, 2);
@@ -215,6 +226,7 @@ void VRVideoPlayer::setupUI()
     m_ipdSpinBox->setSuffix("%");
     m_ipdSpinBox->setSingleStep(5);
     m_ipdSpinBox->setToolTip("Adjust eye separation to fix double vision");
+    m_ipdSpinBox->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
     connect(m_ipdSpinBox, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &VRVideoPlayer::onIPDSpinBoxChanged);
     formatLayout->addWidget(m_ipdLabel, 1, 0);
@@ -228,6 +240,7 @@ void VRVideoPlayer::setupUI()
     m_zoomSlider->setSingleStep(10);
     m_zoomSlider->setPageStep(50);
     m_zoomSlider->setToolTip("Adjust video zoom level");
+    m_zoomSlider->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
     m_zoomValueLabel = new QLabel("100%", this);
     m_zoomValueLabel->setFixedWidth(50);
     connect(m_zoomSlider, &QSlider::valueChanged, this, &VRVideoPlayer::onZoomSliderChanged);
@@ -237,26 +250,43 @@ void VRVideoPlayer::setupUI()
     
     mainLayout->addWidget(formatGroup);
     
+    // Position slider for seeking
+    QLabel* positionSliderLabel = new QLabel("Position:", this);
+    m_positionSlider = new QSlider(Qt::Horizontal, this);
+    m_positionSlider->setEnabled(false);
+    m_positionSlider->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
+    m_positionSlider->setToolTip("Seek through video playback");
+    connect(m_positionSlider, &QSlider::sliderPressed, this, &VRVideoPlayer::onPositionSliderPressed);
+    connect(m_positionSlider, &QSlider::sliderReleased, this, &VRVideoPlayer::onPositionSliderReleased);
+    connect(m_positionSlider, &QSlider::valueChanged, this, &VRVideoPlayer::onPositionSliderMoved);
+    
+    QHBoxLayout* positionLayout = new QHBoxLayout();
+    positionLayout->addWidget(positionSliderLabel);
+    positionLayout->addWidget(m_positionSlider, 1);
+    mainLayout->addLayout(positionLayout);
+    
     // Control buttons
     QHBoxLayout* buttonLayout = new QHBoxLayout();
     
     m_playPauseButton = new QPushButton("Play", this);
     m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
     m_playPauseButton->setEnabled(false);
+    m_playPauseButton->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
     connect(m_playPauseButton, &QPushButton::clicked, this, &VRVideoPlayer::onPlayPauseClicked);
     buttonLayout->addWidget(m_playPauseButton);
     
     m_stopButton = new QPushButton("Stop", this);
     m_stopButton->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
     m_stopButton->setEnabled(false);
+    m_stopButton->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
     connect(m_stopButton, &QPushButton::clicked, this, &VRVideoPlayer::onStopClicked);
     buttonLayout->addWidget(m_stopButton);
     
-    m_exitVRButton = new QPushButton("Exit VR Mode", this);
-    m_exitVRButton->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
-    m_exitVRButton->setEnabled(false);
-    connect(m_exitVRButton, &QPushButton::clicked, this, &VRVideoPlayer::onExitVRClicked);
-    buttonLayout->addWidget(m_exitVRButton);
+    m_closeButton = new QPushButton("Close", this);
+    m_closeButton->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
+    m_closeButton->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
+    connect(m_closeButton, &QPushButton::clicked, this, &VRVideoPlayer::onCloseClicked);
+    buttonLayout->addWidget(m_closeButton);
     
     mainLayout->addLayout(buttonLayout);
     
@@ -527,7 +557,7 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
     
     // Update UI
     m_fileLabel->setText(fileInfo.fileName());
-    m_statusLabel->setText("Video loaded - Ready to play in VR");
+    // m_statusLabel->setText("Video loaded - Ready to play in VR"); // Status label hidden
     updateUIState();
     
     // Detect video format
@@ -589,7 +619,7 @@ void VRVideoPlayer::play()
         // Update UI
         m_playPauseButton->setText("Pause");
         m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
-        m_statusLabel->setText("Playing in VR headset");
+        // m_statusLabel->setText("Playing in VR headset"); // Status label hidden
         
         emit playbackStateChanged(true);
     }
@@ -612,7 +642,7 @@ void VRVideoPlayer::pause()
         // Update UI
         m_playPauseButton->setText("Play");
         m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-        m_statusLabel->setText("Paused");
+        // m_statusLabel->setText("Paused"); // Status label hidden
         
         emit playbackStateChanged(false);
     }
@@ -620,30 +650,35 @@ void VRVideoPlayer::pause()
 
 void VRVideoPlayer::stop()
 {
-    qDebug() << "VRVideoPlayer: Stop requested";
+    qDebug() << "VRVideoPlayer: Custom stop requested - seek to 0 and pause";
     
-    // Stop using VLC player
+    // Custom stop behavior: seek to position 0 and pause instead of full stop
+    // This prevents temp file cleanup while allowing user to restart from beginning
     if (m_vlcPlayer) {
-        m_vlcPlayer->stop();
-        m_isPlaying = false;
+        // Seek to beginning
+        m_vlcPlayer->setPosition(0);
         m_position = 0;
         
-        // Stop frame timer
-        m_frameTimer->stop();
-        
-        // Exit VR mode if active
-        if (m_vrActive) {
-            exitVRMode();
+        // Pause playback instead of stopping
+        if (m_isPlaying) {
+            m_vlcPlayer->pause();
+            m_isPlaying = false;
+            
+            // Stop frame timer if in VR mode
+            if (m_vrActive) {
+                m_frameTimer->stop();
+            }
         }
         
-        // Update UI
+        // Force the play button text to "Play" as requested
         m_playPauseButton->setText("Play");
         m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-        m_statusLabel->setText("Stopped");
         updatePlaybackPosition();
         
         emit playbackStateChanged(false);
         emit positionChanged(0);
+        
+        qDebug() << "VRVideoPlayer: Custom stop complete - video paused at position 0";
     }
 }
 
@@ -802,8 +837,8 @@ void VRVideoPlayer::enterVRMode()
     m_vrActive = true;
     
     // Update UI to show VR is active
-    m_statusLabel->setText("VR Mode Active - Space: recenter | P: play/pause");
-    m_exitVRButton->setEnabled(true);
+    // m_statusLabel->setText("VR Mode Active - Space: recenter | P: play/pause"); // Status label hidden
+    // Note: Close button is always enabled (no longer exitVR button)
     
     // Ensure this widget has keyboard focus for spacebar handling
     setFocus(Qt::OtherFocusReason);
@@ -829,8 +864,8 @@ void VRVideoPlayer::exitVRMode()
     m_vrActive = false;
     
     // Update UI
-    m_statusLabel->setText("VR Mode Exited");
-    m_exitVRButton->setEnabled(false);
+    // m_statusLabel->setText("VR Mode Exited"); // Status label hidden
+    // Note: Close button remains enabled (no longer exitVR button)
     
     emit vrStatusChanged(false);
     
@@ -923,15 +958,7 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
 {
     qDebug() << "VRVideoPlayer: keyPressEvent - Key:" << event->key() << "VR Active:" << m_vrActive;
     
-    // Handle VR-specific keyboard shortcuts
-    if (event->key() == Qt::Key_V && event->modifiers() & Qt::ControlModifier) {
-        if (isVRAvailable()) {
-            toggleVRMode();
-        }
-        return;
-    }
-    
-    // Handle playback controls
+    // Handle only spacebar and P key as requested
     switch (event->key()) {
         case Qt::Key_Space:
             // In VR mode, spacebar recenters the view
@@ -953,63 +980,6 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
             qDebug() << "VRVideoPlayer: P key pressed - toggling play/pause";
             onPlayPauseClicked();
             event->accept();
-            break;
-        case Qt::Key_S:
-            onStopClicked();
-            event->accept();
-            break;
-        case Qt::Key_Escape:
-            if (m_vrActive) {
-                exitVRMode();
-            }
-            event->accept();
-            break;
-        case Qt::Key_R:
-            // R key to reset recenter offset (for debugging)
-            if (m_vrActive && m_renderThread) {
-                qDebug() << "VRVideoPlayer: R key pressed - resetting recenter offset";
-                m_renderThread->resetRecenterOffset();
-                event->accept();
-            }
-            break;
-        case Qt::Key_I:
-            // I key for info (debugging)
-            if (m_vrActive && m_vrRenderer) {
-                const char* formatNames[] = {
-                    "Mono360", "Stereo360_TB", "Stereo360_SBS", 
-                    "Mono180", "Stereo180_TB", "Stereo180_SBS", "Flat2D",
-                    "Fisheye180", "Fisheye180_TB", "Fisheye180_SBS"
-                };
-                const char* formatDescriptions[] = {
-                    "360° Equirectangular Mono",
-                    "360° Equirectangular Stereo Top-Bottom", 
-                    "360° Equirectangular Stereo Side-by-Side",
-                    "180° Hemisphere Equirectangular Mono",
-                    "180° Hemisphere Equirectangular Stereo TB",
-                    "180° Hemisphere Equirectangular Stereo SBS",
-                    "Flat 2D Video",
-                    "180° Fisheye/Circular Mono",
-                    "180° Fisheye/Circular Stereo TB",
-                    "180° Fisheye/Circular Stereo SBS"
-                };
-                int format = (int)m_vrRenderer->getVideoFormat();
-                qDebug() << "VRVideoPlayer: I key pressed - Video info:";
-                qDebug() << "VRVideoPlayer: Current format:" << formatNames[format];
-                qDebug() << "VRVideoPlayer: Description:" << formatDescriptions[format];
-                qDebug() << "VRVideoPlayer: VR Active:" << m_vrActive;
-                qDebug() << "VRVideoPlayer: Is Playing:" << m_isPlaying;
-                if (m_renderThread) {
-                    qDebug() << "VRVideoPlayer: Video scale/zoom:" << m_renderThread->getVideoScale();
-                    qDebug() << "VRVideoPlayer: IPD scale:" << m_renderThread->getIPDScale();
-                }
-                qDebug() << "VRVideoPlayer: Tips:";
-                qDebug() << "VRVideoPlayer:   Spacebar = recenter view";
-                qDebug() << "VRVideoPlayer:   P = play/pause";
-                qDebug() << "VRVideoPlayer:   Escape = exit VR mode";
-                qDebug() << "VRVideoPlayer:   Use UI controls for format, zoom, and IPD adjustments";
-                event->accept();
-            }
-
             break;
         default:
             QWidget::keyPressEvent(event);
@@ -1119,9 +1089,58 @@ void VRVideoPlayer::onStopClicked()
     stop();
 }
 
-void VRVideoPlayer::onExitVRClicked()
+void VRVideoPlayer::onCloseClicked()
 {
-    exitVRMode();
+    qDebug() << "VRVideoPlayer: Close button clicked - closing player";
+    close();
+}
+
+void VRVideoPlayer::onPositionSliderPressed()
+{
+    qDebug() << "VRVideoPlayer: Position slider pressed - pausing updates";
+    m_isSliderBeingMoved = true;
+}
+
+void VRVideoPlayer::onPositionSliderReleased()
+{
+    qDebug() << "VRVideoPlayer: Position slider released - resuming updates";
+    m_isSliderBeingMoved = false;
+    
+    // Immediately seek to the new position
+    if (m_videoLoaded && m_vlcPlayer) {
+        qint64 newPosition = (m_positionSlider->value() * m_duration) / 1000;
+        qDebug() << "VRVideoPlayer: Seeking to position" << newPosition << "ms";
+        seek(newPosition);
+    }
+}
+
+void VRVideoPlayer::onPositionSliderMoved(int position)
+{
+    if (m_isSliderBeingMoved && m_videoLoaded) {
+        // Update position label while dragging but don't seek yet
+        qint64 newPosition = (position * m_duration) / 1000;
+        
+        auto formatTime = [](qint64 ms) -> QString {
+            int seconds = (ms / 1000) % 60;
+            int minutes = (ms / 60000) % 60;
+            int hours = (ms / 3600000);
+            
+            if (hours > 0) {
+                return QString("%1:%2:%3")
+                    .arg(hours, 2, 10, QChar('0'))
+                    .arg(minutes, 2, 10, QChar('0'))
+                    .arg(seconds, 2, 10, QChar('0'));
+            } else {
+                return QString("%1:%2")
+                    .arg(minutes, 2, 10, QChar('0'))
+                    .arg(seconds, 2, 10, QChar('0'));
+            }
+        };
+        
+        m_positionLabel->setText(QString("%1 / %2")
+            .arg(formatTime(newPosition))
+            .arg(formatTime(m_duration)));
+    }
 }
 
 void VRVideoPlayer::onFormatComboBoxChanged(int index)
@@ -1228,15 +1247,28 @@ void VRVideoPlayer::updatePlaybackPosition()
     m_positionLabel->setText(QString("%1 / %2")
         .arg(formatTime(m_position))
         .arg(formatTime(m_duration)));
+    
+    // Update position slider if not being moved by user
+    if (m_positionSlider && !m_isSliderBeingMoved && m_duration > 0) {
+        int sliderPosition = (int)((m_position * 1000) / m_duration);
+        m_positionSlider->setValue(sliderPosition);
+    }
 }
 
 void VRVideoPlayer::updateUIState()
 {
-    // Enable/disable buttons based on state
+    // Enable/disable buttons and controls based on state
     bool hasVideo = m_videoLoaded;
     m_playPauseButton->setEnabled(hasVideo);
     m_stopButton->setEnabled(hasVideo && (m_isPlaying || m_position > 0));
-    m_exitVRButton->setEnabled(m_vrActive);
+    
+    // Enable position slider when video is loaded
+    if (m_positionSlider) {
+        m_positionSlider->setEnabled(hasVideo);
+        if (hasVideo && m_duration > 0) {
+            m_positionSlider->setRange(0, 1000); // 0-1000 for percentage-based seeking
+        }
+    }
 }
 
 void VRVideoPlayer::showVRErrorMessage(const QString& message)

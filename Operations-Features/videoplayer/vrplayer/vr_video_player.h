@@ -92,7 +92,10 @@ private slots:
     void updateVideoFrame();
     void onPlayPauseClicked();
     void onStopClicked();
-    void onExitVRClicked();
+    void onCloseClicked();
+    void onPositionSliderPressed();
+    void onPositionSliderReleased();
+    void onPositionSliderMoved(int position);
     void onFormatComboBoxChanged(int index);
     void onProjectionComboBoxChanged(int index);
     void onIPDSpinBoxChanged(int value);
@@ -128,8 +131,9 @@ private:
     QLabel* m_fileLabel;
     QPushButton* m_playPauseButton;
     QPushButton* m_stopButton;
-    QPushButton* m_exitVRButton;
+    QPushButton* m_closeButton;
     QLabel* m_positionLabel;
+    QSlider* m_positionSlider;      // New position slider for seeking
     
     // VR-specific UI controls
     QComboBox* m_formatComboBox;      // Video format selection (mono/stereo)
