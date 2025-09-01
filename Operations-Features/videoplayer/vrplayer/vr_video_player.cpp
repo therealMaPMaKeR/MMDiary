@@ -1569,30 +1569,20 @@ void VRRenderThread::renderFrame()
     QMatrix4x4 leftProj = m_vrManager->getProjectionMatrix(true, 0.1f, 1000.0f);
     QMatrix4x4 rightProj = m_vrManager->getProjectionMatrix(false, 0.1f, 1000.0f);
     
-    // Apply zoom by modifying the projection FOV
-    // Smaller scale = wider FOV (zoom out), larger scale = narrower FOV (zoom in)
-    if (m_videoScale != 1.0f) {
-        // Scale the projection matrix elements that control FOV
-        leftProj(0, 0) *= m_videoScale;  // Horizontal FOV
-        leftProj(1, 1) *= m_videoScale;  // Vertical FOV
-        rightProj(0, 0) *= m_videoScale;
-        rightProj(1, 1) *= m_videoScale;
-    }
-    
-    // Don't apply scale to view matrices anymore - we're using projection scaling
-    // which is more effective for zoom
+    // Don't modify projection matrices - pass zoom to renderer instead
+    // This avoids perspective distortions that occur with FOV manipulation
     
     // Log scale application periodically
     static int scaleLogCount = 0;
     if (++scaleLogCount % 300 == 0) { // Every ~3 seconds
         qDebug() << "VRRenderThread: Video scale (zoom):" << m_videoScale;
         qDebug() << "VRRenderThread: IPD scale:" << m_ipdScale;
-        qDebug() << "VRRenderThread: Projection FOV scaled by:" << m_videoScale;
+        qDebug() << "VRRenderThread: Using geometry scaling for zoom (not FOV modification)";
     }
     
-    // Render each eye
-    m_vrRenderer->renderEye(true, leftView, leftProj);
-    m_vrRenderer->renderEye(false, rightView, rightProj);
+    // Render each eye with zoom scale passed to the renderer
+    m_vrRenderer->renderEye(true, leftView, leftProj, m_videoScale);
+    m_vrRenderer->renderEye(false, rightView, rightProj, m_videoScale);
     
     // Debug output to verify matrices are different for stereoscopic effect
     static int debugCount = 0;

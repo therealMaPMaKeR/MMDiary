@@ -165,15 +165,18 @@ bool VRVideoRenderer::createShaderPrograms()
         uniform mat4 mvpMatrix;
         uniform vec2 texOffset;
         uniform vec2 texScale;
+        uniform float zoomScale;  // Zoom scale for geometry
         
         out vec2 fragTexCoord;
         out vec3 worldPos;
         
         void main()
         {
-            gl_Position = mvpMatrix * vec4(position, 1.0);
+            // Apply zoom by scaling the vertex position
+            vec3 scaledPosition = position * zoomScale;
+            gl_Position = mvpMatrix * vec4(scaledPosition, 1.0);
             fragTexCoord = texCoord * texScale + texOffset;
-            worldPos = position;
+            worldPos = position;  // Keep original position for texture calculations
         }
     )";
     
@@ -784,7 +787,7 @@ bool VRVideoRenderer::updateVideoTexture(GLuint textureId)
     return true;
 }
 
-void VRVideoRenderer::renderEye(bool leftEye, const QMatrix4x4& view, const QMatrix4x4& projection)
+void VRVideoRenderer::renderEye(bool leftEye, const QMatrix4x4& view, const QMatrix4x4& projection, float zoomScale)
 {
     static int leftRenderCount = 0;
     static int rightRenderCount = 0;
@@ -842,23 +845,23 @@ void VRVideoRenderer::renderEye(bool leftEye, const QMatrix4x4& view, const QMat
         case VideoFormat::Mono360:
         case VideoFormat::Stereo360_TB:
         case VideoFormat::Stereo360_SBS:
-            renderSphere(mvpMatrix, leftEye);
+            renderSphere(mvpMatrix, leftEye, zoomScale);
             break;
             
         case VideoFormat::Mono180:
         case VideoFormat::Stereo180_TB:
         case VideoFormat::Stereo180_SBS:
-            renderDome(mvpMatrix, leftEye);
+            renderDome(mvpMatrix, leftEye, zoomScale);
             break;
             
         case VideoFormat::Fisheye180:
         case VideoFormat::Fisheye180_TB:
         case VideoFormat::Fisheye180_SBS:
-            renderFisheye(mvpMatrix, leftEye);
+            renderFisheye(mvpMatrix, leftEye, zoomScale);
             break;
             
         case VideoFormat::Flat2D:
-            renderFlat(mvpMatrix);
+            renderFlat(mvpMatrix, zoomScale);
             break;
     }
     
@@ -877,7 +880,7 @@ void VRVideoRenderer::renderEye(bool leftEye, const QMatrix4x4& view, const QMat
     fbo->release();
 }
 
-void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye)
+void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye, float zoomScale)
 {
     static int sphereRenderCount = 0;
     sphereRenderCount++;
@@ -910,6 +913,7 @@ void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye)
     m_sphereShader->setUniformValue("brightness", m_brightness);
     m_sphereShader->setUniformValue("contrast", m_contrast);
     m_sphereShader->setUniformValue("saturation", m_saturation);
+    m_sphereShader->setUniformValue("zoomScale", zoomScale);  // Apply zoom scale
     
     // Set texture coordinate offset and scale based on format
     QVector2D texOffset = getTextureCoordOffset(leftEye);
@@ -963,7 +967,7 @@ void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye)
     m_sphereShader->release();
 }
 
-void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye)
+void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye, float zoomScale)
 {
     static int leftDomeCount = 0;
     static int rightDomeCount = 0;
@@ -993,6 +997,7 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye)
     m_sphereShader->setUniformValue("brightness", m_brightness);
     m_sphereShader->setUniformValue("contrast", m_contrast);
     m_sphereShader->setUniformValue("saturation", m_saturation);
+    m_sphereShader->setUniformValue("zoomScale", zoomScale);  // Apply zoom scale
     
     // Set texture coordinate offset and scale based on format
     QVector2D texOffset = getTextureCoordOffset(leftEye);
@@ -1040,7 +1045,7 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye)
     m_sphereShader->release();
 }
 
-void VRVideoRenderer::renderFisheye(const QMatrix4x4& mvpMatrix, bool leftEye)
+void VRVideoRenderer::renderFisheye(const QMatrix4x4& mvpMatrix, bool leftEye, float zoomScale)
 {
     static int leftFisheyeCount = 0;
     static int rightFisheyeCount = 0;
@@ -1070,6 +1075,7 @@ void VRVideoRenderer::renderFisheye(const QMatrix4x4& mvpMatrix, bool leftEye)
     m_sphereShader->setUniformValue("brightness", m_brightness);
     m_sphereShader->setUniformValue("contrast", m_contrast);
     m_sphereShader->setUniformValue("saturation", m_saturation);
+    m_sphereShader->setUniformValue("zoomScale", zoomScale);  // Apply zoom scale
     
     // For fisheye, we use different texture coordinate mapping
     // The texture offset and scale depend on the stereoscopic format
@@ -1120,9 +1126,10 @@ void VRVideoRenderer::renderFisheye(const QMatrix4x4& mvpMatrix, bool leftEye)
     m_sphereShader->release();
 }
 
-void VRVideoRenderer::renderFlat(const QMatrix4x4& mvpMatrix)
+void VRVideoRenderer::renderFlat(const QMatrix4x4& mvpMatrix, float zoomScale)
 {
     Q_UNUSED(mvpMatrix);
+    Q_UNUSED(zoomScale);  // TODO: Implement zoom for flat rendering when needed
     
     // For flat 2D video, render a simple quad
     m_flatShader->bind();

@@ -58,7 +58,7 @@ public:
     bool updateVideoTexture(GLuint textureId);
     
     // Rendering
-    void renderEye(bool leftEye, const QMatrix4x4& view, const QMatrix4x4& projection);
+    void renderEye(bool leftEye, const QMatrix4x4& view, const QMatrix4x4& projection, float zoomScale = 1.0f);
     GLuint getEyeTexture(bool leftEye) const;
     
     // Video adjustments
@@ -79,10 +79,10 @@ private:
     bool createRenderTargets();
     void destroyRenderTargets();
     
-    void renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye);
-    void renderDome(const QMatrix4x4& mvpMatrix, bool leftEye);
-    void renderFisheye(const QMatrix4x4& mvpMatrix, bool leftEye);
-    void renderFlat(const QMatrix4x4& mvpMatrix);
+    void renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye, float zoomScale);
+    void renderDome(const QMatrix4x4& mvpMatrix, bool leftEye, float zoomScale);
+    void renderFisheye(const QMatrix4x4& mvpMatrix, bool leftEye, float zoomScale);
+    void renderFlat(const QMatrix4x4& mvpMatrix, float zoomScale);
     
     QVector2D getTextureCoordOffset(bool leftEye) const;
     QVector2D getTextureCoordScale() const;
