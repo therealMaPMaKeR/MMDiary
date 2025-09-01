@@ -31,7 +31,12 @@ VRVideoRenderer::VRVideoRenderer(QObject *parent)
 VRVideoRenderer::~VRVideoRenderer()
 {
     qDebug() << "VRVideoRenderer: Destructor called";
-    cleanup();
+    // Don't call cleanup here - it should be called with proper context
+    // The cleanup should be done by the owner with the correct OpenGL context
+    if (m_initialized) {
+        qDebug() << "VRVideoRenderer: WARNING - Destructor called while still initialized!";
+        qDebug() << "VRVideoRenderer: cleanup() should have been called with proper OpenGL context";
+    }
 }
 
 bool VRVideoRenderer::initialize()
@@ -87,29 +92,48 @@ void VRVideoRenderer::cleanup()
     
     qDebug() << "VRVideoRenderer: Cleaning up resources";
     
+    // Check if we have a valid OpenGL context
+    QOpenGLContext* currentContext = QOpenGLContext::currentContext();
+    if (!currentContext) {
+        qDebug() << "VRVideoRenderer: WARNING - No OpenGL context current during cleanup!";
+        // Mark as not initialized but don't try to destroy OpenGL resources
+        m_initialized = false;
+        return;
+    }
+    
     // Destroy render targets
     destroyRenderTargets();
     
-    // Clean up sphere mesh
-    if (m_sphereVAO.isCreated()) {
-        m_sphereVAO.destroy();
-    }
-    if (m_sphereVertexBuffer.isCreated()) {
-        m_sphereVertexBuffer.destroy();
-    }
-    if (m_sphereIndexBuffer.isCreated()) {
-        m_sphereIndexBuffer.destroy();
-    }
-    
-    // Clean up dome mesh
-    if (m_domeVAO.isCreated()) {
-        m_domeVAO.destroy();
-    }
-    if (m_domeVertexBuffer.isCreated()) {
-        m_domeVertexBuffer.destroy();
-    }
-    if (m_domeIndexBuffer.isCreated()) {
-        m_domeIndexBuffer.destroy();
+    // Clean up sphere mesh - with safety checks
+    try {
+        if (m_sphereVAO.isCreated()) {
+            qDebug() << "VRVideoRenderer: Destroying sphere VAO";
+            m_sphereVAO.destroy();
+        }
+        if (m_sphereVertexBuffer.isCreated()) {
+            qDebug() << "VRVideoRenderer: Destroying sphere vertex buffer";
+            m_sphereVertexBuffer.destroy();
+        }
+        if (m_sphereIndexBuffer.isCreated()) {
+            qDebug() << "VRVideoRenderer: Destroying sphere index buffer";
+            m_sphereIndexBuffer.destroy();
+        }
+        
+        // Clean up dome mesh
+        if (m_domeVAO.isCreated()) {
+            qDebug() << "VRVideoRenderer: Destroying dome VAO";
+            m_domeVAO.destroy();
+        }
+        if (m_domeVertexBuffer.isCreated()) {
+            qDebug() << "VRVideoRenderer: Destroying dome vertex buffer";
+            m_domeVertexBuffer.destroy();
+        }
+        if (m_domeIndexBuffer.isCreated()) {
+            qDebug() << "VRVideoRenderer: Destroying dome index buffer";
+            m_domeIndexBuffer.destroy();
+        }
+    } catch (...) {
+        qDebug() << "VRVideoRenderer: Exception caught during OpenGL resource cleanup";
     }
     
     // Clean up video texture if we own it

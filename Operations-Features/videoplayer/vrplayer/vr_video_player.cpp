@@ -98,9 +98,14 @@ VRVideoPlayer::~VRVideoPlayer()
 {
     qDebug() << "VRVideoPlayer: Destructor called";
     
-    // Stop playback
+    // Stop playback first
     if (m_isPlaying) {
         stop();
+    }
+    
+    // Exit VR mode if active
+    if (m_vrActive) {
+        exitVRMode();
     }
     
     // Clean up VLC player
@@ -109,7 +114,7 @@ VRVideoPlayer::~VRVideoPlayer()
         m_vlcPlayer->unloadMedia();
     }
     
-    // Shutdown VR
+    // Shutdown VR (this will properly clean up OpenGL resources)
     shutdownVR();
     
     // Clean up frame extractor
@@ -118,10 +123,13 @@ VRVideoPlayer::~VRVideoPlayer()
         m_frameExtractor.reset();
     }
     
+    // Delete OpenGL widget last
     if (m_glWidget) {
         delete m_glWidget;
         m_glWidget = nullptr;
     }
+    
+    qDebug() << "VRVideoPlayer: Destructor complete";
 }
 
 void VRVideoPlayer::setupUI()
@@ -269,12 +277,16 @@ void VRVideoPlayer::shutdownVR()
 {
     qDebug() << "VRVideoPlayer: Shutting down VR system";
     
+    // Stop VR rendering if active
     if (m_vrActive) {
         stopVRRendering();
+        m_vrActive = false;
     }
     
+    // Clean up VR components (render thread and renderer)
     cleanupVRComponents();
     
+    // Shutdown VR manager
     if (m_vrManager) {
         m_vrManager->shutdown();
         m_vrManager.reset();
@@ -282,7 +294,6 @@ void VRVideoPlayer::shutdownVR()
     
     m_vrInitialized = false;
     m_vrAvailable = false;
-    m_vrActive = false;
     
     qDebug() << "VRVideoPlayer: VR shutdown complete";
 }
@@ -339,24 +350,40 @@ void VRVideoPlayer::cleanupVRComponents()
 {
     qDebug() << "VRVideoPlayer: Cleaning up VR components";
     
+    // First stop the render thread
     if (m_renderThread) {
         if (m_renderThread->isRunning()) {
+            qDebug() << "VRVideoPlayer: Stopping render thread";
             m_renderThread->stopRendering();
-            m_renderThread->wait(1000);
+            if (!m_renderThread->wait(2000)) {
+                qDebug() << "VRVideoPlayer: WARNING - Render thread did not stop gracefully";
+            }
         }
         m_renderThread.reset();
     }
     
-    if (m_glWidget) {
+    // Now clean up the renderer with proper context
+    if (m_glWidget && m_vrRenderer) {
+        // Ensure we have the GL widget context current
         m_glWidget->makeCurrent();
         
-        if (m_vrRenderer) {
+        // Check if context is valid
+        QOpenGLContext* ctx = QOpenGLContext::currentContext();
+        if (ctx) {
+            qDebug() << "VRVideoPlayer: Cleaning up VR renderer with valid context";
             m_vrRenderer->cleanup();
-            m_vrRenderer.reset();
+        } else {
+            qDebug() << "VRVideoPlayer: WARNING - No valid OpenGL context for renderer cleanup";
         }
         
+        m_vrRenderer.reset();
         m_glWidget->doneCurrent();
+    } else if (m_vrRenderer) {
+        qDebug() << "VRVideoPlayer: WARNING - VR renderer exists but no GL widget for cleanup";
+        m_vrRenderer.reset();
     }
+    
+    qDebug() << "VRVideoPlayer: VR components cleanup complete";
 }
 
 bool VRVideoPlayer::loadVideo(const QString& filePath)
@@ -718,12 +745,25 @@ void VRVideoPlayer::stopVRRendering()
 {
     qDebug() << "VRVideoPlayer: Stopping VR rendering";
     
-    m_frameTimer->stop();
-    
-    if (m_renderThread && m_renderThread->isRendering()) {
-        m_renderThread->stopRendering();
-        m_renderThread->wait(1000);
+    // Stop the frame timer
+    if (m_frameTimer) {
+        m_frameTimer->stop();
     }
+    
+    // Clear the frame extractor from render thread and stop it
+    if (m_renderThread) {
+        // Remove the frame extractor reference first
+        m_renderThread->setFrameExtractor(nullptr);
+        
+        if (m_renderThread->isRendering()) {
+            m_renderThread->stopRendering();
+            if (!m_renderThread->wait(2000)) {
+                qDebug() << "VRVideoPlayer: WARNING - Render thread did not stop in time";
+            }
+        }
+    }
+    
+    qDebug() << "VRVideoPlayer: VR rendering stopped";
 }
 
 void VRVideoPlayer::setVideoBrightness(float brightness)
@@ -780,20 +820,25 @@ void VRVideoPlayer::closeEvent(QCloseEvent *event)
 {
     qDebug() << "VRVideoPlayer: Close event received";
     
-    // Stop playback
+    // Stop playback first
     if (m_isPlaying) {
         stop();
     }
     
     // Exit VR mode if active
     if (m_vrActive) {
+        qDebug() << "VRVideoPlayer: Exiting VR mode before closing";
         exitVRMode();
     }
     
-    // Clean up VR
-    shutdownVR();
+    // Clean up VR properly with context
+    if (m_vrInitialized) {
+        qDebug() << "VRVideoPlayer: Shutting down VR before closing";
+        shutdownVR();
+    }
     
     QWidget::closeEvent(event);
+    qDebug() << "VRVideoPlayer: Close event handled";
 }
 
 void VRVideoPlayer::onVRStatusChanged(VROpenVRManager::VRStatus status)
@@ -1110,11 +1155,27 @@ void VRRenderThread::run()
         msleep(11); // ~90 FPS to match most VR displays
     }
     
-    context->doneCurrent();
+    qDebug() << "VRRenderThread: Exiting render loop";
+    
+    // Clean up the renderer's OpenGL resources in this thread's context
+    if (m_vrRenderer && m_vrRenderer->isInitialized()) {
+        qDebug() << "VRRenderThread: Cleaning up renderer resources in thread context";
+        if (context->makeCurrent(surface)) {
+            m_vrRenderer->cleanup();
+            context->doneCurrent();
+        } else {
+            qDebug() << "VRRenderThread: WARNING - Could not make context current for cleanup";
+        }
+    }
+    
+    // Clean up the context and surface
+    if (context->isValid()) {
+        context->doneCurrent();
+    }
     delete surface;
     delete context;
     
-    qDebug() << "VRRenderThread: Thread stopped";
+    qDebug() << "VRRenderThread: Thread stopped and cleaned up";
 }
 
 void VRRenderThread::renderFrame()
@@ -1122,9 +1183,23 @@ void VRRenderThread::renderFrame()
     static int renderCount = 0;
     renderCount++;
     
+    // Check if we're being shut down
+    if (m_stopRequested) {
+        return;
+    }
+    
+    // Validate pointers - they might become null during shutdown
     if (!m_vrManager || !m_vrRenderer) {
         if (renderCount % 90 == 0) { // Log every second at 90 FPS
-            qDebug() << "VRRenderThread: Missing manager or renderer";
+            qDebug() << "VRRenderThread: Missing manager or renderer - likely shutting down";
+        }
+        return;
+    }
+    
+    // Double-check renderer is still initialized
+    if (!m_vrRenderer->isInitialized()) {
+        if (renderCount % 90 == 0) {
+            qDebug() << "VRRenderThread: Renderer not initialized";
         }
         return;
     }
