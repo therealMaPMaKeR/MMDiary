@@ -1520,10 +1520,15 @@ void VRRenderThread::renderFrame()
     // Handle recentering if requested
     if (m_needsRecenter) {
         // Store the inverse of current rotation to reset orientation
-        // This will make the video appear centered in front of the user
-        m_recenterRotationOffset = hmdRotation.inverted();
+        // Apply a -90 degree rotation correction around Y-axis to fix horizontal alignment
+        QMatrix4x4 rotationCorrection;
+        rotationCorrection.setToIdentity();
+        rotationCorrection.rotate(-90.0f, 0.0f, 1.0f, 0.0f); // Rotate -90 degrees around Y-axis
+        
+        // Apply the correction before inverting to properly align the video
+        m_recenterRotationOffset = (hmdRotation * rotationCorrection).inverted();
         m_needsRecenter = false;
-        qDebug() << "VRRenderThread: View recentered - video centered in front of user";
+        qDebug() << "VRRenderThread: View recentered with rotation correction - video centered in front of user";
     }
     
     // Apply recenter offset to rotation
