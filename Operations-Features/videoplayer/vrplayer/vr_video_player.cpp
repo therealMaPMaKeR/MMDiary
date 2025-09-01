@@ -19,6 +19,80 @@
 #include <QGridLayout>
 #include <QKeyEvent>
 #include <QCloseEvent>
+#include <QMouseEvent>
+
+//=============================================================================
+// ClickableSlider class for VR Video Player
+//=============================================================================
+
+class ClickableSlider : public QSlider
+{
+public:
+    explicit ClickableSlider(Qt::Orientation orientation, QWidget *parent = nullptr)
+        : QSlider(orientation, parent), m_isPressed(false) {}
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton)
+        {
+            m_isPressed = true;
+            
+            // Calculate position based on click
+            qint64 value = 0;
+            
+            if (orientation() == Qt::Horizontal) {
+                qreal clickPos = event->position().x();
+                qreal widgetWidth = width();
+                
+                qint64 range = static_cast<qint64>(maximum()) - static_cast<qint64>(minimum());
+                qint64 widgetSize = static_cast<qint64>(widgetWidth);
+                
+                if (widgetSize > 0) {
+                    value = minimum() + (range * clickPos) / widgetSize;
+                } else {
+                    value = minimum();
+                }
+            } else {
+                qreal clickPos = height() - event->position().y();
+                qreal widgetHeight = height();
+                
+                qint64 range = static_cast<qint64>(maximum()) - static_cast<qint64>(minimum());
+                qint64 widgetSize = static_cast<qint64>(widgetHeight);
+                
+                if (widgetSize > 0) {
+                    value = minimum() + (range * clickPos) / widgetSize;
+                } else {
+                    value = minimum();
+                }
+            }
+            
+            // Clamp to range
+            value = qBound(static_cast<qint64>(minimum()), value, static_cast<qint64>(maximum()));
+            
+            // Set the value and emit signal
+            setValue(static_cast<int>(value));
+            emit sliderPressed();
+            emit sliderMoved(static_cast<int>(value));
+        }
+        
+        QSlider::mousePressEvent(event);
+    }
+    
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton && m_isPressed)
+        {
+            m_isPressed = false;
+            emit sliderReleased();
+        }
+        
+        QSlider::mouseReleaseEvent(event);
+    }
+
+private:
+    bool m_isPressed;
+};
 
 //=============================================================================
 // VRVideoPlayer Implementation
@@ -34,6 +108,8 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     , m_stopButton(nullptr)
     , m_closeButton(nullptr)
     , m_positionLabel(nullptr)
+    , m_currentTimeLabel(nullptr)
+    , m_totalTimeLabel(nullptr)
     , m_positionSlider(nullptr)
     , m_formatComboBox(nullptr)
     , m_projectionComboBox(nullptr)
@@ -55,6 +131,7 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     , m_videoFormat(VRVideoRenderer::VideoFormat::Mono360)
     , m_frameTimer(new QTimer(this))
     , m_positionTimer(new QTimer(this))
+    , m_focusTimer(new QTimer(this))
 {
     qDebug() << "VRVideoPlayer: Constructor called";
     
@@ -103,6 +180,10 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     m_positionTimer->setInterval(100); // Update position 10 times per second
     connect(m_positionTimer, &QTimer::timeout, this, &VRVideoPlayer::updatePlaybackPosition);
     
+    // Set up focus restoration timer (single shot timer to restore focus after SteamVR launch)
+    m_focusTimer->setSingleShot(true);
+    connect(m_focusTimer, &QTimer::timeout, this, &VRVideoPlayer::restoreFocusDelayed);
+    
     // Set window flags for modal behavior and always on top
     setWindowFlags(Qt::Window | Qt::WindowTitleHint | Qt::WindowCloseButtonHint | 
                    Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint |
@@ -112,6 +193,7 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     
     // Try to initialize VR on startup to check availability
     initializeVR();
+
 }
 
 VRVideoPlayer::~VRVideoPlayer()
@@ -160,13 +242,6 @@ void VRVideoPlayer::setupUI()
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(10, 10, 10, 10);
     
-    // Status label (hidden per user request)
-    m_statusLabel = new QLabel("VR Video Player Ready", this);
-    m_statusLabel->setAlignment(Qt::AlignCenter);
-    m_statusLabel->setStyleSheet("QLabel { font-size: 16px; font-weight: bold; color: white; background-color: #2c3e50; padding: 10px; border-radius: 5px; }");
-    m_statusLabel->hide(); // Hide the play status text as requested
-    // mainLayout->addWidget(m_statusLabel); // Commented out to not show
-    
     // File label
     m_fileLabel = new QLabel("No video loaded", this);
     m_fileLabel->setAlignment(Qt::AlignCenter);
@@ -181,8 +256,6 @@ void VRVideoPlayer::setupUI()
     vrInfoLabel->setText("\u25cf Video will be displayed in your VR headset\n\n"
                          "\u25cf Press Spacebar to recenter the video view\n\n"
                          "\u25cf Press P to play/pause the video\n\n"
-                         "\u25cf Press Ctrl+V to toggle VR mode\n\n"
-                         "\u25cf Press Escape to exit VR mode\n\n"
                          "\u25cf Use the controls below to adjust video format, zoom, and IPD");
     mainLayout->addWidget(vrInfoLabel, 1);
     
@@ -198,7 +271,7 @@ void VRVideoPlayer::setupUI()
     m_formatComboBox->addItem("Mono");
     m_formatComboBox->addItem("Stereo Top-Bottom");
     m_formatComboBox->addItem("Stereo Side-by-Side");
-    m_formatComboBox->setCurrentIndex(0);
+    m_formatComboBox->setCurrentIndex(2);  // Default to Stereo Side-by-Side
     m_formatComboBox->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
     connect(m_formatComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &VRVideoPlayer::onFormatComboBoxChanged);
@@ -211,12 +284,12 @@ void VRVideoPlayer::setupUI()
     m_projectionComboBox->addItem("Flat 2D");
     m_projectionComboBox->addItem("180°");
     m_projectionComboBox->addItem("360°");
-    m_projectionComboBox->setCurrentIndex(1); // Default to 180
     m_projectionComboBox->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
     connect(m_projectionComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &VRVideoPlayer::onProjectionComboBoxChanged);
     formatLayout->addWidget(m_projectionLabel, 0, 2);
     formatLayout->addWidget(m_projectionComboBox, 0, 3);
+    m_projectionComboBox->setCurrentIndex(1); // Default to 180
     
     // IPD adjustment spinbox
     m_ipdLabel = new QLabel("IPD Scale:", this);
@@ -250,19 +323,30 @@ void VRVideoPlayer::setupUI()
     
     mainLayout->addWidget(formatGroup);
     
-    // Position slider for seeking
-    QLabel* positionSliderLabel = new QLabel("Position:", this);
-    m_positionSlider = new QSlider(Qt::Horizontal, this);
+    // Position slider for seeking - with time labels on left and right
+    m_currentTimeLabel = new QLabel("00:00", this);
+    m_currentTimeLabel->setAlignment(Qt::AlignCenter);
+    m_currentTimeLabel->setMinimumWidth(50);
+    m_currentTimeLabel->setStyleSheet("QLabel { font-size: 12px; color: #95a5a6; }");
+    
+    m_positionSlider = createClickableSlider();
+    m_positionSlider->setOrientation(Qt::Horizontal);
     m_positionSlider->setEnabled(false);
     m_positionSlider->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
-    m_positionSlider->setToolTip("Seek through video playback");
+    m_positionSlider->setToolTip("Click or drag to seek through video playback");
     connect(m_positionSlider, &QSlider::sliderPressed, this, &VRVideoPlayer::onPositionSliderPressed);
     connect(m_positionSlider, &QSlider::sliderReleased, this, &VRVideoPlayer::onPositionSliderReleased);
     connect(m_positionSlider, &QSlider::valueChanged, this, &VRVideoPlayer::onPositionSliderMoved);
     
+    m_totalTimeLabel = new QLabel("00:00", this);
+    m_totalTimeLabel->setAlignment(Qt::AlignCenter);
+    m_totalTimeLabel->setMinimumWidth(50);
+    m_totalTimeLabel->setStyleSheet("QLabel { font-size: 12px; color: #95a5a6; }");
+    
     QHBoxLayout* positionLayout = new QHBoxLayout();
-    positionLayout->addWidget(positionSliderLabel);
+    positionLayout->addWidget(m_currentTimeLabel);
     positionLayout->addWidget(m_positionSlider, 1);
+    positionLayout->addWidget(m_totalTimeLabel);
     mainLayout->addLayout(positionLayout);
     
     // Control buttons
@@ -291,11 +375,12 @@ void VRVideoPlayer::setupUI()
     mainLayout->addLayout(buttonLayout);
     
     // Position label
+    /*
     m_positionLabel = new QLabel("00:00 / 00:00", this);
     m_positionLabel->setAlignment(Qt::AlignCenter);
     m_positionLabel->setStyleSheet("QLabel { font-size: 12px; color: #95a5a6; margin: 5px; }");
     mainLayout->addWidget(m_positionLabel);
-    
+    */
     // Set window properties
     setWindowTitle("VR Video Player");
     setMinimumSize(400, 300);
@@ -840,9 +925,19 @@ void VRVideoPlayer::enterVRMode()
     // m_statusLabel->setText("VR Mode Active - Space: recenter | P: play/pause"); // Status label hidden
     // Note: Close button is always enabled (no longer exitVR button)
     
+    // Pause playback immediately when entering VR mode to give user time to put on headset
+    if (m_isPlaying) {
+        qDebug() << "VRVideoPlayer: Auto-pausing playback for VR headset setup";
+        pause();
+    }
+    
     // Ensure this widget has keyboard focus for spacebar handling
     setFocus(Qt::OtherFocusReason);
     qDebug() << "VRVideoPlayer: Setting focus to widget for keyboard input";
+    
+    // Start timer to restore focus after SteamVR potentially steals it
+    m_focusTimer->start(2000);  // Restore focus after 2 seconds
+    qDebug() << "VRVideoPlayer: Started focus restoration timer (2 seconds)";
     
     emit vrStatusChanged(true);
     
@@ -862,6 +957,12 @@ void VRVideoPlayer::exitVRMode()
     stopVRRendering();
     
     m_vrActive = false;
+    
+    // Stop focus restoration timer if it's running
+    if (m_focusTimer->isActive()) {
+        m_focusTimer->stop();
+        qDebug() << "VRVideoPlayer: Stopped focus restoration timer";
+    }
     
     // Update UI
     // m_statusLabel->setText("VR Mode Exited"); // Status label hidden
@@ -1137,9 +1238,20 @@ void VRVideoPlayer::onPositionSliderMoved(int position)
             }
         };
         
-        m_positionLabel->setText(QString("%1 / %2")
-            .arg(formatTime(newPosition))
-            .arg(formatTime(m_duration)));
+        // Update individual time labels while dragging
+        if (m_currentTimeLabel) {
+            m_currentTimeLabel->setText(formatTime(newPosition));
+        }
+        if (m_totalTimeLabel) {
+            m_totalTimeLabel->setText(formatTime(m_duration));
+        }
+        
+        // Update old combined label for compatibility (if it exists)
+        if (m_positionLabel) {
+            m_positionLabel->setText(QString("%1 / %2")
+                .arg(formatTime(newPosition))
+                .arg(formatTime(m_duration)));
+        }
     }
 }
 
@@ -1216,7 +1328,10 @@ void VRVideoPlayer::onZoomSliderChanged(int value)
 void VRVideoPlayer::updatePlaybackPosition()
 {
     if (!m_videoLoaded) {
-        m_positionLabel->setText("00:00 / 00:00");
+        // Update individual time labels when no video is loaded
+        if (m_currentTimeLabel) m_currentTimeLabel->setText("00:00");
+        if (m_totalTimeLabel) m_totalTimeLabel->setText("00:00");
+        if (m_positionLabel) m_positionLabel->setText("00:00 / 00:00");  // Keep old label for compatibility
         return;
     }
     
@@ -1244,9 +1359,20 @@ void VRVideoPlayer::updatePlaybackPosition()
         }
     };
     
-    m_positionLabel->setText(QString("%1 / %2")
-        .arg(formatTime(m_position))
-        .arg(formatTime(m_duration)));
+    // Update individual time labels
+    if (m_currentTimeLabel) {
+        m_currentTimeLabel->setText(formatTime(m_position));
+    }
+    if (m_totalTimeLabel) {
+        m_totalTimeLabel->setText(formatTime(m_duration));
+    }
+    
+    // Update old combined label for compatibility (if it exists)
+    if (m_positionLabel) {
+        m_positionLabel->setText(QString("%1 / %2")
+            .arg(formatTime(m_position))
+            .arg(formatTime(m_duration)));
+    }
     
     // Update position slider if not being moved by user
     if (m_positionSlider && !m_isSliderBeingMoved && m_duration > 0) {
@@ -1257,10 +1383,12 @@ void VRVideoPlayer::updatePlaybackPosition()
 
 void VRVideoPlayer::updateUIState()
 {
+    qDebug() << "VRVideoPlayer: Updating UI state - hasVideo:" << m_videoLoaded << "isPlaying:" << m_isPlaying;
+    
     // Enable/disable buttons and controls based on state
     bool hasVideo = m_videoLoaded;
     m_playPauseButton->setEnabled(hasVideo);
-    m_stopButton->setEnabled(hasVideo && (m_isPlaying || m_position > 0));
+    m_stopButton->setEnabled(hasVideo);  // Enable stop button when video is loaded
     
     // Enable position slider when video is loaded
     if (m_positionSlider) {
@@ -1299,6 +1427,24 @@ QOpenGLWidget* VRVideoPlayer::createOpenGLWidget()
     glWidget->hide();
     
     return glWidget;
+}
+
+ClickableSlider* VRVideoPlayer::createClickableSlider()
+{
+    qDebug() << "VRVideoPlayer: Creating custom clickable slider";
+    return new ClickableSlider(Qt::Horizontal, this);
+}
+
+void VRVideoPlayer::restoreFocusDelayed()
+{
+    qDebug() << "VRVideoPlayer: Restoring focus after SteamVR launch";
+    
+    // Restore focus to this window
+    activateWindow();
+    raise();
+    setFocus(Qt::OtherFocusReason);
+    
+    qDebug() << "VRVideoPlayer: Focus restoration complete";
 }
 
 //=============================================================================

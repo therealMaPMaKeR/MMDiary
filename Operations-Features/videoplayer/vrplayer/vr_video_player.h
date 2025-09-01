@@ -22,6 +22,7 @@
 #include "../vp_vlcplayer.h"
 
 class VRRenderThread;
+class ClickableSlider;
 
 /**
  * @class VRVideoPlayer
@@ -112,8 +113,13 @@ private:
     // OpenGL widget for VR rendering context
     QOpenGLWidget* createOpenGLWidget();
     
+    // UI methods
     void setupUI();
     void updateUIState();
+    ClickableSlider* createClickableSlider();
+    
+    // Focus restoration
+    void restoreFocusDelayed();
 
 private:
     // VR components
@@ -133,6 +139,8 @@ private:
     QPushButton* m_stopButton;
     QPushButton* m_closeButton;
     QLabel* m_positionLabel;
+    QLabel* m_currentTimeLabel;     // Current playback time label
+    QLabel* m_totalTimeLabel;       // Total duration time label
     QSlider* m_positionSlider;      // New position slider for seeking
     
     // VR-specific UI controls
@@ -168,6 +176,7 @@ private:
     // Timers
     QTimer* m_frameTimer;
     QTimer* m_positionTimer;
+    QTimer* m_focusTimer;  // Timer to restore focus after SteamVR launches
     
     // Current video frame (from libVLC)
     QImage m_currentFrame;
