@@ -1565,16 +1565,13 @@ void VRRenderThread::renderFrame()
     QMatrix4x4 leftView = leftEyePose.inverted();
     QMatrix4x4 rightView = rightEyePose.inverted();
     
-    // Get projection matrices with appropriate zoom:
-    // - For zoom <= 1.0: No FOV zoom (handled by dome angular coverage)
-    // - For zoom > 1.0: Apply FOV zoom (since dome is at max coverage)
-    float fovZoom = (m_videoScale > 1.0f) ? m_videoScale : 1.0f;
-    QMatrix4x4 leftProj = m_vrManager->getProjectionMatrixWithZoom(true, 0.1f, 1000.0f, fovZoom);
-    QMatrix4x4 rightProj = m_vrManager->getProjectionMatrixWithZoom(false, 0.1f, 1000.0f, fovZoom);
+    // Get projection matrices WITHOUT zoom - all zoom is handled by dome/texture
+    QMatrix4x4 leftProj = m_vrManager->getProjectionMatrixWithZoom(true, 0.1f, 1000.0f, 1.0f);
+    QMatrix4x4 rightProj = m_vrManager->getProjectionMatrixWithZoom(false, 0.1f, 1000.0f, 1.0f);
     
     // Using hybrid zoom approach:
     // - Zoom 0-1: Dome angular coverage adjustment (DeoVR-style)
-    // - Zoom >1: FOV-based zoom (maintains aspect ratio)
+    // - Zoom >1: Texture coordinate zoom (maintains aspect ratio, no distortion)
     
     // Log scale application periodically
     static int scaleLogCount = 0;
@@ -1584,7 +1581,7 @@ void VRRenderThread::renderFrame()
         if (m_videoScale <= 1.0f) {
             qDebug() << "VRRenderThread: Using dome angular coverage adjustment (zoom out)";
         } else {
-            qDebug() << "VRRenderThread: Using FOV-based zoom (zoom in, maintains aspect ratio)";
+            qDebug() << "VRRenderThread: Using texture coordinate zoom (zoom in, no distortion)";
         }
     }
     

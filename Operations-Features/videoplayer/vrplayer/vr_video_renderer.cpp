@@ -168,17 +168,24 @@ bool VRVideoRenderer::createShaderPrograms()
         uniform mat4 mvpMatrix;
         uniform vec2 texOffset;
         uniform vec2 texScale;
-        uniform float zoomScale;  // Zoom scale for geometry
+        uniform float zoomScale;  // Zoom scale for texture coordinates
         
         out vec2 fragTexCoord;
         out vec3 worldPos;
         
         void main()
         {
-            // DON'T scale the geometry - zoom is handled by FOV adjustment in projection matrix
-            // This prevents distortion when looking around
             gl_Position = mvpMatrix * vec4(position, 1.0);
-            fragTexCoord = texCoord * texScale + texOffset;
+            
+            // Apply zoom to texture coordinates when zoom > 1.0
+            // This zooms into the video content without changing geometry
+            vec2 zoomedTexCoord = texCoord;
+            if (zoomScale > 1.0) {
+                // Center the zoom on 0.5, 0.5 (middle of texture)
+                zoomedTexCoord = (texCoord - 0.5) / zoomScale + 0.5;
+            }
+            
+            fragTexCoord = zoomedTexCoord * texScale + texOffset;
             worldPos = position;  // Keep original position for texture calculations
         }
     )";
@@ -933,7 +940,7 @@ void VRVideoRenderer::renderSphere(const QMatrix4x4& mvpMatrix, bool leftEye, fl
     m_sphereShader->setUniformValue("brightness", m_brightness);
     m_sphereShader->setUniformValue("contrast", m_contrast);
     m_sphereShader->setUniformValue("saturation", m_saturation);
-    m_sphereShader->setUniformValue("zoomScale", 1.0f);  // ALWAYS 1.0 - zoom is handled by FOV
+    m_sphereShader->setUniformValue("zoomScale", 1.0f);  // No texture zoom for 360 videos
     
     // Set texture coordinate offset and scale based on format
     QVector2D texOffset = getTextureCoordOffset(leftEye);
@@ -998,22 +1005,25 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye, floa
         rightDomeCount++;
     }
     
-    // For DeoVR-style zoom, adjust dome angular coverage
-    // This creates circular viewport when zooming out and wrap-around when zooming in
+    // For DeoVR-style zoom, adjust dome angular coverage for zoom out,
+    // and texture coordinates for zoom in
+    float textureZoom = 1.0f;
+    
     if (qAbs(zoomScale - m_currentZoomScale) > 0.001f) {
         float targetHorizontalCoverage, targetVerticalCoverage;
         
-        // Calculate coverage while maintaining aspect ratio
+        // Calculate coverage based on zoom level
         if (zoomScale <= 1.0f) {
-            // Zoom out: reduce coverage proportionally (creates "()" circular shape)
+            // Zoom out: reduce dome angular coverage (creates "()" circular shape)
             targetHorizontalCoverage = 180.0f * zoomScale;
             targetVerticalCoverage = 180.0f * zoomScale;
+            textureZoom = 1.0f; // No texture zoom needed
         } else {
-            // Zoom in: To maintain aspect ratio when vertical hits its limit:
-            // - Both stop expanding at zoom 1.0 (180° coverage)
-            // - Beyond that, use FOV-based zoom instead
-            targetVerticalCoverage = 180.0f; // Cap at hemisphere
-            targetHorizontalCoverage = 180.0f; // Keep horizontal at 180° too to maintain aspect ratio
+            // Zoom in: Keep dome at 180° and zoom texture coordinates instead
+            // This maintains aspect ratio and avoids distortion
+            targetVerticalCoverage = 180.0f;
+            targetHorizontalCoverage = 180.0f;
+            textureZoom = zoomScale; // Pass zoom to shader for texture coordinate scaling
         }
         
         // Clamp to reasonable ranges
@@ -1026,11 +1036,15 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye, floa
             updateDomeAngularCoverage(targetHorizontalCoverage, targetVerticalCoverage);
             m_currentZoomScale = zoomScale;
         }
+    } else {
+        // Use current zoom for texture if > 1.0
+        textureZoom = (zoomScale > 1.0f) ? zoomScale : 1.0f;
     }
     
     if ((leftEye && leftDomeCount % 30 == 0) || (!leftEye && rightDomeCount % 30 == 0)) {
         qDebug() << "VRVideoRenderer: Dome zoom:" << zoomScale 
-                 << "- Coverage:" << m_domeHorizontalCoverage << "x" << m_domeVerticalCoverage << "degrees";
+                 << "- Coverage:" << m_domeHorizontalCoverage << "x" << m_domeVerticalCoverage << "degrees"
+                 << "- Texture zoom:" << textureZoom;
     }
     
     // Clear any existing OpenGL errors
@@ -1052,7 +1066,7 @@ void VRVideoRenderer::renderDome(const QMatrix4x4& mvpMatrix, bool leftEye, floa
     m_sphereShader->setUniformValue("brightness", m_brightness);
     m_sphereShader->setUniformValue("contrast", m_contrast);
     m_sphereShader->setUniformValue("saturation", m_saturation);
-    m_sphereShader->setUniformValue("zoomScale", 1.0f);  // ALWAYS 1.0 - zoom is handled by FOV
+    m_sphereShader->setUniformValue("zoomScale", textureZoom);  // Pass texture zoom to shader
     
     // Set texture coordinate offset and scale based on format
     QVector2D texOffset = getTextureCoordOffset(leftEye);
