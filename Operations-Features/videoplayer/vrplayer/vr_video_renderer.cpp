@@ -164,6 +164,7 @@ bool VRVideoRenderer::createShaderPrograms()
         #version 330 core
         layout(location = 0) in vec3 position;
         layout(location = 1) in vec2 texCoord;
+        layout(location = 2) in float isPole;
         
         uniform mat4 mvpMatrix;
         uniform vec2 texOffset;
@@ -172,21 +173,32 @@ bool VRVideoRenderer::createShaderPrograms()
         
         out vec2 fragTexCoord;
         out vec3 worldPos;
+        out float fragIsPole;
         
         void main()
         {
             gl_Position = mvpMatrix * vec4(position, 1.0);
             
             // Apply zoom to texture coordinates when zoom > 1.0
-            // This zooms into the video content without changing geometry
+            // Special handling for pole vertices to avoid singularity
             vec2 zoomedTexCoord = texCoord;
             if (zoomScale > 1.0) {
-                // Center the zoom on 0.5, 0.5 (middle of texture)
-                zoomedTexCoord = (texCoord - 0.5) / zoomScale + 0.5;
+                if (isPole > 0.5) {
+                    // For pole vertices, keep U at 0.5 and only zoom V
+                    float zoomedV = (texCoord.y - 0.5) / zoomScale + 0.5;
+                    zoomedTexCoord = vec2(0.5, zoomedV);
+                } else {
+                    // Normal zoom for non-pole vertices
+                    // Use a smoother zoom that reduces distortion near poles
+                    float distFromPole = min(texCoord.y, 1.0 - texCoord.y);
+                    float zoomFactor = mix(1.0, zoomScale, smoothstep(0.0, 0.2, distFromPole));
+                    zoomedTexCoord = (texCoord - 0.5) / zoomFactor + 0.5;
+                }
             }
             
             fragTexCoord = zoomedTexCoord * texScale + texOffset;
             worldPos = position;  // Keep original position for texture calculations
+            fragIsPole = isPole;
         }
     )";
     
@@ -195,6 +207,7 @@ bool VRVideoRenderer::createShaderPrograms()
         #version 330 core
         in vec2 fragTexCoord;
         in vec3 worldPos;
+        in float fragIsPole;
         
         uniform sampler2D videoTexture;
         uniform float brightness;
@@ -344,6 +357,7 @@ bool VRVideoRenderer::createSphereMesh()
     struct Vertex {
         float x, y, z;
         float u, v;
+        float isPole;  // For compatibility with dome mesh
     };
     
     QVector<Vertex> vertices;
@@ -354,6 +368,11 @@ bool VRVideoRenderer::createSphereMesh()
         float theta = ring * M_PI / m_sphereRings;
         float sinTheta = qSin(theta);
         float cosTheta = qCos(theta);
+        
+        // Check if this is a pole (top or bottom of sphere)
+        bool isTopPole = (ring == 0);
+        bool isBottomPole = (ring == m_sphereRings);
+        bool isPole = isTopPole || isBottomPole;
         
         for (int segment = 0; segment <= m_sphereSegments; ++segment) {
             float phi = segment * 2 * M_PI / m_sphereSegments;
@@ -369,11 +388,19 @@ bool VRVideoRenderer::createSphereMesh()
             vertex.z = -sinPhi * sinTheta * scale;  // Negated and scaled
             
             // Texture coordinates for equirectangular projection
-            // U coordinate: horizontal wrapping around sphere
-            vertex.u = (float)segment / m_sphereSegments;
-            // V coordinate: vertical from top to bottom
-            // No need to flip here as we flip the texture when uploading
-            vertex.v = (float)ring / m_sphereRings;
+            if (isPole) {
+                // At poles, use center U coordinate to avoid singularity during zoom
+                vertex.u = 0.5f;
+                vertex.v = isTopPole ? 0.0f : 1.0f;
+            } else {
+                // U coordinate: horizontal wrapping around sphere
+                vertex.u = (float)segment / m_sphereSegments;
+                // V coordinate: vertical from top to bottom
+                vertex.v = (float)ring / m_sphereRings;
+            }
+            
+            // Mark pole vertices
+            vertex.isPole = isPole ? 1.0f : 0.0f;
             
             vertices.append(vertex);
         }
@@ -413,12 +440,16 @@ bool VRVideoRenderer::createSphereMesh()
     m_sphereVertexBuffer.allocate(vertices.constData(), vertices.size() * sizeof(Vertex));
     
     // Set vertex attributes
-    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(0);  // Position
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), nullptr);
     
-    glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(1);  // Texture coordinates
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), 
                          reinterpret_cast<void*>(3 * sizeof(float)));
+    
+    glEnableVertexAttribArray(2);  // isPole flag
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                         reinterpret_cast<void*>(5 * sizeof(float)));
     
     // Create and upload index buffer
     if (!m_sphereIndexBuffer.isCreated()) {
@@ -453,6 +484,7 @@ bool VRVideoRenderer::createDomeMeshWithCoverage(float horizontalDegrees, float 
     struct Vertex {
         float x, y, z;
         float u, v;
+        float isPole;  // 1.0 for pole vertices, 0.0 for others
     };
     
     QVector<Vertex> vertices;
@@ -472,6 +504,11 @@ bool VRVideoRenderer::createDomeMeshWithCoverage(float horizontalDegrees, float 
         float sinTheta = qSin(theta);
         float cosTheta = qCos(theta);
         
+        // Check if this is a pole (top or bottom)
+        bool isTopPole = (ring == 0 && verticalDegrees >= 179.0f);
+        bool isBottomPole = (ring == m_sphereRings && verticalDegrees >= 179.0f);
+        bool isPole = isTopPole || isBottomPole;
+        
         for (int segment = 0; segment <= m_sphereSegments; ++segment) {
             // Horizontal angle from -horizontalRadians/2 to +horizontalRadians/2
             float segmentRatio = (float)segment / m_sphereSegments;
@@ -488,10 +525,19 @@ bool VRVideoRenderer::createDomeMeshWithCoverage(float horizontalDegrees, float 
             vertex.y = cosTheta * scale;             // Up-down (now properly centered)
             vertex.z = -sinPhi * sinTheta * scale;  // Forward-back (negated for forward)
             
-            // Texture coordinates - always map the full texture range [0,1]
-            // This ensures the video fills the dome regardless of angular coverage
-            vertex.u = (float)segment / m_sphereSegments;
-            vertex.v = (float)ring / m_sphereRings;
+            // Texture coordinates - special handling for poles
+            if (isPole) {
+                // At poles, use center U coordinate to avoid singularity
+                vertex.u = 0.5f;
+                vertex.v = isTopPole ? 0.0f : 1.0f;
+            } else {
+                // Normal texture mapping for non-pole vertices
+                vertex.u = (float)segment / m_sphereSegments;
+                vertex.v = (float)ring / m_sphereRings;
+            }
+            
+            // Mark pole vertices for special handling in shader
+            vertex.isPole = isPole ? 1.0f : 0.0f;
             
             vertices.append(vertex);
         }
@@ -531,12 +577,16 @@ bool VRVideoRenderer::createDomeMeshWithCoverage(float horizontalDegrees, float 
     m_domeVertexBuffer.allocate(vertices.constData(), vertices.size() * sizeof(Vertex));
     
     // Set vertex attributes
-    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(0);  // Position
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), nullptr);
     
-    glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(1);  // Texture coordinates
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), 
                          reinterpret_cast<void*>(3 * sizeof(float)));
+    
+    glEnableVertexAttribArray(2);  // isPole flag
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                         reinterpret_cast<void*>(5 * sizeof(float)));
     
     // Create and upload index buffer
     if (!m_domeIndexBuffer.isCreated()) {
