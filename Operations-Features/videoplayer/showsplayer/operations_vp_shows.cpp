@@ -1276,6 +1276,8 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
         }
     }
     
+    refreshTVShowsList();
+
     // Clear the stored output path
     m_currentImportOutputPath.clear();
     m_isUpdatingExistingShow = false;
