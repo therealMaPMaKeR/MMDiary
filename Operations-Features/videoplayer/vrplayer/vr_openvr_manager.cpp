@@ -555,12 +555,18 @@ bool VROpenVRManager::initializeControllerInput()
     }
     
     // Extract action manifest from resources and save to temp location
-    QFile manifestResource(":vr_action_manifest.json");
+    QString manifestResourcePath = ":/Operations-Features/videoplayer/vrplayer/vr_action_manifest.json";
+    qDebug() << "VROpenVRManager: Looking for action manifest at resource path:" << manifestResourcePath;
+    
+    QFile manifestResource(manifestResourcePath);
     if (!manifestResource.open(QIODevice::ReadOnly)) {
         qDebug() << "VROpenVRManager: Failed to open action manifest resource";
+        qDebug() << "VROpenVRManager: Resource exists:" << QFile::exists(manifestResourcePath);
         setLastError("Failed to load VR controller action manifest");
         return false;
     }
+    
+    qDebug() << "VROpenVRManager: Successfully opened action manifest resource (" << manifestResource.size() << "bytes)";
     
     // Create temp directory for action manifest
     QString userDataPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
