@@ -687,29 +687,103 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
     // Update action states
     vr::VRActiveActionSet_t actionSet = { 0 };
     actionSet.ulActionSet = m_actionSetVideo;
-    vr::VRInput()->UpdateActionState(&actionSet, sizeof(vr::VRActiveActionSet_t), 1);
+    vr::EVRInputError updateError = vr::VRInput()->UpdateActionState(&actionSet, sizeof(vr::VRActiveActionSet_t), 1);
+    if (updateError != vr::VRInputError_None) {
+        static int errorLogCount = 0;
+        if (++errorLogCount % 300 == 0) { // Log every 5 seconds at 60Hz
+            qDebug() << "VROpenVRManager: UpdateActionState error:" << updateError;
+        }
+        return state;
+    }
     
-    // Poll boolean actions
+    // Poll boolean actions with detailed debugging
     vr::InputDigitalActionData_t recenterData;
-    if (vr::VRInput()->GetDigitalActionData(m_actionRecenter, &recenterData, sizeof(recenterData), vr::k_ulInvalidInputValueHandle) == vr::VRInputError_None) {
+    vr::EVRInputError recenterError = vr::VRInput()->GetDigitalActionData(m_actionRecenter, &recenterData, sizeof(recenterData), vr::k_ulInvalidInputValueHandle);
+    if (recenterError == vr::VRInputError_None) {
         state.recenterPressed = recenterData.bActive && recenterData.bState && recenterData.bChanged;
+        
+        static int debugCount = 0;
+        if (++debugCount % 300 == 0) { // Debug every 5 seconds
+            qDebug() << "VROpenVRManager: Recenter - Active:" << recenterData.bActive << "State:" << recenterData.bState << "Changed:" << recenterData.bChanged;
+        }
+        
+        if (state.recenterPressed) {
+            qDebug() << "VROpenVRManager: RECENTER PRESSED!";
+        }
+    } else {
+        static int recenterErrorCount = 0;
+        if (++recenterErrorCount % 300 == 0) {
+            qDebug() << "VROpenVRManager: Recenter action error:" << recenterError;
+        }
     }
     
     vr::InputDigitalActionData_t playPauseData;
-    if (vr::VRInput()->GetDigitalActionData(m_actionPlayPause, &playPauseData, sizeof(playPauseData), vr::k_ulInvalidInputValueHandle) == vr::VRInputError_None) {
+    vr::EVRInputError playPauseError = vr::VRInput()->GetDigitalActionData(m_actionPlayPause, &playPauseData, sizeof(playPauseData), vr::k_ulInvalidInputValueHandle);
+    if (playPauseError == vr::VRInputError_None) {
         state.playPausePressed = playPauseData.bActive && playPauseData.bState && playPauseData.bChanged;
+        
+        static int playPauseDebugCount = 0;
+        if (++playPauseDebugCount % 300 == 0) {
+            qDebug() << "VROpenVRManager: PlayPause - Active:" << playPauseData.bActive << "State:" << playPauseData.bState << "Changed:" << playPauseData.bChanged;
+        }
+        
+        if (state.playPausePressed) {
+            qDebug() << "VROpenVRManager: PLAY/PAUSE PRESSED!";
+        }
+    } else {
+        static int playPauseErrorCount = 0;
+        if (++playPauseErrorCount % 300 == 0) {
+            qDebug() << "VROpenVRManager: PlayPause action error:" << playPauseError;
+        }
     }
     
     vr::InputDigitalActionData_t gripData;
-    if (vr::VRInput()->GetDigitalActionData(m_actionGripModifier, &gripData, sizeof(gripData), vr::k_ulInvalidInputValueHandle) == vr::VRInputError_None) {
+    vr::EVRInputError gripError = vr::VRInput()->GetDigitalActionData(m_actionGripModifier, &gripData, sizeof(gripData), vr::k_ulInvalidInputValueHandle);
+    if (gripError == vr::VRInputError_None) {
         state.gripPressed = gripData.bActive && gripData.bState;
+        
+        static int gripDebugCount = 0;
+        if (++gripDebugCount % 300 == 0) {
+            qDebug() << "VROpenVRManager: Grip - Active:" << gripData.bActive << "State:" << gripData.bState;
+        }
+        
+        if (state.gripPressed) {
+            static int gripPressedCount = 0;
+            if (++gripPressedCount % 60 == 0) { // Log every second when pressed
+                qDebug() << "VROpenVRManager: GRIP PRESSED!";
+            }
+        }
+    } else {
+        static int gripErrorCount = 0;
+        if (++gripErrorCount % 300 == 0) {
+            qDebug() << "VROpenVRManager: Grip action error:" << gripError;
+        }
     }
     
     // Poll axis action (touchpad/joystick)
     vr::InputAnalogActionData_t axisData;
-    if (vr::VRInput()->GetAnalogActionData(m_actionSeekAxis, &axisData, sizeof(axisData), vr::k_ulInvalidInputValueHandle) == vr::VRInputError_None) {
+    vr::EVRInputError axisError = vr::VRInput()->GetAnalogActionData(m_actionSeekAxis, &axisData, sizeof(axisData), vr::k_ulInvalidInputValueHandle);
+    if (axisError == vr::VRInputError_None) {
         if (axisData.bActive) {
             state.seekAxis = QVector2D(axisData.x, axisData.y);
+            
+            static int axisDebugCount = 0;
+            if (++axisDebugCount % 300 == 0) {
+                qDebug() << "VROpenVRManager: Axis - Active:" << axisData.bActive << "X:" << axisData.x << "Y:" << axisData.y;
+            }
+            
+            // Log significant axis movement
+            if (qAbs(axisData.x) > 0.3f || qAbs(axisData.y) > 0.3f) {
+                static int axisMovementCount = 0;
+                if (++axisMovementCount % 30 == 0) { // Log every 0.5 seconds during movement
+                    qDebug() << "VROpenVRManager: AXIS MOVEMENT - X:" << axisData.x << "Y:" << axisData.y;
+                }
+            }
+        }
+    } else {
+        static int axisErrorCount = 0;
+        if (++axisErrorCount % 300 == 0) {
+            qDebug() << "VROpenVRManager: Axis action error:" << axisError;
         }
     }
     

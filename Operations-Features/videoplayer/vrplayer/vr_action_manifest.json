@@ -28,6 +28,10 @@
     ],
     "default_bindings": [
         {
+            "controller_type": "vive_controller",
+            "binding_url": "vr_action_bindings_vive_controller.json"
+        },
+        {
             "controller_type": "knuckles",
             "binding_url": "vr_action_bindings_knuckles.json"
         },
