@@ -1146,6 +1146,96 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
     }
     
 #ifdef USE_OPENVR
+    // FALLBACK METHOD: Try legacy controller API if action system isn't working
+    // This bypasses the entire binding system
+    static bool useDirectInput = true;  // Flag to try direct input
+    
+    if (useDirectInput) {
+        // Find controller devices and poll them directly
+        for (uint32_t device = 0; device < vr::k_unMaxTrackedDeviceCount; ++device) {
+            if (m_vrSystem->GetTrackedDeviceClass(device) == vr::TrackedDeviceClass_Controller) {
+                // Check if this is a real VR controller (not gamepad)
+                QString controllerType = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_ControllerType_String));
+                if (controllerType == "gamepad") {
+                    continue;  // Skip gamepads
+                }
+                
+                // Get the controller state directly
+                vr::VRControllerState_t controllerState;
+                if (m_vrSystem->GetControllerState(device, &controllerState, sizeof(controllerState))) {
+                    // Log the raw state periodically
+                    static int directDebugCount = 0;
+                    if (++directDebugCount % 60 == 0) { // Every second
+                        qDebug() << "VROpenVRManager: DIRECT INPUT - Device" << device;
+                        qDebug() << "VROpenVRManager:   Trigger:" << controllerState.rAxis[1].x;  // Trigger is axis 1
+                        qDebug() << "VROpenVRManager:   Buttons:" << QString::number(controllerState.ulButtonPressed, 16);
+                        qDebug() << "VROpenVRManager:   Trackpad X:" << controllerState.rAxis[0].x;
+                        qDebug() << "VROpenVRManager:   Trackpad Y:" << controllerState.rAxis[0].y;
+                    }
+                    
+                    // Map controller buttons to our actions
+                    // Button mappings for Vive controller using numeric values:
+                    // Trigger = 33, ApplicationMenu = 1, Grip = 2, Touchpad = 32
+                    static const uint64_t k_ButtonTrigger = (1ULL << 33);  // Axis1 button
+                    static const uint64_t k_ButtonMenu = (1ULL << 1);      // ApplicationMenu  
+                    static const uint64_t k_ButtonGrip = (1ULL << 2);      // Grip
+                    static const uint64_t k_ButtonTrackpad = (1ULL << 32); // Axis0 button
+                    
+                    // Store previous state for edge detection
+                    static uint64_t lastButtonPressed = 0;
+                    uint64_t buttonChanged = controllerState.ulButtonPressed ^ lastButtonPressed;
+                    
+                    // Trigger -> Recenter
+                    if ((buttonChanged & k_ButtonTrigger) && (controllerState.ulButtonPressed & k_ButtonTrigger)) {
+                        state.recenterPressed = true;
+                        qDebug() << "VROpenVRManager: DIRECT INPUT - TRIGGER PRESSED!";
+                    }
+                    
+                    // Menu -> Play/Pause
+                    if ((buttonChanged & k_ButtonMenu) && (controllerState.ulButtonPressed & k_ButtonMenu)) {
+                        state.playPausePressed = true;
+                        qDebug() << "VROpenVRManager: DIRECT INPUT - MENU PRESSED!";
+                    }
+                    
+                    // Grip -> Modifier
+                    state.gripPressed = (controllerState.ulButtonPressed & k_ButtonGrip) != 0;
+                    if ((buttonChanged & k_ButtonGrip) && state.gripPressed) {
+                        qDebug() << "VROpenVRManager: DIRECT INPUT - GRIP PRESSED!";
+                    }
+                    
+                    // Trackpad axis for seek/zoom
+                    if (controllerState.ulButtonTouched & k_ButtonTrackpad) {
+                        state.seekAxis = QVector2D(controllerState.rAxis[0].x, controllerState.rAxis[0].y);
+                        
+                        static int trackpadDebugCount = 0;
+                        if (++trackpadDebugCount % 30 == 0 && (qAbs(state.seekAxis.x()) > 0.1f || qAbs(state.seekAxis.y()) > 0.1f)) {
+                            qDebug() << "VROpenVRManager: DIRECT INPUT - Trackpad:" << state.seekAxis.x() << "," << state.seekAxis.y();
+                        }
+                    }
+                    
+                    lastButtonPressed = controllerState.ulButtonPressed;
+                    
+                    // If we got any input, we know direct input is working
+                    if (controllerState.ulButtonPressed != 0 || controllerState.ulButtonTouched != 0) {
+                        static bool reportedSuccess = false;
+                        if (!reportedSuccess) {
+                            reportedSuccess = true;
+                            qDebug() << "VROpenVRManager: DIRECT INPUT IS WORKING! Bypassing SteamVR binding system.";
+                        }
+                    }
+                    
+                    break;  // Only process first valid controller
+                }
+            }
+        }
+        
+        // If direct input gave us data, return it
+        if (state.recenterPressed || state.playPausePressed || state.gripPressed || state.seekAxis.length() > 0.1f) {
+            return state;
+        }
+    }
+    
+    // Original action-based input system (keeping as fallback)
     // Update action states
     vr::VRActiveActionSet_t actionSet = { 0 };
     actionSet.ulActionSet = m_actionSetVideo;
@@ -1166,11 +1256,29 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
     vr::InputDigitalActionData_t recenterData;
     vr::EVRInputError recenterError = vr::VRInput()->GetDigitalActionData(m_actionRecenter, &recenterData, sizeof(recenterData), vr::k_ulInvalidInputValueHandle);
     if (recenterError == vr::VRInputError_None) {
-        // Always check state even if not marked as "active"
-        // Some SteamVR configurations might still send data
-        if (recenterData.bState && recenterData.bChanged) {
+        // Debug raw data
+        static int rawDebugCount = 0;
+        if (++rawDebugCount % 60 == 0) { // Every second
+            qDebug() << "VROpenVRManager: RAW BUTTON DATA - Active:" << recenterData.bActive 
+                     << "State:" << recenterData.bState 
+                     << "Changed:" << recenterData.bChanged
+                     << "UpdateTime:" << recenterData.fUpdateTime;
+        }
+        
+        // Try multiple ways to detect button press
+        if (recenterData.bChanged && recenterData.bState) {
             state.recenterPressed = true;
-            qDebug() << "VROpenVRManager: RECENTER PRESSED (Active:" << recenterData.bActive << ")";
+            qDebug() << "VROpenVRManager: RECENTER PRESSED! (Method 1: Changed && State)";
+        } else if (!state.recenterPressed && recenterData.bState) {
+            // Fallback: just check if button is down
+            static bool lastRecenterState = false;
+            if (recenterData.bState != lastRecenterState) {
+                state.recenterPressed = recenterData.bState;
+                if (state.recenterPressed) {
+                    qDebug() << "VROpenVRManager: RECENTER PRESSED! (Method 2: State change)";
+                }
+            }
+            lastRecenterState = recenterData.bState;
         }
         
         // Original active check
