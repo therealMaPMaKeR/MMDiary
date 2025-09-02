@@ -3,6 +3,8 @@
 #include <QFile>
 #include <QCoreApplication>
 #include <QtMath>
+#include <QStandardPaths>
+#include <QDir>
 
 VROpenVRManager::VROpenVRManager(QObject *parent)
     : QObject(parent)
@@ -11,6 +13,20 @@ VROpenVRManager::VROpenVRManager(QObject *parent)
     , m_isInitialized(false)
     , m_status(VRStatus::NotInitialized)
     , m_hmdPoseValid(false)
+#ifdef USE_OPENVR
+    , m_actionSetVideo(vr::k_ulInvalidActionSetHandle)
+    , m_actionRecenter(vr::k_ulInvalidActionHandle)
+    , m_actionPlayPause(vr::k_ulInvalidActionHandle)
+    , m_actionSeekAxis(vr::k_ulInvalidActionHandle)
+    , m_actionGripModifier(vr::k_ulInvalidActionHandle)
+#else
+    , m_actionSetVideo(0)
+    , m_actionRecenter(0)
+    , m_actionPlayPause(0)
+    , m_actionSeekAxis(0)
+    , m_actionGripModifier(0)
+#endif
+    , m_controllerInputReady(false)
 {
     qDebug() << "VROpenVRManager: Constructor called";
 }
@@ -69,6 +85,9 @@ void VROpenVRManager::shutdown()
     }
     
     qDebug() << "VROpenVRManager: Shutting down OpenVR system";
+    
+    // Shutdown controller input first
+    shutdownControllerInput();
     
 #ifdef USE_OPENVR
     if (m_vrSystem) {
@@ -517,4 +536,178 @@ QVector3D VROpenVRManager::extractPosition(const QMatrix4x4& matrix)
 {
     // Extract position from the last column of the matrix
     return QVector3D(matrix(0, 3), matrix(1, 3), matrix(2, 3));
+}
+
+// Controller input implementation
+bool VROpenVRManager::initializeControllerInput()
+{
+    qDebug() << "VROpenVRManager: Initializing controller input system";
+    
+    if (m_controllerInputReady) {
+        qDebug() << "VROpenVRManager: Controller input already initialized";
+        return true;
+    }
+    
+#ifdef USE_OPENVR
+    if (!m_vrSystem) {
+        qDebug() << "VROpenVRManager: VR system not initialized";
+        return false;
+    }
+    
+    // Extract action manifest from resources and save to temp location
+    QFile manifestResource(":vr_action_manifest.json");
+    if (!manifestResource.open(QIODevice::ReadOnly)) {
+        qDebug() << "VROpenVRManager: Failed to open action manifest resource";
+        setLastError("Failed to load VR controller action manifest");
+        return false;
+    }
+    
+    // Create temp directory for action manifest
+    QString userDataPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    QDir userDataDir(userDataPath);
+    if (!userDataDir.exists()) {
+        userDataDir.mkpath(".");
+    }
+    
+    QString tempDir = userDataPath + "/temp";
+    QDir tempDirObj(tempDir);
+    if (!tempDirObj.exists()) {
+        tempDirObj.mkpath(".");
+    }
+    
+    QString manifestPath = tempDir + "/vr_action_manifest.json";
+    QFile manifestFile(manifestPath);
+    if (!manifestFile.open(QIODevice::WriteOnly)) {
+        qDebug() << "VROpenVRManager: Failed to create temp action manifest file";
+        setLastError("Failed to create temporary VR controller action manifest");
+        return false;
+    }
+    
+    manifestFile.write(manifestResource.readAll());
+    manifestFile.close();
+    manifestResource.close();
+    
+    qDebug() << "VROpenVRManager: Action manifest written to:" << manifestPath;
+    
+    // Set action manifest path
+    vr::EVRInputError inputError = vr::VRInput()->SetActionManifestPath(manifestPath.toLocal8Bit().constData());
+    if (inputError != vr::VRInputError_None) {
+        qDebug() << "VROpenVRManager: Failed to set action manifest path, error:" << inputError;
+        setLastError("Failed to set VR controller action manifest path");
+        return false;
+    }
+    
+    // Get action set handle
+    inputError = vr::VRInput()->GetActionSetHandle("/actions/video", &m_actionSetVideo);
+    if (inputError != vr::VRInputError_None) {
+        qDebug() << "VROpenVRManager: Failed to get action set handle, error:" << inputError;
+        setLastError("Failed to get VR controller action set handle");
+        return false;
+    }
+    
+    // Get individual action handles
+    inputError = vr::VRInput()->GetActionHandle("/actions/video/in/recenter", &m_actionRecenter);
+    if (inputError != vr::VRInputError_None) {
+        qDebug() << "VROpenVRManager: Failed to get recenter action handle, error:" << inputError;
+        setLastError("Failed to get VR controller recenter action handle");
+        return false;
+    }
+    
+    inputError = vr::VRInput()->GetActionHandle("/actions/video/in/play_pause", &m_actionPlayPause);
+    if (inputError != vr::VRInputError_None) {
+        qDebug() << "VROpenVRManager: Failed to get play/pause action handle, error:" << inputError;
+        setLastError("Failed to get VR controller play/pause action handle");
+        return false;
+    }
+    
+    inputError = vr::VRInput()->GetActionHandle("/actions/video/in/seek_axis", &m_actionSeekAxis);
+    if (inputError != vr::VRInputError_None) {
+        qDebug() << "VROpenVRManager: Failed to get seek axis action handle, error:" << inputError;
+        setLastError("Failed to get VR controller seek axis action handle");
+        return false;
+    }
+    
+    inputError = vr::VRInput()->GetActionHandle("/actions/video/in/grip_modifier", &m_actionGripModifier);
+    if (inputError != vr::VRInputError_None) {
+        qDebug() << "VROpenVRManager: Failed to get grip modifier action handle, error:" << inputError;
+        setLastError("Failed to get VR controller grip modifier action handle");
+        return false;
+    }
+    
+    m_controllerInputReady = true;
+    qDebug() << "VROpenVRManager: Controller input system initialized successfully";
+    return true;
+#else
+    qDebug() << "VROpenVRManager: Controller input not available - OpenVR not compiled in";
+    return false;
+#endif
+}
+
+void VROpenVRManager::shutdownControllerInput()
+{
+    if (!m_controllerInputReady) {
+        return;
+    }
+    
+    qDebug() << "VROpenVRManager: Shutting down controller input system";
+    
+#ifdef USE_OPENVR
+    m_actionSetVideo = vr::k_ulInvalidActionSetHandle;
+    m_actionRecenter = vr::k_ulInvalidActionHandle;
+    m_actionPlayPause = vr::k_ulInvalidActionHandle;
+    m_actionSeekAxis = vr::k_ulInvalidActionHandle;
+    m_actionGripModifier = vr::k_ulInvalidActionHandle;
+#else
+    m_actionSetVideo = 0;
+    m_actionRecenter = 0;
+    m_actionPlayPause = 0;
+    m_actionSeekAxis = 0;
+    m_actionGripModifier = 0;
+#endif
+    
+    m_controllerInputReady = false;
+    qDebug() << "VROpenVRManager: Controller input shutdown complete";
+}
+
+VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
+{
+    VRControllerState state;
+    
+    if (!m_controllerInputReady) {
+        return state; // Returns default state (all false/zero)
+    }
+    
+#ifdef USE_OPENVR
+    // Update action states
+    vr::VRActiveActionSet_t actionSet = { 0 };
+    actionSet.ulActionSet = m_actionSetVideo;
+    vr::VRInput()->UpdateActionState(&actionSet, sizeof(vr::VRActiveActionSet_t), 1);
+    
+    // Poll boolean actions
+    vr::InputDigitalActionData_t recenterData;
+    if (vr::VRInput()->GetDigitalActionData(m_actionRecenter, &recenterData, sizeof(recenterData), vr::k_ulInvalidInputValueHandle) == vr::VRInputError_None) {
+        state.recenterPressed = recenterData.bActive && recenterData.bState && recenterData.bChanged;
+    }
+    
+    vr::InputDigitalActionData_t playPauseData;
+    if (vr::VRInput()->GetDigitalActionData(m_actionPlayPause, &playPauseData, sizeof(playPauseData), vr::k_ulInvalidInputValueHandle) == vr::VRInputError_None) {
+        state.playPausePressed = playPauseData.bActive && playPauseData.bState && playPauseData.bChanged;
+    }
+    
+    vr::InputDigitalActionData_t gripData;
+    if (vr::VRInput()->GetDigitalActionData(m_actionGripModifier, &gripData, sizeof(gripData), vr::k_ulInvalidInputValueHandle) == vr::VRInputError_None) {
+        state.gripPressed = gripData.bActive && gripData.bState;
+    }
+    
+    // Poll axis action (touchpad/joystick)
+    vr::InputAnalogActionData_t axisData;
+    if (vr::VRInput()->GetAnalogActionData(m_actionSeekAxis, &axisData, sizeof(axisData), vr::k_ulInvalidInputValueHandle) == vr::VRInputError_None) {
+        if (axisData.bActive) {
+            state.seekAxis = QVector2D(axisData.x, axisData.y);
+        }
+    }
+    
+#endif
+    
+    return state;
 }

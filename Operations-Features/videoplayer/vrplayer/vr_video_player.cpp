@@ -239,6 +239,9 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     , m_frameTimer(new QTimer(this))
     , m_positionTimer(new QTimer(this))
     , m_focusTimer(new QTimer(this))
+    , m_controllerInputTimer(new QTimer(this))
+    , m_lastSeekAxis(0.0f, 0.0f)
+    , m_controllerInputActive(false)
 {
     qDebug() << "VRVideoPlayer: Constructor called";
     
@@ -290,6 +293,10 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     // Set up focus restoration timer (single shot timer to restore focus after SteamVR launch)
     m_focusTimer->setSingleShot(true);
     connect(m_focusTimer, &QTimer::timeout, this, &VRVideoPlayer::restoreFocusDelayed);
+    
+    // Set up VR controller input timer (60Hz polling - separate from 90Hz render loop)
+    m_controllerInputTimer->setInterval(16); // ~60 FPS for controller input
+    connect(m_controllerInputTimer, &QTimer::timeout, this, &VRVideoPlayer::processControllerInput);
     
     // Set window flags for modal behavior and always on top
     setWindowFlags(Qt::Window | Qt::WindowTitleHint | Qt::WindowCloseButtonHint | 
@@ -574,6 +581,14 @@ bool VRVideoPlayer::initializeVR()
     
     m_vrAvailable = true;
     m_vrInitialized = true;
+    
+    // Initialize controller input
+    if (!m_vrManager->initializeControllerInput()) {
+        qDebug() << "VRVideoPlayer: Failed to initialize controller input";
+        // Continue anyway - controller input is not critical
+    } else {
+        qDebug() << "VRVideoPlayer: Controller input initialized successfully";
+    }
     
     // Set up VR components
     if (!setupVRComponents()) {
@@ -1055,12 +1070,6 @@ void VRVideoPlayer::enterVRMode()
     // m_statusLabel->setText("VR Mode Active - Space: recenter | P: play/pause"); // Status label hidden
     // Note: Close button is always enabled (no longer exitVR button)
     
-    // Pause playback immediately when entering VR mode to give user time to put on headset
-    if (m_isPlaying) {
-        qDebug() << "VRVideoPlayer: Auto-pausing playback for VR headset setup";
-        pause();
-    }
-    
     // Ensure this widget has keyboard focus for spacebar handling
     setFocus(Qt::OtherFocusReason);
     qDebug() << "VRVideoPlayer: Setting focus to widget for keyboard input";
@@ -1068,6 +1077,15 @@ void VRVideoPlayer::enterVRMode()
     // Start timer to restore focus after SteamVR potentially steals it
     m_focusTimer->start(2000);  // Restore focus after 2 seconds
     qDebug() << "VRVideoPlayer: Started focus restoration timer (2 seconds)";
+    
+    // Start VR controller input polling
+    if (m_vrManager && m_vrManager->isControllerInputReady()) {
+        m_controllerInputTimer->start();
+        m_controllerInputActive = true;
+        qDebug() << "VRVideoPlayer: Started VR controller input polling (60Hz)";
+    } else {
+        qDebug() << "VRVideoPlayer: Controller input not available";
+    }
     
     emit vrStatusChanged(true);
     
@@ -1092,6 +1110,13 @@ void VRVideoPlayer::exitVRMode()
     if (m_focusTimer->isActive()) {
         m_focusTimer->stop();
         qDebug() << "VRVideoPlayer: Stopped focus restoration timer";
+    }
+    
+    // Stop VR controller input polling
+    if (m_controllerInputTimer->isActive()) {
+        m_controllerInputTimer->stop();
+        m_controllerInputActive = false;
+        qDebug() << "VRVideoPlayer: Stopped VR controller input polling";
     }
     
     // Update UI
@@ -1883,6 +1908,119 @@ void VRVideoPlayer::restoreFocusDelayed()
     setFocus(Qt::OtherFocusReason);
     
     qDebug() << "VRVideoPlayer: Focus restoration complete";
+}
+
+void VRVideoPlayer::processControllerInput()
+{
+    if (!m_controllerInputActive || !m_vrManager || !m_vrManager->isControllerInputReady()) {
+        return;
+    }
+    
+    // Poll controller input state
+    VROpenVRManager::VRControllerState state = m_vrManager->pollControllerInput();
+    
+    // Process button presses (these are "just pressed" events)
+    if (state.recenterPressed) {
+        qDebug() << "VRVideoPlayer: Controller trigger pressed - recentering view";
+        if (m_renderThread && m_vrActive) {
+            m_renderThread->recenterView();
+        }
+    }
+    
+    if (state.playPausePressed) {
+        qDebug() << "VRVideoPlayer: Controller menu button pressed - toggling play/pause";
+        onPlayPauseClicked();
+    }
+    
+    // Process analog inputs (touchpad/joystick)
+    const float deadzone = 0.3f; // Ignore small movements
+    const float seekThreshold = 0.7f; // Threshold for seeking
+    const float zoomThreshold = 0.5f; // Threshold for zoom
+    const float volumeThreshold = 0.5f; // Threshold for volume
+    
+    if (state.seekAxis.length() > deadzone) {
+        float horizontalAxis = state.seekAxis.x(); // Left/right
+        float verticalAxis = state.seekAxis.y();   // Up/down
+        
+        // Determine action based on grip modifier
+        if (state.gripPressed) {
+            // Grip + axis combinations
+            
+            // Horizontal: Seek 60 seconds
+            if (qAbs(horizontalAxis) > seekThreshold && m_videoLoaded && m_vlcPlayer) {
+                // Only trigger on edge (not continuous)
+                if ((horizontalAxis > seekThreshold && m_lastSeekAxis.x() <= seekThreshold) ||
+                    (horizontalAxis < -seekThreshold && m_lastSeekAxis.x() >= -seekThreshold)) {
+                    
+                    int seekMs = (horizontalAxis > 0) ? 60000 : -60000;
+                    qDebug() << "VRVideoPlayer: Controller grip+horizontal - seeking" << (seekMs/1000) << "seconds";
+                    m_vlcPlayer->seekRelative(seekMs);
+                }
+            }
+            
+            // Vertical: Volume control
+            if (qAbs(verticalAxis) > volumeThreshold) {
+                // Only trigger on edge (not continuous)
+                if ((verticalAxis > volumeThreshold && m_lastSeekAxis.y() <= volumeThreshold) ||
+                    (verticalAxis < -volumeThreshold && m_lastSeekAxis.y() >= -volumeThreshold)) {
+                    
+#ifdef Q_OS_WIN
+                    if (verticalAxis > 0) {
+                        qDebug() << "VRVideoPlayer: Controller grip+up - increasing Windows volume";
+                        increaseWindowsVolume();
+                    } else {
+                        qDebug() << "VRVideoPlayer: Controller grip+down - decreasing Windows volume";
+                        decreaseWindowsVolume();
+                    }
+#else
+                    qDebug() << "VRVideoPlayer: Volume control only available on Windows";
+#endif
+                }
+            }
+        } else {
+            // Normal axis (no grip) combinations
+            
+            // Horizontal: Seek 10 seconds
+            if (qAbs(horizontalAxis) > seekThreshold && m_videoLoaded && m_vlcPlayer) {
+                // Only trigger on edge (not continuous)
+                if ((horizontalAxis > seekThreshold && m_lastSeekAxis.x() <= seekThreshold) ||
+                    (horizontalAxis < -seekThreshold && m_lastSeekAxis.x() >= -seekThreshold)) {
+                    
+                    int seekMs = (horizontalAxis > 0) ? 10000 : -10000;
+                    qDebug() << "VRVideoPlayer: Controller horizontal - seeking" << (seekMs/1000) << "seconds";
+                    m_vlcPlayer->seekRelative(seekMs);
+                }
+            }
+            
+            // Vertical: Zoom in/out
+            if (qAbs(verticalAxis) > zoomThreshold && m_renderThread && m_vrActive) {
+                // Only trigger on edge (not continuous)
+                if ((verticalAxis > zoomThreshold && m_lastSeekAxis.y() <= zoomThreshold) ||
+                    (verticalAxis < -zoomThreshold && m_lastSeekAxis.y() >= -zoomThreshold)) {
+                    
+                    float currentScale = m_renderThread->getVideoScale();
+                    float zoomDelta = (verticalAxis > 0) ? 0.1f : -0.1f;
+                    float newScale = qBound(0.1f, currentScale + zoomDelta, 5.0f);
+                    m_renderThread->setVideoScale(newScale);
+                    
+                    // Update zoom slider UI
+                    if (m_zoomSlider) {
+                        m_zoomSlider->blockSignals(true);
+                        m_zoomSlider->setValue(static_cast<int>(newScale * 100));
+                        m_zoomSlider->blockSignals(false);
+                        if (m_zoomValueLabel) {
+                            m_zoomValueLabel->setText(QString("%1%").arg(static_cast<int>(newScale * 100)));
+                        }
+                    }
+                    
+                    qDebug() << "VRVideoPlayer: Controller vertical - zoom to" << newScale;
+                }
+            }
+        }
+    }
+    
+    // Store current axis values for edge detection
+    m_lastSeekAxis = state.seekAxis;
 }
 
 //=============================================================================

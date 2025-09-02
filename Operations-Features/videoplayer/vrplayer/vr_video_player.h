@@ -103,6 +103,7 @@ private slots:
     void onZoomSliderChanged(int value);
     void onSpeedSliderChanged(int value);
     void updatePlaybackPosition();
+    void processControllerInput();  // VR controller input processing
 
 private:
     bool setupVRComponents();
@@ -189,10 +190,15 @@ private:
     QTimer* m_frameTimer;
     QTimer* m_positionTimer;
     QTimer* m_focusTimer;  // Timer to restore focus after SteamVR launches
+    QTimer* m_controllerInputTimer;  // Timer for VR controller input polling (60Hz)
     
     // Current video frame (from libVLC)
     QImage m_currentFrame;
     QMutex m_frameMutex;
+    
+    // VR Controller input state
+    QVector2D m_lastSeekAxis;           // Previous axis values for smooth interaction
+    bool m_controllerInputActive;       // Whether controller input is being processed
 };
 
 /**

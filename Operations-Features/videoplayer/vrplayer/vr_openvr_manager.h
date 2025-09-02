@@ -83,6 +83,22 @@ public:
     // Compositor operations
     void compositorWaitGetPoses();
     bool isCompositorReady() const;
+    
+    // Controller input system
+    struct VRControllerState {
+        bool recenterPressed;
+        bool playPausePressed; 
+        bool gripPressed;
+        QVector2D seekAxis;  // x: left/right seek, y: up/down zoom/volume
+        
+        VRControllerState() : recenterPressed(false), playPausePressed(false), 
+                              gripPressed(false), seekAxis(0.0f, 0.0f) {}
+    };
+    
+    bool initializeControllerInput();
+    void shutdownControllerInput();
+    VRControllerState pollControllerInput();
+    bool isControllerInputReady() const { return m_controllerInputReady; }
 
 signals:
     void statusChanged(VRStatus status);
@@ -116,6 +132,22 @@ private:
     // HMD pose matrix
     QMatrix4x4 m_hmdPoseMatrix;
     bool m_hmdPoseValid;
+    
+    // Controller input
+#ifdef USE_OPENVR
+    vr::VRActionSetHandle_t m_actionSetVideo;
+    vr::VRActionHandle_t m_actionRecenter;
+    vr::VRActionHandle_t m_actionPlayPause;
+    vr::VRActionHandle_t m_actionSeekAxis;
+    vr::VRActionHandle_t m_actionGripModifier;
+#else
+    uint64_t m_actionSetVideo;
+    uint64_t m_actionRecenter;
+    uint64_t m_actionPlayPause;
+    uint64_t m_actionSeekAxis;
+    uint64_t m_actionGripModifier;
+#endif
+    bool m_controllerInputReady;
 };
 
 #endif // VR_OPENVR_MANAGER_H

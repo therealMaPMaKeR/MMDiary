@@ -2,5 +2,9 @@
     <qresource prefix="/">
         <file>icons/icon_tray.png</file>
         <file>icons/AppImage.png</file>
+        <file>Operations-Features/videoplayer/vrplayer/vr_action_manifest.json</file>
+        <file>Operations-Features/videoplayer/vrplayer/vr_action_bindings_knuckles.json</file>
+        <file>Operations-Features/videoplayer/vrplayer/vr_action_bindings_oculus_touch.json</file>
+        <file>Operations-Features/videoplayer/vrplayer/vr_action_bindings_generic.json</file>
     </qresource>
 </RCC>
