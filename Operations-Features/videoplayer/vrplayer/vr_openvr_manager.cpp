@@ -1068,6 +1068,11 @@ bool VROpenVRManager::initializeControllerInput()
                 qDebug() << "VROpenVRManager:    - Menu Button -> Play/Pause";
                 qDebug() << "VROpenVRManager:    - Grip -> Modifier (for zoom)";
                 qDebug() << "VROpenVRManager:    - Trackpad -> Seek/Zoom Control";
+                
+                // Still mark as ready but note that bindings need to be configured
+                qDebug() << "VROpenVRManager: ";
+                qDebug() << "VROpenVRManager: Controller system initialized but bindings need configuration.";
+                qDebug() << "VROpenVRManager: The controller will work once bindings are set in SteamVR.";
             }
         }
         qDebug() << "VROpenVRManager: ========================================";
@@ -1078,8 +1083,16 @@ bool VROpenVRManager::initializeControllerInput()
         qDebug() << "VROpenVRManager:    - Menu Button: Play/Pause";
         qDebug() << "VROpenVRManager:    - Grip: Hold for zoom modifier";
         qDebug() << "VROpenVRManager:    - Trackpad: Seek (X-axis) / Zoom (Y-axis with Grip)";
+    } else if (controllerCount == 0) {
+        qDebug() << "VROpenVRManager: No VR controllers detected.";
+        qDebug() << "VROpenVRManager: Please turn on your VR controllers and restart.";
+        // Don't mark as ready if no controllers
+        m_controllerInputReady = false;
+        return true;
     }
     
+    // Mark as ready even if bindings aren't active yet
+    // This allows manual configuration to work
     m_controllerInputReady = true;
     qDebug() << "VROpenVRManager: Controller input system initialized successfully";
     
@@ -1153,7 +1166,14 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
     vr::InputDigitalActionData_t recenterData;
     vr::EVRInputError recenterError = vr::VRInput()->GetDigitalActionData(m_actionRecenter, &recenterData, sizeof(recenterData), vr::k_ulInvalidInputValueHandle);
     if (recenterError == vr::VRInputError_None) {
-        // Check for any activity on this action
+        // Always check state even if not marked as "active"
+        // Some SteamVR configurations might still send data
+        if (recenterData.bState && recenterData.bChanged) {
+            state.recenterPressed = true;
+            qDebug() << "VROpenVRManager: RECENTER PRESSED (Active:" << recenterData.bActive << ")";
+        }
+        
+        // Original active check
         if (recenterData.bActive) {
             state.recenterPressed = recenterData.bState && recenterData.bChanged;
             
@@ -1165,7 +1185,8 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
         
         static int debugCount = 0;
         if (++debugCount % 600 == 0) { // Debug every 10 seconds
-            qDebug() << "VROpenVRManager: Recenter - Active:" << recenterData.bActive 
+            qDebug() << "VROpenVRManager: Controller polling - Recenter:";
+            qDebug() << "VROpenVRManager:   Active:" << recenterData.bActive 
                      << "State:" << recenterData.bState 
                      << "Changed:" << recenterData.bChanged
                      << "Handle:" << m_actionRecenter;
@@ -1175,13 +1196,15 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
             if (!recenterData.bActive && !shownHelp) {
                 shownHelp = true;
                 qDebug() << "VROpenVRManager: ========================================";
-                qDebug() << "VROpenVRManager: CONTROLLER BINDINGS NOT ACTIVE!";
-                qDebug() << "VROpenVRManager: To fix this:";
-                qDebug() << "VROpenVRManager: 1. Right-click on SteamVR status window";
-                qDebug() << "VROpenVRManager: 2. Select 'Settings' -> 'Controllers' -> 'Manage Controller Bindings'";
-                qDebug() << "VROpenVRManager: 3. Find 'MMDiary VR Video Player' in the application dropdown";
-                qDebug() << "VROpenVRManager: 4. Select a binding configuration or create a custom one";
-                qDebug() << "VROpenVRManager: 5. Click 'Replace Default Binding' if prompted";
+                qDebug() << "VROpenVRManager: CONTROLLER BINDINGS NOT DETECTED AS ACTIVE";
+                qDebug() << "VROpenVRManager: However, the controller may still work.";
+                qDebug() << "VROpenVRManager: Try pressing the trigger button to test.";
+                qDebug() << "VROpenVRManager: ";
+                qDebug() << "VROpenVRManager: To manually configure:";
+                qDebug() << "VROpenVRManager: 1. Open SteamVR Dashboard (System button)";
+                qDebug() << "VROpenVRManager: 2. Settings -> Controllers -> Manage Bindings";
+                qDebug() << "VROpenVRManager: 3. Select any app, then 'Custom' -> 'Create New'";
+                qDebug() << "VROpenVRManager: 4. Map controls and save";
                 qDebug() << "VROpenVRManager: ========================================";
             }
         }
@@ -1287,29 +1310,53 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
 void VROpenVRManager::showBindingConfiguration()
 {
 #ifdef USE_OPENVR
-    if (!m_controllerInputReady || !m_vrSystem) {
+    if (!m_vrSystem) {
         qDebug() << "VROpenVRManager: Cannot show binding configuration - system not ready";
         return;
     }
     
     qDebug() << "VROpenVRManager: Opening SteamVR binding configuration UI...";
     
-    vr::VRActiveActionSet_t actionSet = { 0 };
-    actionSet.ulActionSet = m_actionSetVideo;
-    actionSet.ulRestrictedToDevice = vr::k_ulInvalidInputValueHandle;
-    
-    vr::EVRInputError error = vr::VRInput()->ShowBindingsForActionSet(
-        &actionSet, 
-        sizeof(vr::VRActiveActionSet_t), 
-        1, 
-        vr::k_ulInvalidInputValueHandle);
-    
-    if (error != vr::VRInputError_None) {
-        qDebug() << "VROpenVRManager: Failed to show binding configuration UI, error:" << error;
-    } else {
-        qDebug() << "VROpenVRManager: Binding configuration UI opened successfully";
-        qDebug() << "VROpenVRManager: Please configure your controller bindings and then restart the VR player";
+    // Method 1: Try ShowBindingsForActionSet
+    if (m_actionSetVideo != vr::k_ulInvalidActionSetHandle) {
+        vr::VRActiveActionSet_t actionSet = { 0 };
+        actionSet.ulActionSet = m_actionSetVideo;
+        actionSet.ulRestrictedToDevice = vr::k_ulInvalidInputValueHandle;
+        
+        vr::EVRInputError error = vr::VRInput()->ShowBindingsForActionSet(
+            &actionSet, 
+            sizeof(vr::VRActiveActionSet_t), 
+            1, 
+            vr::k_ulInvalidInputValueHandle);
+        
+        if (error == vr::VRInputError_None) {
+            qDebug() << "VROpenVRManager: ShowBindingsForActionSet called successfully";
+        } else {
+            qDebug() << "VROpenVRManager: ShowBindingsForActionSet failed with error:" << error;
+        }
     }
+    
+    // Method 2: Try opening the general binding UI
+    vr::EVRInputError generalError = vr::VRInput()->ShowActionOrigins(
+        m_actionSetVideo,
+        vr::k_ulInvalidActionHandle);
+    
+    if (generalError == vr::VRInputError_None) {
+        qDebug() << "VROpenVRManager: ShowActionOrigins called successfully";
+    } else {
+        qDebug() << "VROpenVRManager: ShowActionOrigins failed with error:" << generalError;
+    }
+    
+    // Provide manual instructions since the UI might not open properly
+    qDebug() << "VROpenVRManager: ";
+    qDebug() << "VROpenVRManager: If the binding UI didn't open, please manually configure:";
+    qDebug() << "VROpenVRManager: 1. Open SteamVR Dashboard (press System button on controller)";
+    qDebug() << "VROpenVRManager: 2. Go to Settings (gear icon)";
+    qDebug() << "VROpenVRManager: 3. Select 'Controllers' -> 'Manage Controller Bindings'";
+    qDebug() << "VROpenVRManager: 4. In the dropdown, look for 'MMDiary VR Video Player'";
+    qDebug() << "VROpenVRManager: 5. Click 'Edit this Binding'";
+    qDebug() << "VROpenVRManager: 6. Configure your controls or select a preset";
+    qDebug() << "VROpenVRManager: 7. Save the binding";
 #else
     qDebug() << "VROpenVRManager: OpenVR not available";
 #endif
