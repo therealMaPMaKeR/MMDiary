@@ -737,19 +737,19 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
         uint64_t buttonPressed = controllerState.ulButtonPressed;
         uint64_t buttonChanged = buttonPressed ^ lastState.ulButtonPressed;
         
-        // MENU/APPLICATION -> Recenter (hold state for continuous recentering)
-        if (buttonPressed & k_ButtonApplicationMenu) {
-            state.recenterHeld = true;
-            static int menuLogCount = 0;
-            if (++menuLogCount % 60 == 0) { // Log every second while held
-                qDebug() << "VROpenVRManager: MENU HELD - Continuous recenter active";
-            }
+        // MENU/APPLICATION -> Play/Pause
+        if ((buttonChanged & k_ButtonApplicationMenu) && (buttonPressed & k_ButtonApplicationMenu)) {
+            state.playPausePressed = true;
+            qDebug() << "VROpenVRManager: MENU PRESSED - Play/Pause";
         }
         
-        // TRIGGER -> Play/Pause (on press)
-        if ((buttonChanged & k_ButtonTrigger) && (buttonPressed & k_ButtonTrigger)) {
-            state.playPausePressed = true;
-            qDebug() << "VROpenVRManager: TRIGGER PRESSED - Play/Pause";
+        // TRIGGER -> Recenter
+        if (buttonPressed & k_ButtonTrigger) {
+            state.recenterHeld = true;
+            static int triggerLogCount = 0;
+            if (++triggerLogCount % 60 == 0) { // Log every second while held
+                qDebug() << "VROpenVRManager: TRIGGER HELD - Continuous recenter active";
+            }
         }
         
         // GRIP -> Modifier (hold state)
