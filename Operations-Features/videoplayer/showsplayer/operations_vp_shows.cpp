@@ -53,6 +53,8 @@
 #include <QFont>
 #include <QLineEdit>
 #include <QThread>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <algorithm>
 #include <functional>
 
@@ -3098,6 +3100,12 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     qDebug() << "Operations_VP_Shows: Is autoplay:" << m_isAutoplayInProgress;
     qDebug() << "Operations_VP_Shows: Is random autoplay:" << m_isRandomAutoplay;
     
+    // Start timer to track decryption time (for small episode fix)
+    QElapsedTimer decryptionTimer;
+    decryptionTimer.start();
+    const qint64 MINIMUM_DECRYPTION_TIME_MS = 2000; // 2 seconds minimum
+    qDebug() << "Operations_VP_Shows: Started decryption timer with" << MINIMUM_DECRYPTION_TIME_MS << "ms minimum";
+    
     // Clear any pending autoplay info if this is a manual play
     if (!m_isAutoplayInProgress && !m_pendingAutoplayPath.isEmpty()) {
         qDebug() << "Operations_VP_Shows: Manual play detected, clearing pending autoplay info";
@@ -3347,6 +3355,23 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                             tr("Decryption Error"),
                             tr("Failed to decrypt the video file. The file may be corrupted or the encryption key may be incorrect."));
         return;
+    }
+    
+    // Check if minimum time has elapsed since decryption started (fix for small episodes)
+    qint64 elapsedTime = decryptionTimer.elapsed();
+    if (elapsedTime < MINIMUM_DECRYPTION_TIME_MS) {
+        qint64 remainingTime = MINIMUM_DECRYPTION_TIME_MS - elapsedTime;
+        qDebug() << "Operations_VP_Shows: Decryption completed in" << elapsedTime << "ms";
+        qDebug() << "Operations_VP_Shows: Waiting additional" << remainingTime << "ms to ensure stability";
+        
+        // Use event loop delay to keep UI responsive
+        QEventLoop loop;
+        QTimer::singleShot(remainingTime, &loop, &QEventLoop::quit);
+        loop.exec();
+        
+        qDebug() << "Operations_VP_Shows: Minimum time requirement met, proceeding with playback";
+    } else {
+        qDebug() << "Operations_VP_Shows: Decryption took" << elapsedTime << "ms, no additional delay needed";
     }
 
     qDebug() << "Operations_VP_Shows: Decryption successful, starting playback";
