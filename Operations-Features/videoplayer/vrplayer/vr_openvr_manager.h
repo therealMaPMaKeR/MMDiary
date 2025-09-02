@@ -99,6 +99,7 @@ public:
     void shutdownControllerInput();
     VRControllerState pollControllerInput();
     bool isControllerInputReady() const { return m_controllerInputReady; }
+    void showBindingConfiguration();  // Opens SteamVR binding configuration UI
 
 signals:
     void statusChanged(VRStatus status);

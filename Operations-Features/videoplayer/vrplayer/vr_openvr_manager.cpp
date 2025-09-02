@@ -5,6 +5,8 @@
 #include <QtMath>
 #include <QStandardPaths>
 #include <QDir>
+#include <QStringList>
+#include <cstring>
 
 VROpenVRManager::VROpenVRManager(QObject *parent)
     : QObject(parent)
@@ -554,21 +556,7 @@ bool VROpenVRManager::initializeControllerInput()
         return false;
     }
     
-    // Extract action manifest from resources and save to temp location
-    QString manifestResourcePath = ":/Operations-Features/videoplayer/vrplayer/vr_action_manifest.json";
-    qDebug() << "VROpenVRManager: Looking for action manifest at resource path:" << manifestResourcePath;
-    
-    QFile manifestResource(manifestResourcePath);
-    if (!manifestResource.open(QIODevice::ReadOnly)) {
-        qDebug() << "VROpenVRManager: Failed to open action manifest resource";
-        qDebug() << "VROpenVRManager: Resource exists:" << QFile::exists(manifestResourcePath);
-        setLastError("Failed to load VR controller action manifest");
-        return false;
-    }
-    
-    qDebug() << "VROpenVRManager: Successfully opened action manifest resource (" << manifestResource.size() << "bytes)";
-    
-    // Create temp directory for action manifest
+    // Create temp directory for action manifest and binding files
     QString userDataPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     QDir userDataDir(userDataPath);
     if (!userDataDir.exists()) {
@@ -581,6 +569,84 @@ bool VROpenVRManager::initializeControllerInput()
         tempDirObj.mkpath(".");
     }
     
+    qDebug() << "VROpenVRManager: Using temp directory:" << tempDir;
+    
+    // List of all binding files to extract
+    QStringList bindingFiles = {
+        "vr_action_bindings_vive_controller.json",
+        "vr_action_bindings_knuckles.json",
+        "vr_action_bindings_oculus_touch.json",
+        "vr_action_bindings_generic.json"
+    };
+    
+    // Extract all binding files first
+    for (const QString& bindingFile : bindingFiles) {
+        QString bindingResourcePath = ":/Operations-Features/videoplayer/vrplayer/" + bindingFile;
+        QString bindingDestPath = tempDir + "/" + bindingFile;
+        
+        qDebug() << "VROpenVRManager: Extracting binding file:" << bindingFile;
+        
+        QFile bindingResource(bindingResourcePath);
+        if (!bindingResource.open(QIODevice::ReadOnly)) {
+            qDebug() << "VROpenVRManager: WARNING - Failed to open binding resource:" << bindingResourcePath;
+            continue;
+        }
+        
+        QFile bindingDest(bindingDestPath);
+        if (!bindingDest.open(QIODevice::WriteOnly)) {
+            qDebug() << "VROpenVRManager: WARNING - Failed to create binding file:" << bindingDestPath;
+            bindingResource.close();
+            continue;
+        }
+        
+        bindingDest.write(bindingResource.readAll());
+        bindingDest.close();
+        bindingResource.close();
+        
+        qDebug() << "VROpenVRManager: Successfully extracted binding file to:" << bindingDestPath;
+    }
+    
+    // Extract action manifest from resources and modify it with absolute paths
+    QString manifestResourcePath = ":/Operations-Features/videoplayer/vrplayer/vr_action_manifest.json";
+    qDebug() << "VROpenVRManager: Extracting action manifest from:" << manifestResourcePath;
+    
+    QFile manifestResource(manifestResourcePath);
+    if (!manifestResource.open(QIODevice::ReadOnly)) {
+        qDebug() << "VROpenVRManager: Failed to open action manifest resource";
+        qDebug() << "VROpenVRManager: Resource exists:" << QFile::exists(manifestResourcePath);
+        setLastError("Failed to load VR controller action manifest");
+        return false;
+    }
+    
+    // Read the manifest content
+    QByteArray manifestContent = manifestResource.readAll();
+    manifestResource.close();
+    
+    qDebug() << "VROpenVRManager: Successfully loaded action manifest (" << manifestContent.size() << "bytes)";
+    
+    // Convert to string for modification
+    QString manifestString = QString::fromUtf8(manifestContent);
+    
+    // Replace relative paths with absolute paths in the manifest
+    // The manifest contains binding_url entries like "vr_action_bindings_vive_controller.json"
+    // We need to replace them with absolute paths
+    for (const QString& bindingFile : bindingFiles) {
+        QString relativePath = bindingFile;
+        QString absolutePath = tempDir + "/" + bindingFile;
+        
+        // Replace in the manifest - handle both Windows and Unix path separators
+        absolutePath.replace("\\", "/");  // Convert Windows backslashes to forward slashes for JSON
+        
+        // Replace the relative binding URL with absolute path
+        manifestString.replace(
+            QString("\"%1\"").arg(relativePath),
+            QString("\"%1\"").arg(absolutePath)
+        );
+        
+        qDebug() << "VROpenVRManager: Replaced binding path:" << relativePath << "->" << absolutePath;
+    }
+    
+    // Write the modified manifest
     QString manifestPath = tempDir + "/vr_action_manifest.json";
     QFile manifestFile(manifestPath);
     if (!manifestFile.open(QIODevice::WriteOnly)) {
@@ -589,35 +655,91 @@ bool VROpenVRManager::initializeControllerInput()
         return false;
     }
     
-    manifestFile.write(manifestResource.readAll());
+    manifestFile.write(manifestString.toUtf8());
     manifestFile.close();
-    manifestResource.close();
     
-    qDebug() << "VROpenVRManager: Action manifest written to:" << manifestPath;
+    qDebug() << "VROpenVRManager: Modified action manifest written to:" << manifestPath;
+    
+    // Debug: Show a sample of the modified manifest to verify paths
+    if (manifestString.contains("vive_controller")) {
+        int startIdx = manifestString.indexOf("vive_controller") - 50;
+        int endIdx = manifestString.indexOf("vive_controller") + 150;
+        startIdx = qMax(0, startIdx);
+        endIdx = qMin(manifestString.length(), endIdx);
+        qDebug() << "VROpenVRManager: Sample of modified manifest:" << manifestString.mid(startIdx, endIdx - startIdx);
+    }
+    
+    // Verify all files were extracted
+    qDebug() << "VROpenVRManager: Verifying extracted files:";
+    QDir extractedDir(tempDir);
+    QStringList extractedFiles = extractedDir.entryList(QStringList() << "*.json", QDir::Files);
+    for (const QString& file : extractedFiles) {
+        qDebug() << "VROpenVRManager:   Found:" << file;
+    }
     
     // Set action manifest path
+    qDebug() << "VROpenVRManager: Setting action manifest path to OpenVR:" << manifestPath;
     vr::EVRInputError inputError = vr::VRInput()->SetActionManifestPath(manifestPath.toLocal8Bit().constData());
     if (inputError != vr::VRInputError_None) {
-        qDebug() << "VROpenVRManager: Failed to set action manifest path, error:" << inputError;
+        qDebug() << "VROpenVRManager: Failed to set action manifest path, error code:" << inputError;
+        
+        // Provide more detailed error information
+        switch(inputError) {
+            case vr::VRInputError_InvalidParam:
+                qDebug() << "VROpenVRManager: Error: Invalid parameter";
+                break;
+            case vr::VRInputError_InvalidDevice:
+                qDebug() << "VROpenVRManager: Error: Invalid device";
+                break;
+            case vr::VRInputError_MismatchedActionManifest:
+                qDebug() << "VROpenVRManager: Error: Mismatched action manifest";
+                break;
+            case vr::VRInputError_InvalidHandle:
+                qDebug() << "VROpenVRManager: Error: Invalid handle";
+                break;
+            case vr::VRInputError_NameNotFound:
+                qDebug() << "VROpenVRManager: Error: Name not found in manifest";
+                break;
+            case vr::VRInputError_WrongType:
+                qDebug() << "VROpenVRManager: Error: Wrong type";
+                break;
+            case vr::VRInputError_NoData:
+                qDebug() << "VROpenVRManager: Error: No data available";
+                break;
+            case vr::VRInputError_BufferTooSmall:
+                qDebug() << "VROpenVRManager: Error: Buffer too small";
+                break;
+            default:
+                qDebug() << "VROpenVRManager: Unknown error code:" << inputError;
+                break;
+        }
+        
         setLastError("Failed to set VR controller action manifest path");
         return false;
     }
     
+    qDebug() << "VROpenVRManager: Action manifest successfully loaded by OpenVR";
+    
     // Get action set handle
+    qDebug() << "VROpenVRManager: Getting action set handle for /actions/video";
     inputError = vr::VRInput()->GetActionSetHandle("/actions/video", &m_actionSetVideo);
     if (inputError != vr::VRInputError_None) {
         qDebug() << "VROpenVRManager: Failed to get action set handle, error:" << inputError;
         setLastError("Failed to get VR controller action set handle");
         return false;
     }
+    qDebug() << "VROpenVRManager: Action set handle obtained:" << m_actionSetVideo;
     
     // Get individual action handles
+    qDebug() << "VROpenVRManager: Getting individual action handles...";
+    
     inputError = vr::VRInput()->GetActionHandle("/actions/video/in/recenter", &m_actionRecenter);
     if (inputError != vr::VRInputError_None) {
         qDebug() << "VROpenVRManager: Failed to get recenter action handle, error:" << inputError;
         setLastError("Failed to get VR controller recenter action handle");
         return false;
     }
+    qDebug() << "VROpenVRManager:   Recenter action handle:" << m_actionRecenter;
     
     inputError = vr::VRInput()->GetActionHandle("/actions/video/in/play_pause", &m_actionPlayPause);
     if (inputError != vr::VRInputError_None) {
@@ -625,6 +747,7 @@ bool VROpenVRManager::initializeControllerInput()
         setLastError("Failed to get VR controller play/pause action handle");
         return false;
     }
+    qDebug() << "VROpenVRManager:   Play/Pause action handle:" << m_actionPlayPause;
     
     inputError = vr::VRInput()->GetActionHandle("/actions/video/in/seek_axis", &m_actionSeekAxis);
     if (inputError != vr::VRInputError_None) {
@@ -632,12 +755,154 @@ bool VROpenVRManager::initializeControllerInput()
         setLastError("Failed to get VR controller seek axis action handle");
         return false;
     }
+    qDebug() << "VROpenVRManager:   Seek axis action handle:" << m_actionSeekAxis;
     
     inputError = vr::VRInput()->GetActionHandle("/actions/video/in/grip_modifier", &m_actionGripModifier);
     if (inputError != vr::VRInputError_None) {
         qDebug() << "VROpenVRManager: Failed to get grip modifier action handle, error:" << inputError;
         setLastError("Failed to get VR controller grip modifier action handle");
         return false;
+    }
+    qDebug() << "VROpenVRManager:   Grip modifier action handle:" << m_actionGripModifier;
+    
+    // Detect connected controller types
+    qDebug() << "VROpenVRManager: Detecting connected controllers...";
+    bool hasViveController = false;
+    bool hasKnuckles = false;
+    bool hasOculusTouch = false;
+    int controllerCount = 0;
+    
+    for (uint32_t device = 0; device < vr::k_unMaxTrackedDeviceCount; ++device) {
+        if (m_vrSystem->GetTrackedDeviceClass(device) == vr::TrackedDeviceClass_Controller) {
+            controllerCount++;
+            
+            // Get the controller model name
+            QString modelName = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_ModelNumber_String));
+            QString renderModelName = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_RenderModelName_String));
+            QString controllerType = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_ControllerType_String));
+            
+            qDebug() << "VROpenVRManager:   Controller" << controllerCount << "found at index" << device;
+            qDebug() << "VROpenVRManager:     Model:" << modelName;
+            qDebug() << "VROpenVRManager:     Render Model:" << renderModelName;
+            qDebug() << "VROpenVRManager:     Controller Type:" << controllerType;
+            
+            // Detect controller type
+            if (renderModelName.contains("vive", Qt::CaseInsensitive) || 
+                controllerType.contains("vive", Qt::CaseInsensitive)) {
+                hasViveController = true;
+                qDebug() << "VROpenVRManager:     -> Detected as HTC Vive Controller";
+            } else if (renderModelName.contains("knuckles", Qt::CaseInsensitive) || 
+                       controllerType.contains("knuckles", Qt::CaseInsensitive)) {
+                hasKnuckles = true;
+                qDebug() << "VROpenVRManager:     -> Detected as Valve Index Controller";
+            } else if (renderModelName.contains("oculus", Qt::CaseInsensitive) || 
+                       controllerType.contains("oculus", Qt::CaseInsensitive)) {
+                hasOculusTouch = true;
+                qDebug() << "VROpenVRManager:     -> Detected as Oculus Touch Controller";
+            }
+        }
+    }
+    
+    if (controllerCount == 0) {
+        qDebug() << "VROpenVRManager: WARNING - No controllers detected!";
+        qDebug() << "VROpenVRManager: Please turn on your controllers and try again";
+    } else {
+        qDebug() << "VROpenVRManager: Total controllers found:" << controllerCount;
+    }
+    
+    // Trigger initial action set update to ensure bindings are loaded
+    qDebug() << "VROpenVRManager: Triggering initial action set update...";
+    vr::VRActiveActionSet_t actionSet = { 0 };
+    actionSet.ulActionSet = m_actionSetVideo;
+    actionSet.ulRestrictedToDevice = vr::k_ulInvalidInputValueHandle;
+    actionSet.nPriority = 0;
+    
+    vr::EVRInputError updateError = vr::VRInput()->UpdateActionState(&actionSet, sizeof(vr::VRActiveActionSet_t), 1);
+    if (updateError != vr::VRInputError_None) {
+        qDebug() << "VROpenVRManager: WARNING - Initial UpdateActionState failed with error:" << updateError;
+    } else {
+        qDebug() << "VROpenVRManager: Initial action set update successful";
+    }
+    
+    // Check binding configuration by testing if any action is active
+    qDebug() << "VROpenVRManager: Checking if actions are bound to controllers...";
+    
+    // Test if recenter action has any bindings
+    vr::InputDigitalActionData_t testData;
+    vr::EVRInputError testError = vr::VRInput()->GetDigitalActionData(m_actionRecenter, &testData, sizeof(testData), vr::k_ulInvalidInputValueHandle);
+    if (testError == vr::VRInputError_None) {
+        if (!testData.bActive) {
+            qDebug() << "VROpenVRManager: WARNING - Recenter action is not active (no bindings)";
+        } else {
+            qDebug() << "VROpenVRManager: Recenter action has active bindings";
+        }
+    }
+    
+    // Check binding status and attempt automatic configuration
+    if (controllerCount > 0 && !testData.bActive) {
+        qDebug() << "VROpenVRManager: ========================================";
+        qDebug() << "VROpenVRManager: Controller bindings not active, attempting automatic configuration...";
+        
+        // Try to reload the manifest to force binding activation
+        qDebug() << "VROpenVRManager: Reloading action manifest to activate bindings...";
+        
+        // Clear and reload the action manifest
+        inputError = vr::VRInput()->SetActionManifestPath(manifestPath.toLocal8Bit().constData());
+        if (inputError != vr::VRInputError_None) {
+            qDebug() << "VROpenVRManager: Failed to reload action manifest, error:" << inputError;
+        } else {
+            qDebug() << "VROpenVRManager: Action manifest reloaded successfully";
+            
+            // Re-get action handles after reload (they might have changed)
+            vr::VRActionSetHandle_t newActionSetVideo;
+            inputError = vr::VRInput()->GetActionSetHandle("/actions/video", &newActionSetVideo);
+            if (inputError == vr::VRInputError_None) {
+                m_actionSetVideo = newActionSetVideo;
+                qDebug() << "VROpenVRManager: Re-obtained action set handle:" << m_actionSetVideo;
+            }
+            
+            // Force an action state update after reload
+            vr::VRActiveActionSet_t reloadActionSet = { 0 };
+            reloadActionSet.ulActionSet = m_actionSetVideo;
+            reloadActionSet.ulRestrictedToDevice = vr::k_ulInvalidInputValueHandle;
+            reloadActionSet.nPriority = 0;
+            
+            vr::EVRInputError reloadUpdateError = vr::VRInput()->UpdateActionState(&reloadActionSet, sizeof(vr::VRActiveActionSet_t), 1);
+            if (reloadUpdateError == vr::VRInputError_None) {
+                qDebug() << "VROpenVRManager: Action state updated after reload";
+            }
+            
+            // Test again after reload and update
+            vr::InputDigitalActionData_t retestData;
+            vr::EVRInputError retestError = vr::VRInput()->GetDigitalActionData(m_actionRecenter, &retestData, sizeof(retestData), vr::k_ulInvalidInputValueHandle);
+            if (retestError == vr::VRInputError_None && retestData.bActive) {
+                qDebug() << "VROpenVRManager: SUCCESS! Bindings are now active after reload";
+                qDebug() << "VROpenVRManager: Controller is ready to use!";
+            } else {
+                qDebug() << "VROpenVRManager: Bindings still not active after reload";
+                qDebug() << "VROpenVRManager: ";
+                qDebug() << "VROpenVRManager: MANUAL CONFIGURATION REQUIRED:";
+                qDebug() << "VROpenVRManager: 1. Open SteamVR Settings -> Controllers -> Manage Controller Bindings";
+                qDebug() << "VROpenVRManager: 2. Select 'MMDiary VR Video Player' from the application list";
+                qDebug() << "VROpenVRManager: 3. Choose the default binding for your controller";
+                qDebug() << "VROpenVRManager: 4. Click 'Replace Default Binding' if prompted";
+                qDebug() << "VROpenVRManager: 5. Restart the VR player";
+                qDebug() << "VROpenVRManager: ";
+                qDebug() << "VROpenVRManager: Button mappings:";
+                qDebug() << "VROpenVRManager:    - Trigger -> Recenter View";
+                qDebug() << "VROpenVRManager:    - Menu Button -> Play/Pause";
+                qDebug() << "VROpenVRManager:    - Grip -> Modifier (for zoom)";
+                qDebug() << "VROpenVRManager:    - Trackpad -> Seek/Zoom Control";
+            }
+        }
+        qDebug() << "VROpenVRManager: ========================================";
+    } else if (controllerCount > 0 && testData.bActive) {
+        qDebug() << "VROpenVRManager: Controller bindings are active and ready!";
+        qDebug() << "VROpenVRManager: Button mappings:";
+        qDebug() << "VROpenVRManager:    - Trigger: Recenter View";
+        qDebug() << "VROpenVRManager:    - Menu Button: Play/Pause";
+        qDebug() << "VROpenVRManager:    - Grip: Hold for zoom modifier";
+        qDebug() << "VROpenVRManager:    - Trackpad: Seek (X-axis) / Zoom (Y-axis with Grip)";
     }
     
     m_controllerInputReady = true;
@@ -687,11 +952,15 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
     // Update action states
     vr::VRActiveActionSet_t actionSet = { 0 };
     actionSet.ulActionSet = m_actionSetVideo;
+    actionSet.ulRestrictedToDevice = vr::k_ulInvalidInputValueHandle; // Apply to all devices
+    actionSet.nPriority = 0;
+    
     vr::EVRInputError updateError = vr::VRInput()->UpdateActionState(&actionSet, sizeof(vr::VRActiveActionSet_t), 1);
     if (updateError != vr::VRInputError_None) {
         static int errorLogCount = 0;
         if (++errorLogCount % 300 == 0) { // Log every 5 seconds at 60Hz
             qDebug() << "VROpenVRManager: UpdateActionState error:" << updateError;
+            qDebug() << "VROpenVRManager:   ActionSet handle:" << m_actionSetVideo;
         }
         return state;
     }
@@ -700,11 +969,37 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
     vr::InputDigitalActionData_t recenterData;
     vr::EVRInputError recenterError = vr::VRInput()->GetDigitalActionData(m_actionRecenter, &recenterData, sizeof(recenterData), vr::k_ulInvalidInputValueHandle);
     if (recenterError == vr::VRInputError_None) {
-        state.recenterPressed = recenterData.bActive && recenterData.bState && recenterData.bChanged;
+        // Check for any activity on this action
+        if (recenterData.bActive) {
+            state.recenterPressed = recenterData.bState && recenterData.bChanged;
+            
+            // Log when state changes
+            if (recenterData.bChanged) {
+                qDebug() << "VROpenVRManager: Recenter button state changed - Pressed:" << recenterData.bState;
+            }
+        }
         
         static int debugCount = 0;
-        if (++debugCount % 300 == 0) { // Debug every 5 seconds
-            qDebug() << "VROpenVRManager: Recenter - Active:" << recenterData.bActive << "State:" << recenterData.bState << "Changed:" << recenterData.bChanged;
+        if (++debugCount % 600 == 0) { // Debug every 10 seconds
+            qDebug() << "VROpenVRManager: Recenter - Active:" << recenterData.bActive 
+                     << "State:" << recenterData.bState 
+                     << "Changed:" << recenterData.bChanged
+                     << "Handle:" << m_actionRecenter;
+            
+            // If not active after 10 seconds, show additional help
+            static bool shownHelp = false;
+            if (!recenterData.bActive && !shownHelp) {
+                shownHelp = true;
+                qDebug() << "VROpenVRManager: ========================================";
+                qDebug() << "VROpenVRManager: CONTROLLER BINDINGS NOT ACTIVE!";
+                qDebug() << "VROpenVRManager: To fix this:";
+                qDebug() << "VROpenVRManager: 1. Right-click on SteamVR status window";
+                qDebug() << "VROpenVRManager: 2. Select 'Settings' -> 'Controllers' -> 'Manage Controller Bindings'";
+                qDebug() << "VROpenVRManager: 3. Find 'MMDiary VR Video Player' in the application dropdown";
+                qDebug() << "VROpenVRManager: 4. Select a binding configuration or create a custom one";
+                qDebug() << "VROpenVRManager: 5. Click 'Replace Default Binding' if prompted";
+                qDebug() << "VROpenVRManager: ========================================";
+            }
         }
         
         if (state.recenterPressed) {
@@ -713,7 +1008,7 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
     } else {
         static int recenterErrorCount = 0;
         if (++recenterErrorCount % 300 == 0) {
-            qDebug() << "VROpenVRManager: Recenter action error:" << recenterError;
+            qDebug() << "VROpenVRManager: Recenter action error:" << recenterError << "Handle:" << m_actionRecenter;
         }
     }
     
@@ -740,23 +1035,36 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
     vr::InputDigitalActionData_t gripData;
     vr::EVRInputError gripError = vr::VRInput()->GetDigitalActionData(m_actionGripModifier, &gripData, sizeof(gripData), vr::k_ulInvalidInputValueHandle);
     if (gripError == vr::VRInputError_None) {
-        state.gripPressed = gripData.bActive && gripData.bState;
+        // Check for any activity on this action
+        if (gripData.bActive) {
+            state.gripPressed = gripData.bState;
+            
+            // Log when state changes
+            static bool lastGripState = false;
+            if (gripData.bState != lastGripState) {
+                qDebug() << "VROpenVRManager: Grip button state changed - Pressed:" << gripData.bState;
+                lastGripState = gripData.bState;
+            }
+        }
         
         static int gripDebugCount = 0;
-        if (++gripDebugCount % 300 == 0) {
-            qDebug() << "VROpenVRManager: Grip - Active:" << gripData.bActive << "State:" << gripData.bState;
+        if (++gripDebugCount % 600 == 0) { // Debug every 10 seconds
+            qDebug() << "VROpenVRManager: Grip - Active:" << gripData.bActive 
+                     << "State:" << gripData.bState
+                     << "Changed:" << gripData.bChanged
+                     << "Handle:" << m_actionGripModifier;
         }
         
         if (state.gripPressed) {
             static int gripPressedCount = 0;
             if (++gripPressedCount % 60 == 0) { // Log every second when pressed
-                qDebug() << "VROpenVRManager: GRIP PRESSED!";
+                qDebug() << "VROpenVRManager: GRIP IS BEING HELD!";
             }
         }
     } else {
         static int gripErrorCount = 0;
         if (++gripErrorCount % 300 == 0) {
-            qDebug() << "VROpenVRManager: Grip action error:" << gripError;
+            qDebug() << "VROpenVRManager: Grip action error:" << gripError << "Handle:" << m_actionGripModifier;
         }
     }
     
@@ -790,4 +1098,35 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
 #endif
     
     return state;
+}
+
+void VROpenVRManager::showBindingConfiguration()
+{
+#ifdef USE_OPENVR
+    if (!m_controllerInputReady || !m_vrSystem) {
+        qDebug() << "VROpenVRManager: Cannot show binding configuration - system not ready";
+        return;
+    }
+    
+    qDebug() << "VROpenVRManager: Opening SteamVR binding configuration UI...";
+    
+    vr::VRActiveActionSet_t actionSet = { 0 };
+    actionSet.ulActionSet = m_actionSetVideo;
+    actionSet.ulRestrictedToDevice = vr::k_ulInvalidInputValueHandle;
+    
+    vr::EVRInputError error = vr::VRInput()->ShowBindingsForActionSet(
+        &actionSet, 
+        sizeof(vr::VRActiveActionSet_t), 
+        1, 
+        vr::k_ulInvalidInputValueHandle);
+    
+    if (error != vr::VRInputError_None) {
+        qDebug() << "VROpenVRManager: Failed to show binding configuration UI, error:" << error;
+    } else {
+        qDebug() << "VROpenVRManager: Binding configuration UI opened successfully";
+        qDebug() << "VROpenVRManager: Please configure your controller bindings and then restart the VR player";
+    }
+#else
+    qDebug() << "VROpenVRManager: OpenVR not available";
+#endif
 }
