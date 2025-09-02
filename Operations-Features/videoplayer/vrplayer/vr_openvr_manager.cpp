@@ -1039,6 +1039,13 @@ bool VROpenVRManager::initializeControllerInput()
             if (!bindingsActive) {
                 qDebug() << "VROpenVRManager: Bindings still not active after reload";
                 qDebug() << "VROpenVRManager: ";
+                
+                // This is a known SteamVR limitation where default bindings don't always
+                // auto-apply on first run. The user needs to manually set them once.
+                qDebug() << "VROpenVRManager: NOTE: This appears to be the first run of this application with VR.";
+                qDebug() << "VROpenVRManager: SteamVR requires manual binding configuration on first use.";
+                qDebug() << "VROpenVRManager: Once configured, bindings will persist for future sessions.";
+                qDebug() << "VROpenVRManager: ";
                 qDebug() << "VROpenVRManager: Attempting to automatically open binding configuration UI...";
                 
                 // Try to automatically open the binding configuration UI
@@ -1048,14 +1055,15 @@ bool VROpenVRManager::initializeControllerInput()
                 m_controllerInputReady = false;  // Set it back since bindings aren't actually ready
                 
                 qDebug() << "VROpenVRManager: ";
-                qDebug() << "VROpenVRManager: MANUAL CONFIGURATION REQUIRED:";
-                qDebug() << "VROpenVRManager: 1. The binding configuration UI should now be open";
-                qDebug() << "VROpenVRManager: 2. Select 'MMDiary VR Video Player' from the application list";
-                qDebug() << "VROpenVRManager: 3. Choose the default binding for your controller";
-                qDebug() << "VROpenVRManager: 4. Click 'Replace Default Binding' if prompted";
-                qDebug() << "VROpenVRManager: 5. Close the configuration and restart the VR player";
+                qDebug() << "VROpenVRManager: MANUAL CONFIGURATION REQUIRED (First Time Setup):";
+                qDebug() << "VROpenVRManager: 1. The SteamVR binding configuration UI should now be open";
+                qDebug() << "VROpenVRManager: 2. Look for 'MMDiary VR Video Player' in the application list";
+                qDebug() << "VROpenVRManager: 3. Select the 'Default binding' for HTC Vive Controller";
+                qDebug() << "VROpenVRManager: 4. Click 'Replace Default Binding' or 'Save' to apply";
+                qDebug() << "VROpenVRManager: 5. Close the configuration window";
+                qDebug() << "VROpenVRManager: 6. The controller should now work (restart may be required)";
                 qDebug() << "VROpenVRManager: ";
-                qDebug() << "VROpenVRManager: Button mappings:";
+                qDebug() << "VROpenVRManager: Default button mappings:";
                 qDebug() << "VROpenVRManager:    - Trigger -> Recenter View";
                 qDebug() << "VROpenVRManager:    - Menu Button -> Play/Pause";
                 qDebug() << "VROpenVRManager:    - Grip -> Modifier (for zoom)";
