@@ -1964,6 +1964,17 @@ void VRVideoPlayer::processControllerInput()
         onPlayPauseClicked();
     }
     
+    // Process new speed control inputs
+    if (state.increaseSpeedPressed) {
+        qDebug() << "VRVideoPlayer: Controller Grip+Menu pressed - increasing playback speed";
+        increasePlaybackSpeed();
+    }
+    
+    if (state.decreaseSpeedPressed) {
+        qDebug() << "VRVideoPlayer: Controller Grip+Trigger pressed - decreasing playback speed";
+        decreasePlaybackSpeed();
+    }
+    
     // Process analog inputs (touchpad/joystick)
     const float deadzone = 0.3f; // Ignore small movements
     const float seekThreshold = 0.7f; // Threshold for seeking

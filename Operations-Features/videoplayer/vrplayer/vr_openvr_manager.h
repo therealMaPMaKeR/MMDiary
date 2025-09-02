@@ -90,9 +90,12 @@ public:
         bool playPausePressed;      // Trigger button
         bool gripPressed;           // Grip button (modifier for zoom/volume)
         QVector2D seekAxis;         // Trackpad/Joystick x: left/right seek, y: up/down zoom/volume
+        bool increaseSpeedPressed;  // Grip + Menu combination
+        bool decreaseSpeedPressed;  // Grip + Trigger combination
         
         VRControllerState() : recenterHeld(false), playPausePressed(false), 
-                              gripPressed(false), seekAxis(0.0f, 0.0f) {}
+                              gripPressed(false), seekAxis(0.0f, 0.0f),
+                              increaseSpeedPressed(false), decreaseSpeedPressed(false) {}
     };
     
     bool initializeControllerInput();

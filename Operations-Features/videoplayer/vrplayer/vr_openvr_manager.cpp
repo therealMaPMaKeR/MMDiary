@@ -662,6 +662,8 @@ bool VROpenVRManager::initializeControllerInput()
     qDebug() << "VROpenVRManager:   Menu/Application Button -> Recenter View (hold for continuous)";
     qDebug() << "VROpenVRManager:   Trigger -> Play/Pause";
     qDebug() << "VROpenVRManager:   Grip -> Zoom/Volume Modifier (hold)";
+    qDebug() << "VROpenVRManager:   Grip + Trigger -> Reduce Playback Speed";
+    qDebug() << "VROpenVRManager:   Grip + Menu -> Increase Playback Speed";
     qDebug() << "VROpenVRManager:   Trackpad/Joystick CLICK -> Seek (X) / Zoom (Y with Grip)";
     qDebug() << "VROpenVRManager: ";
     qDebug() << "VROpenVRManager: Legacy input ready - no SteamVR binding configuration needed!";
@@ -737,27 +739,43 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
         uint64_t buttonPressed = controllerState.ulButtonPressed;
         uint64_t buttonChanged = buttonPressed ^ lastState.ulButtonPressed;
         
-        // MENU/APPLICATION -> Play/Pause
-        if ((buttonChanged & k_ButtonApplicationMenu) && (buttonPressed & k_ButtonApplicationMenu)) {
-            state.playPausePressed = true;
-            qDebug() << "VROpenVRManager: MENU PRESSED - Play/Pause";
-        }
-        
-        // TRIGGER -> Recenter
-        if (buttonPressed & k_ButtonTrigger) {
-            state.recenterHeld = true;
-            static int triggerLogCount = 0;
-            if (++triggerLogCount % 60 == 0) { // Log every second while held
-                qDebug() << "VROpenVRManager: TRIGGER HELD - Continuous recenter active";
-            }
-        }
-        
-        // GRIP -> Modifier (hold state)
-        if (buttonPressed & k_ButtonGrip) {
+        // GRIP -> Modifier (hold state) - Check this first for combinations
+        bool gripHeld = (buttonPressed & k_ButtonGrip) != 0;
+        if (gripHeld) {
             state.gripPressed = true;
+            
+            // Check for Grip + Trigger combination (Reduce Speed)
+            if ((buttonChanged & k_ButtonTrigger) && (buttonPressed & k_ButtonTrigger)) {
+                state.decreaseSpeedPressed = true;
+                qDebug() << "VROpenVRManager: GRIP + TRIGGER PRESSED - Reduce Playback Speed";
+            }
+            
+            // Check for Grip + Menu combination (Increase Speed)
+            if ((buttonChanged & k_ButtonApplicationMenu) && (buttonPressed & k_ButtonApplicationMenu)) {
+                state.increaseSpeedPressed = true;
+                qDebug() << "VROpenVRManager: GRIP + MENU PRESSED - Increase Playback Speed";
+            }
+            
             static int gripLogCount = 0;
             if (++gripLogCount % 60 == 0) { // Log every second while held
-                qDebug() << "VROpenVRManager: GRIP HELD - Zoom/Volume modifier active";
+                qDebug() << "VROpenVRManager: GRIP HELD - Modifier active (zoom/volume/speed)";
+            }
+        } else {
+            // Only process individual button functions when grip is NOT held
+            
+            // MENU/APPLICATION -> Play/Pause (only when grip not held)
+            if ((buttonChanged & k_ButtonApplicationMenu) && (buttonPressed & k_ButtonApplicationMenu)) {
+                state.playPausePressed = true;
+                qDebug() << "VROpenVRManager: MENU PRESSED - Play/Pause";
+            }
+            
+            // TRIGGER -> Recenter (only when grip not held)
+            if (buttonPressed & k_ButtonTrigger) {
+                state.recenterHeld = true;
+                static int triggerLogCount = 0;
+                if (++triggerLogCount % 60 == 0) { // Log every second while held
+                    qDebug() << "VROpenVRManager: TRIGGER HELD - Continuous recenter active";
+                }
             }
         }
         
@@ -820,4 +838,6 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
     }
     
 #endif
+    
+    return state;
 }
