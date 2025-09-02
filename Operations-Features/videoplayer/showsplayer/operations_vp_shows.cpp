@@ -7876,6 +7876,51 @@ QTreeWidgetItem* Operations_VP_Shows::determineEpisodeToPlay()
 
     QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
 
+    // Check if autoplay random is enabled - if so, select a random episode
+    if (m_currentShowSettings.autoplayRandom) {
+        qDebug() << "Operations_VP_Shows: Autoplay random is enabled, selecting random episode";
+        
+        // Use the existing findRandomEpisode function to get a random episode
+        QString randomEpisodePath = findRandomEpisode();
+        
+        if (!randomEpisodePath.isEmpty()) {
+            // Find this episode in the tree
+            std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findEpisodeItem;
+            findEpisodeItem = [&findEpisodeItem](QTreeWidgetItem* parent, const QString& episodePath) -> QTreeWidgetItem* {
+                for (int i = 0; i < parent->childCount(); ++i) {
+                    QTreeWidgetItem* child = parent->child(i);
+                    
+                    QString itemPath = child->data(0, Qt::UserRole).toString();
+                    if (!itemPath.isEmpty()) {
+                        QFileInfo itemInfo(itemPath);
+                        QFileInfo episodeInfo(episodePath);
+                        if (itemInfo.fileName() == episodeInfo.fileName()) {
+                            return child;
+                        }
+                    }
+                    
+                    if (child->childCount() > 0) {
+                        QTreeWidgetItem* found = findEpisodeItem(child, episodePath);
+                        if (found) return found;
+                    }
+                }
+                return nullptr;
+            };
+            
+            for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+                QTreeWidgetItem* found = findEpisodeItem(treeWidget->topLevelItem(i), randomEpisodePath);
+                if (found) {
+                    qDebug() << "Operations_VP_Shows: Found random episode in tree:" << found->text(0);
+                    return found;
+                }
+            }
+            
+            qDebug() << "Operations_VP_Shows: Random episode not found in tree, path:" << randomEpisodePath;
+        } else {
+            qDebug() << "Operations_VP_Shows: No random episode could be selected";
+        }
+    }
+
     // Try to use watch history to find the last watched episode
     QString lastWatchedEpisode;
 
@@ -7892,7 +7937,7 @@ QTreeWidgetItem* Operations_VP_Shows::determineEpisodeToPlay()
             qDebug() << "Operations_VP_Shows: Last watched episode has resume position" << resumePosition;
 
             // Check if the resume position is near the end (within COMPLETION_THRESHOLD_MS)
-            // If so, find the next episode in sequence instead
+            // If so, find the next episode based on autoplay random setting
             bool isNearEnd = false;
             EpisodeWatchInfo watchInfo = m_watchHistory->getEpisodeWatchInfo(lastWatchedEpisode);
 
@@ -7902,7 +7947,48 @@ QTreeWidgetItem* Operations_VP_Shows::determineEpisodeToPlay()
                     isNearEnd = true;
                     qDebug() << "Operations_VP_Shows: Resume position is near end (" << remainingTime
                              << "ms remaining of " << VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS
-                             << "ms threshold), will find next episode instead";
+                             << "ms threshold)";
+                    
+                    // If autoplay random is enabled, select a random episode instead of next
+                    if (m_currentShowSettings.autoplayRandom) {
+                        qDebug() << "Operations_VP_Shows: Autoplay random enabled, selecting random episode instead of next";
+                        QString randomEpisodePath = findRandomEpisode();
+                        
+                        if (!randomEpisodePath.isEmpty()) {
+                            // Find this episode in the tree
+                            std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findEpisodeItem;
+                            findEpisodeItem = [&findEpisodeItem](QTreeWidgetItem* parent, const QString& episodePath) -> QTreeWidgetItem* {
+                                for (int i = 0; i < parent->childCount(); ++i) {
+                                    QTreeWidgetItem* child = parent->child(i);
+                                    
+                                    QString itemPath = child->data(0, Qt::UserRole).toString();
+                                    if (!itemPath.isEmpty()) {
+                                        QFileInfo itemInfo(itemPath);
+                                        QFileInfo episodeInfo(episodePath);
+                                        if (itemInfo.fileName() == episodeInfo.fileName()) {
+                                            return child;
+                                        }
+                                    }
+                                    
+                                    if (child->childCount() > 0) {
+                                        QTreeWidgetItem* found = findEpisodeItem(child, episodePath);
+                                        if (found) return found;
+                                    }
+                                }
+                                return nullptr;
+                            };
+                            
+                            for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+                                QTreeWidgetItem* found = findEpisodeItem(treeWidget->topLevelItem(i), randomEpisodePath);
+                                if (found) {
+                                    qDebug() << "Operations_VP_Shows: Found random episode (near end case) in tree:" << found->text(0);
+                                    return found;
+                                }
+                            }
+                        }
+                    } else {
+                        qDebug() << "Operations_VP_Shows: Will find next episode in sequence";
+                    }
                 }
             }
 
@@ -8004,7 +8090,48 @@ QTreeWidgetItem* Operations_VP_Shows::determineEpisodeToPlay()
         }
     }
 
-    qDebug() << "Operations_VP_Shows: No watch history found or no resumable episode, looking for first episode";
+    qDebug() << "Operations_VP_Shows: No watch history found or no resumable episode";
+    
+    // Check if autoplay random is enabled when there's no watch history
+    if (m_currentShowSettings.autoplayRandom) {
+        qDebug() << "Operations_VP_Shows: Autoplay random enabled with no watch history, selecting random episode";
+        QString randomEpisodePath = findRandomEpisode();
+        
+        if (!randomEpisodePath.isEmpty()) {
+            // Find this episode in the tree
+            std::function<QTreeWidgetItem*(QTreeWidgetItem*, const QString&)> findEpisodeItem;
+            findEpisodeItem = [&findEpisodeItem](QTreeWidgetItem* parent, const QString& episodePath) -> QTreeWidgetItem* {
+                for (int i = 0; i < parent->childCount(); ++i) {
+                    QTreeWidgetItem* child = parent->child(i);
+                    
+                    QString itemPath = child->data(0, Qt::UserRole).toString();
+                    if (!itemPath.isEmpty()) {
+                        QFileInfo itemInfo(itemPath);
+                        QFileInfo episodeInfo(episodePath);
+                        if (itemInfo.fileName() == episodeInfo.fileName()) {
+                            return child;
+                        }
+                    }
+                    
+                    if (child->childCount() > 0) {
+                        QTreeWidgetItem* found = findEpisodeItem(child, episodePath);
+                        if (found) return found;
+                    }
+                }
+                return nullptr;
+            };
+            
+            for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+                QTreeWidgetItem* found = findEpisodeItem(treeWidget->topLevelItem(i), randomEpisodePath);
+                if (found) {
+                    qDebug() << "Operations_VP_Shows: Found random episode (no history case) in tree:" << found->text(0);
+                    return found;
+                }
+            }
+        }
+    }
+    
+    qDebug() << "Operations_VP_Shows: Looking for first episode";
     // If no watch history or episode not found, find the first episode
     // Skip Extra/Movies/OVA categories and prioritize Episode 1 or S01E01
 

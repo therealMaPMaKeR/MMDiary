@@ -4,7 +4,7 @@
 
 qlist_VP_ShowsList::qlist_VP_ShowsList(QWidget *parent)
     : QListWidget(parent)
-    , m_iconViewScrollMultiplier(1.5)  //
+    , m_iconViewScrollMultiplier(1.0)  //
     , m_listViewScrollMultiplier(1.0)   // Normal speed for list view
 {
     qDebug() << "qlist_VP_ShowsList: Custom TV shows list widget created";
@@ -36,6 +36,7 @@ bool qlist_VP_ShowsList::isIconViewMode() const
 
 void qlist_VP_ShowsList::wheelEvent(QWheelEvent *event)
 {
+    /*
     // Check if we're in icon view mode
     bool inIconView = isIconViewMode();
     
@@ -100,4 +101,6 @@ void qlist_VP_ShowsList::wheelEvent(QWheelEvent *event)
         // No scroll delta, pass to base class
         QListWidget::wheelEvent(event);
     }
+    */
+    QListWidget::wheelEvent(event); // I had a scrolling bug once, and I didnt rly try to debug it, I just tried to fix it. Now I don't know what happened and I realise this code is useless. Because it was a random bug.
 }
