@@ -362,12 +362,12 @@ void VRVideoPlayer::setupUI()
     vrInfoLabel->setStyleSheet("QLabel { font-size: 14px; color: white; background-color: black; padding: 20px; margin: 10px; border: 2px solid #3498db; border-radius: 5px; }");
     vrInfoLabel->setText("\u25cf Video will be displayed in your VR headset\n\n"
                          "\u25cf Press Spacebar to recenter the video view\n\n"
-                         "\u25cf Press Tab to play/pause the video\n\n"
-                         "\u25cf Press W/S to zoom in/out | A/D to seek backward/forward 10s\n\n"
-                         "\u25cf Press Shift+W/S to increase/decrease playback speed\n\n"
-                         "\u25cf Press Shift+A/D to seek backward/forward 60s\n\n"
-                         "\u25cf Press Shift+Spacebar to reset playback speed to 1x\n\n"
-                         "\u25cf Press Q/E to decrease/increase Windows system volume\n\n"
+                         "\u25cf Press Shift+Spacebar or Ctrl+Spacebar to play/pause the video\n\n"
+                         "\u25cf Press Tab or End to reset playback speed to 1x\n\n"
+                         "\u25cf Press W/S or Up/Down to zoom in/out | A/D or Left/Right to seek 10s\n\n"
+                         "\u25cf Press Shift+W/S or Ctrl/Shift+Up/Down to increase/decrease playback speed\n\n"
+                         "\u25cf Press Shift+A/D or Ctrl/Shift+Left/Right to seek backward/forward 60s\n\n"
+                         "\u25cf Press Q/E or Page Down/Up to decrease/increase Windows system volume\n\n"
                          "\u25cf Use the controls below to adjust video format, zoom, speed, and IPD");
     mainLayout->addWidget(vrInfoLabel, 1);
     
@@ -1191,10 +1191,17 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
     
     switch (event->key()) {
         case Qt::Key_Space:
-            // Check for Shift+Spacebar first (reset playback speed)
+            // Check for Shift+Spacebar first (play/pause)
             if (event->modifiers() & Qt::ShiftModifier) {
-                qDebug() << "VRVideoPlayer: Shift+Spacebar pressed - resetting playback speed";
-                resetPlaybackSpeed();
+                qDebug() << "VRVideoPlayer: Shift+Spacebar pressed - toggling play/pause";
+                onPlayPauseClicked();
+                event->accept();
+                return;
+            }
+            // Check for Ctrl+Spacebar (also play/pause)
+            else if (event->modifiers() & Qt::ControlModifier) {
+                qDebug() << "VRVideoPlayer: Ctrl+Spacebar pressed - toggling play/pause";
+                onPlayPauseClicked();
                 event->accept();
                 return;
             }
@@ -1214,9 +1221,16 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
             break;
             
         case Qt::Key_Tab:
-            // Tab key for play/pause (replaces P key)
-            qDebug() << "VRVideoPlayer: Tab key pressed - toggling play/pause";
-            onPlayPauseClicked();
+            // Tab key for reset playback speed
+            qDebug() << "VRVideoPlayer: Tab key pressed - resetting playback speed";
+            resetPlaybackSpeed();
+            event->accept();
+            break;
+            
+        case Qt::Key_End:
+            // End key mirrors Tab (reset playback speed)
+            qDebug() << "VRVideoPlayer: End key pressed - resetting playback speed";
+            resetPlaybackSpeed();
             event->accept();
             break;
             
@@ -1325,6 +1339,121 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
 #else
             qDebug() << "VRVideoPlayer: Windows volume control only available on Windows";
 #endif
+            event->accept();
+            break;
+            
+        case Qt::Key_Up:
+            // Check for Ctrl+Up or Shift+Up first (increase playback speed - mirrors Shift+W)
+            if ((event->modifiers() & Qt::ControlModifier) || (event->modifiers() & Qt::ShiftModifier)) {
+                qDebug() << "VRVideoPlayer: Ctrl+Up or Shift+Up pressed - increasing playback speed";
+                increasePlaybackSpeed();
+            }
+            // Up key for zoom in (mirrors W key)
+            else if (m_renderThread && m_vrActive) {
+                float currentScale = m_renderThread->getVideoScale();
+                float newScale = qBound(0.1f, currentScale + 0.1f, 5.0f);
+                m_renderThread->setVideoScale(newScale);
+                
+                // Update zoom slider UI
+                if (m_zoomSlider) {
+                    m_zoomSlider->blockSignals(true);
+                    m_zoomSlider->setValue(static_cast<int>(newScale * 100));
+                    m_zoomSlider->blockSignals(false);
+                    if (m_zoomValueLabel) {
+                        m_zoomValueLabel->setText(QString("%1%").arg(static_cast<int>(newScale * 100)));
+                    }
+                }
+                
+                qDebug() << "VRVideoPlayer: Up key pressed - zoom in to" << newScale;
+            }
+            event->accept();
+            break;
+            
+        case Qt::Key_Down:
+            // Check for Ctrl+Down or Shift+Down first (decrease playback speed - mirrors Shift+S)
+            if ((event->modifiers() & Qt::ControlModifier) || (event->modifiers() & Qt::ShiftModifier)) {
+                qDebug() << "VRVideoPlayer: Ctrl+Down or Shift+Down pressed - decreasing playback speed";
+                decreasePlaybackSpeed();
+            }
+            // Down key for zoom out (mirrors S key)
+            else if (m_renderThread && m_vrActive) {
+                float currentScale = m_renderThread->getVideoScale();
+                float newScale = qBound(0.1f, currentScale - 0.1f, 5.0f);
+                m_renderThread->setVideoScale(newScale);
+                
+                // Update zoom slider UI
+                if (m_zoomSlider) {
+                    m_zoomSlider->blockSignals(true);
+                    m_zoomSlider->setValue(static_cast<int>(newScale * 100));
+                    m_zoomSlider->blockSignals(false);
+                    if (m_zoomValueLabel) {
+                        m_zoomValueLabel->setText(QString("%1%").arg(static_cast<int>(newScale * 100)));
+                    }
+                }
+                
+                qDebug() << "VRVideoPlayer: Down key pressed - zoom out to" << newScale;
+            }
+            event->accept();
+            break;
+            
+        case Qt::Key_Left:
+            // Check for Ctrl+Left or Shift+Left first (seek backward 60 seconds - mirrors Shift+A)
+            if ((event->modifiers() & Qt::ControlModifier) || (event->modifiers() & Qt::ShiftModifier)) {
+                if (m_videoLoaded && m_vlcPlayer) {
+                    qDebug() << "VRVideoPlayer: Ctrl+Left or Shift+Left pressed - seeking backward 60 seconds";
+                    m_vlcPlayer->seekRelative(-60000); // -60 seconds in milliseconds
+                }
+            }
+            // Left key for seek backward 10 seconds (mirrors A key)
+            else if (m_videoLoaded && m_vlcPlayer) {
+                qDebug() << "VRVideoPlayer: Left key pressed - seeking backward 10 seconds";
+                m_vlcPlayer->seekRelative(-10000); // -10 seconds in milliseconds
+            }
+            event->accept();
+            break;
+            
+        case Qt::Key_Right:
+            // Check for Ctrl+Right or Shift+Right first (seek forward 60 seconds - mirrors Shift+D)
+            if ((event->modifiers() & Qt::ControlModifier) || (event->modifiers() & Qt::ShiftModifier)) {
+                if (m_videoLoaded && m_vlcPlayer) {
+                    qDebug() << "VRVideoPlayer: Ctrl+Right or Shift+Right pressed - seeking forward 60 seconds";
+                    m_vlcPlayer->seekRelative(60000); // 60 seconds in milliseconds
+                }
+            }
+            // Right key for seek forward 10 seconds (mirrors D key)
+            else if (m_videoLoaded && m_vlcPlayer) {
+                qDebug() << "VRVideoPlayer: Right key pressed - seeking forward 10 seconds";
+                m_vlcPlayer->seekRelative(10000); // 10 seconds in milliseconds
+            }
+            event->accept();
+            break;
+            
+        case Qt::Key_PageUp:
+            // Page Up key mirrors E key (Windows volume up)
+            qDebug() << "VRVideoPlayer: Page Up key pressed - increasing Windows system volume";
+#ifdef Q_OS_WIN
+            increaseWindowsVolume();
+#else
+            qDebug() << "VRVideoPlayer: Windows volume control only available on Windows";
+#endif
+            event->accept();
+            break;
+            
+        case Qt::Key_PageDown:
+            // Page Down key mirrors Q key (Windows volume down)
+            qDebug() << "VRVideoPlayer: Page Down key pressed - decreasing Windows system volume";
+#ifdef Q_OS_WIN
+            decreaseWindowsVolume();
+#else
+            qDebug() << "VRVideoPlayer: Windows volume control only available on Windows";
+#endif
+            event->accept();
+            break;
+            
+        case Qt::Key_Escape:
+            // Escape key to close the VR player
+            qDebug() << "VRVideoPlayer: Escape key pressed - closing VR player";
+            onCloseClicked();
             event->accept();
             break;
             
