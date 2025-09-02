@@ -659,10 +659,10 @@ bool VROpenVRManager::initializeControllerInput()
     qDebug() << "VROpenVRManager: Found" << controllersFound << "controller(s)";
     qDebug() << "VROpenVRManager: ";
     qDebug() << "VROpenVRManager: BUTTON MAPPINGS (Legacy Direct Input):";
-    qDebug() << "VROpenVRManager:   Grip -> Recenter View (hold for continuous)";
-    qDebug() << "VROpenVRManager:   Menu/Application Button -> Play/Pause";
-    qDebug() << "VROpenVRManager:   Trigger -> Zoom Modifier (hold)";
-    qDebug() << "VROpenVRManager:   Trackpad/Joystick CLICK -> Seek (X) / Zoom (Y with Trigger)";
+    qDebug() << "VROpenVRManager:   Menu/Application Button -> Recenter View (hold for continuous)";
+    qDebug() << "VROpenVRManager:   Trigger -> Play/Pause";
+    qDebug() << "VROpenVRManager:   Grip -> Zoom/Volume Modifier (hold)";
+    qDebug() << "VROpenVRManager:   Trackpad/Joystick CLICK -> Seek (X) / Zoom (Y with Grip)";
     qDebug() << "VROpenVRManager: ";
     qDebug() << "VROpenVRManager: Legacy input ready - no SteamVR binding configuration needed!";
     
@@ -737,27 +737,27 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
         uint64_t buttonPressed = controllerState.ulButtonPressed;
         uint64_t buttonChanged = buttonPressed ^ lastState.ulButtonPressed;
         
-        // GRIP -> Recenter (hold state for continuous recentering)
-        if (buttonPressed & k_ButtonGrip) {
+        // MENU/APPLICATION -> Recenter (hold state for continuous recentering)
+        if (buttonPressed & k_ButtonApplicationMenu) {
             state.recenterHeld = true;
-            static int gripLogCount = 0;
-            if (++gripLogCount % 60 == 0) { // Log every second while held
-                qDebug() << "VROpenVRManager: GRIP HELD - Continuous recenter active";
+            static int menuLogCount = 0;
+            if (++menuLogCount % 60 == 0) { // Log every second while held
+                qDebug() << "VROpenVRManager: MENU HELD - Continuous recenter active";
             }
         }
         
-        // MENU/APPLICATION -> Play/Pause (on press)
-        if ((buttonChanged & k_ButtonApplicationMenu) && (buttonPressed & k_ButtonApplicationMenu)) {
+        // TRIGGER -> Play/Pause (on press)
+        if ((buttonChanged & k_ButtonTrigger) && (buttonPressed & k_ButtonTrigger)) {
             state.playPausePressed = true;
-            qDebug() << "VROpenVRManager: MENU PRESSED - Play/Pause";
+            qDebug() << "VROpenVRManager: TRIGGER PRESSED - Play/Pause";
         }
         
-        // TRIGGER -> Modifier (hold state)
-        if (buttonPressed & k_ButtonTrigger) {
-            state.triggerPressed = true;
-            static int triggerLogCount = 0;
-            if (++triggerLogCount % 60 == 0) { // Log every second while held
-                qDebug() << "VROpenVRManager: TRIGGER HELD - Zoom modifier active";
+        // GRIP -> Modifier (hold state)
+        if (buttonPressed & k_ButtonGrip) {
+            state.gripPressed = true;
+            static int gripLogCount = 0;
+            if (++gripLogCount % 60 == 0) { // Log every second while held
+                qDebug() << "VROpenVRManager: GRIP HELD - Zoom/Volume modifier active";
             }
         }
         
@@ -797,8 +797,8 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
             
             static int axisLogCount = 0;
             if (++axisLogCount % 30 == 0 && (qAbs(xAxis) > 0.2f || qAbs(yAxis) > 0.2f)) {
-                if (state.triggerPressed) {
-                    qDebug() << "VROpenVRManager: TRACKPAD/JOYSTICK - Zoom Y:" << yAxis;
+                if (state.gripPressed) {
+                    qDebug() << "VROpenVRManager: TRACKPAD/JOYSTICK - Zoom/Volume Y:" << yAxis;
                 } else {
                     qDebug() << "VROpenVRManager: TRACKPAD/JOYSTICK - Seek X:" << xAxis;
                 }

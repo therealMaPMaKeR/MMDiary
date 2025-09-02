@@ -1941,26 +1941,26 @@ void VRVideoPlayer::processControllerInput()
     // Poll controller input state
     VROpenVRManager::VRControllerState state = m_vrManager->pollControllerInput();
     
-    // Process continuous recenter (grip button held)
+    // Process continuous recenter (menu button held)
     if (state.recenterHeld) {
         if (!m_grabButtonHeld) {
-            qDebug() << "VRVideoPlayer: Controller grip pressed - starting continuous recenter";
+            qDebug() << "VRVideoPlayer: Controller menu button pressed - starting continuous recenter";
             m_grabButtonHeld = true;
         }
     } else {
         if (m_grabButtonHeld) {
-            qDebug() << "VRVideoPlayer: Controller grip released - stopping continuous recenter";
+            qDebug() << "VRVideoPlayer: Controller menu button released - stopping continuous recenter";
             m_grabButtonHeld = false;
         }
     }
     
-    // Perform recentering if either spacebar or grab button is held
+    // Perform recentering if either spacebar or menu button is held
     if ((m_spacebarHeld || m_grabButtonHeld) && m_renderThread && m_vrActive) {
         m_renderThread->recenterView();
     }
     
     if (state.playPausePressed) {
-        qDebug() << "VRVideoPlayer: Controller menu button pressed - toggling play/pause";
+        qDebug() << "VRVideoPlayer: Controller trigger pressed - toggling play/pause";
         onPlayPauseClicked();
     }
     
@@ -1974,9 +1974,9 @@ void VRVideoPlayer::processControllerInput()
         float horizontalAxis = state.seekAxis.x(); // Left/right
         float verticalAxis = state.seekAxis.y();   // Up/down
         
-        // Determine action based on trigger modifier
-        if (state.triggerPressed) {
-            // Trigger + axis combinations
+        // Determine action based on grip modifier
+        if (state.gripPressed) {
+            // Grip + axis combinations
             
             // Horizontal: Seek 60 seconds
             if (qAbs(horizontalAxis) > seekThreshold && m_videoLoaded && m_vlcPlayer) {
@@ -1985,7 +1985,7 @@ void VRVideoPlayer::processControllerInput()
                     (horizontalAxis < -seekThreshold && m_lastSeekAxis.x() >= -seekThreshold)) {
                     
                     int seekMs = (horizontalAxis > 0) ? 60000 : -60000;
-                    qDebug() << "VRVideoPlayer: Controller trigger+horizontal - seeking" << (seekMs/1000) << "seconds";
+                    qDebug() << "VRVideoPlayer: Controller grip+horizontal - seeking" << (seekMs/1000) << "seconds";
                     m_vlcPlayer->seekRelative(seekMs);
                 }
             }
@@ -1998,10 +1998,10 @@ void VRVideoPlayer::processControllerInput()
                     
 #ifdef Q_OS_WIN
                     if (verticalAxis > 0) {
-                        qDebug() << "VRVideoPlayer: Controller trigger+up - increasing Windows volume";
+                        qDebug() << "VRVideoPlayer: Controller grip+up - increasing Windows volume";
                         increaseWindowsVolume();
                     } else {
-                        qDebug() << "VRVideoPlayer: Controller trigger+down - decreasing Windows volume";
+                        qDebug() << "VRVideoPlayer: Controller grip+down - decreasing Windows volume";
                         decreaseWindowsVolume();
                     }
 #else
@@ -2010,7 +2010,7 @@ void VRVideoPlayer::processControllerInput()
                 }
             }
         } else {
-            // Normal axis (no trigger) combinations
+            // Normal axis (no grip) combinations
             
             // Horizontal: Seek 10 seconds
             if (qAbs(horizontalAxis) > seekThreshold && m_videoLoaded && m_vlcPlayer) {
