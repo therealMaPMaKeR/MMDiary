@@ -84,12 +84,12 @@ public:
     void compositorWaitGetPoses();
     bool isCompositorReady() const;
     
-    // Controller input system
+    // Controller input system (Legacy Direct Input)
     struct VRControllerState {
-        bool recenterPressed;
-        bool playPausePressed; 
-        bool gripPressed;
-        QVector2D seekAxis;  // x: left/right seek, y: up/down zoom/volume
+        bool recenterPressed;      // Trigger button
+        bool playPausePressed;      // Menu/Application button
+        bool gripPressed;           // Grip button
+        QVector2D seekAxis;         // Trackpad/Joystick x: left/right seek, y: up/down zoom/volume
         
         VRControllerState() : recenterPressed(false), playPausePressed(false), 
                               gripPressed(false), seekAxis(0.0f, 0.0f) {}
@@ -99,7 +99,6 @@ public:
     void shutdownControllerInput();
     VRControllerState pollControllerInput();
     bool isControllerInputReady() const { return m_controllerInputReady; }
-    void showBindingConfiguration();  // Opens SteamVR binding configuration UI
 
 signals:
     void statusChanged(VRStatus status);
@@ -134,21 +133,20 @@ private:
     QMatrix4x4 m_hmdPoseMatrix;
     bool m_hmdPoseValid;
     
-    // Controller input
+    // Controller input (Legacy Direct Input)
 #ifdef USE_OPENVR
-    vr::VRActionSetHandle_t m_actionSetVideo;
-    vr::VRActionHandle_t m_actionRecenter;
-    vr::VRActionHandle_t m_actionPlayPause;
-    vr::VRActionHandle_t m_actionSeekAxis;
-    vr::VRActionHandle_t m_actionGripModifier;
+    vr::TrackedDeviceIndex_t m_leftControllerIndex;
+    vr::TrackedDeviceIndex_t m_rightControllerIndex;
+    vr::VRControllerState_t m_lastLeftControllerState;
+    vr::VRControllerState_t m_lastRightControllerState;
 #else
-    uint64_t m_actionSetVideo;
-    uint64_t m_actionRecenter;
-    uint64_t m_actionPlayPause;
-    uint64_t m_actionSeekAxis;
-    uint64_t m_actionGripModifier;
+    uint32_t m_leftControllerIndex;
+    uint32_t m_rightControllerIndex;
+    void* m_lastLeftControllerState;
+    void* m_lastRightControllerState;
 #endif
     bool m_controllerInputReady;
+    uint64_t m_lastButtonPressed;  // Track last button state for edge detection
 };
 
 #endif // VR_OPENVR_MANAGER_H
