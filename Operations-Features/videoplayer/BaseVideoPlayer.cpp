@@ -671,11 +671,16 @@ void BaseVideoPlayer::enterFullScreen()
         // Remove margins in fullscreen
         m_mainLayout->setContentsMargins(0, 0, 0, 0);
         
-        // Start timer to auto-hide controls
+        // Set fullscreen flag BEFORE starting timers so startCursorTimer() works correctly
+        m_isFullScreen = true;
+        
+        // Initialize mouse position to current cursor position to properly track movement
+        m_lastMousePos = QCursor::pos();
+        qDebug() << "BaseVideoPlayer: Initialized mouse position to" << m_lastMousePos;
+        
+        // Start timer to auto-hide controls (must be called AFTER m_isFullScreen is set to true)
         startCursorTimer();
         m_mouseCheckTimer->start();
-        
-        m_isFullScreen = true;
         
         // Update button icon
         m_fullScreenButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarNormalButton));
@@ -693,6 +698,9 @@ void BaseVideoPlayer::exitFullScreen()
         // Stop cursor hide timers
         stopCursorTimer();
         m_mouseCheckTimer->stop();
+        
+        // Reset mouse position tracking
+        m_lastMousePos = QPoint(-1, -1);
         
         // Show cursor and controls
         showCursor();
@@ -1183,7 +1191,17 @@ void BaseVideoPlayer::checkMouseMovement()
     
     QPoint currentPos = QCursor::pos();
     
-    if (m_lastMousePos != QPoint(-1, -1) && m_lastMousePos != currentPos) {
+    // Check if this is the first check (initialization)
+    if (m_lastMousePos == QPoint(-1, -1)) {
+        // First time checking - initialize position but don't show controls
+        m_lastMousePos = currentPos;
+        qDebug() << "BaseVideoPlayer: Initial mouse position set to" << currentPos;
+        // The cursor timer should already be running from enterFullScreen()
+        return;
+    }
+    
+    // Check if mouse has moved
+    if (m_lastMousePos != currentPos) {
         // Mouse moved
         QScreen* currentScreen = getCurrentScreen();
         QScreen* mouseScreen = QGuiApplication::screenAt(currentPos);
