@@ -659,10 +659,10 @@ bool VROpenVRManager::initializeControllerInput()
     qDebug() << "VROpenVRManager: Found" << controllersFound << "controller(s)";
     qDebug() << "VROpenVRManager: ";
     qDebug() << "VROpenVRManager: BUTTON MAPPINGS (Legacy Direct Input):";
-    qDebug() << "VROpenVRManager:   Trigger -> Recenter View";
+    qDebug() << "VROpenVRManager:   Grip -> Recenter View (hold for continuous)";
     qDebug() << "VROpenVRManager:   Menu/Application Button -> Play/Pause";
-    qDebug() << "VROpenVRManager:   Grip -> Zoom Modifier (hold)";
-    qDebug() << "VROpenVRManager:   Trackpad/Joystick -> Seek (X) / Zoom (Y with Grip)";
+    qDebug() << "VROpenVRManager:   Trigger -> Zoom Modifier (hold)";
+    qDebug() << "VROpenVRManager:   Trackpad/Joystick CLICK -> Seek (X) / Zoom (Y with Trigger)";
     qDebug() << "VROpenVRManager: ";
     qDebug() << "VROpenVRManager: Legacy input ready - no SteamVR binding configuration needed!";
     
@@ -737,10 +737,13 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
         uint64_t buttonPressed = controllerState.ulButtonPressed;
         uint64_t buttonChanged = buttonPressed ^ lastState.ulButtonPressed;
         
-        // TRIGGER -> Recenter (on press)
-        if ((buttonChanged & k_ButtonTrigger) && (buttonPressed & k_ButtonTrigger)) {
-            state.recenterPressed = true;
-            qDebug() << "VROpenVRManager: TRIGGER PRESSED - Recenter View";
+        // GRIP -> Recenter (hold state for continuous recentering)
+        if (buttonPressed & k_ButtonGrip) {
+            state.recenterHeld = true;
+            static int gripLogCount = 0;
+            if (++gripLogCount % 60 == 0) { // Log every second while held
+                qDebug() << "VROpenVRManager: GRIP HELD - Continuous recenter active";
+            }
         }
         
         // MENU/APPLICATION -> Play/Pause (on press)
@@ -749,32 +752,38 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
             qDebug() << "VROpenVRManager: MENU PRESSED - Play/Pause";
         }
         
-        // GRIP -> Modifier (hold state)
-        if (buttonPressed & k_ButtonGrip) {
-            state.gripPressed = true;
-            static int gripLogCount = 0;
-            if (++gripLogCount % 60 == 0) { // Log every second while held
-                qDebug() << "VROpenVRManager: GRIP HELD - Zoom modifier active";
+        // TRIGGER -> Modifier (hold state)
+        if (buttonPressed & k_ButtonTrigger) {
+            state.triggerPressed = true;
+            static int triggerLogCount = 0;
+            if (++triggerLogCount % 60 == 0) { // Log every second while held
+                qDebug() << "VROpenVRManager: TRIGGER HELD - Zoom modifier active";
             }
         }
         
-        // TRACKPAD/JOYSTICK -> Seek/Zoom axis
-        // Check if touchpad is being touched or joystick is moved
+        // TRACKPAD/JOYSTICK -> Seek/Zoom axis (CLICK required for trackpads)
         bool trackpadActive = false;
         float xAxis = 0.0f;
         float yAxis = 0.0f;
         
-        // For touchpad controllers (Vive, Windows MR)
-        if (controllerState.ulButtonTouched & k_TouchpadTouched) {
+        // For touchpad controllers (Vive, Windows MR) - require CLICK not just touch
+        if (controllerState.ulButtonPressed & k_ButtonTouchpad) {
             trackpadActive = true;
             xAxis = controllerState.rAxis[0].x;  // Axis 0 is touchpad
             yAxis = controllerState.rAxis[0].y;
         }
         // For joystick controllers (Oculus, Index) - check if joystick is moved
+        // Joysticks don't need to be clicked, just moved
         else if (qAbs(controllerState.rAxis[0].x) > 0.1f || qAbs(controllerState.rAxis[0].y) > 0.1f) {
-            trackpadActive = true;
-            xAxis = controllerState.rAxis[0].x;  // Axis 0 is also joystick
-            yAxis = controllerState.rAxis[0].y;
+            // Check if this is actually a joystick (not a trackpad)
+            // Joystick controllers typically don't have the touchpad button
+            bool hasTrackpadButton = (controllerState.ulButtonTouched & k_TouchpadTouched) || 
+                                    (lastState.ulButtonTouched & k_TouchpadTouched);
+            if (!hasTrackpadButton) {
+                trackpadActive = true;
+                xAxis = controllerState.rAxis[0].x;  // Axis 0 is also joystick
+                yAxis = controllerState.rAxis[0].y;
+            }
         }
         // Alternative axis check for some controllers
         else if (qAbs(controllerState.rAxis[2].x) > 0.1f || qAbs(controllerState.rAxis[2].y) > 0.1f) {
@@ -788,7 +797,7 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
             
             static int axisLogCount = 0;
             if (++axisLogCount % 30 == 0 && (qAbs(xAxis) > 0.2f || qAbs(yAxis) > 0.2f)) {
-                if (state.gripPressed) {
+                if (state.triggerPressed) {
                     qDebug() << "VROpenVRManager: TRACKPAD/JOYSTICK - Zoom Y:" << yAxis;
                 } else {
                     qDebug() << "VROpenVRManager: TRACKPAD/JOYSTICK - Seek X:" << xAxis;

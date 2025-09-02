@@ -83,6 +83,7 @@ signals:
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
     void showEvent(QShowEvent *event) override;
 
@@ -199,6 +200,10 @@ private:
     // VR Controller input state
     QVector2D m_lastSeekAxis;           // Previous axis values for smooth interaction
     bool m_controllerInputActive;       // Whether controller input is being processed
+    
+    // Continuous recenter state
+    bool m_spacebarHeld;                // Track if spacebar is currently held
+    bool m_grabButtonHeld;              // Track if grab button is currently held
 };
 
 /**

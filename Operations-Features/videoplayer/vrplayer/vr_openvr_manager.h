@@ -86,13 +86,13 @@ public:
     
     // Controller input system (Legacy Direct Input)
     struct VRControllerState {
-        bool recenterPressed;      // Trigger button
+        bool recenterHeld;          // Grip button (held state for continuous recenter)
         bool playPausePressed;      // Menu/Application button
-        bool gripPressed;           // Grip button
+        bool triggerPressed;        // Trigger button (modifier for zoom)
         QVector2D seekAxis;         // Trackpad/Joystick x: left/right seek, y: up/down zoom/volume
         
-        VRControllerState() : recenterPressed(false), playPausePressed(false), 
-                              gripPressed(false), seekAxis(0.0f, 0.0f) {}
+        VRControllerState() : recenterHeld(false), playPausePressed(false), 
+                              triggerPressed(false), seekAxis(0.0f, 0.0f) {}
     };
     
     bool initializeControllerInput();
