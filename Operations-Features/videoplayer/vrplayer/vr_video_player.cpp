@@ -217,11 +217,14 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     , m_projectionComboBox(nullptr)
     , m_ipdSpinBox(nullptr)
     , m_zoomSlider(nullptr)
+    , m_speedSlider(nullptr)
     , m_formatLabel(nullptr)
     , m_projectionLabel(nullptr)
     , m_ipdLabel(nullptr)
     , m_zoomLabel(nullptr)
     , m_zoomValueLabel(nullptr)
+    , m_speedLabel(nullptr)
+    , m_speedValueLabel(nullptr)
     , m_vrAvailable(false)
     , m_vrActive(false)
     , m_vrInitialized(false)
@@ -230,6 +233,8 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     , m_isSliderBeingMoved(false)
     , m_duration(0)
     , m_position(0)
+    , m_firstPlay(true)
+    , m_currentPlaybackSpeed(1.0)
     , m_videoFormat(VRVideoRenderer::VideoFormat::Mono360)
     , m_frameTimer(new QTimer(this))
     , m_positionTimer(new QTimer(this))
@@ -359,8 +364,11 @@ void VRVideoPlayer::setupUI()
                          "\u25cf Press Spacebar to recenter the video view\n\n"
                          "\u25cf Press Tab to play/pause the video\n\n"
                          "\u25cf Press W/S to zoom in/out | A/D to seek backward/forward 10s\n\n"
+                         "\u25cf Press Shift+W/S to increase/decrease playback speed\n\n"
+                         "\u25cf Press Shift+A/D to seek backward/forward 60s\n\n"
+                         "\u25cf Press Shift+Spacebar to reset playback speed to 1x\n\n"
                          "\u25cf Press Q/E to decrease/increase Windows system volume\n\n"
-                         "\u25cf Use the controls below to adjust video format, zoom, and IPD");
+                         "\u25cf Use the controls below to adjust video format, zoom, speed, and IPD");
     mainLayout->addWidget(vrInfoLabel, 1);
     
     // VR Format Controls
@@ -424,6 +432,22 @@ void VRVideoPlayer::setupUI()
     formatLayout->addWidget(m_zoomLabel, 1, 2);
     formatLayout->addWidget(m_zoomSlider, 1, 3);
     formatLayout->addWidget(m_zoomValueLabel, 1, 4);
+    
+    // Playback speed slider
+    m_speedLabel = new QLabel("Speed:", this);
+    m_speedSlider = new QSlider(Qt::Horizontal, this);
+    m_speedSlider->setRange(25, 400); // 0.25x to 4.0x (as percentage)
+    m_speedSlider->setValue(100); // Default 1.0x
+    m_speedSlider->setSingleStep(5);
+    m_speedSlider->setPageStep(25);
+    m_speedSlider->setToolTip("Adjust video playback speed");
+    m_speedSlider->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
+    m_speedValueLabel = new QLabel("100%", this);
+    m_speedValueLabel->setFixedWidth(50);
+    connect(m_speedSlider, &QSlider::valueChanged, this, &VRVideoPlayer::onSpeedSliderChanged);
+    formatLayout->addWidget(m_speedLabel, 2, 0);
+    formatLayout->addWidget(m_speedSlider, 2, 1);
+    formatLayout->addWidget(m_speedValueLabel, 2, 2);
     
     mainLayout->addWidget(formatGroup);
     
@@ -733,6 +757,7 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
     m_currentFilePath = filePath;
     m_videoLoaded = true;
     
+    
     // Update UI
     m_fileLabel->setText(fileInfo.fileName());
     updateUIState();
@@ -769,6 +794,11 @@ bool VRVideoPlayer::loadVideo(const QString& filePath, bool autoEnterVR)
     }
     play(); // play video right away to prevent temp file cleanup from deleting the file
     pause(); // pause it right away. While pause, autocleanup will not delete it.
+
+    // Reset first play flag for new video to enable auto-centering
+    m_firstPlay = true;
+    qDebug() << "VRVideoPlayer: Reset first play flag for new video - auto-centering enabled";
+
     return true;
 }
 
@@ -788,6 +818,13 @@ void VRVideoPlayer::play()
         
         m_vlcPlayer->play();
         m_isPlaying = true;
+        
+        // Auto-center VR headset on first play
+        if (m_firstPlay && m_vrActive && m_renderThread) {
+            qDebug() << "VRVideoPlayer: First play detected - auto-centering VR headset";
+            m_renderThread->recenterView();
+            m_firstPlay = false; // Mark as no longer first play
+        }
         
         // Start frame timer if in VR mode
         if (m_vrActive) {
@@ -1154,8 +1191,15 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
     
     switch (event->key()) {
         case Qt::Key_Space:
+            // Check for Shift+Spacebar first (reset playback speed)
+            if (event->modifiers() & Qt::ShiftModifier) {
+                qDebug() << "VRVideoPlayer: Shift+Spacebar pressed - resetting playback speed";
+                resetPlaybackSpeed();
+                event->accept();
+                return;
+            }
             // In VR mode, spacebar recenters the view
-            if (m_vrActive && m_renderThread) {
+            else if (m_vrActive && m_renderThread) {
                 qDebug() << "VRVideoPlayer: Spacebar pressed - recentering VR view";
                 m_renderThread->recenterView();
                 event->accept();
@@ -1177,8 +1221,13 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
             break;
             
         case Qt::Key_W:
-            // W key for zoom in
-            if (m_renderThread && m_vrActive) {
+            // Check for Shift+W first (increase playback speed)
+            if (event->modifiers() & Qt::ShiftModifier) {
+                qDebug() << "VRVideoPlayer: Shift+W pressed - increasing playback speed";
+                increasePlaybackSpeed();
+            }
+            // W key for zoom in (only when Shift is NOT pressed)
+            else if (m_renderThread && m_vrActive) {
                 float currentScale = m_renderThread->getVideoScale();
                 float newScale = qBound(0.1f, currentScale + 0.1f, 5.0f);
                 m_renderThread->setVideoScale(newScale);
@@ -1199,8 +1248,13 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
             break;
             
         case Qt::Key_S:
-            // S key for zoom out
-            if (m_renderThread && m_vrActive) {
+            // Check for Shift+S first (decrease playback speed)
+            if (event->modifiers() & Qt::ShiftModifier) {
+                qDebug() << "VRVideoPlayer: Shift+S pressed - decreasing playback speed";
+                decreasePlaybackSpeed();
+            }
+            // S key for zoom out (only when Shift is NOT pressed)
+            else if (m_renderThread && m_vrActive) {
                 float currentScale = m_renderThread->getVideoScale();
                 float newScale = qBound(0.1f, currentScale - 0.1f, 5.0f);
                 m_renderThread->setVideoScale(newScale);
@@ -1221,8 +1275,15 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
             break;
             
         case Qt::Key_D:
-            // D key for seek forward 10 seconds
-            if (m_videoLoaded && m_vlcPlayer) {
+            // Check for Shift+D first (seek forward 60 seconds)
+            if (event->modifiers() & Qt::ShiftModifier) {
+                if (m_videoLoaded && m_vlcPlayer) {
+                    qDebug() << "VRVideoPlayer: Shift+D pressed - seeking forward 60 seconds";
+                    m_vlcPlayer->seekRelative(60000); // 60 seconds in milliseconds
+                }
+            }
+            // D key for seek forward 10 seconds (only when Shift is NOT pressed)
+            else if (m_videoLoaded && m_vlcPlayer) {
                 qDebug() << "VRVideoPlayer: D key pressed - seeking forward 10 seconds";
                 m_vlcPlayer->seekRelative(10000); // 10 seconds in milliseconds
             }
@@ -1230,8 +1291,15 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
             break;
             
         case Qt::Key_A:
-            // A key for seek backward 10 seconds
-            if (m_videoLoaded && m_vlcPlayer) {
+            // Check for Shift+A first (seek backward 60 seconds)
+            if (event->modifiers() & Qt::ShiftModifier) {
+                if (m_videoLoaded && m_vlcPlayer) {
+                    qDebug() << "VRVideoPlayer: Shift+A pressed - seeking backward 60 seconds";
+                    m_vlcPlayer->seekRelative(-60000); // -60 seconds in milliseconds
+                }
+            }
+            // A key for seek backward 10 seconds (only when Shift is NOT pressed)
+            else if (m_videoLoaded && m_vlcPlayer) {
                 qDebug() << "VRVideoPlayer: A key pressed - seeking backward 10 seconds";
                 m_vlcPlayer->seekRelative(-10000); // -10 seconds in milliseconds
             }
@@ -1501,6 +1569,69 @@ void VRVideoPlayer::onZoomSliderChanged(int value)
     }
     
     qDebug() << "VRVideoPlayer: Zoom scale changed to" << scale;
+}
+
+void VRVideoPlayer::setPlaybackSpeed(qreal speed)
+{
+    qDebug() << "VRVideoPlayer: Setting playback speed to" << speed;
+    
+    // Clamp speed to valid range
+    speed = qBound(0.25, speed, 4.0);
+    
+    m_currentPlaybackSpeed = speed;
+    
+    // Set speed in VLC player
+    if (m_vlcPlayer) {
+        m_vlcPlayer->setPlaybackRate(static_cast<float>(speed));
+    }
+    
+    // Update slider if not already at this value
+    if (m_speedSlider) {
+        int sliderValue = static_cast<int>(speed * 100);
+        if (m_speedSlider->value() != sliderValue) {
+            m_speedSlider->blockSignals(true);
+            m_speedSlider->setValue(sliderValue);
+            m_speedSlider->blockSignals(false);
+        }
+    }
+    
+    // Update value label
+    if (m_speedValueLabel) {
+        m_speedValueLabel->setText(QString("%1%").arg(static_cast<int>(speed * 100)));
+    }
+}
+
+void VRVideoPlayer::increasePlaybackSpeed()
+{
+    qreal newSpeed = m_currentPlaybackSpeed + 0.1;
+    setPlaybackSpeed(newSpeed);
+    qDebug() << "VRVideoPlayer: Increased playback speed to" << newSpeed;
+}
+
+void VRVideoPlayer::decreasePlaybackSpeed()
+{
+    qreal newSpeed = m_currentPlaybackSpeed - 0.1;
+    setPlaybackSpeed(newSpeed);
+    qDebug() << "VRVideoPlayer: Decreased playback speed to" << newSpeed;
+}
+
+void VRVideoPlayer::resetPlaybackSpeed()
+{
+    setPlaybackSpeed(1.0);
+    qDebug() << "VRVideoPlayer: Reset playback speed to 1.0";
+}
+
+void VRVideoPlayer::onSpeedSliderChanged(int value)
+{
+    qreal speed = value / 100.0;
+    setPlaybackSpeed(speed);
+    
+    // Update the value label
+    if (m_speedValueLabel) {
+        m_speedValueLabel->setText(QString("%1%").arg(value));
+    }
+    
+    qDebug() << "VRVideoPlayer: Playback speed changed to" << speed;
 }
 
 void VRVideoPlayer::updatePlaybackPosition()

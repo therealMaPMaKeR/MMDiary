@@ -101,6 +101,7 @@ private slots:
     void onProjectionComboBoxChanged(int index);
     void onIPDSpinBoxChanged(int value);
     void onZoomSliderChanged(int value);
+    void onSpeedSliderChanged(int value);
     void updatePlaybackPosition();
 
 private:
@@ -120,6 +121,12 @@ private:
     
     // Focus restoration
     void restoreFocusDelayed();
+    
+    // Playback speed control methods
+    void increasePlaybackSpeed();
+    void decreasePlaybackSpeed();
+    void resetPlaybackSpeed();
+    void setPlaybackSpeed(qreal speed);
 
 private:
     // VR components
@@ -148,11 +155,14 @@ private:
     QComboBox* m_projectionComboBox;  // Projection type (flat/180/360)
     QSpinBox* m_ipdSpinBox;           // IPD adjustment
     QSlider* m_zoomSlider;            // Zoom control
+    QSlider* m_speedSlider;           // Playback speed control
     QLabel* m_formatLabel;
     QLabel* m_projectionLabel;
     QLabel* m_ipdLabel;
     QLabel* m_zoomLabel;
     QLabel* m_zoomValueLabel;
+    QLabel* m_speedLabel;
+    QLabel* m_speedValueLabel;
     
     // VR state
     bool m_vrAvailable;
@@ -166,6 +176,8 @@ private:
     bool m_isSliderBeingMoved;
     qint64 m_duration;
     qint64 m_position;
+    bool m_firstPlay;                 // Track if this is the first play for auto-centering
+    qreal m_currentPlaybackSpeed;     // Current playback speed (1.0 = normal)
     
     // VLC player for video decoding
     std::unique_ptr<VP_VLCPlayer> m_vlcPlayer;
