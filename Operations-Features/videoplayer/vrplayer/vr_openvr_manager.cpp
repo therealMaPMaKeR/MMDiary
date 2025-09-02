@@ -6,6 +6,9 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QStringList>
+#include <QThread>
+#include <QSet>
+#include <QPair>
 #include <cstring>
 
 VROpenVRManager::VROpenVRManager(QObject *parent)
@@ -483,24 +486,62 @@ QString VROpenVRManager::getTrackedDeviceString(uint32_t device, uint32_t prop)
         return QString();
     }
     
-    vr::TrackedPropertyError error;
-    uint32_t bufferLen = m_vrSystem->GetStringTrackedDeviceProperty(
+    // Method 1: Try the standard two-call approach
+    vr::TrackedPropertyError error = vr::TrackedProp_Success;
+    uint32_t requiredBufferLen = m_vrSystem->GetStringTrackedDeviceProperty(
         static_cast<vr::TrackedDeviceIndex_t>(device), 
         static_cast<vr::TrackedDeviceProperty>(prop), 
         nullptr, 0, &error);
-    if (bufferLen == 0 || error != vr::TrackedProp_Success) {
-        return QString();
+    
+    // If we got a valid buffer length, proceed with standard approach
+    if (error == vr::TrackedProp_Success && requiredBufferLen > 0) {
+        // Allocate buffer with extra space for null terminator
+        uint32_t bufferSize = requiredBufferLen + 1;
+        char* buffer = new char[bufferSize];
+        memset(buffer, 0, bufferSize);
+        
+        error = vr::TrackedProp_Success;
+        m_vrSystem->GetStringTrackedDeviceProperty(
+            static_cast<vr::TrackedDeviceIndex_t>(device),
+            static_cast<vr::TrackedDeviceProperty>(prop),
+            buffer, requiredBufferLen, &error);
+        
+        if (error == vr::TrackedProp_Success) {
+            QString result = QString::fromUtf8(buffer);
+            delete[] buffer;
+            return result;
+        }
+        delete[] buffer;
     }
     
-    char* buffer = new char[bufferLen];
+    // Method 2: Fallback - try with a fixed-size buffer
+    // Some drivers might have issues with the two-call approach
+    const uint32_t fixedBufferSize = 256;  // Most property strings are well under this
+    char fixedBuffer[fixedBufferSize];
+    memset(fixedBuffer, 0, fixedBufferSize);
+    
+    error = vr::TrackedProp_Success;
     m_vrSystem->GetStringTrackedDeviceProperty(
         static_cast<vr::TrackedDeviceIndex_t>(device),
         static_cast<vr::TrackedDeviceProperty>(prop),
-        buffer, bufferLen, &error);
-    QString result = QString::fromLocal8Bit(buffer);
-    delete[] buffer;
+        fixedBuffer, fixedBufferSize, &error);
     
-    return result;
+    if (error == vr::TrackedProp_Success) {
+        return QString::fromUtf8(fixedBuffer);
+    }
+    
+    // If both methods failed and it's not just "value not provided", log it
+    if (error != vr::TrackedProp_ValueNotProvidedByDevice) {
+        static QSet<QPair<uint32_t, uint32_t>> loggedErrors;
+        QPair<uint32_t, uint32_t> errorKey(device, prop);
+        if (!loggedErrors.contains(errorKey)) {
+            loggedErrors.insert(errorKey);
+            qDebug() << "VROpenVRManager: Failed to get property" << prop 
+                     << "for device" << device << "error:" << error;
+        }
+    }
+    
+    return QString();
 #else
     Q_UNUSED(device);
     Q_UNUSED(prop);
@@ -555,6 +596,23 @@ bool VROpenVRManager::initializeControllerInput()
         qDebug() << "VROpenVRManager: VR system not initialized";
         return false;
     }
+    
+    // Update device poses before querying properties
+    qDebug() << "VROpenVRManager: Updating device poses before controller detection...";
+    compositorWaitGetPoses();
+    
+    // Poll for VR events to ensure devices are activated
+    qDebug() << "VROpenVRManager: Polling for VR events...";
+    vr::VREvent_t vrEvent;
+    while (m_vrSystem->PollNextEvent(&vrEvent, sizeof(vrEvent))) {
+        if (vrEvent.eventType == vr::VREvent_TrackedDeviceActivated ||
+            vrEvent.eventType == vr::VREvent_TrackedDeviceUpdated) {
+            qDebug() << "VROpenVRManager: Device" << vrEvent.trackedDeviceIndex << "activated/updated";
+        }
+    }
+    
+    // Add a small delay to ensure devices are ready
+    QThread::msleep(100);
     
     // Create temp directory for action manifest and binding files
     QString userDataPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
@@ -634,16 +692,19 @@ bool VROpenVRManager::initializeControllerInput()
         QString relativePath = bindingFile;
         QString absolutePath = tempDir + "/" + bindingFile;
         
-        // Replace in the manifest - handle both Windows and Unix path separators
+        // Replace in the manifest - use proper file URL format
         absolutePath.replace("\\", "/");  // Convert Windows backslashes to forward slashes for JSON
         
-        // Replace the relative binding URL with absolute path
+        // Add file:/// prefix for proper URL format
+        QString fileUrl = "file:///" + absolutePath;
+        
+        // Replace the relative binding URL with absolute file URL
         manifestString.replace(
             QString("\"%1\"").arg(relativePath),
-            QString("\"%1\"").arg(absolutePath)
+            QString("\"%1\"").arg(fileUrl)
         );
         
-        qDebug() << "VROpenVRManager: Replaced binding path:" << relativePath << "->" << absolutePath;
+        qDebug() << "VROpenVRManager: Replaced binding path:" << relativePath << "->" << fileUrl;
     }
     
     // Write the modified manifest
@@ -765,41 +826,106 @@ bool VROpenVRManager::initializeControllerInput()
     }
     qDebug() << "VROpenVRManager:   Grip modifier action handle:" << m_actionGripModifier;
     
-    // Detect connected controller types
+    // Detect connected controller types with retry logic
     qDebug() << "VROpenVRManager: Detecting connected controllers...";
     bool hasViveController = false;
     bool hasKnuckles = false;
     bool hasOculusTouch = false;
     int controllerCount = 0;
     
-    for (uint32_t device = 0; device < vr::k_unMaxTrackedDeviceCount; ++device) {
-        if (m_vrSystem->GetTrackedDeviceClass(device) == vr::TrackedDeviceClass_Controller) {
-            controllerCount++;
+    // Retry controller detection up to 3 times with delays
+    for (int retryCount = 0; retryCount < 3; ++retryCount) {
+        if (retryCount > 0) {
+            qDebug() << "VROpenVRManager: Retry" << retryCount << "for controller detection...";
+            QThread::msleep(500);  // Wait 500ms between retries
+            compositorWaitGetPoses();  // Update poses again
+        }
+        
+        controllerCount = 0;
+        hasViveController = false;
+        hasKnuckles = false;
+        hasOculusTouch = false;
+        
+        for (uint32_t device = 0; device < vr::k_unMaxTrackedDeviceCount; ++device) {
+            if (m_vrSystem->GetTrackedDeviceClass(device) == vr::TrackedDeviceClass_Controller) {
+                // Get the controller properties first to check if it's a real VR controller
+                QString modelName = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_ModelNumber_String));
+                QString renderModelName = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_RenderModelName_String));
+                QString controllerType = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_ControllerType_String));
+                QString manufacturer = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_ManufacturerName_String));
+                QString trackingSystem = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_TrackingSystemName_String));
+                
+                // Skip non-VR controllers like gamepads
+                if (controllerType == "gamepad" || 
+                    trackingSystem == "gamepad" || 
+                    renderModelName == "generic_controller" ||
+                    modelName.contains("XInput", Qt::CaseInsensitive)) {
+                    qDebug() << "VROpenVRManager:   Skipping non-VR controller at index" << device;
+                    qDebug() << "VROpenVRManager:     Type:" << controllerType << "Model:" << modelName;
+                    continue;  // Skip this device
+                }
+                
+                // This is a real VR controller, count it
+                controllerCount++;
+                
+                qDebug() << "VROpenVRManager:   Controller" << controllerCount << "found at index" << device;
+                qDebug() << "VROpenVRManager:     Model:" << modelName;
+                qDebug() << "VROpenVRManager:     Render Model:" << renderModelName;
+                qDebug() << "VROpenVRManager:     Controller Type:" << controllerType;
+                qDebug() << "VROpenVRManager:     Manufacturer:" << manufacturer;
+                qDebug() << "VROpenVRManager:     Tracking System:" << trackingSystem;
+                
+                // Note unusual device indices which might indicate mixed setups
+                if (device > 10) {
+                    qDebug() << "VROpenVRManager:     WARNING: Unusually high device index" << device;
+                    qDebug() << "VROpenVRManager:     This might indicate virtual devices, base stations, or mixed VR setup";
+                }
             
-            // Get the controller model name
-            QString modelName = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_ModelNumber_String));
-            QString renderModelName = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_RenderModelName_String));
-            QString controllerType = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_ControllerType_String));
-            
-            qDebug() << "VROpenVRManager:   Controller" << controllerCount << "found at index" << device;
-            qDebug() << "VROpenVRManager:     Model:" << modelName;
-            qDebug() << "VROpenVRManager:     Render Model:" << renderModelName;
-            qDebug() << "VROpenVRManager:     Controller Type:" << controllerType;
-            
-            // Detect controller type
-            if (renderModelName.contains("vive", Qt::CaseInsensitive) || 
-                controllerType.contains("vive", Qt::CaseInsensitive)) {
-                hasViveController = true;
-                qDebug() << "VROpenVRManager:     -> Detected as HTC Vive Controller";
-            } else if (renderModelName.contains("knuckles", Qt::CaseInsensitive) || 
-                       controllerType.contains("knuckles", Qt::CaseInsensitive)) {
-                hasKnuckles = true;
-                qDebug() << "VROpenVRManager:     -> Detected as Valve Index Controller";
-            } else if (renderModelName.contains("oculus", Qt::CaseInsensitive) || 
-                       controllerType.contains("oculus", Qt::CaseInsensitive)) {
-                hasOculusTouch = true;
-                qDebug() << "VROpenVRManager:     -> Detected as Oculus Touch Controller";
+                // Detect controller type - check all available properties
+                if (!controllerType.isEmpty()) {
+                    // Controller type is properly detected
+                    if (controllerType.contains("vive", Qt::CaseInsensitive)) {
+                        hasViveController = true;
+                        qDebug() << "VROpenVRManager:     -> Detected as HTC Vive Controller (by type)";
+                    } else if (controllerType.contains("knuckles", Qt::CaseInsensitive)) {
+                        hasKnuckles = true;
+                        qDebug() << "VROpenVRManager:     -> Detected as Valve Index Controller (by type)";
+                    } else if (controllerType.contains("oculus", Qt::CaseInsensitive)) {
+                        hasOculusTouch = true;
+                        qDebug() << "VROpenVRManager:     -> Detected as Oculus Touch Controller (by type)";
+                    }
+                } else {
+                    // Fallback detection using other properties
+                    qDebug() << "VROpenVRManager:     WARNING: Controller type is empty, using fallback detection";
+                    
+                    if (renderModelName.contains("vive", Qt::CaseInsensitive) || 
+                        modelName.contains("vive", Qt::CaseInsensitive) ||
+                        manufacturer.contains("htc", Qt::CaseInsensitive) ||
+                        trackingSystem.contains("lighthouse", Qt::CaseInsensitive)) {
+                        hasViveController = true;
+                        qDebug() << "VROpenVRManager:     -> Detected as HTC Vive Controller (by fallback)";
+                    } else if (renderModelName.contains("knuckles", Qt::CaseInsensitive) || 
+                               modelName.contains("index", Qt::CaseInsensitive) ||
+                               manufacturer.contains("valve", Qt::CaseInsensitive)) {
+                        hasKnuckles = true;
+                        qDebug() << "VROpenVRManager:     -> Detected as Valve Index Controller (by fallback)";
+                    } else if (renderModelName.contains("oculus", Qt::CaseInsensitive) || 
+                               modelName.contains("quest", Qt::CaseInsensitive) ||
+                               manufacturer.contains("oculus", Qt::CaseInsensitive) ||
+                               manufacturer.contains("meta", Qt::CaseInsensitive)) {
+                        hasOculusTouch = true;
+                        qDebug() << "VROpenVRManager:     -> Detected as Oculus Touch Controller (by fallback)";
+                    } else {
+                        qDebug() << "VROpenVRManager:     -> Could not determine controller type";
+                    }
+                }
             }
+        }
+        
+        // If we successfully detected controllers with types, break out of retry loop
+        if (controllerCount > 0 && (hasViveController || hasKnuckles || hasOculusTouch)) {
+            qDebug() << "VROpenVRManager: Successfully detected controller types after" << (retryCount + 1) << "attempt(s)";
+            break;
         }
     }
     
@@ -841,7 +967,12 @@ bool VROpenVRManager::initializeControllerInput()
     // Check binding status and attempt automatic configuration
     if (controllerCount > 0 && !testData.bActive) {
         qDebug() << "VROpenVRManager: ========================================";
-        qDebug() << "VROpenVRManager: Controller bindings not active, attempting automatic configuration...";
+        qDebug() << "VROpenVRManager: Controller bindings not active for detected VR controllers";
+        qDebug() << "VROpenVRManager: Detected controller types:";
+        if (hasViveController) qDebug() << "VROpenVRManager:   - vive_controller";
+        if (hasKnuckles) qDebug() << "VROpenVRManager:   - knuckles";
+        if (hasOculusTouch) qDebug() << "VROpenVRManager:   - oculus_touch";
+        qDebug() << "VROpenVRManager: Attempting automatic configuration...";
         
         // Try to reload the manifest to force binding activation
         qDebug() << "VROpenVRManager: Reloading action manifest to activate bindings...";
@@ -853,6 +984,10 @@ bool VROpenVRManager::initializeControllerInput()
         } else {
             qDebug() << "VROpenVRManager: Action manifest reloaded successfully";
             
+            // Add a delay to let SteamVR process the manifest
+            qDebug() << "VROpenVRManager: Waiting for SteamVR to process manifest...";
+            QThread::msleep(500);
+            
             // Re-get action handles after reload (they might have changed)
             vr::VRActionSetHandle_t newActionSetVideo;
             inputError = vr::VRInput()->GetActionSetHandle("/actions/video", &newActionSetVideo);
@@ -860,6 +995,12 @@ bool VROpenVRManager::initializeControllerInput()
                 m_actionSetVideo = newActionSetVideo;
                 qDebug() << "VROpenVRManager: Re-obtained action set handle:" << m_actionSetVideo;
             }
+            
+            // Re-get all action handles
+            vr::VRInput()->GetActionHandle("/actions/video/in/recenter", &m_actionRecenter);
+            vr::VRInput()->GetActionHandle("/actions/video/in/play_pause", &m_actionPlayPause);
+            vr::VRInput()->GetActionHandle("/actions/video/in/seek_axis", &m_actionSeekAxis);
+            vr::VRInput()->GetActionHandle("/actions/video/in/grip_modifier", &m_actionGripModifier);
             
             // Force an action state update after reload
             vr::VRActiveActionSet_t reloadActionSet = { 0 };
@@ -872,21 +1013,47 @@ bool VROpenVRManager::initializeControllerInput()
                 qDebug() << "VROpenVRManager: Action state updated after reload";
             }
             
-            // Test again after reload and update
-            vr::InputDigitalActionData_t retestData;
-            vr::EVRInputError retestError = vr::VRInput()->GetDigitalActionData(m_actionRecenter, &retestData, sizeof(retestData), vr::k_ulInvalidInputValueHandle);
-            if (retestError == vr::VRInputError_None && retestData.bActive) {
-                qDebug() << "VROpenVRManager: SUCCESS! Bindings are now active after reload";
-                qDebug() << "VROpenVRManager: Controller is ready to use!";
-            } else {
+            // Add another delay after update
+            QThread::msleep(200);
+            
+            // Test again after reload and update with multiple attempts
+            bool bindingsActive = false;
+            for (int testAttempt = 0; testAttempt < 3; ++testAttempt) {
+                if (testAttempt > 0) {
+                    QThread::msleep(500);
+                    // Update action state again
+                    vr::VRInput()->UpdateActionState(&reloadActionSet, sizeof(vr::VRActiveActionSet_t), 1);
+                }
+                
+                vr::InputDigitalActionData_t retestData;
+                vr::EVRInputError retestError = vr::VRInput()->GetDigitalActionData(m_actionRecenter, &retestData, sizeof(retestData), vr::k_ulInvalidInputValueHandle);
+                if (retestError == vr::VRInputError_None && retestData.bActive) {
+                    qDebug() << "VROpenVRManager: SUCCESS! Bindings are now active after reload (attempt" << (testAttempt + 1) << ")";
+                    qDebug() << "VROpenVRManager: Controller is ready to use!";
+                    bindingsActive = true;
+                    break;
+                }
+                qDebug() << "VROpenVRManager: Binding test attempt" << (testAttempt + 1) << "- Active:" << retestData.bActive;
+            }
+            
+            if (!bindingsActive) {
                 qDebug() << "VROpenVRManager: Bindings still not active after reload";
                 qDebug() << "VROpenVRManager: ";
+                qDebug() << "VROpenVRManager: Attempting to automatically open binding configuration UI...";
+                
+                // Try to automatically open the binding configuration UI
+                // We need to temporarily set m_controllerInputReady to true for this to work
+                m_controllerInputReady = true;
+                showBindingConfiguration();
+                m_controllerInputReady = false;  // Set it back since bindings aren't actually ready
+                
+                qDebug() << "VROpenVRManager: ";
                 qDebug() << "VROpenVRManager: MANUAL CONFIGURATION REQUIRED:";
-                qDebug() << "VROpenVRManager: 1. Open SteamVR Settings -> Controllers -> Manage Controller Bindings";
+                qDebug() << "VROpenVRManager: 1. The binding configuration UI should now be open";
                 qDebug() << "VROpenVRManager: 2. Select 'MMDiary VR Video Player' from the application list";
                 qDebug() << "VROpenVRManager: 3. Choose the default binding for your controller";
                 qDebug() << "VROpenVRManager: 4. Click 'Replace Default Binding' if prompted";
-                qDebug() << "VROpenVRManager: 5. Restart the VR player";
+                qDebug() << "VROpenVRManager: 5. Close the configuration and restart the VR player";
                 qDebug() << "VROpenVRManager: ";
                 qDebug() << "VROpenVRManager: Button mappings:";
                 qDebug() << "VROpenVRManager:    - Trigger -> Recenter View";
@@ -907,6 +1074,15 @@ bool VROpenVRManager::initializeControllerInput()
     
     m_controllerInputReady = true;
     qDebug() << "VROpenVRManager: Controller input system initialized successfully";
+    
+    // Log summary
+    qDebug() << "VROpenVRManager: ======== CONTROLLER SUMMARY ========";
+    qDebug() << "VROpenVRManager: VR Controllers detected:" << controllerCount;
+    if (hasViveController) qDebug() << "VROpenVRManager:   - HTC Vive Controller";
+    if (hasKnuckles) qDebug() << "VROpenVRManager:   - Valve Index Controller";
+    if (hasOculusTouch) qDebug() << "VROpenVRManager:   - Oculus Touch Controller";
+    qDebug() << "VROpenVRManager: =====================================";
+    
     return true;
 #else
     qDebug() << "VROpenVRManager: Controller input not available - OpenVR not compiled in";
