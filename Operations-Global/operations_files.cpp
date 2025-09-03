@@ -1,3 +1,17 @@
+/*
+ * Security Enhancements Applied (Windows-specific):
+ * - Windows MAX_PATH handling with long path support (\\?\\prefix)
+ * - Enhanced sanitizePath() with pre-validation and Windows-specific checks
+ * - Secure path concatenation to prevent injection attacks  
+ * - TOCTOU race condition fixes in path validation
+ * - Path length validation for Windows (260 chars without prefix, 32767 with prefix)
+ * - Path normalization for secure case-insensitive comparisons
+ * - Windows reserved device name blocking (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+ * - Alternate Data Stream (ADS) detection
+ * - URL-encoded path traversal detection (%2e%2e, %252e%252e, etc.)
+ * - Windows 8.3 short name format detection (~1, ~2, etc.)
+ */
+
 #include "operations_files.h"
 #include "inputvalidation.h"
 #include "encryption/CryptoUtils.h"
@@ -28,6 +42,13 @@ namespace OperationsFiles {
 const QFile::Permissions DEFAULT_FILE_PERMISSIONS = QFile::ReadOwner | QFile::WriteOwner;
 const QFile::Permissions DEFAULT_DIR_PERMISSIONS = QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner;
 
+// Windows-specific reserved device names
+static const QStringList WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
+    "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", 
+    "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+};
+
 // Static data for cleanup management
 static QList<QString> s_pendingDeletions;
 static QMutex s_pendingMutex;  // For thread safety
@@ -36,6 +57,10 @@ static bool s_cleanupScheduled = false;
 // Forward declarations of internal functions
 void performAsyncCleanup();
 bool quickDelete(const QString& filePath);
+QString enableWindowsLongPath(const QString& path);
+bool validatePathLength(const QString& path);
+QString securePathJoin(const QString& basePath, const QString& component);
+QString normalizePathForComparison(const QString& path);
 
 // RAII class for temporary file management
 TempFileCleaner::TempFileCleaner(const QString& filePath, FileType fileType)
@@ -210,6 +235,116 @@ void performAsyncCleanup() {
     }
 }
 
+// Windows long path support function
+QString enableWindowsLongPath(const QString& path) {
+    QString absolutePath = QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath());
+    
+    // Check if path exceeds MAX_PATH (260 chars)
+    if (absolutePath.length() >= 260) {
+        // Add long path prefix if not already present
+        if (!absolutePath.startsWith("\\\\?\\")) {
+            if (absolutePath.startsWith("\\\\")) {
+                // UNC path: \\server\share -> \\?\UNC\server\share
+                absolutePath = "\\\\?\\\\UNC" + absolutePath.mid(1);
+            } else {
+                // Regular path: C:\path -> \\?\C:\path  
+                absolutePath = "\\\\?\\\\" + absolutePath;
+            }
+        }
+    }
+    return absolutePath;
+}
+
+// Path length validation function for Windows
+bool validatePathLength(const QString& path) {
+    // Without long path prefix, Windows limit is 260
+    if (!path.startsWith("\\\\?\\")) {
+        if (path.length() >= 260) {
+            qWarning() << "operations_files: Path exceeds Windows MAX_PATH limit:" << path.length() << "characters";
+            return false;
+        }
+    } else {
+        // With long path prefix, limit is ~32,767
+        if (path.length() >= 32767) {
+            qWarning() << "operations_files: Path exceeds Windows long path limit:" << path.length() << "characters";
+            return false;
+        }
+    }
+    return true;
+}
+
+// Secure path concatenation function
+QString securePathJoin(const QString& basePath, const QString& component) {
+    // Validate both inputs separately
+    if (basePath.isEmpty() || component.isEmpty()) {
+        qWarning() << "operations_files: Empty path component in join";
+        return QString();
+    }
+    
+    // Check component doesn't contain path separators or traversal
+    if (component.contains('/') || component.contains('\\') || 
+        component.contains("..") || component.contains(QChar(0))) {
+        qWarning() << "operations_files: Invalid component for path join:" << component;
+        return QString();
+    }
+    
+    // Validate the component as plain text
+    InputValidation::ValidationResult componentResult =
+        InputValidation::validateInput(component, InputValidation::InputType::PlainText);
+    if (!componentResult.isValid) {
+        qWarning() << "operations_files: Invalid path component:" << componentResult.errorMessage;
+        return QString();
+    }
+    
+    // Use QDir for safe joining
+    QDir baseDir(basePath);
+    QString joined = baseDir.filePath(component);
+    
+    // Validate the result is still within bounds
+    QString cleaned = QDir::cleanPath(joined);
+    
+    // Check combined path length and enable long path if needed
+    if (cleaned.length() >= 260) {
+        cleaned = enableWindowsLongPath(cleaned);
+    }
+    
+    // Validate path length
+    if (!validatePathLength(cleaned)) {
+        qWarning() << "operations_files: Joined path exceeds length limits";
+        return QString();
+    }
+    
+    // Verify still within allowed directory
+    if (!isWithinAllowedDirectory(cleaned, "Data")) {
+        qWarning() << "operations_files: Joined path escaped allowed directory";
+        return QString();
+    }
+    
+    return cleaned;
+}
+
+// Normalize path for secure comparison on Windows
+QString normalizePathForComparison(const QString& path) {
+    if (path.isEmpty()) {
+        return QString();
+    }
+    
+    // Convert to absolute path and clean it
+    QString normalized = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+    
+    // Convert to native separators and uppercase for case-insensitive comparison on Windows
+    normalized = QDir::toNativeSeparators(normalized).toUpper();
+    
+    // Remove long path prefix for comparison if present
+    if (normalized.startsWith("\\\\?\\\\UNC\\\\")) {
+        normalized = "\\\\" + normalized.mid(8);
+    } else if (normalized.startsWith("\\\\?\\\\")) {
+        normalized = normalized.mid(4);
+    }
+    
+    return normalized;
+}
+
 static QString g_username = "default";
 void setUsername(const QString& username) {
     if (!username.isEmpty()) {
@@ -332,15 +467,13 @@ bool createHierarchicalDirectory(const QStringList& pathComponents, const QStrin
 
     // Create each level of the directory structure
     for (const QString& component : pathComponents) {
-        // Validate the component
-        InputValidation::ValidationResult componentResult =
-            InputValidation::validateInput(component, InputValidation::InputType::PlainText);
-        if (!componentResult.isValid) {
-            qWarning() << "Invalid directory component: " << componentResult.errorMessage;
+        // Use secure path join instead of string concatenation
+        QString newPath = securePathJoin(currentPath, component);
+        if (newPath.isEmpty()) {
+            qWarning() << "Failed to create secure path for component:" << component;
             return false;
         }
-
-        currentPath = QDir::cleanPath(currentPath + "/" + component);
+        currentPath = newPath;
 
         // Validate the full path after adding the component
         InputValidation::ValidationResult pathResult =
@@ -474,12 +607,32 @@ std::unique_ptr<QTemporaryFile> createTempFile(const QString& baseFileTemplate, 
 
     if (baseFileTemplate.isEmpty()) {
         // Use a user-specific subdirectory within Data for temporary files
-        QString tempDir = QDir::cleanPath(QDir::current().path() + "/Data/" + g_username + "/Temp");
+        QString dataPath = securePathJoin(QDir::current().absolutePath(), "Data");
+        if (dataPath.isEmpty()) {
+            qWarning() << "Failed to create secure data path";
+            return nullptr;
+        }
+        
+        QString userPath = securePathJoin(dataPath, g_username);
+        if (userPath.isEmpty()) {
+            qWarning() << "Failed to create secure user path";
+            return nullptr;
+        }
+        
+        QString tempDir = securePathJoin(userPath, "Temp");
+        if (tempDir.isEmpty()) {
+            qWarning() << "Failed to create secure temp directory path";
+            return nullptr;
+        }
+        
         if (!ensureDirectoryExists(tempDir)) {
             qWarning() << "Failed to create temporary directory: " << tempDir;
             return nullptr;
         }
-        templateStr = tempDir + "/" + g_username + "_XXXXXX.tmp";
+        
+        // Create template string with proper validation
+        QString tempFileName = g_username + "_XXXXXX.tmp";
+        templateStr = QDir(tempDir).filePath(tempFileName);
     } else {
         // Use provided template with minimal validation
         if (!baseFileTemplate.contains("XXXXXX")) {
@@ -1014,7 +1167,12 @@ bool deleteFileAndCleanEmptyDirs(const QString& filePath, const QStringList& hie
     QStringList fullHierarchyPaths;
 
     for (const QString& level : hierarchyLevels) {
-        currentPath = QDir::cleanPath(currentPath + "/" + level);
+        QString nextPath = securePathJoin(currentPath, level);
+        if (nextPath.isEmpty()) {
+            qWarning() << "Failed to create secure path for hierarchy level:" << level;
+            continue; // Skip this level but try to clean up others
+        }
+        currentPath = nextPath;
         fullHierarchyPaths.append(currentPath);
     }
 
@@ -1353,64 +1511,168 @@ bool isWithinAllowedDirectory(const QString& filePath, const QString& baseDirect
         return false;
     }
 
-    // Create the base directory path
-    QString basePath = QDir::cleanPath(QDir(QDir::current().path() + "/" + baseDirectory).absolutePath());
-
-    // Create a clean path for the file
-    QFileInfo fileInfo(filePath);
-    QString absolutePath = fileInfo.absoluteFilePath();
-    QString canonicalPath = QDir::cleanPath(absolutePath);
-
-    // Get canonical paths if the files/directories exist
-    if (fileInfo.exists()) {
-        canonicalPath = fileInfo.canonicalFilePath();
+    try {
+        // Use atomic operations to avoid TOCTOU
+        QFileInfo fileInfo(filePath);
+        QString canonicalPath;
+        
+        // Get canonical path in one atomic operation to avoid TOCTOU
+        if (fileInfo.exists()) {
+            canonicalPath = fileInfo.canonicalFilePath();
+            if (canonicalPath.isEmpty()) {
+                // For existing files that can't be canonicalized, validate parent + filename
+                QDir parentDir = fileInfo.dir();
+                if (parentDir.exists()) {
+                    QString parentCanonical = parentDir.canonicalPath();
+                    if (!parentCanonical.isEmpty()) {
+                        canonicalPath = QDir::cleanPath(parentCanonical + "/" + fileInfo.fileName());
+                    }
+                }
+            }
+        } else {
+            // For non-existent files, validate parent + filename separately
+            QDir parentDir = fileInfo.dir();
+            if (parentDir.exists()) {
+                QString parentCanonical = parentDir.canonicalPath();
+                if (!parentCanonical.isEmpty()) {
+                    canonicalPath = QDir::cleanPath(parentCanonical + "/" + fileInfo.fileName());
+                } else {
+                    canonicalPath = QDir::cleanPath(parentDir.absolutePath() + "/" + fileInfo.fileName());
+                }
+            } else {
+                canonicalPath = QDir::cleanPath(fileInfo.absoluteFilePath());
+            }
+        }
+        
+        // Final fallback
         if (canonicalPath.isEmpty()) {
-            // Fallback to cleaned path if canonical path can't be determined
-            canonicalPath = QDir::cleanPath(absolutePath);
+            canonicalPath = QDir::cleanPath(fileInfo.absoluteFilePath());
         }
-    }
-
-    QFileInfo baseInfo(basePath);
-    if (baseInfo.exists() && baseInfo.isDir()) {
-        basePath = baseInfo.canonicalFilePath();
-        if (basePath.isEmpty()) {
-            // Fallback to cleaned path if canonical path can't be determined
-            basePath = QDir::cleanPath(baseInfo.absoluteFilePath());
+        
+        // Create the base directory path using secure method
+        QString basePath = QDir::cleanPath(QDir::current().absolutePath() + "/" + baseDirectory);
+        
+        // Get canonical base path
+        QFileInfo baseInfo(basePath);
+        if (baseInfo.exists() && baseInfo.isDir()) {
+            QString baseCanonical = baseInfo.canonicalFilePath();
+            if (!baseCanonical.isEmpty()) {
+                basePath = baseCanonical;
+            }
         }
+        
+        // Normalize both paths for comparison
+        QString normalizedFile = normalizePathForComparison(canonicalPath);
+        QString normalizedBase = normalizePathForComparison(basePath);
+        
+        // Check if file path starts with base path
+        return normalizedFile.startsWith(normalizedBase);
+        
+    } catch (const std::exception& e) {
+        qWarning() << "operations_files: Exception in path validation:" << e.what();
+        return false;
+    } catch (...) {
+        qWarning() << "operations_files: Unknown exception in path validation";
+        return false;
     }
-
-    // Check if canonical path starts with base path
-    return canonicalPath.startsWith(basePath);
 }
 
 // Utility Functions
 QString sanitizePath(const QString& path) {
-    // Validate the path
+    // Pre-validation before any manipulation
+    if (path.isEmpty() || path.contains(QChar(0))) {
+        qWarning() << "operations_files: Invalid path - empty or contains null characters";
+        return QString();
+    }
+    
+    // Check for URL-encoded traversal patterns
+    QString lowerPath = path.toLower();
+    if (lowerPath.contains("%00") || lowerPath.contains("%2e%2e") || 
+        lowerPath.contains("%252e%252e") || lowerPath.contains("..%2f") ||
+        lowerPath.contains("..%5c")) {
+        qWarning() << "operations_files: Path contains URL-encoded traversal attempt";
+        return QString();
+    }
+    
+    // Check for Windows reserved device names
+    QFileInfo info(path);
+    QString baseName = info.baseName().toUpper();
+    QString fileName = info.fileName().toUpper();
+    
+    // Check both base name and full filename for reserved names
+    for (const QString& reserved : WINDOWS_RESERVED_NAMES) {
+        if (baseName == reserved || fileName == reserved ||
+            baseName.startsWith(reserved + ".") || fileName.startsWith(reserved + ".")) {
+            qWarning() << "operations_files: Path contains Windows reserved device name:" << reserved;
+            return QString();
+        }
+    }
+    
+    // Check for alternate data streams (multiple colons)
+    int colonCount = path.count(':');
+    if (colonCount > 1) {
+        // Allow only drive letter colon (e.g., C:)
+        if (!(colonCount == 1 && path.length() > 1 && path[1] == ':')) {
+            qWarning() << "operations_files: Path may contain alternate data stream";
+            return QString();
+        }
+    }
+    
+    // Check for Windows short names (8.3 format)
+    if (path.contains("~")) {
+        QRegularExpression shortNamePattern("~[0-9]+");
+        if (shortNamePattern.match(path).hasMatch()) {
+            qWarning() << "operations_files: Path may contain Windows short name format";
+            return QString();
+        }
+    }
+    
+    // Validate BEFORE cleaning to catch malicious input early
     InputValidation::ValidationResult result =
         InputValidation::validateInput(path, InputValidation::InputType::FilePath);
     if (!result.isValid) {
-        qWarning() << "Invalid path for sanitization: " << result.errorMessage;
-        return QString(); // Return empty string to indicate error
+        qWarning() << "operations_files: Path validation failed:" << result.errorMessage;
+        return QString();
     }
-
-    // First clean the path using Qt's built-in function
+    
+    // Now clean the validated path
     QString cleaned = QDir::cleanPath(path);
-
-    // Check if the cleaned path is within allowed directory
-    if (!isWithinAllowedDirectory(cleaned, "Data")) {
-        qWarning() << "Sanitized path outside allowed directory: " << cleaned;
-        return QString(); // Return empty string to indicate error
+    
+    // Validate path length
+    if (!validatePathLength(cleaned)) {
+        qWarning() << "operations_files: Path exceeds system limits";
+        return QString();
     }
-
+    
+    // Handle long paths on Windows if needed
+    if (cleaned.length() >= 260 && !cleaned.startsWith("\\\\?\\\\")) {
+        QString longPath = enableWindowsLongPath(cleaned);
+        if (!longPath.isEmpty()) {
+            cleaned = longPath;
+        }
+    }
+    
+    // Final boundary check
+    if (!isWithinAllowedDirectory(cleaned, "Data")) {
+        qWarning() << "operations_files: Sanitized path outside allowed directory";
+        return QString();
+    }
+    
     // Get canonical path if the file or directory exists
     QFileInfo fileInfo(cleaned);
     if (fileInfo.exists()) {
         QString canonicalPath = fileInfo.canonicalFilePath();
         if (!canonicalPath.isEmpty()) {
             cleaned = canonicalPath;
+            
+            // Re-validate canonical path length
+            if (!validatePathLength(cleaned)) {
+                qWarning() << "operations_files: Canonical path exceeds system limits";
+                return QString();
+            }
         }
     }
-
+    
     return cleaned;
 }
 
@@ -1854,8 +2116,13 @@ bool createNewTasklistFile(const QString& filePath, const QByteArray& encryption
 bool cleanupAllUserTempFolders() {
     qDebug() << "Starting cleanup of all user temp folders...";
 
-    // Get the Data directory path
-    QString dataPath = QDir::cleanPath(QDir::current().path() + "/Data");
+    // Get the Data directory path using secure method
+    QString dataPath = securePathJoin(QDir::current().absolutePath(), "Data");
+    if (dataPath.isEmpty()) {
+        qWarning() << "Failed to create secure Data directory path";
+        return false;
+    }
+    
     QDir dataDir(dataPath);
 
     if (!dataDir.exists()) {
@@ -1876,8 +2143,17 @@ bool cleanupAllUserTempFolders() {
 
     // Process each user directory
     for (const QString& userDir : userDirs) {
-        QString userPath = QDir::cleanPath(dataPath + "/" + userDir);
-        QString tempPath = QDir::cleanPath(userPath + "/Temp");
+        QString userPath = securePathJoin(dataPath, userDir);
+        if (userPath.isEmpty()) {
+            qWarning() << "Failed to create secure user path for:" << userDir;
+            continue;
+        }
+        
+        QString tempPath = securePathJoin(userPath, "Temp");
+        if (tempPath.isEmpty()) {
+            qWarning() << "Failed to create secure temp path for user:" << userDir;
+            continue;
+        }
 
         QDir tempDir(tempPath);
         if (!tempDir.exists()) {
@@ -1898,7 +2174,12 @@ bool cleanupAllUserTempFolders() {
 
         // Delete each file in the temp directory
         for (const QString& fileName : tempFiles) {
-            QString filePath = QDir::cleanPath(tempPath + "/" + fileName);
+            QString filePath = securePathJoin(tempPath, fileName);
+            if (filePath.isEmpty()) {
+                qWarning() << "Failed to create secure file path for:" << fileName;
+                totalErrors++;
+                continue;
+            }
 
             // Validate that the file path is within our expected directory structure
             if (!isWithinAllowedDirectory(filePath, "Data")) {

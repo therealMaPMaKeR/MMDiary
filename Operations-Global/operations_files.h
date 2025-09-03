@@ -79,6 +79,10 @@ bool searchEncryptedFile(const QString& filePath, const QByteArray& encryptionKe
 bool validateFilePath(const QString& filePath, FileType fileType, const QByteArray& encryptionKey);
 bool isWithinAllowedDirectory(const QString& filePath, const QString& baseDirectory);
 QString sanitizePath(const QString& path);
+QString enableWindowsLongPath(const QString& path);
+bool validatePathLength(const QString& path);
+QString securePathJoin(const QString& basePath, const QString& component);
+QString normalizePathForComparison(const QString& path);
 
 // Task list operations
 bool readTasklistFile(const QString& filePath, const QByteArray& encryptionKey, QStringList& taskLines);
