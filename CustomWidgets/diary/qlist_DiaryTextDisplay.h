@@ -13,6 +13,8 @@
 #include <QUrl>
 #include <QFileInfo>
 #include <QTimer>
+#include <QMutex>
+#include <QMutexLocker>
 
 class qtextedit_DiaryTextInput;
 
@@ -60,6 +62,10 @@ private:
     bool m_inMouseEvent = false; // New flag to prevent recursive events
 
     QPoint m_lastClickPos;
+    
+    // Thread safety and resource management
+    QMutex* m_sizeUpdateMutex = nullptr;  // Mutex for thread-safe size updates
+    QTimer* m_dragDropTimer = nullptr;     // Timer for drag&drop re-enable
 
     // Helper methods for drag & drop
     bool isImageFile(const QString& filePath);

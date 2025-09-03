@@ -2230,15 +2230,26 @@ void Operations_Diary::UpdateDelegate()
     // Store old delegate to prevent memory leak
     QAbstractItemDelegate* oldDelegate = m_mainWindow->ui->DiaryTextDisplay->itemDelegate();
     
+    // Create the new delegate
     CombinedDelegate *delegate = new CombinedDelegate(m_mainWindow);
     connect(delegate, &CombinedDelegate::TextModificationsMade, m_mainWindow->ui->DiaryTextDisplay, &qlist_DiaryTextDisplay::TextWasEdited);
     delegate->setColorLength(m_mainWindow->user_Displayname.length());  // Color first 5 characters
     delegate->setTextColor(QColor(m_mainWindow->user_nameColor));  // Use red color for the text
+    
+    // Set the new delegate
     m_mainWindow->ui->DiaryTextDisplay->setItemDelegate(delegate);
     
-    // Delete old delegate if it exists and was created by us (has m_mainWindow as parent)
-    if (oldDelegate && oldDelegate->parent() == m_mainWindow) {
-        oldDelegate->deleteLater();
+    // Delete old delegate if it exists - check if it's our CombinedDelegate
+    // The default delegate doesn't have a parent, so we check for that
+    if (oldDelegate && oldDelegate != delegate) {
+        // Cast to check if it's our custom delegate type
+        CombinedDelegate* oldCombinedDelegate = qobject_cast<CombinedDelegate*>(oldDelegate);
+        if (oldCombinedDelegate) {
+            // It's our delegate, safe to delete
+            oldCombinedDelegate->deleteLater();
+            qDebug() << "Operations_Diary: Deleted old CombinedDelegate";
+        }
+        // If it's not a CombinedDelegate, it's likely the default delegate, don't delete it
     }
 }
 

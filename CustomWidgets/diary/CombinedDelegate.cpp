@@ -166,8 +166,15 @@ QSize CombinedDelegate::sizeHint(const QStyleOptionViewItem &option, const QMode
 
 QSize CombinedDelegate::getActualImageDisplaySize(const QString& imagePath) const
 {
-    // Cache results to avoid repeated calculations
+    // Cache results to avoid repeated calculations - with size limit
     static QMap<QString, QSize> sizeCache;
+    static const int MAX_CACHE_SIZE = 100;  // Maximum cache entries
+    
+    // Clear cache if it gets too large to prevent unbounded memory growth
+    if (sizeCache.size() > MAX_CACHE_SIZE) {
+        qDebug() << "CombinedDelegate: Clearing image size cache, was" << sizeCache.size() << "entries";
+        sizeCache.clear();
+    }
 
     if (sizeCache.contains(imagePath)) {
         return sizeCache[imagePath];
@@ -175,13 +182,28 @@ QSize CombinedDelegate::getActualImageDisplaySize(const QString& imagePath) cons
 
     QSize resultSize;
 
-    // Get the main window to access the encryption key and diary operations
-    QWidget* parentWidget = qobject_cast<QWidget*>(parent());
+    // Safer way to get the main window using stored pointer or application search
     MainWindow* mainWindow = nullptr;
-    QWidget* current = parentWidget;
-    while (current && !mainWindow) {
-        mainWindow = qobject_cast<MainWindow*>(current);
-        current = current->parentWidget();
+    
+    // Try to get from parent widget first
+    QWidget* parentWidget = qobject_cast<QWidget*>(parent());
+    if (parentWidget) {
+        // Limit traversal depth to prevent infinite loops
+        const int MAX_DEPTH = 10;
+        int depth = 0;
+        QWidget* current = parentWidget;
+        
+        while (current && !mainWindow && depth < MAX_DEPTH) {
+            mainWindow = qobject_cast<MainWindow*>(current);
+            if (!mainWindow) {
+                current = current->parentWidget();
+                depth++;
+            }
+        }
+        
+        if (depth >= MAX_DEPTH) {
+            qWarning() << "CombinedDelegate: Max parent traversal depth reached";
+        }
     }
 
     if (!mainWindow) {
@@ -411,12 +433,22 @@ QPixmap CombinedDelegate::loadImageForDisplay(const QString& imagePath) const
             return QPixmap();
         }
 
-        // Find the main window to get the encryption key
+        // Find the main window to get the encryption key - with safety limits
         MainWindow* mainWindow = nullptr;
+        const int MAX_DEPTH = 10;
+        int depth = 0;
         QWidget* current = parentWidget;
-        while (current && !mainWindow) {
+        
+        while (current && !mainWindow && depth < MAX_DEPTH) {
             mainWindow = qobject_cast<MainWindow*>(current);
-            current = current->parentWidget();
+            if (!mainWindow) {
+                current = current->parentWidget();
+                depth++;
+            }
+        }
+        
+        if (depth >= MAX_DEPTH) {
+            qWarning() << "CombinedDelegate: Max parent traversal depth reached in loadImageForDisplay";
         }
 
         if (!mainWindow) {

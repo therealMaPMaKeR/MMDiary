@@ -12,7 +12,10 @@
 #include "../../Operations-Global/inputvalidation.h" // Add this include
 
 qlist_DiaryTextDisplay::qlist_DiaryTextDisplay(QWidget *parent)
-    : QListWidget(parent), m_inSizeUpdate(false)
+    : QListWidget(parent)
+    , m_inSizeUpdate(false)
+    , m_inMouseEvent(false)
+    , m_sizeUpdateMutex(new QMutex())
 {
     qDebug() << "qlist_DiaryTextDisplay: Constructor called";
     this->setParent(parent);
@@ -23,18 +26,44 @@ qlist_DiaryTextDisplay::qlist_DiaryTextDisplay(QWidget *parent)
     setAcceptDrops(true);
 
     // Use a delay to re-enable drag & drop in case something else disables it
-    QTimer::singleShot(100, this, [this]() {
-        setAcceptDrops(true);
+    // Store the timer pointer to ensure proper cleanup
+    m_dragDropTimer = new QTimer(this);
+    m_dragDropTimer->setSingleShot(true);
+    connect(m_dragDropTimer, &QTimer::timeout, this, [this]() {
+        if (this->isVisible()) {  // Only if widget still exists and is visible
+            setAcceptDrops(true);
+        }
     });
+    m_dragDropTimer->start(100);
 }
 
 qlist_DiaryTextDisplay::~qlist_DiaryTextDisplay()
 {
     qDebug() << "qlist_DiaryTextDisplay: Destructor called";
-    // Make sure the "finished" signal is emitted if we're destroyed during an update
-    if (m_inSizeUpdate) {
-        emit sizeUpdateFinished();
+    
+    // Thread-safe cleanup
+    if (m_sizeUpdateMutex) {
+        QMutexLocker locker(m_sizeUpdateMutex);
+        
+        // Make sure the "finished" signal is emitted if we're destroyed during an update
+        if (m_inSizeUpdate) {
+            m_inSizeUpdate = false;
+            emit sizeUpdateFinished();
+        }
     }
+    
+    // Clean up timer if it exists
+    if (m_dragDropTimer) {
+        m_dragDropTimer->stop();
+        delete m_dragDropTimer;
+        m_dragDropTimer = nullptr;
+    }
+    
+    // Clean up mutex
+    delete m_sizeUpdateMutex;
+    m_sizeUpdateMutex = nullptr;
+    
+    qDebug() << "qlist_DiaryTextDisplay: Destructor completed";
 }
 
 // Add this after the constructor
@@ -67,9 +96,25 @@ void qlist_DiaryTextDisplay::selectLastItem()
 
 void qlist_DiaryTextDisplay::wheelEvent(QWheelEvent *event)
 {
+    if (!event) {
+        qWarning() << "qlist_DiaryTextDisplay: Null event in wheelEvent";
+        return;
+    }
+    
     if (event->modifiers() & Qt::ControlModifier) {
         qDebug() << "qlist_DiaryTextDisplay: Wheel event with Ctrl modifier";
-        // Signal we're starting a size update
+        
+        // Thread-safe size update
+        QMutexLocker locker(m_sizeUpdateMutex);
+        
+        // Prevent nested updates
+        if (m_inSizeUpdate) {
+            qDebug() << "qlist_DiaryTextDisplay: Already in size update, skipping";
+            event->ignore();
+            return;
+        }
+        
+        m_inSizeUpdate = true;
         emit sizeUpdateStarted();
 
         int delta = event->angleDelta().y();
@@ -90,13 +135,16 @@ void qlist_DiaryTextDisplay::wheelEvent(QWheelEvent *event)
         // Update font for all items directly
         for (int i = 0; i < count(); ++i) {
             QListWidgetItem *item = this->item(i);
-            item->setFont(font);
+            if (item) {  // Null check
+                item->setFont(font);
+            }
         }
 
         // Update sizes directly
         updateItemSizes();
 
         // Always signal we're done, regardless of what happened
+        m_inSizeUpdate = false;
         emit sizeUpdateFinished();
 
         event->accept();
@@ -108,7 +156,18 @@ void qlist_DiaryTextDisplay::wheelEvent(QWheelEvent *event)
 void qlist_DiaryTextDisplay::resizeEvent(QResizeEvent *event)
 {
     qDebug() << "qlist_DiaryTextDisplay: resizeEvent called";
-    // Signal we're starting a size update
+    
+    // Thread-safe resize handling
+    QMutexLocker locker(m_sizeUpdateMutex);
+    
+    // Prevent nested updates
+    if (m_inSizeUpdate) {
+        qDebug() << "qlist_DiaryTextDisplay: Already in size update during resize, skipping";
+        QListWidget::resizeEvent(event);
+        return;
+    }
+    
+    m_inSizeUpdate = true;
     emit sizeUpdateStarted();
 
     // Let the base class handle the resize
@@ -118,6 +177,7 @@ void qlist_DiaryTextDisplay::resizeEvent(QResizeEvent *event)
     updateItemSizes();
 
     // Always signal we're done, regardless of what happened
+    m_inSizeUpdate = false;
     emit sizeUpdateFinished();
 }
 
@@ -142,6 +202,11 @@ void qlist_DiaryTextDisplay::keyPressEvent(QKeyEvent *event)
 
 void qlist_DiaryTextDisplay::mousePressEvent(QMouseEvent *event)
 {
+    if (!event) {
+        qWarning() << "qlist_DiaryTextDisplay: Null event in mousePressEvent";
+        return;
+    }
+    
     if (event->button() == Qt::LeftButton) {
         // Store the click position for later use
         m_lastClickPos = event->pos();

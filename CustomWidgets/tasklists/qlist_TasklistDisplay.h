@@ -8,6 +8,7 @@
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDebug>
+#include <QPointer>
 
 class qlist_TasklistDisplay : public QListWidget
 {
@@ -15,13 +16,26 @@ class qlist_TasklistDisplay : public QListWidget
 
 public:
     explicit qlist_TasklistDisplay(QWidget *parent = nullptr) : QListWidget(parent),
-        m_checkboxWidth(25) {
+        m_checkboxWidth(25),
+        m_lastClickedItem(nullptr),
+        m_lastClickedRow(-1) {
         qDebug() << "qlist_TasklistDisplay: Constructor called";
         // Enable drag and drop by default
         setDragEnabled(true);
         setAcceptDrops(true);
         setDropIndicatorShown(true);
         setDragDropMode(QAbstractItemView::InternalMove);
+        
+        // Connect to model signals to handle item deletion
+        connect(this->model(), &QAbstractItemModel::rowsAboutToBeRemoved,
+                this, &qlist_TasklistDisplay::handleRowsAboutToBeRemoved);
+    }
+    
+    ~qlist_TasklistDisplay() {
+        qDebug() << "qlist_TasklistDisplay: Destructor called";
+        // Clear tracked item pointer
+        m_lastClickedItem = nullptr;
+        m_lastClickedRow = -1;
     }
 
     void setCheckboxWidth(int width) {
@@ -39,23 +53,52 @@ signals:
 
 protected:
     void mousePressEvent(QMouseEvent *event) override {
+        if (!event) {
+            qWarning() << "qlist_TasklistDisplay: Null event in mousePressEvent";
+            return;
+        }
+        
         qDebug() << "qlist_TasklistDisplay: mousePressEvent called";
         // Store the clicked position and item for potential double-click check
         m_lastClickPos = event->pos();
-        m_lastClickedItem = itemAt(m_lastClickPos);
+        
+        QListWidgetItem* clickedItem = itemAt(m_lastClickPos);
+        if (clickedItem) {
+            m_lastClickedItem = clickedItem;
+            m_lastClickedRow = row(clickedItem);  // Store row index as backup
+        } else {
+            m_lastClickedItem = nullptr;
+            m_lastClickedRow = -1;
+        }
 
         // Pass the event to base class
         QListWidget::mousePressEvent(event);
     }
 
     void mouseDoubleClickEvent(QMouseEvent *event) override {
+        if (!event) {
+            qWarning() << "qlist_TasklistDisplay: Null event in mouseDoubleClickEvent";
+            return;
+        }
+        
         qDebug() << "qlist_TasklistDisplay: mouseDoubleClickEvent called";
         // Get the item at the current position
         QPoint pos = event->pos();
         QListWidgetItem* item = itemAt(pos);
 
+        // Validate that the item still exists and matches what we clicked
+        bool isSameItem = false;
+        if (item && m_lastClickedItem) {
+            // Check if it's the same item by comparing both pointer and row
+            if (item == m_lastClickedItem || 
+                (m_lastClickedRow >= 0 && m_lastClickedRow < count() && 
+                 this->item(m_lastClickedRow) == item)) {
+                isSameItem = true;
+            }
+        }
+        
         // If double-clicking on the same item as the first click
-        if (item && item == m_lastClickedItem) {
+        if (item && isSameItem) {
             // Check if the click is in the checkbox area
             QRect rect = visualItemRect(item);
             QRect checkboxRect = rect;
@@ -102,10 +145,22 @@ protected:
         QListWidget::dragMoveEvent(event);
     }
 
+private slots:
+    void handleRowsAboutToBeRemoved(const QModelIndex &parent, int first, int last) {
+        Q_UNUSED(parent);
+        // Check if our tracked item is being removed
+        if (m_lastClickedRow >= first && m_lastClickedRow <= last) {
+            qDebug() << "qlist_TasklistDisplay: Tracked item is being removed, clearing reference";
+            m_lastClickedItem = nullptr;
+            m_lastClickedRow = -1;
+        }
+    }
+
 private:
     int m_checkboxWidth;  // Width of the checkbox detection area
     QPoint m_lastClickPos;  // Position of the last click
-    QListWidgetItem* m_lastClickedItem = nullptr;  // Item of the last click
+    QListWidgetItem* m_lastClickedItem;  // Item of the last click (raw pointer, validated before use)
+    int m_lastClickedRow;  // Row index of last clicked item (for validation)
 };
 
 #endif // QLIST_TASKLISTDISPLAY_H
