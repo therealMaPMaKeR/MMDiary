@@ -16,25 +16,37 @@
 #include <QDialog>
 #include <QRandomGenerator>
 #include "inputvalidation.h"
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 // Secure string clearing helper function
 static void secureStringClear(QString& str) {
-    if (!str.isEmpty()) {
-        // Get pointer to the string's data
-        QChar* data = str.data();
-        int len = str.length();
-        
-        // Use volatile to prevent compiler optimization
-        volatile QChar* vdata = data;
-        
-        // Overwrite each character
+    if (str.isEmpty()) return;
+    
+    // Get the internal data
+    QChar* data = str.data();
+    int len = str.length();
+    
+#ifdef Q_OS_WIN
+    // On Windows, use SecureZeroMemory to prevent compiler optimization
+    // This ensures the memory is actually cleared
+    SecureZeroMemory(data, len * sizeof(QChar));
+#else
+    // Fallback for non-Windows (though you specified Windows only)
+    // Overwrite with zeros multiple times
+    for (int pass = 0; pass < 3; ++pass) {
         for (int i = 0; i < len; ++i) {
-            vdata[i] = QChar('\0');
+            data[i] = QChar('\0');
         }
-        
-        // Clear the string normally
-        str.clear();
     }
+#endif
+    
+    // Clear the string
+    str.clear();
+    
+    // Force the string to release its memory
+    str.squeeze();
 }
 
 Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)

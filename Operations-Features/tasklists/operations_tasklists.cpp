@@ -16,7 +16,166 @@
 #include <QMessageBox>
 #include <QMap>
 #include <QPlainTextEdit>
+#include <QRandomGenerator>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 #include "operations_files.h"
+
+// Security: Centralized escaping functions for task data
+namespace TaskDataSecurity {
+    QString escapeTaskField(const QString& input) {
+        QString escaped = input;
+        // Escape in specific order to prevent double-escaping
+        escaped.replace("\\", "\\\\");  // Backslash first
+        escaped.replace("|", "\\|");      // Then pipe
+        escaped.replace("\n", "\\n");    // Newline
+        escaped.replace("\r", "\\r");    // Carriage return
+        escaped.replace("\t", "\\t");    // Tab
+        escaped.replace("\0", "");        // Remove null bytes
+        return escaped;
+    }
+    
+    QString unescapeTaskField(const QString& input) {
+        QString unescaped = input;
+        // Unescape in reverse order
+        unescaped.replace("\\t", "\t");
+        unescaped.replace("\\r", "\r");
+        unescaped.replace("\\n", "\n");
+        unescaped.replace("\\|", "|");
+        unescaped.replace("\\\\", "\\");
+        return unescaped;
+    }
+    
+    QString sanitizeFileName(const QString& input) {
+        QString sanitized = input;
+        // Remove null bytes first
+        sanitized.remove(QChar('\0'));
+        // Remove control characters (0x00-0x1F, 0x7F)
+        sanitized.remove(QRegularExpression("[\\x00-\\x1F\\x7F]"));
+        // Replace dangerous path characters
+        sanitized.replace(QRegularExpression("[\\\\/:*?\"<>|\\.\\.]"), "_");
+        // Remove leading/trailing dots and spaces (Windows specific)
+        sanitized = sanitized.trimmed();
+        sanitized.remove(QRegularExpression("^\\.+|\\s+$|\\.$"));
+        // Limit length to prevent path overflow
+        if (sanitized.length() > 200) {
+            sanitized = sanitized.left(200);
+        }
+        // If empty after sanitization, use default
+        if (sanitized.isEmpty()) {
+            sanitized = "unnamed_list";
+        }
+        return sanitized;
+    }
+    
+    QString generateSecureTempFileName(const QString& baseName, const QString& tempDir) {
+        // Generate unique temporary file name with random component
+        QDateTime now = QDateTime::currentDateTime();
+        qint64 timestamp = now.toMSecsSinceEpoch();
+        quint32 randomValue = QRandomGenerator::global()->generate();
+        
+        QString sanitizedBase = sanitizeFileName(baseName);
+        QString tempFileName = QString("%1_%2_%3_temp.txt")
+            .arg(sanitizedBase)
+            .arg(timestamp)
+            .arg(randomValue, 8, 16, QChar('0')); // 8-digit hex
+        
+        return QDir(tempDir).absoluteFilePath(tempFileName);
+    }
+    
+    // Security: Clear sensitive string data from memory
+    void secureStringClear(QString& str) {
+        if (str.isEmpty()) return;
+        
+        // Get the internal data
+        // Note: This works for non-shared QString instances
+        QChar* data = str.data();
+        int len = str.length();
+        
+#ifdef Q_OS_WIN
+        // On Windows, use SecureZeroMemory to prevent compiler optimization
+        // This ensures the memory is actually cleared
+        SecureZeroMemory(data, len * sizeof(QChar));
+#else
+        // Fallback for non-Windows (though you specified Windows only)
+        // Overwrite with zeros
+        for (int i = 0; i < len; ++i) {
+            data[i] = QChar('\0');
+        }
+        
+        // Force multiple overwrites to prevent compiler optimization
+        for (int i = 0; i < len; ++i) {
+            data[i] = QChar(0x00);
+        }
+#endif
+        
+        // Clear the string
+        str.clear();
+        
+        // Force the string to release its memory
+        str.squeeze();
+    }
+    
+    // Security: Clear QStringList data from memory
+    void secureStringListClear(QStringList& list) {
+        for (QString& str : list) {
+            secureStringClear(str);
+        }
+        list.clear();
+    }
+    
+    // Security: Validate task data structure
+    bool validateTaskDataStructure(const QStringList& parts) {
+        // Minimum required fields: Type|Name|Status|CompletionDate|CreationDate
+        if (parts.size() < 5) {
+            qWarning() << "Operations_TaskLists: Invalid task data - insufficient fields:" << parts.size();
+            return false;
+        }
+        
+        // Validate task type
+        if (parts[0] != "Simple") {
+            qWarning() << "Operations_TaskLists: Invalid task type:" << parts[0];
+            return false;
+        }
+        
+        // Validate task name (should not be empty after unescaping)
+        QString taskName = unescapeTaskField(parts[1]);
+        if (taskName.trimmed().isEmpty()) {
+            qWarning() << "Operations_TaskLists: Invalid task name - empty or whitespace only";
+            return false;
+        }
+        
+        // Validate task name length
+        if (taskName.length() > 255) {
+            qWarning() << "Operations_TaskLists: Task name too long:" << taskName.length();
+            return false;
+        }
+        
+        // Validate status field (should be "0" or "1")
+        if (parts[2] != "0" && parts[2] != "1") {
+            qWarning() << "Operations_TaskLists: Invalid task status:" << parts[2];
+            return false;
+        }
+        
+        // If completed, should have a completion date
+        if (parts[2] == "1" && parts[3].isEmpty()) {
+            qWarning() << "Operations_TaskLists: Completed task missing completion date";
+            // Not a critical error, allow to continue
+        }
+        
+        // Validate description if present
+        if (parts.size() > 5 && parts[5].startsWith("DESC:")) {
+            QString description = unescapeTaskField(parts[5].mid(5));
+            if (description.length() > 10000) {
+                qWarning() << "Operations_TaskLists: Task description too long:" << description.length();
+                return false;
+            }
+        }
+        
+        return true;
+    }
+}
 
 Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
@@ -266,9 +425,8 @@ void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, c
         return;
     }
     
-    // Sanitize the task list name for file operations
-    QString sanitizedName = tasklistName;
-    sanitizedName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
+    // Security: Use centralized sanitization for file operations
+    QString sanitizedName = TaskDataSecurity::sanitizeFileName(tasklistName);
     
     // Construct file paths
     QString taskListDir = "Data/" + m_mainWindow->user_Username + "/Tasklists/" + sanitizedName + "/";
@@ -310,9 +468,9 @@ void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, c
         // Parse the task data (pipe-separated values)
         QStringList parts = line.split('|');
         
-        // Basic sanity check - ensure we have at least the task type and name
-        if (parts.size() < 2) {
-            qWarning() << "Operations_TaskLists: Invalid task format in file - not enough fields";
+        // Security: Validate task data structure
+        if (!TaskDataSecurity::validateTaskDataStructure(parts)) {
+            qWarning() << "Operations_TaskLists: Skipping invalid task entry";
             continue;
         }
         
@@ -325,8 +483,8 @@ void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, c
             continue;
         }
         
-        // Unescape any escaped pipe characters in the task name
-        taskName.replace("\\|", "|");
+        // Security: Use centralized unescaping for task name
+        taskName = TaskDataSecurity::unescapeTaskField(taskName);
         
         // Check if the task is completed (field index 2)
         bool isCompleted = false;
@@ -428,9 +586,8 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
     
     QString currentTaskList = taskListWidget->currentItem()->text();
     
-    // Sanitize the task list name for file operations
-    QString sanitizedName = currentTaskList;
-    sanitizedName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
+    // Security: Use centralized sanitization for file operations
+    QString sanitizedName = TaskDataSecurity::sanitizeFileName(currentTaskList);
     
     // Construct file paths
     QString taskListDir = "Data/" + m_mainWindow->user_Username + "/Tasklists/" + sanitizedName + "/";
@@ -460,10 +617,7 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
         return;
     }
     
-    // Temporary path for decrypted file
-    QString tempPath = "Data/" + m_mainWindow->user_Username + "/temp/" + sanitizedName + "_temp.txt";
-    
-    // Ensure temp directory exists
+    // Security: Use secure temporary file generation
     QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
     if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
         QMessageBox::warning(m_mainWindow, "Directory Error",
@@ -471,15 +625,29 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
         return;
     }
     
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName(sanitizedName, tempDir);
+    
+    // Create a scope guard for temp file cleanup
+    class TempFileGuard {
+    public:
+        TempFileGuard(const QString& path) : m_path(path) {}
+        ~TempFileGuard() { QFile::remove(m_path); }
+    private:
+        QString m_path;
+    };
+    
     // Decrypt the file to a temporary location
     bool decrypted = CryptoUtils::Encryption_DecryptFile(
         m_mainWindow->user_Key, taskListFilePath, tempPath);
     
     if (!decrypted) {
+        QFile::remove(tempPath); // Immediate cleanup on failure
         QMessageBox::warning(m_mainWindow, "Decryption Failed",
                             "Could not decrypt task list file.");
         return;
     }
+    
+    TempFileGuard tempGuard(tempPath); // Ensures cleanup on scope exit
     
     // Set up the table widget
     QTableWidget* taskDetailsTable = m_mainWindow->ui->tableWidget_TaskDetails;
@@ -502,7 +670,8 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
     
     // Read the file content
     QTextStream in(&file);
-    in.readLine(); // Skip the header line
+    QString headerLine = in.readLine(); // Skip the header line
+    TaskDataSecurity::secureStringClear(headerLine); // Clear header from memory
     
     QString taskDescription = "";
     bool taskFound = false;
@@ -532,9 +701,8 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
             // Check for task description (should be at index 5)
             if (parts.size() > 5 && parts[5].startsWith("DESC:")) {
                 taskDescription = parts[5].mid(5); // Remove "DESC:" prefix
-                taskDescription.replace("\\|", "|"); // Unescape pipes
-                taskDescription.replace("\\n", "\n"); // Unescape newlines
-                taskDescription.replace("\\r", "\r"); // Unescape carriage returns
+                // Security: Use centralized unescaping
+                taskDescription = TaskDataSecurity::unescapeTaskField(taskDescription);
             }
             
             // Get completion status
@@ -599,7 +767,7 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
     }
     
     file.close();
-    QFile::remove(tempPath);
+    // tempPath cleanup is handled by TempFileGuard
     
     if (!taskFound) {
         qWarning() << "Operations_TaskLists: Could not find the specified task in the task list.";
@@ -698,8 +866,8 @@ void Operations_TaskLists::LoadTasklists()
     if (hasOrderFile) {
         for (int i = 0; i < orderedTasklists.size(); ++i) {
             QString taskListName = orderedTasklists[i];
-            QString sanitizedName = taskListName;
-            sanitizedName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
+            // Security: Use centralized sanitization
+            QString sanitizedName = TaskDataSecurity::sanitizeFileName(taskListName);
             
             if (taskListDirs.contains(sanitizedName)) {
                 QString taskListPath = tasksListsPath + sanitizedName + "/";
@@ -859,8 +1027,8 @@ void Operations_TaskLists::CreateNewTaskList()
                             CreateTaskListFile(listName);
                             
                             // Delete the old task list file
-                            QString oldSanitizedName = uniqueName;
-                            oldSanitizedName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
+                            // Security: Use centralized sanitization
+                            QString oldSanitizedName = TaskDataSecurity::sanitizeFileName(uniqueName);
                             
                             QString oldTaskListDir = "Data/" + m_mainWindow->user_Username + "/Tasklists/" + oldSanitizedName + "/";
                             QString oldTaskListFilePath = oldTaskListDir + oldSanitizedName + ".txt";
@@ -882,8 +1050,8 @@ void Operations_TaskLists::CreateTaskListFile(const QString& listName)
 {
     qDebug() << "Operations_TaskLists: Creating task list file for:" << listName;
     
-    QString sanitizedName = listName;
-    sanitizedName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
+    // Security: Use centralized sanitization
+    QString sanitizedName = TaskDataSecurity::sanitizeFileName(listName);
     
     QString taskListDir = "Data/" + m_mainWindow->user_Username + "/Tasklists/" + sanitizedName + "/";
     QString taskListFilePath = taskListDir + sanitizedName + ".txt";
@@ -957,8 +1125,8 @@ void Operations_TaskLists::DeleteTaskList()
         return;
     }
     
-    QString sanitizedName = taskListName;
-    sanitizedName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
+    // Security: Use centralized sanitization
+    QString sanitizedName = TaskDataSecurity::sanitizeFileName(taskListName);
     
     QString taskListDir = "Data/" + m_mainWindow->user_Username + "/Tasklists/" + sanitizedName + "/";
     QString taskListFilePath = taskListDir + sanitizedName + ".txt";
@@ -1060,11 +1228,9 @@ void Operations_TaskLists::RenameTasklist(QListWidgetItem* item)
         return;
     }
     
-    QString originalSanitizedName = originalName;
-    originalSanitizedName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
-    
-    QString newSanitizedName = newName;
-    newSanitizedName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
+    // Security: Use centralized sanitization
+    QString originalSanitizedName = TaskDataSecurity::sanitizeFileName(originalName);
+    QString newSanitizedName = TaskDataSecurity::sanitizeFileName(newName);
     
     QString originalTaskListDir = "Data/" + m_mainWindow->user_Username + "/Tasklists/" + originalSanitizedName + "/";
     QString originalTaskListFilePath = originalTaskListDir + originalSanitizedName + ".txt";
@@ -1114,10 +1280,7 @@ void Operations_TaskLists::RenameTasklist(QListWidgetItem* item)
         }
     }
     
-    // Use temp directory in user's folder
-    QString tempPath = "Data/" + m_mainWindow->user_Username + "/temp/" + originalSanitizedName + "_temp.txt";
-    
-    // Ensure temp directory exists
+    // Security: Use secure temporary file generation
     QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
     if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
         QMessageBox::warning(m_mainWindow, "Directory Error",
@@ -1125,6 +1288,8 @@ void Operations_TaskLists::RenameTasklist(QListWidgetItem* item)
         item->setText(originalName);
         return;
     }
+    
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName(originalSanitizedName, tempDir);
     
     // Decrypt the file to a temporary location
     bool decrypted = CryptoUtils::Encryption_DecryptFile(
@@ -1248,6 +1413,19 @@ void Operations_TaskLists::AddTaskSimple(QString taskName, QString description)
         return;
     }
     
+    // Security: Enforce length limits
+    if (taskName.length() > 255) {
+        QMessageBox::warning(m_mainWindow, "Task Name Too Long",
+                            "Task name must be less than 255 characters.");
+        return;
+    }
+    
+    if (description.length() > 10000) {
+        QMessageBox::warning(m_mainWindow, "Description Too Long",
+                            "Task description must be less than 10,000 characters.");
+        return;
+    }
+    
     // Get current task list
     QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
     if (taskListWidget->currentItem() == nullptr) {
@@ -1258,9 +1436,8 @@ void Operations_TaskLists::AddTaskSimple(QString taskName, QString description)
     
     QString currentTaskList = taskListWidget->currentItem()->text();
     
-    // Sanitize the task list name
-    QString sanitizedName = currentTaskList;
-    sanitizedName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
+    // Security: Use centralized sanitization
+    QString sanitizedName = TaskDataSecurity::sanitizeFileName(currentTaskList);
     
     QString taskListDir = "Data/" + m_mainWindow->user_Username + "/Tasklists/" + sanitizedName + "/";
     QString taskListFilePath = taskListDir + sanitizedName + ".txt";
@@ -1272,17 +1449,15 @@ void Operations_TaskLists::AddTaskSimple(QString taskName, QString description)
         return;
     }
     
-    // Escape special characters in task data
-    taskName.replace("|", "\\|");
-    description.replace("|", "\\|");
-    description.replace("\n", "\\n");
-    description.replace("\r", "\\r");
+    // Security: Use centralized escaping for task data
+    QString escapedTaskName = TaskDataSecurity::escapeTaskField(taskName);
+    QString escapedDescription = TaskDataSecurity::escapeTaskField(description);
     
-    // Create the task data line
+    // Create the task data line with escaped values
     QString taskData = QString("Simple|%1|0||%2|DESC:%3")
-        .arg(taskName)
+        .arg(escapedTaskName)
         .arg(QDateTime::currentDateTime().toString(Qt::ISODate))
-        .arg(description);
+        .arg(escapedDescription);
     
     // Read the existing file content
     QStringList lines;
@@ -1318,6 +1493,19 @@ void Operations_TaskLists::ModifyTaskSimple(const QString& originalTaskName, QSt
         InputValidation::validateInput(taskName, InputValidation::InputType::PlainText);
     if (!nameResult.isValid) {
         QMessageBox::warning(m_mainWindow, "Invalid Task Name", nameResult.errorMessage);
+        return;
+    }
+    
+    // Security: Enforce length limits
+    if (taskName.length() > 255) {
+        QMessageBox::warning(m_mainWindow, "Task Name Too Long",
+                            "Task name must be less than 255 characters.");
+        return;
+    }
+    
+    if (description.length() > 10000) {
+        QMessageBox::warning(m_mainWindow, "Description Too Long",
+                            "Task description must be less than 10,000 characters.");
         return;
     }
     
