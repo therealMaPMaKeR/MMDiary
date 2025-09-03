@@ -15,7 +15,7 @@ qlist_DiaryTextDisplay::qlist_DiaryTextDisplay(QWidget *parent)
     : QListWidget(parent)
     , m_inSizeUpdate(false)
     , m_inMouseEvent(false)
-    , m_sizeUpdateMutex(new QMutex())
+    , m_resizeTimer(nullptr)
 {
     qDebug() << "qlist_DiaryTextDisplay: Constructor called";
     this->setParent(parent);
@@ -35,21 +35,29 @@ qlist_DiaryTextDisplay::qlist_DiaryTextDisplay(QWidget *parent)
         }
     });
     m_dragDropTimer->start(100);
+    
+    // Create resize timer for coalescing rapid resize events
+    m_resizeTimer = new QTimer(this);
+    m_resizeTimer->setSingleShot(true);
+    m_resizeTimer->setInterval(100); // 100ms delay to coalesce resize events
+    connect(m_resizeTimer, &QTimer::timeout, this, &qlist_DiaryTextDisplay::performDeferredSizeUpdate);
 }
 
 qlist_DiaryTextDisplay::~qlist_DiaryTextDisplay()
 {
     qDebug() << "qlist_DiaryTextDisplay: Destructor called";
     
-    // Thread-safe cleanup
-    if (m_sizeUpdateMutex) {
-        QMutexLocker locker(m_sizeUpdateMutex);
-        
-        // Make sure the "finished" signal is emitted if we're destroyed during an update
-        if (m_inSizeUpdate) {
-            m_inSizeUpdate = false;
-            emit sizeUpdateFinished();
-        }
+    // Stop any pending resize updates
+    if (m_resizeTimer) {
+        m_resizeTimer->stop();
+        delete m_resizeTimer;
+        m_resizeTimer = nullptr;
+    }
+    
+    // Make sure the "finished" signal is emitted if we're destroyed during an update
+    if (m_inSizeUpdate) {
+        m_inSizeUpdate = false;
+        emit sizeUpdateFinished();
     }
     
     // Clean up timer if it exists
@@ -58,10 +66,6 @@ qlist_DiaryTextDisplay::~qlist_DiaryTextDisplay()
         delete m_dragDropTimer;
         m_dragDropTimer = nullptr;
     }
-    
-    // Clean up mutex
-    delete m_sizeUpdateMutex;
-    m_sizeUpdateMutex = nullptr;
     
     qDebug() << "qlist_DiaryTextDisplay: Destructor completed";
 }
@@ -103,9 +107,6 @@ void qlist_DiaryTextDisplay::wheelEvent(QWheelEvent *event)
     
     if (event->modifiers() & Qt::ControlModifier) {
         qDebug() << "qlist_DiaryTextDisplay: Wheel event with Ctrl modifier";
-        
-        // Thread-safe size update
-        QMutexLocker locker(m_sizeUpdateMutex);
         
         // Prevent nested updates
         if (m_inSizeUpdate) {
@@ -157,26 +158,32 @@ void qlist_DiaryTextDisplay::resizeEvent(QResizeEvent *event)
 {
     qDebug() << "qlist_DiaryTextDisplay: resizeEvent called";
     
-    // Thread-safe resize handling
-    QMutexLocker locker(m_sizeUpdateMutex);
+    // Let the base class handle the resize immediately
+    QListWidget::resizeEvent(event);
     
-    // Prevent nested updates
-    if (m_inSizeUpdate) {
-        qDebug() << "qlist_DiaryTextDisplay: Already in size update during resize, skipping";
-        QListWidget::resizeEvent(event);
+    // Defer the size update to coalesce rapid resize events
+    // This prevents crashes from multiple rapid resizes
+    if (m_resizeTimer && !m_inSizeUpdate) {
+        m_resizeTimer->stop();
+        m_resizeTimer->start();
+    }
+}
+
+void qlist_DiaryTextDisplay::performDeferredSizeUpdate()
+{
+    qDebug() << "qlist_DiaryTextDisplay: performDeferredSizeUpdate called";
+    
+    // Check if widget is still valid
+    if (!this->isVisible() || m_inSizeUpdate) {
         return;
     }
     
     m_inSizeUpdate = true;
     emit sizeUpdateStarted();
-
-    // Let the base class handle the resize
-    QListWidget::resizeEvent(event);
-
-    // Do size updates
+    
+    // Perform the actual size update
     updateItemSizes();
-
-    // Always signal we're done, regardless of what happened
+    
     m_inSizeUpdate = false;
     emit sizeUpdateFinished();
 }
@@ -307,11 +314,18 @@ void qlist_DiaryTextDisplay::TextWasEdited(QString text, int itemIndex)
 
 void qlist_DiaryTextDisplay::updateItemSizes()
 {
+    // Safety check for viewport
+    if (!this->viewport()) {
+        qWarning() << "qlist_DiaryTextDisplay: No viewport available in updateItemSizes";
+        return;
+    }
+    
     QFont font = this->font();
     font.setPointSize(m_fontSize);
 
     for (int i = 0; i < count(); ++i) {
         QListWidgetItem *item = this->item(i);
+        if (!item) continue; // Skip null items
 
         // Check if this is an image item - if so, don't override its size hint
         bool isImageItem = item->data(Qt::UserRole+3).toBool();
@@ -326,6 +340,9 @@ void qlist_DiaryTextDisplay::updateItemSizes()
         // For items with colored text, we need special handling
         bool hasColoredText = item->data(Qt::UserRole+1).toBool();
 
+        // Get viewport width with safety check
+        int viewportWidth = this->viewport() ? this->viewport()->width() : 400;
+        
         // Adjust item size hint based on current viewport width
         if (hasColoredText) {
             // For colored text items, create a text document to measure
@@ -333,21 +350,22 @@ void qlist_DiaryTextDisplay::updateItemSizes()
             doc.setDefaultFont(font);
             doc.setPlainText(text);
             // Calculate width of list widget viewport
-            int viewportWidth = this->viewport()->width() - 0; // Add margin
             doc.setTextWidth(viewportWidth);
             QSize docSize = doc.size().toSize();
             item->setSizeHint(QSize(docSize.width(), docSize.height() + 0)); // Add padding
         } else {
             // For regular items, use font metrics
             QFontMetrics fm(font);
-            QRect textRect = fm.boundingRect(0, 0, this->viewport()->width() - 0, 0,
+            QRect textRect = fm.boundingRect(0, 0, viewportWidth, 0,
                                              Qt::AlignLeft | Qt::TextWordWrap, text);
             item->setSizeHint(QSize(textRect.width() + 10, textRect.height() + 0)); // Add padding
         }
     }
 
-    // Force layout update
-    this->doItemsLayout();
+    // Force layout update only if widget is visible
+    if (this->isVisible()) {
+        this->doItemsLayout();
+    }
 }
 
 void qlist_DiaryTextDisplay::updateItemFonts()

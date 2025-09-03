@@ -13,8 +13,6 @@
 #include <QUrl>
 #include <QFileInfo>
 #include <QTimer>
-#include <QMutex>
-#include <QMutexLocker>
 
 class qtextedit_DiaryTextInput;
 
@@ -52,6 +50,9 @@ public slots:
     void keyPressEvent(QKeyEvent *event); // needed for event filter to work in main window because it makes the slot public
     void UpdateFontSize_Slot(int size, bool resize);
     void TextWasEdited(QString text, int itemIndex);
+    
+private slots:
+    void performDeferredSizeUpdate();  // Slot for deferred size updates after resize
 
 private:
     // Methods for updating items
@@ -63,9 +64,9 @@ private:
 
     QPoint m_lastClickPos;
     
-    // Thread safety and resource management
-    QMutex* m_sizeUpdateMutex = nullptr;  // Mutex for thread-safe size updates
+    // Resource management timers
     QTimer* m_dragDropTimer = nullptr;     // Timer for drag&drop re-enable
+    QTimer* m_resizeTimer = nullptr;       // Timer for coalescing resize events
 
     // Helper methods for drag & drop
     bool isImageFile(const QString& filePath);
