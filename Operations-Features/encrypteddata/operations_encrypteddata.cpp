@@ -556,8 +556,8 @@ void Operations_EncryptedData::onEncryptionFinished(bool success, const QString&
 
     if (m_worker) {
         // For single file encryption (backward compatibility), access first element from the lists
-        QString originalFile = m_worker->m_sourceFiles.first();
-        QString encryptedFile = m_worker->m_targetFiles.first();
+        QString originalFile = m_worker->getSourceFiles().first();
+        QString encryptedFile = m_worker->getTargetFiles().first();
 
         if (success) {
             // Refresh the list and select appropriate category/file
@@ -592,13 +592,15 @@ void Operations_EncryptedData::onMultiFileEncryptionFinished(bool success, const
     }
 
     if (m_worker) {
-        if (success && !m_worker->m_targetFiles.isEmpty()) {
+        if (success && !m_worker->getTargetFiles().isEmpty()) {
             // For multiple files, refresh to show the first successfully encrypted file
             QString firstSuccessfulEncryptedFile;
-            for (int i = 0; i < m_worker->m_sourceFiles.size(); ++i) {
-                QString sourceFileName = QFileInfo(m_worker->m_sourceFiles[i]).fileName();
+            QStringList sourceFiles = m_worker->getSourceFiles();
+            QStringList targetFiles = m_worker->getTargetFiles();
+            for (int i = 0; i < sourceFiles.size(); ++i) {
+                QString sourceFileName = QFileInfo(sourceFiles[i]).fileName();
                 if (successfulFiles.contains(sourceFileName)) {
-                    firstSuccessfulEncryptedFile = m_worker->m_targetFiles[i];
+                    firstSuccessfulEncryptedFile = targetFiles[i];
                     break;
                 }
             }
@@ -611,7 +613,7 @@ void Operations_EncryptedData::onMultiFileEncryptionFinished(bool success, const
             }
 
             // Show success dialog with multiple file handling
-            showMultiFileSuccessDialog(m_worker->m_sourceFiles, successfulFiles, failedFiles);
+            showMultiFileSuccessDialog(m_worker->getSourceFiles(), successfulFiles, failedFiles);
         } else {
             QMessageBox::critical(m_mainWindow, "Encryption Failed", errorMessage);
         }
@@ -845,8 +847,8 @@ void Operations_EncryptedData::onDecryptionFinished(bool success, const QString&
     }
 
     if (m_decryptWorker) {
-        QString encryptedFile = m_decryptWorker->m_sourceFile;
-        QString decryptedFile = m_decryptWorker->m_targetFile;
+        QString encryptedFile = m_decryptWorker->getSourceFile();
+        QString decryptedFile = m_decryptWorker->getTargetFile();
 
         if (success) {
             // Show success dialog and ask about deleting encrypted file
