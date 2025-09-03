@@ -4,6 +4,8 @@
 #include <QDebug>
 #include <QFileInfo>
 #include <QDir>
+#include <QTextStream>
+#include <utility> // For std::move
 
 DataStorage_FieldManager::DataStorage_FieldManager(const QByteArray& encryptionKey, const QString& username)
     : m_encryptionKey(encryptionKey)
@@ -69,10 +71,24 @@ DataStorage_FieldManager::ValidationResult DataStorage_FieldManager::readAndVali
         return result;
     }
     
+    // Security check: validate file size before reading
+    if (fileInfo.size() > DataStorageLimits::MAX_FILE_SIZE_BYTES) {
+        result.errorMessage = QString("File size exceeds maximum allowed (%1 bytes)").arg(DataStorageLimits::MAX_FILE_SIZE_BYTES);
+        qDebug() << "DataStorage_FieldManager:" << result.errorMessage;
+        return result;
+    }
+    
     // Read the encrypted data file
     QString dataString;
     if (!OperationsFiles::readEncryptedFile(filePath, m_encryptionKey, dataString)) {
         result.errorMessage = "Failed to read encrypted data file";
+        qDebug() << "DataStorage_FieldManager:" << result.errorMessage;
+        return result;
+    }
+    
+    // Security check: validate decrypted data size
+    if (dataString.size() > DataStorageLimits::MAX_FILE_SIZE_BYTES) {
+        result.errorMessage = QString("Decrypted data size exceeds maximum allowed (%1 bytes)").arg(DataStorageLimits::MAX_FILE_SIZE_BYTES);
         qDebug() << "DataStorage_FieldManager:" << result.errorMessage;
         return result;
     }
@@ -126,6 +142,12 @@ bool DataStorage_FieldManager::writeValidatedData(const QString& filePath,
     // Check if data type is supported
     if (!isDataTypeSupported(dataType)) {
         qDebug() << "DataStorage_FieldManager: Unsupported data type for writing";
+        return false;
+    }
+    
+    // Security check: validate data size before processing
+    if (!isDataSizeWithinLimits(data)) {
+        qDebug() << "DataStorage_FieldManager: Data size exceeds security limits";
         return false;
     }
     
@@ -192,15 +214,29 @@ bool DataStorage_FieldManager::isDataTypeSupported(DataType dataType) const
 }
 
 bool DataStorage_FieldManager::parseDataString(const QString& dataString, 
-                                            QMap<QString, QVariant>& parsedData)
+                                            QMap<QString, QVariant>& parsedData,
+                                            int maxFields)
 {
     qDebug() << "DataStorage_FieldManager: Parsing data string";
     
     parsedData.clear();
     
+    // Security check: limit total lines to process
     QStringList lines = dataString.split('\n', Qt::SkipEmptyParts);
+    if (lines.size() > DataStorageLimits::MAX_LINES_PER_FILE) {
+        qDebug() << "DataStorage_FieldManager: Too many lines in file (" << lines.size() 
+                 << "), maximum allowed:" << DataStorageLimits::MAX_LINES_PER_FILE;
+        return false;
+    }
     
+    int fieldCount = 0;
     for (const QString& line : lines) {
+        // Security check: limit line length
+        if (line.length() > DataStorageLimits::MAX_LINE_LENGTH) {
+            qDebug() << "DataStorage_FieldManager: Line exceeds maximum length";
+            continue;
+        }
+        
         QString trimmedLine = line.trimmed();
         
         // Skip empty lines and comments
@@ -226,25 +262,69 @@ bool DataStorage_FieldManager::parseDataString(const QString& dataString,
             continue;
         }
         
+        // Security check: limit field name length
+        if (key.length() > DataStorageLimits::MAX_FIELD_NAME_LENGTH) {
+            qDebug() << "DataStorage_FieldManager: Field name too long, skipping:" << key.left(50) << "...";
+            continue;
+        }
+        
+        // Security check: limit number of fields
+        if (fieldCount >= maxFields) {
+            qDebug() << "DataStorage_FieldManager: Maximum field limit reached (" << maxFields << "), stopping parse";
+            break;
+        }
+        
         // Store as string for now - will be converted to proper type during validation
         parsedData[key] = value;
+        fieldCount++;
     }
     
     qDebug() << "DataStorage_FieldManager: Parsed" << parsedData.size() << "data fields";
     return true;
 }
 
-QString DataStorage_FieldManager::serializeData(const QMap<QString, QVariant>& data) const
+QString DataStorage_FieldManager::serializeData(const QMap<QString, QVariant>& data,
+                                               int sizeLimit) const
 {
     qDebug() << "DataStorage_FieldManager: Serializing" << data.size() << "data fields";
     
-    QString dataString;
-    
-    for (auto it = data.begin(); it != data.end(); ++it) {
-        QString valueStr = convertFromType(it.value());
-        dataString += QString("%1=%2\n").arg(it.key(), valueStr);
+    // Security check: validate data before serialization
+    if (data.size() > DataStorageLimits::MAX_FIELDS_PER_FILE) {
+        qDebug() << "DataStorage_FieldManager: Too many fields to serialize (" << data.size() << ")";
+        return QString();
     }
     
+    // Use QTextStream for memory-efficient string building
+    QString dataString;
+    dataString.reserve(data.size() * 100); // Pre-allocate estimated size
+    QTextStream stream(&dataString);
+    
+    for (auto it = data.begin(); it != data.end(); ++it) {
+        // Security check: validate key length
+        if (it.key().length() > DataStorageLimits::MAX_FIELD_NAME_LENGTH) {
+            qDebug() << "DataStorage_FieldManager: Skipping field with name too long:" << it.key().left(50) << "...";
+            continue;
+        }
+        
+        QString valueStr = convertFromType(it.value());
+        
+        // Security check: validate value length for strings
+        if (valueStr.length() > DataStorageLimits::MAX_STRING_VALUE_LENGTH) {
+            qDebug() << "DataStorage_FieldManager: Field value too long, truncating:" << it.key();
+            valueStr = valueStr.left(DataStorageLimits::MAX_STRING_VALUE_LENGTH);
+        }
+        
+        // Write to stream
+        stream << it.key() << "=" << valueStr << "\n";
+        
+        // Security check: monitor total size
+        if (dataString.size() > sizeLimit) {
+            qDebug() << "DataStorage_FieldManager: Serialized data exceeds size limit";
+            return QString();
+        }
+    }
+    
+    stream.flush();
     return dataString;
 }
 
@@ -258,6 +338,13 @@ DataStorage_FieldManager::ValidationResult DataStorage_FieldManager::validateAnd
     ValidationResult result;
     validatedData.clear();
     
+    // Security check: limit input data size
+    if (currentData.size() > DataStorageLimits::MAX_FIELDS_PER_FILE * 2) {
+        result.errorMessage = QString("Too many fields in current data (%1)").arg(currentData.size());
+        qDebug() << "DataStorage_FieldManager:" << result.errorMessage;
+        return result;
+    }
+    
     // Get field definitions for this data type
     QList<FieldDefinition> fieldDefs = getFieldDefinitions(dataType);
     if (fieldDefs.isEmpty()) {
@@ -266,6 +353,9 @@ DataStorage_FieldManager::ValidationResult DataStorage_FieldManager::validateAnd
     }
     
     // Step 1: Add all expected fields (with type conversion and defaults for missing ones)
+    // Reserve space to avoid reallocations
+    validatedData.reserve(fieldDefs.size());
+    
     for (const FieldDefinition& def : fieldDefs) {
         if (currentData.contains(def.name)) {
             // Field exists - convert to proper type
@@ -274,7 +364,7 @@ DataStorage_FieldManager::ValidationResult DataStorage_FieldManager::validateAnd
             
             // Validate the converted value
             if (validateFieldValue(def.name, convertedValue, def)) {
-                validatedData[def.name] = convertedValue;
+                validatedData[def.name] = std::move(convertedValue);
             } else {
                 // Use default if validation fails
                 validatedData[def.name] = def.defaultValue;
@@ -393,6 +483,12 @@ bool DataStorage_FieldManager::validateFieldValue(const QString& fieldName, cons
             // Additional string validation
             QString strValue = value.toString();
             
+            // Security check: limit string length
+            if (strValue.length() > DataStorageLimits::MAX_STRING_VALUE_LENGTH) {
+                qDebug() << "DataStorage_FieldManager: String value too long for field:" << fieldName;
+                return false;
+            }
+            
             // Special validation for showName field
             if (fieldName == "showName") {
                 // Allow empty show names (will be set later)
@@ -429,4 +525,59 @@ bool DataStorage_FieldManager::validateFieldValue(const QString& fieldName, cons
     }
     
     return typeValid;
+}
+
+bool DataStorage_FieldManager::isDataSizeWithinLimits(const QMap<QString, QVariant>& data) const
+{
+    // Check number of fields
+    if (data.size() > DataStorageLimits::MAX_FIELDS_PER_FILE) {
+        qDebug() << "DataStorage_FieldManager: Too many fields:" << data.size();
+        return false;
+    }
+    
+    // Calculate and check total estimated size
+    size_t estimatedSize = calculateDataSize(data);
+    if (estimatedSize > static_cast<size_t>(DataStorageLimits::MAX_FILE_SIZE_BYTES)) {
+        qDebug() << "DataStorage_FieldManager: Estimated data size too large:" << estimatedSize << "bytes";
+        return false;
+    }
+    
+    return true;
+}
+
+size_t DataStorage_FieldManager::calculateDataSize(const QMap<QString, QVariant>& data) const
+{
+    size_t totalSize = 0;
+    
+    for (auto it = data.begin(); it != data.end(); ++it) {
+        // Add key size
+        totalSize += it.key().toUtf8().size();
+        
+        // Add value size based on type
+        switch (it.value().type()) {
+        case QVariant::String:
+            totalSize += it.value().toString().toUtf8().size();
+            break;
+        case QVariant::Bool:
+            totalSize += 5; // "true" or "false"
+            break;
+        case QVariant::Int:
+        case QVariant::UInt:
+        case QVariant::LongLong:
+        case QVariant::ULongLong:
+            totalSize += 20; // Maximum digits for 64-bit integer
+            break;
+        case QVariant::Double:
+            totalSize += 30; // Maximum digits for double precision
+            break;
+        default:
+            totalSize += it.value().toString().toUtf8().size();
+            break;
+        }
+        
+        // Add overhead for "=" and newline
+        totalSize += 2;
+    }
+    
+    return totalSize;
 }

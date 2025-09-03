@@ -34,6 +34,9 @@ void DataStorage_FieldDefinitions::registerTVShowSettingsFields()
     
     QList<FieldDefinition> tvShowFields;
     
+    // Security: Limit total fields per data type to prevent memory issues
+    tvShowFields.reserve(20); // Pre-allocate reasonable size
+    
     // Define all TV show settings fields based on ShowSettings struct defaults
     // These definitions determine what fields exist in TV show settings files
     // and their default values when files are created or repaired.

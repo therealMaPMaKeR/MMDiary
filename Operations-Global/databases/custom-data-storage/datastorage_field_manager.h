@@ -8,6 +8,16 @@
 #include <QByteArray>
 #include "datastorage_field_definitions.h"
 
+// Security limits to prevent memory exhaustion attacks
+namespace DataStorageLimits {
+    constexpr int MAX_FIELDS_PER_FILE = 100;        // Maximum number of fields allowed
+    constexpr int MAX_FIELD_NAME_LENGTH = 100;      // Maximum length for field names  
+    constexpr int MAX_STRING_VALUE_LENGTH = 1000;   // Maximum length for string values
+    constexpr int MAX_FILE_SIZE_BYTES = 1048576;    // 1 MB max file size
+    constexpr int MAX_LINE_LENGTH = 2000;           // Maximum length per line in file
+    constexpr int MAX_LINES_PER_FILE = 500;         // Maximum number of lines to process
+}
+
 /**
  * @brief Generic data storage field manager for handling versioned data files
  * 
@@ -98,17 +108,21 @@ private:
      * @brief Parse data from string format (key=value\n)
      * @param dataString Raw data string
      * @param parsedData Output map of parsed data
+     * @param maxFields Maximum number of fields to parse (security limit)
      * @return True if parsing was successful
      */
     bool parseDataString(const QString& dataString, 
-                        QMap<QString, QVariant>& parsedData);
+                        QMap<QString, QVariant>& parsedData,
+                        int maxFields = DataStorageLimits::MAX_FIELDS_PER_FILE);
     
     /**
      * @brief Serialize data to string format (key=value\n)
      * @param data Map of data to serialize
-     * @return Serialized data string
+     * @param sizeLimit Maximum allowed size for serialized data
+     * @return Serialized data string, empty on error or size limit exceeded
      */
-    QString serializeData(const QMap<QString, QVariant>& data) const;
+    QString serializeData(const QMap<QString, QVariant>& data,
+                         int sizeLimit = DataStorageLimits::MAX_FILE_SIZE_BYTES) const;
     
     /**
      * @brief Validate and fix field structure according to data type definition
@@ -147,6 +161,20 @@ private:
      */
     bool validateFieldValue(const QString& fieldName, const QVariant& value, 
                            const FieldDefinition& definition) const;
+    
+    /**
+     * @brief Check if data size is within security limits
+     * @param data Data to check
+     * @return True if within limits, false otherwise
+     */
+    bool isDataSizeWithinLimits(const QMap<QString, QVariant>& data) const;
+    
+    /**
+     * @brief Calculate estimated memory usage for data
+     * @param data Data to calculate size for
+     * @return Estimated size in bytes
+     */
+    size_t calculateDataSize(const QMap<QString, QVariant>& data) const;
 };
 
 #endif // DATASTORAGE_FIELD_MANAGER_H
