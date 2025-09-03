@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QStringList>
+#include <QDataStream>
 
 namespace InputValidation {
 
@@ -19,6 +20,14 @@ const QStringList commonPasswords = {
 
 ValidationResult validateInput(const QString& input, InputType type, int maxLength) {
     ValidationResult result = {true, ""};
+
+    // Absolute maximum to prevent memory exhaustion
+    const int ABSOLUTE_MAX_LENGTH = 1000000; // 1MB of text
+    if (input.length() > ABSOLUTE_MAX_LENGTH) {
+        result.isValid = false;
+        result.errorMessage = "Input exceeds absolute maximum allowed length";
+        return result;
+    }
 
     // Check for maximum length to prevent DoS
     if (input.length() > maxLength) {
@@ -44,14 +53,26 @@ ValidationResult validateInput(const QString& input, InputType type, int maxLeng
     }
 
     // Check for common malicious patterns
-    QRegularExpression scriptTagPattern("<script[^>]*>.*?</script>",
-                                        QRegularExpression::CaseInsensitiveOption |
-                                            QRegularExpression::DotMatchesEverythingOption);
-
-    if (scriptTagPattern.match(input).hasMatch()) {
-        result.isValid = false;
-        result.errorMessage = "Input contains potentially malicious script tags";
-        return result;
+    // Add size limit before regex to prevent ReDoS attacks
+    if (input.length() > 10000) {
+        // For very large inputs, do a simple substring check instead of regex
+        if (input.contains("<script", Qt::CaseInsensitive) || 
+            input.contains("</script>", Qt::CaseInsensitive)) {
+            result.isValid = false;
+            result.errorMessage = "Input contains potentially malicious script tags";
+            return result;
+        }
+    } else {
+        // Use non-greedy regex with limited backtracking for smaller inputs
+        QRegularExpression scriptTagPattern("<script[^>]{0,100}>.*?</script>",
+                                            QRegularExpression::CaseInsensitiveOption);
+        scriptTagPattern.setPatternOptions(QRegularExpression::DontCaptureOption);
+        
+        if (scriptTagPattern.match(input).hasMatch()) {
+            result.isValid = false;
+            result.errorMessage = "Input contains potentially malicious script tags";
+            return result;
+        }
     }
 
     // Type-specific validation
@@ -96,10 +117,9 @@ ValidationResult validateInput(const QString& input, InputType type, int maxLeng
             return result;
         }
 
-        // Check against common passwords
-        QString lowercaseInput = input.toLower();
+        // Check against common passwords - use string comparison without full copy
         for (const QString& commonPassword : commonPasswords) {
-            if (lowercaseInput == commonPassword) {
+            if (input.compare(commonPassword, Qt::CaseInsensitive) == 0) {
                 result.isValid = false;
                 result.errorMessage = "Password is too common";
                 return result;
@@ -162,23 +182,46 @@ ValidationResult validateInput(const QString& input, InputType type, int maxLeng
         // Use canonicalFilePath to resolve symbolic links
         QString canonicalPath;
 
-        // If the file exists, get its canonical path to resolve symlinks
+        // Fix TOCTOU: Get canonical path in a safer way
+        // Always try to resolve the parent directory's canonical path first
+        QFileInfo parentInfo(pathInfo.dir().absolutePath());
+        QString parentCanonical;
+        
+        if (parentInfo.exists() && parentInfo.isDir()) {
+            parentCanonical = parentInfo.canonicalFilePath();
+        } else {
+            parentCanonical = QDir::cleanPath(pathInfo.dir().absolutePath());
+        }
+        
+        // Construct the canonical path from parent + filename
         if (pathInfo.exists()) {
-            canonicalPath = pathInfo.canonicalFilePath();
-
-            // If canonicalFilePath returns empty (error), fallback to cleanPath
-            if (canonicalPath.isEmpty()) {
-                canonicalPath = QDir::cleanPath(absolutePath);
-                qWarning() << "Failed to get canonical path for existing file, using cleaned path:" << canonicalPath;
+            // For existing files, try to get the canonical path
+            QString tempCanonical = pathInfo.canonicalFilePath();
+            if (!tempCanonical.isEmpty()) {
+                canonicalPath = tempCanonical;
+            } else {
+                // Fallback: combine parent canonical with filename
+                canonicalPath = QDir::cleanPath(parentCanonical + "/" + pathInfo.fileName());
             }
         } else {
-            // For non-existent files, use cleanPath
-            canonicalPath = QDir::cleanPath(absolutePath);
+            // For non-existent files, combine parent canonical with filename
+            canonicalPath = QDir::cleanPath(parentCanonical + "/" + pathInfo.fileName());
         }
 
-        // Path traversal check - still useful as a first defense
-        QRegularExpression pathTraversalPattern("\\.\\.");
-        if (pathTraversalPattern.match(input).hasMatch()) {
+        // Enhanced path traversal check - check multiple patterns
+        // Check for various forms of directory traversal
+        QString normalizedInput = input;
+        normalizedInput.replace('\\', '/');
+        
+        // Check for obvious traversal patterns
+        if (normalizedInput.contains("../") || 
+            normalizedInput.contains("..\\") ||
+            normalizedInput.contains("/..") ||
+            normalizedInput.contains("\\..") ||
+            input.contains("%2e%2e") || // URL encoded
+            input.contains("%252e%252e") || // Double URL encoded
+            input.contains("..%2f") ||
+            input.contains("..%5c")) { // URL encoded slashes
             result.isValid = false;
             result.errorMessage = "Path contains directory traversal patterns";
             return result;
@@ -230,23 +273,46 @@ ValidationResult validateInput(const QString& input, InputType type, int maxLeng
         // Use canonicalFilePath to resolve symbolic links
         QString canonicalPath;
 
-        // If the file exists, get its canonical path to resolve symlinks
+        // Fix TOCTOU: Get canonical path in a safer way
+        // Always try to resolve the parent directory's canonical path first
+        QFileInfo parentInfo(pathInfo.dir().absolutePath());
+        QString parentCanonical;
+        
+        if (parentInfo.exists() && parentInfo.isDir()) {
+            parentCanonical = parentInfo.canonicalFilePath();
+        } else {
+            parentCanonical = QDir::cleanPath(pathInfo.dir().absolutePath());
+        }
+        
+        // Construct the canonical path from parent + filename
         if (pathInfo.exists()) {
-            canonicalPath = pathInfo.canonicalFilePath();
-
-            // If canonicalFilePath returns empty (error), fallback to cleanPath
-            if (canonicalPath.isEmpty()) {
-                canonicalPath = QDir::cleanPath(absolutePath);
-                qWarning() << "Failed to get canonical path for existing file, using cleaned path:" << canonicalPath;
+            // For existing files, try to get the canonical path
+            QString tempCanonical = pathInfo.canonicalFilePath();
+            if (!tempCanonical.isEmpty()) {
+                canonicalPath = tempCanonical;
+            } else {
+                // Fallback: combine parent canonical with filename
+                canonicalPath = QDir::cleanPath(parentCanonical + "/" + pathInfo.fileName());
             }
         } else {
-            // For non-existent files, use cleanPath
-            canonicalPath = QDir::cleanPath(absolutePath);
+            // For non-existent files, combine parent canonical with filename
+            canonicalPath = QDir::cleanPath(parentCanonical + "/" + pathInfo.fileName());
         }
 
-        // Path traversal check - still useful as a first defense
-        QRegularExpression pathTraversalPattern("\\.\\.");
-        if (pathTraversalPattern.match(input).hasMatch()) {
+        // Enhanced path traversal check - check multiple patterns
+        // Check for various forms of directory traversal
+        QString normalizedInput = input;
+        normalizedInput.replace('\\', '/');
+        
+        // Check for obvious traversal patterns
+        if (normalizedInput.contains("../") || 
+            normalizedInput.contains("..\\") ||
+            normalizedInput.contains("/..") ||
+            normalizedInput.contains("\\..") ||
+            input.contains("%2e%2e") || // URL encoded
+            input.contains("%252e%252e") || // Double URL encoded
+            input.contains("..%2f") ||
+            input.contains("..%5c")) { // URL encoded slashes
             result.isValid = false;
             result.errorMessage = "Path contains directory traversal patterns";
             return result;
@@ -433,7 +499,10 @@ ValidationResult validateInput(const QString& input, InputType type, int maxLeng
 
 // Helper functions that apply the validation to specific Qt widgets
 bool validateLineEdit(QLineEdit* lineEdit, InputType type, int maxLength) {
-    if (!lineEdit) return false;
+    if (!lineEdit) {
+        qWarning() << "InputValidation: validateLineEdit called with null pointer";
+        return false;
+    }
 
     ValidationResult result = validateInput(lineEdit->text(), type, maxLength);
     if (!result.isValid) {
@@ -458,7 +527,10 @@ bool validateLineEdit(QLineEdit* lineEdit, InputType type, int maxLength) {
 }
 
 bool validateTextEdit(QTextEdit* textEdit, InputType type, int maxLength) {
-    if (!textEdit) return false;
+    if (!textEdit) {
+        qWarning() << "InputValidation: validateTextEdit called with null pointer";
+        return false;
+    }
 
     ValidationResult result = validateInput(textEdit->toPlainText(), type, maxLength);
     if (!result.isValid) {
@@ -582,9 +654,16 @@ bool validateEncryptionKey(const QString& filePath, const QByteArray& expectedEn
 
         encryptedFile.close();
 
-        // Extract metadata size from first 4 bytes
+        // Extract metadata size from first 4 bytes using Qt's safe method
         quint32 metadataSize = 0;
-        memcpy(&metadataSize, metadataBlock.constData(), sizeof(metadataSize));
+        if (metadataBlock.size() < static_cast<int>(sizeof(metadataSize))) {
+            qWarning() << "Metadata block too small to contain size header:" << filePath;
+            encryptedFile.close();
+            return false;
+        }
+        QDataStream stream(metadataBlock.left(sizeof(metadataSize)));
+        stream.setByteOrder(QDataStream::LittleEndian);
+        stream >> metadataSize;
 
         // Validate metadata size (reasonable limits)
         const int maxAllowedSize = Constants::METADATA_RESERVED_SIZE - sizeof(quint32);
@@ -614,14 +693,16 @@ bool validateEncryptionKey(const QString& filePath, const QByteArray& expectedEn
         int pos = 0;
         int totalSize = decryptedMetadata.size();
 
-        // Try to read filename length
+        // Try to read filename length using safe Qt method
         quint32 filenameLength = 0;
         if (pos + static_cast<int>(sizeof(filenameLength)) > totalSize) {
             qWarning() << "Invalid decrypted metadata structure for key validation:" << filePath;
             return false;
         }
 
-        memcpy(&filenameLength, data + pos, sizeof(filenameLength));
+        QDataStream filenameStream(decryptedMetadata.mid(pos, sizeof(filenameLength)));
+        filenameStream.setByteOrder(QDataStream::LittleEndian);
+        filenameStream >> filenameLength;
         pos += sizeof(filenameLength);
 
         // Validate filename length (reasonable limits)
