@@ -21,12 +21,20 @@
 #include <QEvent>
 #include <QApplication>
 #include <QMouseEvent>
+#include <QRegularExpression>
 
 
 Operations_Diary::Operations_Diary(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
 {
     DiariesFilePath = "Data/" + m_mainWindow->user_Username + "/Diaries/";
+    
+    // SECURITY FIX: Initialize timestamp variables to prevent undefined behavior
+    lastTimeStamp_Hours = 0;
+    lastTimeStamp_Minutes = 0;
+    cur_entriesNoSpacer = 0;
+    previousDiaryLineCounter = 0;
+    prevent_onDiaryTextDisplay_itemChanged = false;
 
     // Connect image handling signals from DiaryTextInput
     connect(m_mainWindow->ui->DiaryTextInput, &qtextedit_DiaryTextInput::imagesDropped,
@@ -69,6 +77,14 @@ QList<QListWidgetItem*> Operations_Diary::getTextDisplayItems()
     }
     
     int count = m_mainWindow->ui->DiaryTextDisplay->count();
+    
+    // SECURITY FIX: Limit list size to prevent memory exhaustion
+    const int MAX_ITEMS = 10000; // Maximum 10K items
+    if (count > MAX_ITEMS) {
+        qWarning() << "Operations_Diary: DiaryTextDisplay has too many items:" << count;
+        count = MAX_ITEMS;
+    }
+    
     for(int i=0;i<count;i++)
     {
         QListWidgetItem* item = m_mainWindow->ui->DiaryTextDisplay->item(i);
@@ -166,8 +182,18 @@ QString Operations_Diary::getDiaryFilePath(const QString& dateString)
         qWarning() << "Invalid file path:" << pathResult.errorMessage;
         return QString();
     }
+    
+    // SECURITY FIX: Prevent path traversal attacks
+    QString canonicalPath = QDir::cleanPath(filePath);
+    QString canonicalBase = QDir::cleanPath(DiariesFilePath);
+    
+    // Ensure the resolved path is still within our diary directory
+    if (!canonicalPath.startsWith(canonicalBase)) {
+        qWarning() << "Operations_Diary: Path traversal attempt detected:" << filePath;
+        return QString();
+    }
 
-    return filePath;
+    return canonicalPath;
 }
 
 void Operations_Diary::ensureDiaryDirectoryExists(const QString& dateString)
@@ -449,7 +475,18 @@ void Operations_Diary::InputNewEntry(QString DiaryFileName)
     //----------------------//
     QDateTime date = QDateTime::currentDateTime(); // Get date and time
     QString formattedTime = date.toString("hh:mm"); // Format approprietly
-    int currentTimeMinutes = formattedTime.section(":",0,0).toInt() * 60 + formattedTime.section(":",1,1).toInt(); // get the current time in minutes
+    
+    // SECURITY FIX: Validate time format and prevent integer overflow
+    bool hoursOk, minutesOk;
+    int currentHours = formattedTime.section(":",0,0).toInt(&hoursOk);
+    int currentMinutes = formattedTime.section(":",1,1).toInt(&minutesOk);
+    
+    if (!hoursOk || !minutesOk || currentHours < 0 || currentHours > 23 || currentMinutes < 0 || currentMinutes > 59) {
+        qWarning() << "Operations_Diary: Invalid current time values";
+        return;
+    }
+    
+    int currentTimeMinutes = currentHours * 60 + currentMinutes; // get the current time in minutes
 
     //for each \n, add 1 to entries without spacer counter. Makes it so text block don't bypass this counter. // this one is for when you add a textblock to an existing timestamp span
     for (QChar c : diaryText) {
@@ -458,8 +495,15 @@ void Operations_Diary::InputNewEntry(QString DiaryFileName)
         }
     }
 
+    // SECURITY FIX: Validate timestamp calculations to prevent overflow
+    int lastTimeMinutes = 0;
+    if (lastTimeStamp_Hours >= 0 && lastTimeStamp_Hours <= 23 && 
+        lastTimeStamp_Minutes >= 0 && lastTimeStamp_Minutes <= 59) {
+        lastTimeMinutes = lastTimeStamp_Hours * 60 + lastTimeStamp_Minutes;
+    }
+    
     //if not enough time has passed since the last entry and we havnt reached the limit of entries without spacers in a row and textdisplay isnt empty
-    if(lastTimeStamp_Hours * 60 + lastTimeStamp_Minutes > currentTimeMinutes - m_mainWindow->setting_Diary_TStampTimer && cur_entriesNoSpacer < m_mainWindow->setting_Diary_TStampCounter)
+    if(lastTimeMinutes > currentTimeMinutes - m_mainWindow->setting_Diary_TStampTimer && cur_entriesNoSpacer < m_mainWindow->setting_Diary_TStampCounter)
     {
         AddNewEntryToDisplay(); // Use the local function
         cur_entriesNoSpacer++; // add to the entries without spacer counter
@@ -608,8 +652,9 @@ void Operations_Diary::SaveDiary(QString DiaryFileName, bool previousDiary)
 
 void Operations_Diary::LoadDiary(QString DiaryFileName)
 {
-    // Use a mutex to prevent loading while a save is in progress
-    QMutexLocker locker(&m_saveDiaryMutex);
+    // SECURITY FIX: Enhanced mutex protection for thread safety
+    QMutexLocker saveLock(&m_saveDiaryMutex);
+    QMutexLocker modLock(&m_diaryModificationMutex);
 
     // Validate the diary file name
     InputValidation::ValidationResult fileResult =
@@ -627,6 +672,16 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
     QFileInfo fileInfo(DiaryFileName);
     if (!fileInfo.exists()) {
         qWarning() << "Diary file does not exist:" << DiaryFileName;
+        return;
+    }
+    
+    // SECURITY FIX: Check file size to prevent memory exhaustion attacks
+    // Limit diary files to 10MB max
+    const qint64 MAX_DIARY_SIZE = 10 * 1024 * 1024; // 10MB
+    if (fileInfo.size() > MAX_DIARY_SIZE) {
+        qWarning() << "Operations_Diary: Diary file too large:" << fileInfo.size() << "bytes";
+        QMessageBox::warning(m_mainWindow, "File Too Large",
+                           "The diary file is too large to load safely (>10MB).\nIt may be corrupted.");
         return;
     }
 
@@ -666,6 +721,9 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
 
     QString textblock;
     textblock.clear();
+    
+    // SECURITY FIX: Add maximum text block size to prevent unbounded accumulation
+    const int MAX_TEXTBLOCK_SIZE = 100000; // 100K chars max per text block
 
     // Variable to track which diary directory we're currently processing
     QString currentProcessingDiaryDir = currentDiaryDir;
@@ -818,9 +876,27 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
                     }
                     else if(nextLine_isTextBlock == true)
                     {
-                        textblock = textblock + line + "\n";
-                        m_mainWindow->ui->DiaryTextDisplay->takeItem(lastindex); //remove the line from the display
-                        previousDiaryLineCounter--; // remove 1 to previousdiarylinecounter because we removed a line
+                        // SECURITY FIX: Prevent unbounded text block accumulation
+                        if (textblock.length() + line.length() + 1 > MAX_TEXTBLOCK_SIZE) {
+                            qWarning() << "Operations_Diary: Text block exceeds maximum size, truncating";
+                            // Force end the text block
+                            nextLine_isTextBlock = false;
+                            m_mainWindow->ui->DiaryTextDisplay->addItem(Constants::Diary_TextBlockStart);
+                            m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setHidden(true);
+                            m_mainWindow->ui->DiaryTextDisplay->addItem(textblock);
+                            m_mainWindow->ui->DiaryTextDisplay->item(lastindex+1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(lastindex+1)->flags() | Qt::ItemIsEditable);
+                            m_mainWindow->ui->DiaryTextDisplay->addItem(Constants::Diary_TextBlockEnd);
+                            m_mainWindow->ui->DiaryTextDisplay->item(lastindex+2)->setHidden(true);
+                            textblock.clear();
+                            previousDiaryLineCounter = previousDiaryLineCounter + 3;
+                            // Start a new text block with current line
+                            textblock = line + "\n";
+                            nextLine_isTextBlock = true;
+                        } else {
+                            textblock = textblock + line + "\n";
+                            m_mainWindow->ui->DiaryTextDisplay->takeItem(lastindex); //remove the line from the display
+                            previousDiaryLineCounter--; // remove 1 to previousdiarylinecounter because we removed a line
+                        }
                     }
                     else if(line == Constants::Diary_Spacer)
                     {
@@ -1056,8 +1132,25 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
             }
             else if(nextLine_isTextBlock == true)
             {
-                textblock = textblock + line + "\n";
-                m_mainWindow->ui->DiaryTextDisplay->takeItem(lastindex); //remove the line from the display
+                // SECURITY FIX: Prevent unbounded text block accumulation in current diary
+                if (textblock.length() + line.length() + 1 > MAX_TEXTBLOCK_SIZE) {
+                    qWarning() << "Operations_Diary: Text block exceeds maximum size in current diary, truncating";
+                    // Force end the text block
+                    nextLine_isTextBlock = false;
+                    m_mainWindow->ui->DiaryTextDisplay->addItem(Constants::Diary_TextBlockStart);
+                    m_mainWindow->ui->DiaryTextDisplay->item(lastindex)->setHidden(true);
+                    m_mainWindow->ui->DiaryTextDisplay->addItem(textblock);
+                    m_mainWindow->ui->DiaryTextDisplay->item(lastindex+1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(lastindex+1)->flags() | Qt::ItemIsEditable);
+                    m_mainWindow->ui->DiaryTextDisplay->addItem(Constants::Diary_TextBlockEnd);
+                    m_mainWindow->ui->DiaryTextDisplay->item(lastindex+2)->setHidden(true);
+                    textblock.clear();
+                    // Start a new text block with current line
+                    textblock = line + "\n";
+                    nextLine_isTextBlock = true;
+                } else {
+                    textblock = textblock + line + "\n";
+                    m_mainWindow->ui->DiaryTextDisplay->takeItem(lastindex); //remove the line from the display
+                }
             }
             else if (line == Constants::Diary_Spacer)
             {
@@ -1182,9 +1275,28 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
             InputValidation::validateInput(temptime, InputValidation::InputType::PlainText);
 
         if (timeResult.isValid) {
-            QString temphours = temptime.section(":",0,0), tempminutes = temptime.section(":",1,1); // get the hours and minutes seperately
-            lastTimeStamp_Hours = temphours.toInt(); // save the hours value of the last timestamp
-            lastTimeStamp_Minutes = tempminutes.toInt(); // save the minutes value of the timestamp
+            // SECURITY FIX: Validate timestamp format before parsing
+            QRegularExpression timePattern("^\\d{1,2}:\\d{2}$");
+            if (timePattern.match(temptime).hasMatch()) {
+                QString temphours = temptime.section(":",0,0), tempminutes = temptime.section(":",1,1);
+                bool hoursOk, minutesOk;
+                int hours = temphours.toInt(&hoursOk);
+                int minutes = tempminutes.toInt(&minutesOk);
+                
+                // SECURITY FIX: Validate time values to prevent integer overflow
+                if (hoursOk && minutesOk && hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+                    lastTimeStamp_Hours = hours;
+                    lastTimeStamp_Minutes = minutes;
+                } else {
+                    qWarning() << "Operations_Diary: Invalid time values: hours=" << hours << " minutes=" << minutes;
+                    lastTimeStamp_Hours = 0;
+                    lastTimeStamp_Minutes = 0;
+                }
+            } else {
+                qWarning() << "Operations_Diary: Timestamp doesn't match expected format: " << temptime;
+                lastTimeStamp_Hours = 0;
+                lastTimeStamp_Minutes = 0;
+            }
         } else {
             qWarning() << "Invalid timestamp format detected: " << temptime;
             // Set default values
@@ -2594,8 +2706,24 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
 
             // Generate filename for original
             QString originalExtension = QFileInfo(imagePath).suffix();
+            
+            // SECURITY FIX: Validate extension to prevent path injection
+            if (originalExtension.contains("/") || originalExtension.contains("..") || 
+                originalExtension.contains("\\") || originalExtension.length() > 10) {
+                failedImages.append(imagePath + " (invalid extension)");
+                continue;
+            }
+            
             QString imageFilename = generateImageFilename(originalExtension, diaryDir);
             QString encryptedImagePath = QDir::cleanPath(diaryDir + "/" + imageFilename);
+            
+            // SECURITY FIX: Ensure the target path is within diary directory
+            QString canonicalDiaryDir = QDir::cleanPath(diaryDir);
+            if (!encryptedImagePath.startsWith(canonicalDiaryDir)) {
+                qWarning() << "Operations_Diary: Path traversal attempt in image processing";
+                failedImages.append(imagePath + " (security error)");
+                continue;
+            }
 
             // Encrypt and save the original image
             bool saveSuccess = saveEncryptedImage(imagePath, encryptedImagePath);
@@ -2639,10 +2767,28 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
         }
     }
 
-    // Clean up temporary clipboard files
+    // SECURITY FIX: Enhanced temp file cleanup with secure directory handling
     foreach(const QString& imagePath, imagePaths) {
-        if (imagePath.contains("clipboard_image_")) {
-            QFile::remove(imagePath);
+        if (imagePath.contains("clipboard_image_") || imagePath.contains("MMDiary_temp_")) {
+            // Validate path before removal to prevent directory traversal
+            QString cleanPath = QDir::cleanPath(imagePath);
+            QFileInfo fileInfo(cleanPath);
+            
+            // Only remove files, not directories, and only if they're in temp locations
+            if (fileInfo.isFile()) {
+                QString parentDir = fileInfo.dir().absolutePath();
+                
+                // Check if it's in a temp directory (system temp or MMDiary temp)
+                if (parentDir.contains("MMDiary_temp_") || parentDir.contains(QDir::tempPath())) {
+                    QFile::remove(cleanPath);
+                    
+                    // If it's in an MMDiary temp directory, try to remove the directory too
+                    if (parentDir.contains("MMDiary_temp_")) {
+                        QDir dir(parentDir);
+                        dir.removeRecursively();
+                    }
+                }
+            }
         }
     }
 
