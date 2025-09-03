@@ -68,8 +68,35 @@ bool Hashing_CompareHash(const QString& hashedPassword, const QString& password)
         32 // 32 bytes output length
         );
 
-    // Compare the stored hash with computed hash
-    return (computedHash == storedHash);
+    // Clear password bytes immediately after use
+    if (!passwordBytes.isEmpty()) {
+        volatile char* data = reinterpret_cast<volatile char*>(passwordBytes.data());
+        for (int i = 0; i < passwordBytes.size(); ++i) {
+            data[i] = 0;
+        }
+        passwordBytes.clear();
+    }
+
+    // Constant-time comparison to prevent timing attacks
+    if (computedHash.size() != storedHash.size()) {
+        return false;
+    }
+    
+    volatile unsigned char result = 0;
+    for (int i = 0; i < computedHash.size(); ++i) {
+        result |= static_cast<unsigned char>(computedHash[i]) ^ static_cast<unsigned char>(storedHash[i]);
+    }
+    
+    // Clear sensitive data
+    if (!computedHash.isEmpty()) {
+        volatile char* data = reinterpret_cast<volatile char*>(computedHash.data());
+        for (int i = 0; i < computedHash.size(); ++i) {
+            data[i] = 0;
+        }
+        computedHash.clear();
+    }
+    
+    return result == 0;
 }
 
 QByteArray Encryption_GenerateKey() {

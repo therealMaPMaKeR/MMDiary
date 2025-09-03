@@ -17,6 +17,26 @@
 #include <QRandomGenerator>
 #include "inputvalidation.h"
 
+// Secure string clearing helper function
+static void secureStringClear(QString& str) {
+    if (!str.isEmpty()) {
+        // Get pointer to the string's data
+        QChar* data = str.data();
+        int len = str.length();
+        
+        // Use volatile to prevent compiler optimization
+        volatile QChar* vdata = data;
+        
+        // Overwrite each character
+        for (int i = 0; i < len; ++i) {
+            vdata[i] = QChar('\0');
+        }
+        
+        // Clear the string normally
+        str.clear();
+    }
+}
+
 Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
     : m_mainWindow(mainWindow), m_currentLoadedValue(QString())
 {
@@ -184,6 +204,10 @@ QString Operations_PasswordManager::generatePassword()
         qWarning() << "Operations_PasswordManager: Could not eliminate all consecutive characters after" << maxAttempts << "attempts";
     }
     
+    // Clear intermediate buffers before returning
+    secureStringClear(password); // Clear the pre-shuffled password
+    chars.clear(); // Clear the character list
+    
     qDebug() << "Operations_PasswordManager: Generated password with"
              << "uppercase:" << uppercaseCount
              << "lowercase:" << lowercaseCount  
@@ -198,6 +222,20 @@ void Operations_PasswordManager::SetupPWDisplay(QString sortingMethod)
 {
     // Temporarily disable sorting to prevent unwanted sorting during setup
     m_mainWindow->ui->tableWidget_PWDisplay->setSortingEnabled(false);
+
+    // Clear any stored passwords in UserRole data before clearing the table
+    int rowCount = m_mainWindow->ui->tableWidget_PWDisplay->rowCount();
+    int colCount = m_mainWindow->ui->tableWidget_PWDisplay->columnCount();
+    for (int row = 0; row < rowCount; ++row) {
+        for (int col = 0; col < colCount; ++col) {
+            QTableWidgetItem* item = m_mainWindow->ui->tableWidget_PWDisplay->item(row, col);
+            if (item && item->data(Qt::UserRole + 10).isValid()) {
+                QString storedPassword = item->data(Qt::UserRole + 10).toString();
+                secureStringClear(storedPassword);
+                item->setData(Qt::UserRole + 10, QVariant());
+            }
+        }
+    }
 
     m_mainWindow->ui->tableWidget_PWDisplay->clear(); // first we clear the display
     m_mainWindow->ui->tableWidget_PWDisplay->setRowCount(0); // then, we remove all rows
@@ -245,6 +283,17 @@ void Operations_PasswordManager::SetupPWList(QString sortingMethod, bool applyMa
     QString currentSelection;
     if (m_mainWindow->ui->listWidget_PWList->currentItem()) {
         currentSelection = m_mainWindow->ui->listWidget_PWList->currentItem()->text();
+    }
+
+    // Clear any stored passwords in UserRole data before clearing the list
+    int listCount = m_mainWindow->ui->listWidget_PWList->count();
+    for (int i = 0; i < listCount; ++i) {
+        QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
+        if (item && item->data(Qt::UserRole + 10).isValid()) {
+            QString storedPassword = item->data(Qt::UserRole + 10).toString();
+            secureStringClear(storedPassword);
+            item->setData(Qt::UserRole + 10, QVariant());
+        }
     }
 
     m_mainWindow->ui->listWidget_PWList->clear();
@@ -787,6 +836,9 @@ void Operations_PasswordManager::AddPassword(QString account, QString password, 
             break;
         }
     }
+    
+    // Securely clear password from memory
+    secureStringClear(password);
 }
 
 bool Operations_PasswordManager::ModifyPassword(const QString &oldAccount, const QString &oldPassword, const QString &oldService, const QString &newAccount, const QString &newPassword, const QString &newService)
@@ -794,6 +846,10 @@ bool Operations_PasswordManager::ModifyPassword(const QString &oldAccount, const
     // Create copies of the parameters that we can modify
     QString modifiedNewAccount = newAccount;
     QString modifiedNewService = newService;
+    
+    // Create copies of passwords for secure clearing
+    QString oldPasswordCopy = oldPassword;
+    QString newPasswordCopy = newPassword;
 
     // If new account or service is empty, set to "(None)"
     if (modifiedNewAccount.isEmpty()) {
@@ -806,6 +862,9 @@ bool Operations_PasswordManager::ModifyPassword(const QString &oldAccount, const
 
     // If old and new values are identical (using our modified values for comparison)
     if (oldAccount == modifiedNewAccount && oldPassword == newPassword && oldService == modifiedNewService) {
+        // Clear passwords before returning
+        secureStringClear(oldPasswordCopy);
+        secureStringClear(newPasswordCopy);
         return true;  // No changes needed
     }
 
@@ -816,11 +875,17 @@ bool Operations_PasswordManager::ModifyPassword(const QString &oldAccount, const
     // Validate the password file
     if (!OperationsFiles::validateFilePath(passwordsFilePath, OperationsFiles::FileType::Password, m_mainWindow->user_Key)) {
         qWarning() << "Password file failed validation check: " << passwordsFilePath;
+        // Clear passwords before returning
+        secureStringClear(oldPasswordCopy);
+        secureStringClear(newPasswordCopy);
         return false;
     }
 
     // Check if the passwords file exists
     if (!QFileInfo::exists(passwordsFilePath)) {
+        // Clear passwords before returning
+        secureStringClear(oldPasswordCopy);
+        secureStringClear(newPasswordCopy);
         return false;  // No passwords file to modify
     }
 
@@ -914,6 +979,9 @@ bool Operations_PasswordManager::ModifyPassword(const QString &oldAccount, const
 
     if (!success) {
         qDebug() << "Failed to modify password in file: " << passwordsFilePath;
+        // Clear passwords before returning
+        secureStringClear(oldPasswordCopy);
+        secureStringClear(newPasswordCopy);
         return false;
     }
 
@@ -955,11 +1023,18 @@ bool Operations_PasswordManager::ModifyPassword(const QString &oldAccount, const
         SetupPWDisplay(currentSortingMethod);
     }
 
+    // Clear passwords before returning
+    secureStringClear(oldPasswordCopy);
+    secureStringClear(newPasswordCopy);
+    
     return true;
 }
 
 bool Operations_PasswordManager::DeletePassword(const QString &account, const QString &password, const QString &service)
 {
+    // Create a copy of password for secure clearing
+    QString passwordCopy = password;
+    
     // Construct the passwords directory path
     QString passwordsDir = "Data/" + m_mainWindow->user_Username + "/Passwords/";
     QString passwordsFilePath = passwordsDir + "passwords.txt";
@@ -967,11 +1042,13 @@ bool Operations_PasswordManager::DeletePassword(const QString &account, const QS
     // Validate the password file
     if (!OperationsFiles::validateFilePath(passwordsFilePath, OperationsFiles::FileType::Password, m_mainWindow->user_Key)) {
         qWarning() << "Password file failed validation check: " << passwordsFilePath;
+        secureStringClear(passwordCopy);
         return false;
     }
 
     // Check if the passwords file exists
     if (!QFileInfo::exists(passwordsFilePath)) {
+        secureStringClear(passwordCopy);
         return false; // No passwords file to modify
     }
 
@@ -979,6 +1056,7 @@ bool Operations_PasswordManager::DeletePassword(const QString &account, const QS
     QString fileContent;
     if (!OperationsFiles::readEncryptedFile(passwordsFilePath, m_mainWindow->user_Key, fileContent)) {
         qDebug() << "Failed to read passwords file: " << passwordsFilePath;
+        secureStringClear(passwordCopy);
         return false;
     }
 
@@ -998,15 +1076,19 @@ bool Operations_PasswordManager::DeletePassword(const QString &account, const QS
     if (isLastEntry) {
         // Delete the entire file if this is the last entry
         QFile file(passwordsFilePath);
-        return file.remove();
+        bool result = file.remove();
+        secureStringClear(passwordCopy);
+        return result;
     } else {
         // Otherwise, use the processEncryptedFile function to modify the password file
-        return OperationsFiles::processEncryptedFile(passwordsFilePath, m_mainWindow->user_Key,
+        bool result = OperationsFiles::processEncryptedFile(passwordsFilePath, m_mainWindow->user_Key,
                                                      [&pattern](QString& content) -> bool {
                                                          // Replace the password entry with an empty string
                                                          content.replace(pattern, "");
                                                          return true;
                                                      });
+        secureStringClear(passwordCopy);
+        return result;
     }
 }
 
@@ -1257,6 +1339,8 @@ void Operations_PasswordManager::onDeletePasswordClicked()
 
         // Delete the password
         if (DeletePassword(account, password, service)) {
+            // Clear password from memory after deletion
+            secureStringClear(password);
             // Successfully deleted, update UI
 
             // Update list widget
@@ -1290,7 +1374,12 @@ void Operations_PasswordManager::onDeletePasswordClicked()
         } else {
             QMessageBox::critical(m_mainWindow, "Delete Failed",
                                   "Failed to delete the password. Please try again.");
+            // Clear password even if deletion failed
+            secureStringClear(password);
         }
+    } else {
+        // User cancelled, clear password from memory
+        secureStringClear(password);
     }
 }
 
@@ -1487,9 +1576,26 @@ void Operations_PasswordManager::onEditPasswordClicked()
         QString newAccount = ui.lineEdit_AccountName->text();
         QString newPassword = ui.lineEdit_Password->text();
         QString newService = ui.lineEdit_Service->text();
+        
+        // Clear the dialog fields
+        ui.lineEdit_Password->clear();
+        ui.lineEdit_AccountName->clear();
+        ui.lineEdit_Service->clear();
 
         // Modify the password
         ModifyPassword(account, password, service, newAccount, newPassword, newService);
+        
+        // Clear the local copies of passwords
+        secureStringClear(password);
+        secureStringClear(newPassword);
+    } else {
+        // Clear the dialog fields even if cancelled
+        ui.lineEdit_Password->clear();
+        ui.lineEdit_AccountName->clear();
+        ui.lineEdit_Service->clear();
+        
+        // Clear the local copy of password
+        secureStringClear(password);
     }
 }
 
@@ -1767,11 +1873,27 @@ void Operations_PasswordManager::on_AddPasswordClicked()
 
     if (dialog.exec() == QDialog::Accepted) // execute dialog, and wait for the user to accept or cancel
     {
-        AddPassword(ui.lineEdit_AccountName->text(), ui.lineEdit_Password->text(), ui.lineEdit_Service->text());
+        // Store password temporarily
+        QString tempPassword = ui.lineEdit_Password->text();
+        QString tempAccount = ui.lineEdit_AccountName->text();
+        QString tempService = ui.lineEdit_Service->text();
+        
+        // Clear the dialog fields
+        ui.lineEdit_Password->clear();
+        ui.lineEdit_AccountName->clear();
+        ui.lineEdit_Service->clear();
+        
+        // Add the password
+        AddPassword(tempAccount, tempPassword, tempService);
+        
+        // Note: tempPassword will be cleared inside AddPassword
     }
     else
     {
-
+        // Clear the dialog fields even if cancelled
+        ui.lineEdit_Password->clear();
+        ui.lineEdit_AccountName->clear();
+        ui.lineEdit_Service->clear();
     }
 }
 
@@ -1880,7 +2002,10 @@ void Operations_PasswordManager::UpdatePasswordMasking()
                     item->setText("••••••••");
                 } else {
                     // Restore the original password from user data
-                    item->setText(item->data(Qt::UserRole + 10).toString());
+                    QString originalPassword = item->data(Qt::UserRole + 10).toString();
+                    item->setText(originalPassword);
+                    // Clear the stored password data when unmasking
+                    item->setData(Qt::UserRole + 10, QVariant());
                 }
             }
         }
@@ -1902,7 +2027,10 @@ void Operations_PasswordManager::UpdatePasswordMasking()
                     item->setText("••••••••");
                 } else {
                     // Restore the original password from user data
-                    item->setText(item->data(Qt::UserRole + 10).toString());
+                    QString originalPassword = item->data(Qt::UserRole + 10).toString();
+                    item->setText(originalPassword);
+                    // Clear the stored password data when unmasking
+                    item->setData(Qt::UserRole + 10, QVariant());
                 }
             }
         }
@@ -1922,10 +2050,28 @@ void Operations_PasswordManager::startClipboardClearTimer()
 
 void Operations_PasswordManager::clearClipboard()
 {
-    // Clear the clipboard
     QClipboard *clipboard = QGuiApplication::clipboard();
+    
+    // Overwrite clipboard with random data multiple times before clearing
+    QString randomData;
+    randomData.reserve(256);
+    
+    // Overwrite 3 times with random data
+    for(int overwrite = 0; overwrite < 3; ++overwrite) {
+        randomData.clear();
+        for(int i = 0; i < 256; ++i) {
+            // Generate random printable ASCII characters
+            randomData.append(QChar(QRandomGenerator::system()->bounded(33, 127)));
+        }
+        clipboard->setText(randomData);
+    }
+    
+    // Final clear
     clipboard->clear();
-
+    
+    // Securely clear the random data from memory
+    secureStringClear(randomData);
+    
     // Show status message that clipboard was cleared
     m_mainWindow->statusBar()->showMessage("Clipboard has been cleared for security", 2000);
 }
