@@ -18,13 +18,14 @@ CONFIG += c++17
 #Enable Address sanitizer in debug build
 CONFIG(debug, debug|release) {
 win32 {
+    CONFIG += debug
+    QMAKE_CXXFLAGS_DEBUG += -MTd
+    QMAKE_LFLAGS_DEBUG += -MTd
     QMAKE_CXXFLAGS += /fsanitize=address
     QMAKE_LFLAGS += /fsanitize=address
+    DEFINES += QT_NO_DEBUG_OUTPUT QT_NO_WARNING_OUTPUT #used when memory leak debugging to remove the debug output from my app and keep only asan
 }
 }
-
-#used when memory leak debugging to remove the debug output from my app and keep only asan/mvsc heap
-CONFIG(debug, debug|release): DEFINES += QT_NO_DEBUG_OUTPUT QT_NO_WARNING_OUTPUT
 
 # Add include paths for project directories
 INCLUDEPATH += $$PWD \

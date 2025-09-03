@@ -39,83 +39,15 @@ void fileMessageHandler(QtMsgType type,
 }
 */
 
-#ifdef QT_DEBUG
-#define _CRTDBG_MAP_ALLOC
-#include <cstdlib>
-#include <crtdbg.h>
-// Redefine new so allocations track file + line
-#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
-#define new DEBUG_NEW
-#endif
-
-void enableLeakDetection()
-{
-#ifdef QT_DEBUG
-    // Enable debug heap tracking
-    int flags = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
-    flags |= _CRTDBG_ALLOC_MEM_DF;
-    flags |= _CRTDBG_LEAK_CHECK_DF;
-    _CrtSetDbgFlag(flags);
-
-    // Report to DebugView or debugger
-    _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG);
-    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
-    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
-
-    // Save a baseline memory state AFTER Qt and OpenSSL init
-    // This will be done in main() after QApplication creation
-#endif
-}
-
-#ifdef QT_DEBUG
-static _CrtMemState g_startupState;
-
-void saveMemoryBaseline()
-{
-    // Take snapshot after Qt/OpenSSL initialization
-    _CrtMemCheckpoint(&g_startupState);
-    qDebug() << "main: Memory baseline saved after Qt/OpenSSL init";
-}
-
-void checkForRealLeaks()
-{
-    _CrtMemState endState, diff;
-    _CrtMemCheckpoint(&endState);
-    
-    if (_CrtMemDifference(&diff, &g_startupState, &endState)) {
-        qDebug() << "main: === Memory Leak Report (excluding Qt/OpenSSL init) ===";
-        _CrtMemDumpStatistics(&diff);
-        
-        // Also dump all objects if there are leaks
-        if (diff.lTotalCount > 0) {
-            qDebug() << "main: Dumping leaked objects:";
-            _CrtMemDumpAllObjectsSince(&g_startupState);
-        }
-    } else {
-        qDebug() << "main: No memory leaks detected (after baseline)";
-    }
-}
-#endif
 
 // Define a single application ID
 #define APP_ID "MMDiary_SingleInstance"
 
 int main(int argc, char *argv[])
 {
-    enableLeakDetection();  // Enable CRT debug heap
-    
     // Initialize Qt and OpenSSL
     QApplication a(argc, argv);
     OPENSSL_init_ssl(0, NULL);
-    
-#ifdef QT_DEBUG
-    // NOW save the baseline after Qt/OpenSSL have done their initial allocations
-    saveMemoryBaseline();
-    
-    // Register cleanup at exit
-    atexit(checkForRealLeaks);
-#endif
-
 
     QDir appDir(QCoreApplication::applicationDirPath());
     if (!appDir.exists("Data")) {
