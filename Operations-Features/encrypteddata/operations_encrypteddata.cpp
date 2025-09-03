@@ -1083,7 +1083,7 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
     }
 
     if (m_tempDecryptWorker) {
-        QString tempFilePath = m_tempDecryptWorker->m_targetFile;
+        QString tempFilePath = m_tempDecryptWorker->getTargetFile();
         qDebug() << "Operations_EncryptedData: Got tempFilePath:" << tempFilePath;
 
         if (success) {
