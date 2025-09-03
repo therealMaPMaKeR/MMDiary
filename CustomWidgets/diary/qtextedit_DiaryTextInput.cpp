@@ -17,6 +17,8 @@
 #include <QDir>
 #include <QDateTime>
 #include <QPixmap>
+#include <QMessageBox>
+#include <QImage>
 
 qtextedit_DiaryTextInput::qtextedit_DiaryTextInput(QWidget *parent): QTextEdit(parent) {
     qDebug() << "qtextedit_DiaryTextInput: Constructor called";
@@ -157,55 +159,24 @@ void qtextedit_DiaryTextInput::insertFromMimeData(const QMimeData *source)
     // Check if the mime data contains images
     if (source->hasImage()) {
         // Handle pasted images
-        QVariant imageData = source->imageData();
-        if (imageData.isValid()) {
-            QPixmap pixmap = qvariant_cast<QPixmap>(imageData);
-            if (!pixmap.isNull()) {
-                // SECURITY FIX: Store image data temporarily in memory and emit signal
-                // Let operations_diary handle the temp file creation in secure user directory
-                // This avoids using system temp folder which is a security risk
-                
-                // Create a unique identifier for this paste operation
-                QString uniqueId = QDateTime::currentDateTime().toString("yyyy.MM.dd_hh.mm.ss.zzz");
-                
-                // Store pixmap data in a byte array
-                QByteArray imageBytes;
-                QBuffer buffer(&imageBytes);
-                buffer.open(QIODevice::WriteOnly);
-                
-                // SECURITY FIX: Validate image size before processing
-                // Limit clipboard images to 50MB to prevent memory exhaustion
-                if (pixmap.width() * pixmap.height() * 4 > 50 * 1024 * 1024) {
-                    qWarning() << "qtextedit_DiaryTextInput: Clipboard image too large (>50MB)";
-                    return;
-                }
-                
-                if (pixmap.save(&buffer, "PNG")) {
-                    // For now, we still need to save to temp but we'll use a more secure approach
-                    // Create a subdirectory in temp with restricted permissions
-                    QString secTempDir = QDir::tempPath() + "/MMDiary_temp_" + uniqueId;
-                    QDir dir;
-                    if (!dir.exists(secTempDir)) {
-                        dir.mkpath(secTempDir);
-                    }
-                    
-                    QString tempFileName = QString("clipboard_image_%1.png").arg(uniqueId);
-                    QString tempFilePath = QDir::cleanPath(secTempDir + "/" + tempFileName);
-                    
-                    if (pixmap.save(tempFilePath, "PNG")) {
-                        QStringList imagePaths;
-                        imagePaths.append(tempFilePath);
-                        emit imagesPasted(imagePaths);
-                        
-                        // Schedule cleanup of temp directory after 60 seconds
-                        QTimer::singleShot(60000, [secTempDir]() {
-                            QDir dir(secTempDir);
-                            dir.removeRecursively();
-                        });
-                        return;
-                    }
-                }
+        QImage image = qvariant_cast<QImage>(source->imageData());
+        if (!image.isNull()) {
+            // SECURITY FIX: Validate image size before processing
+            // Limit clipboard images to 50MB to prevent memory exhaustion
+            // Calculate approximate memory usage (width * height * 4 bytes for RGBA)
+            qint64 estimatedSize = static_cast<qint64>(image.width()) * image.height() * 4;
+            if (estimatedSize > 50 * 1024 * 1024) {
+                qWarning() << "qtextedit_DiaryTextInput: Clipboard image too large (>50MB)";
+                QMessageBox::warning(this, "Image Too Large", 
+                                   "The clipboard image is too large (>50MB).\nPlease use a smaller image.");
+                return;
             }
+            
+            // SECURITY FIX: Don't create temp files here - emit signal to operations_diary
+            // operations_diary has access to user paths and can handle this securely
+            emit clipboardImageReceived(image, "PNG");
+            qDebug() << "qtextedit_DiaryTextInput: Emitted clipboardImageReceived signal";
+            return;
         }
     }
 

@@ -22,6 +22,7 @@
 #include <QApplication>
 #include <QMouseEvent>
 #include <QRegularExpression>
+#include <QImage>
 
 
 Operations_Diary::Operations_Diary(MainWindow* mainWindow)
@@ -46,6 +47,10 @@ Operations_Diary::Operations_Diary(MainWindow* mainWindow)
             this, [this](const QStringList& imagePaths) {
                 processAndAddImages(imagePaths, imagePaths.size() > 1);
             });
+    
+    // SECURITY FIX: Connect new signal for secure clipboard image handling
+    connect(m_mainWindow->ui->DiaryTextInput, &qtextedit_DiaryTextInput::clipboardImageReceived,
+            this, &Operations_Diary::handleClipboardImage);
 
     // Connect image handling signals from DiaryTextDisplay (reroute to same logic)
     connect(m_mainWindow->ui->DiaryTextDisplay, &qlist_DiaryTextDisplay::imagesDropped,
@@ -2655,6 +2660,78 @@ bool Operations_Diary::isImageOversized(const QSize& imageSize, int maxWidth, in
     return imageSize.width() > effectiveMaxWidth || imageSize.height() > effectiveMaxHeight;
 }
 
+// SECURITY FIX: New secure clipboard image handler
+void Operations_Diary::handleClipboardImage(const QImage& image, const QString& format)
+{
+    qDebug() << "Operations_Diary: handleClipboardImage called";
+    
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || m_mainWindow->user_Username.isEmpty()) {
+        qCritical() << "Operations_Diary: handleClipboardImage called with invalid user context";
+        return;
+    }
+    
+    // Build secure user temp directory path
+    QString userTempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    
+    // Use operations_files for secure directory creation
+    if (!OperationsFiles::ensureDirectoryExists(userTempDir)) {
+        qWarning() << "Operations_Diary: Failed to create user temp directory";
+        QMessageBox::warning(m_mainWindow, "Error", 
+                           "Failed to create temporary directory for clipboard image.");
+        return;
+    }
+    
+    // Generate unique filename with timestamp
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy.MM.dd_hh.mm.ss.zzz");
+    QString tempFileName = QString("clipboard_%1.%2").arg(timestamp).arg(format.toLower());
+    QString tempFilePath = QDir::cleanPath(userTempDir + tempFileName);
+    
+    // Validate the constructed file path
+    InputValidation::ValidationResult pathResult = 
+        InputValidation::validateInput(tempFilePath, InputValidation::InputType::FilePath);
+    if (!pathResult.isValid) {
+        qWarning() << "Operations_Diary: Invalid temp file path:" << pathResult.errorMessage;
+        return;
+    }
+    
+    // SECURITY: Ensure path is within user directory (prevent path traversal)
+    QString canonicalUserDir = QDir::cleanPath("Data/" + m_mainWindow->user_Username);
+    QString canonicalTempPath = QDir::cleanPath(tempFilePath);
+    if (!canonicalTempPath.startsWith(canonicalUserDir)) {
+        qWarning() << "Operations_Diary: Path traversal attempt in clipboard image handling";
+        return;
+    }
+    
+    // Save the image to secure temp location
+    if (!image.save(tempFilePath, format.toUtf8().constData())) {
+        qWarning() << "Operations_Diary: Failed to save clipboard image to temp";
+        QMessageBox::warning(m_mainWindow, "Error", 
+                           "Failed to save clipboard image.");
+        return;
+    }
+    
+    qDebug() << "Operations_Diary: Saved clipboard image to:" << tempFilePath;
+    
+    // Process the image (encrypt, move to diary folder, etc.)
+    QStringList imagePaths;
+    imagePaths.append(tempFilePath);
+    processAndAddImages(imagePaths, false);
+    
+    // Schedule cleanup of temp file after 5 seconds
+    // This gives enough time for processAndAddImages to complete
+    QTimer::singleShot(5000, [tempFilePath]() {
+        if (QFile::exists(tempFilePath)) {
+            qDebug() << "Operations_Diary: Cleaning up temp file:" << tempFilePath;
+            // Use secure deletion if available (1 pass for temp files, allowExternalFiles=false)
+            if (!OperationsFiles::secureDelete(tempFilePath, 1, false)) {
+                // Fall back to regular deletion
+                QFile::remove(tempFilePath);
+            }
+        }
+    });
+}
+
 void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool forceThumbnails)
 {
     if (imagePaths.isEmpty()) {
@@ -2769,17 +2846,25 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
 
     // SECURITY FIX: Enhanced temp file cleanup with secure directory handling
     foreach(const QString& imagePath, imagePaths) {
-        if (imagePath.contains("clipboard_image_") || imagePath.contains("MMDiary_temp_")) {
+        // Check if this is a clipboard temp file (old or new pattern)
+        if (imagePath.contains("clipboard_") || imagePath.contains("clipboard_image_") || imagePath.contains("MMDiary_temp_")) {
             // Validate path before removal to prevent directory traversal
             QString cleanPath = QDir::cleanPath(imagePath);
             QFileInfo fileInfo(cleanPath);
             
-            // Only remove files, not directories, and only if they're in temp locations
+            // Only remove files, not directories
             if (fileInfo.isFile()) {
                 QString parentDir = fileInfo.dir().absolutePath();
                 
-                // Check if it's in a temp directory (system temp or MMDiary temp)
-                if (parentDir.contains("MMDiary_temp_") || parentDir.contains(QDir::tempPath())) {
+                // Check if it's in user temp directory (new secure approach)
+                QString userTempDir = QDir::cleanPath("Data/" + m_mainWindow->user_Username + "/temp");
+                if (cleanPath.startsWith(userTempDir)) {
+                    // This is in secure user temp - just mark for deletion, handled by timer
+                    qDebug() << "Operations_Diary: Clipboard temp file in user directory will be cleaned by timer:" << cleanPath;
+                }
+                // Check if it's in system temp (old approach - clean immediately)
+                else if (parentDir.contains("MMDiary_temp_") || parentDir.contains(QDir::tempPath())) {
+                    qDebug() << "Operations_Diary: Removing old-style temp file:" << cleanPath;
                     QFile::remove(cleanPath);
                     
                     // If it's in an MMDiary temp directory, try to remove the directory too

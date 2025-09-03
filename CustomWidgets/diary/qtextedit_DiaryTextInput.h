@@ -45,5 +45,8 @@ signals:
 
     void imagesDropped(const QStringList& imagePaths);
     void imagesPasted(const QStringList& imagePaths);
+    
+    // SECURITY FIX: New signal to handle clipboard images without temp files
+    void clipboardImageReceived(const QImage& image, const QString& format);
 };
 #endif // QTEXTEDIT_DIARYTEXTINPUT_H

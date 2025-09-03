@@ -164,6 +164,9 @@ public slots:
     void on_DiaryTextDisplay_itemChanged();
     void on_DiaryTextDisplay_entered(const QModelIndex &index);
     void on_DiaryTextDisplay_clicked();
+    
+    // SECURITY FIX: New slot to handle clipboard images securely
+    void handleClipboardImage(const QImage& image, const QString& format);
 
 signals:
     void UpdateFontSize(int size, bool resize);
