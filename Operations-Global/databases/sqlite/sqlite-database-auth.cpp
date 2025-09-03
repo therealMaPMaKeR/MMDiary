@@ -27,11 +27,21 @@ bool DatabaseAuthManager::connect()
 {
     // Check for migration from MMDiary.db to users.db
     if (!checkForMigrationFromMMDiary()) {
-        qCritical() << "Failed to migrate from MMDiary.db";
+        qCritical() << "DatabaseAuthManager: Failed to migrate from MMDiary.db";
         return false;
     }
 
-    return m_dbManager.connect(Constants::DBPath_User);
+    bool connected = m_dbManager.connect(Constants::DBPath_User);
+    
+    if (connected) {
+        // Verify database integrity for security
+        if (!m_dbManager.verifyDatabaseIntegrity()) {
+            qWarning() << "DatabaseAuthManager: User database integrity check failed - possible tampering detected";
+            // Continue but log the warning - app can decide how to handle this
+        }
+    }
+    
+    return connected;
 }
 
 bool DatabaseAuthManager::isConnected() const
@@ -92,7 +102,7 @@ QString DatabaseAuthManager::GetUserData_String(QString username, QString index)
 
     // Ensure connection
     if (!isConnected() && !connect()) {
-        qDebug() << "Failed to connect to auth database";
+        qDebug() << "DatabaseAuthManager: Failed to connect to auth database";
         return Constants::ErrorMessage_Default;
     }
 
@@ -100,26 +110,35 @@ QString DatabaseAuthManager::GetUserData_String(QString username, QString index)
     // Use COLLATE NOCASE for case-insensitive comparison in SQLite
     QString whereClause = "LOWER(username) = LOWER(:username)";
     QMap<QString, QVariant> bindValues = {{":username", username}};
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("users", columns, whereClause, bindValues);
+    QVector<QMap<QString, QVariant>> results = m_dbManager.select("users", columns, whereClause, bindValues, QStringList(), 1);
     if (results.isEmpty()) {
-        qDebug() << "User not found:" << username;
+        qDebug() << "DatabaseAuthManager: User not found:" << username;
         return Constants::ErrorMessage_INVUSER;
     }
-    return results.first()[index].toString();
+    
+    QString result = results.first()[index].toString();
+    
+    // Clear sensitive results from memory if this is password data
+    if (index == Constants::UserT_Index_Password) {
+        QStringList sensitiveColumns = {index};
+        DatabaseManager::clearSensitiveResults(results, sensitiveColumns);
+    }
+    
+    return result;
 }
 
 QByteArray DatabaseAuthManager::GetUserData_ByteA(QString username, QString index)
 {
-    qDebug() << "GetUserData_ByteA called for username:" << username << "index:" << index;
+    qDebug() << "DatabaseAuthManager: GetUserData_ByteA called for username:" << username << "index:" << index;
 
     if (!IndexIsValid(index, Constants::DataType_QByteArray)) {
-        qDebug() << "Index is not valid for QByteArray:" << index;
+        qDebug() << "DatabaseAuthManager: Index is not valid for QByteArray:" << index;
         return QByteArray();
     }
 
     // Ensure connection
     if (!isConnected() && !connect()) {
-        qDebug() << "Failed to connect to auth database";
+        qDebug() << "DatabaseAuthManager: Failed to connect to auth database";
         return QByteArray();
     }
 
@@ -127,16 +146,23 @@ QByteArray DatabaseAuthManager::GetUserData_ByteA(QString username, QString inde
     // Case-insensitive comparison
     QString whereClause = "LOWER(username) = LOWER(:username)";
     QMap<QString, QVariant> bindValues = {{":username", username}};
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("users", columns, whereClause, bindValues);
+    QVector<QMap<QString, QVariant>> results = m_dbManager.select("users", columns, whereClause, bindValues, QStringList(), 1);
     if (results.isEmpty()) {
-        qDebug() << "User not found:" << username;
+        qDebug() << "DatabaseAuthManager: User not found:" << username;
         return QByteArray();
     }
 
     QVariant value = results.first()[index];
-    qDebug() << "Value type:" << value.typeName() << "isNull:" << value.isNull();
+    qDebug() << "DatabaseAuthManager: Value type:" << value.typeName() << "isNull:" << value.isNull();
     QByteArray result = value.toByteArray();
-    qDebug() << "Result size:" << result.size() << "bytes";
+    qDebug() << "DatabaseAuthManager: Result size:" << result.size() << "bytes";
+    
+    // Clear sensitive results from memory if this is encryption key or salt
+    if (index == Constants::UserT_Index_EncryptionKey || index == Constants::UserT_Index_Salt) {
+        QStringList sensitiveColumns = {index};
+        DatabaseManager::clearSensitiveResults(results, sensitiveColumns);
+    }
+    
     return result;
 }
 

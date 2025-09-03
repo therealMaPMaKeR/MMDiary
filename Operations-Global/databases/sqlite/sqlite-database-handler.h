@@ -29,6 +29,9 @@ public:
     bool connect(const QString& dbPath = "database.db");
     bool isConnected() const;
     void close();
+    
+    // Security: Clear sensitive data from result sets
+    static void clearSensitiveResults(QVector<QMap<QString, QVariant>>& results, const QStringList& sensitiveColumns);
 
     // Transaction handling
     bool beginTransaction();
@@ -94,6 +97,10 @@ public:
     // Backup methods
     bool backupDatabase(const QString& backupPath = "");
     bool restoreFromBackup(const QString& backupPath = "");
+    
+    // Database integrity methods
+    bool verifyDatabaseIntegrity();
+    bool enableIntegrityCheck();
 
 private:
 
@@ -102,13 +109,9 @@ private:
 
     // Last error message
     QString m_lastError;
-
-    // Helper methods
-    QString buildInsertQuery(const QString& tableName, const QMap<QString, QVariant>& data);
-    QString buildUpdateQuery(const QString& tableName,
-                             const QMap<QString, QVariant>& data,
-                             const QString& whereClause);
-    QString formatValue(const QVariant& value);
+    
+    // Security: Maximum result set size to prevent memory exhaustion
+    static const int MAX_RESULT_SIZE = 10000;
 };
 
 #endif // DATABASEMANAGER_H

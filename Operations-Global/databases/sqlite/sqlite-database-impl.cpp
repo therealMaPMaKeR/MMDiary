@@ -4,6 +4,7 @@
 #include "sqlite-database-handler.h"
 #include<QFile>
 #include "../../constants.h"
+#include <cstring> // For secure memory clearing
 
 DatabaseManager::DatabaseManager()
 {
@@ -43,9 +44,14 @@ bool DatabaseManager::connect(const QString& dbPath)
         m_lastError = m_db.lastError().text();
         qWarning() << "Failed to connect to database:" << m_lastError;
     } else {
-        // Enable foreign keys
-        QSqlQuery query(m_db);
-        query.exec("PRAGMA foreign_keys = ON");
+        // Enable security and integrity features
+        enableIntegrityCheck();
+        
+        // Verify database integrity on connect
+        if (!verifyDatabaseIntegrity()) {
+            qWarning() << "DatabaseManager: Database integrity verification failed on connect";
+            // Don't fail the connection, but log the warning
+        }
     }
 
     return success;
@@ -66,6 +72,35 @@ void DatabaseManager::close()
     if (!connectionName.isEmpty() && QSqlDatabase::contains(connectionName)) {
         QSqlDatabase::removeDatabase(connectionName);
     }
+}
+
+void DatabaseManager::clearSensitiveResults(QVector<QMap<QString, QVariant>>& results, const QStringList& sensitiveColumns)
+{
+    // Clear sensitive data from result sets to prevent memory inspection attacks
+    for (auto& row : results) {
+        for (const QString& column : sensitiveColumns) {
+            if (row.contains(column)) {
+                QVariant& value = row[column];
+                if (value.type() == QVariant::ByteArray) {
+                    QByteArray data = value.toByteArray();
+                    if (!data.isEmpty()) {
+                        // Overwrite memory with zeros
+                        std::memset(data.data(), 0, data.size());
+                    }
+                } else if (value.type() == QVariant::String) {
+                    QString str = value.toString();
+                    if (!str.isEmpty()) {
+                        // Overwrite string data
+                        std::fill(str.begin(), str.end(), QChar('\0'));
+                    }
+                }
+                // Clear the variant
+                value.clear();
+            }
+        }
+    }
+    // Clear the entire results vector
+    results.clear();
 }
 
 bool DatabaseManager::beginTransaction()
@@ -157,6 +192,12 @@ QVector<QMap<QString, QVariant>> DatabaseManager::select(const QString& tableNam
         return results;
     }
 
+    // Security: Enforce maximum result set size to prevent memory exhaustion
+    const int MAX_RESULT_SIZE = 10000;
+    if (limit <= 0 || limit > MAX_RESULT_SIZE) {
+        limit = MAX_RESULT_SIZE;
+    }
+
     QString query = "SELECT ";
     query += columns.isEmpty() ? "*" : columns.join(", ");
     query += " FROM " + tableName;
@@ -169,9 +210,7 @@ QVector<QMap<QString, QVariant>> DatabaseManager::select(const QString& tableNam
         query += " ORDER BY " + orderBy.join(", ");
     }
 
-    if (limit > 0) {
-        query += " LIMIT " + QString::number(limit);
-    }
+    query += " LIMIT " + QString::number(limit);
 
     QSqlQuery sqlQuery(m_db);
     sqlQuery.prepare(query);
@@ -181,13 +220,18 @@ QVector<QMap<QString, QVariant>> DatabaseManager::select(const QString& tableNam
 
     if (sqlQuery.exec()) {
         QSqlRecord record = sqlQuery.record();
-        while (sqlQuery.next()) {
+        int rowCount = 0;
+        while (sqlQuery.next() && rowCount < limit) {
             QMap<QString, QVariant> row;
             for (int i = 0; i < record.count(); ++i) {
                 row[record.fieldName(i)] = sqlQuery.value(i);
             }
             results.append(row);
+            rowCount++;
         }
+        
+        // Clear the query to release resources
+        sqlQuery.finish();
     } else {
         m_lastError = sqlQuery.lastError().text();
         qWarning() << "Select query failed:" << m_lastError;
@@ -384,60 +428,61 @@ int DatabaseManager::affectedRows() const
     return -1;
 }
 
-QString DatabaseManager::buildInsertQuery(const QString& tableName, const QMap<QString, QVariant>& data)
+bool DatabaseManager::verifyDatabaseIntegrity()
 {
-    QStringList columns;
-    QStringList values;
-
-    for (auto it = data.constBegin(); it != data.constEnd(); ++it) {
-        columns.append(it.key());
-        values.append(formatValue(it.value()));
+    if (!isConnected()) {
+        m_lastError = "Database not connected";
+        return false;
     }
 
-    return QString("INSERT INTO %1 (%2) VALUES (%3)")
-        .arg(tableName, columns.join(", "), values.join(", "));
-}
-
-QString DatabaseManager::buildUpdateQuery(const QString& tableName,
-                                          const QMap<QString, QVariant>& data,
-                                          const QString& whereClause)
-{
-    QStringList setList;
-
-    for (auto it = data.constBegin(); it != data.constEnd(); ++it) {
-        setList.append(QString("%1 = %2").arg(it.key(), formatValue(it.value())));
+    QSqlQuery query(m_db);
+    
+    // Run SQLite's built-in integrity check
+    if (!query.exec("PRAGMA integrity_check")) {
+        m_lastError = "Failed to run integrity check: " + query.lastError().text();
+        return false;
     }
-
-    QString query = QString("UPDATE %1 SET %2").arg(tableName, setList.join(", "));
-
-    if (!whereClause.isEmpty()) {
-        query += " WHERE " + whereClause;
-    }
-
-    return query;
-}
-
-QString DatabaseManager::formatValue(const QVariant& value)
-{
-    switch (value.type()) {
-    case QVariant::String:
-        return QString("'%1'").arg(value.toString().replace("'", "''"));
-    case QVariant::DateTime:
-        return QString("'%1'").arg(value.toDateTime().toString(Qt::ISODate));
-    case QVariant::Bool:
-        return value.toBool() ? "1" : "0";
-    case QVariant::Int:
-    case QVariant::Double:
-        return value.toString();
-    case QVariant::ByteArray:
-        // For binary data, use X'...' syntax with hex representation
-        return QString("X'%1'").arg(QString(value.toByteArray().toHex()));
-    default:
-        if (value.isNull()) {
-            return "NULL";
+    
+    // Check results
+    if (query.next()) {
+        QString result = query.value(0).toString();
+        if (result != "ok") {
+            m_lastError = "Database integrity check failed: " + result;
+            qWarning() << "DatabaseManager: Database integrity check failed:" << result;
+            return false;
         }
-        return QString("'%1'").arg(value.toString().replace("'", "''"));
     }
+    
+    query.finish();
+    return true;
+}
+
+bool DatabaseManager::enableIntegrityCheck()
+{
+    if (!isConnected()) {
+        m_lastError = "Database not connected";
+        return false;
+    }
+
+    QSqlQuery query(m_db);
+    
+    // Enable foreign key constraints for integrity
+    if (!query.exec("PRAGMA foreign_keys = ON")) {
+        m_lastError = "Failed to enable foreign keys: " + query.lastError().text();
+        return false;
+    }
+    
+    // Set journal mode to WAL for better integrity and performance
+    if (!query.exec("PRAGMA journal_mode = WAL")) {
+        // WAL mode might fail on some systems, fallback to DELETE mode
+        query.exec("PRAGMA journal_mode = DELETE");
+    }
+    
+    // Enable secure delete to overwrite deleted data
+    query.exec("PRAGMA secure_delete = ON");
+    
+    query.finish();
+    return true;
 }
 
 // Generic migration system with callback support
