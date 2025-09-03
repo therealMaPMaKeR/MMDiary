@@ -55,9 +55,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     //hide task diary logging for now, might remove permanently later
     ui->label_Settings_DTLogs->setHidden(true);
-    ui->label_Settings_TDLog->setHidden(true);
     ui->checkBox_Diary_TManLogs->setHidden(true);
-    ui->checkBox_TList_LogToDiary->setHidden(true);
     ui->checkBox_Diary_CanEditRecent->setHidden(true);
     ui->groupBox_Setting_Diary_Misc->setHidden(true);
 
@@ -1373,39 +1371,7 @@ void MainWindow::on_checkBox_Diary_TManLogs_stateChanged(int arg1)
 
 //Tasklists
 
-
-void MainWindow::on_comboBox_TList_TaskType_currentTextChanged(const QString &arg1)
-{
-    if(initFinished == false || !Operations_Settings_ptr){return;}
-    Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Tasklists);
-}
-
-void MainWindow::on_comboBox_TList_CMess_currentTextChanged(const QString &arg1)
-{
-    if(initFinished == false || !Operations_Settings_ptr){return;}
-    Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Tasklists);
-}
-
-void MainWindow::on_comboBox_TList_PMess_currentTextChanged(const QString &arg1)
-{
-    if(initFinished == false || !Operations_Settings_ptr){return;}
-    Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Tasklists);
-}
-
 void MainWindow::on_spinBox_TList_TextSize_valueChanged(int arg1)
-{
-    if(initFinished == false || !Operations_Settings_ptr){return;}
-    Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Tasklists);
-}
-
-void MainWindow::on_checkBox_TList_LogToDiary_stateChanged(int arg1)
-{
-    if(initFinished == false || !Operations_Settings_ptr){return;}
-    Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Tasklists);
-}
-
-
-void MainWindow::on_checkBox_TList_Notif_stateChanged(int arg1)
 {
     if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Tasklists);

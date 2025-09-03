@@ -324,104 +324,6 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
     {
         bool validationFailed = false;
 
-        // Log to Diary
-        QString logToDiary = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_LogToDiary);
-        if (logToDiary != Constants::ErrorMessage_Default) {
-            if (logToDiary == "0" || logToDiary == "1") {
-                bool value = (logToDiary == "1");
-                m_mainWindow->ui->checkBox_TList_LogToDiary->setChecked(value);
-                m_mainWindow->setting_TLists_LogToDiary = value; // Update member variable
-            } else {
-                qDebug() << "Invalid log to diary value:" << logToDiary;
-                validationFailed = true;
-            }
-        } else {
-            qDebug() << "Failed to load log to diary setting";
-            validationFailed = true;
-        }
-
-        // Task Type
-        QString taskType = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_TaskType);
-        if (taskType != Constants::ErrorMessage_Default) {
-            QStringList validTaskTypes = {"Simple", "Time Limit", "Recurrent"};
-            if (validTaskTypes.contains(taskType)) {
-                int index = m_mainWindow->ui->comboBox_TList_TaskType->findText(taskType);
-                if (index >= 0) {
-                    m_mainWindow->ui->comboBox_TList_TaskType->setCurrentIndex(index);
-                    m_mainWindow->setting_TLists_TaskType = taskType; // Update member variable
-                } else {
-                    qDebug() << "Task type not found in combobox:" << taskType;
-                    validationFailed = true;
-                }
-            } else {
-                qDebug() << "Invalid task type value:" << taskType;
-                validationFailed = true;
-            }
-        } else {
-            qDebug() << "Failed to load task type setting";
-            validationFailed = true;
-        }
-
-        // Congratulatory Message
-        QString cMess = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_CMess);
-        if (cMess != Constants::ErrorMessage_Default) {
-            QStringList validMessageTypes = {"None", "Simple", "Advanced", "Intense", "Extreme"};
-            if (validMessageTypes.contains(cMess)) {
-                int index = m_mainWindow->ui->comboBox_TList_CMess->findText(cMess);
-                if (index >= 0) {
-                    m_mainWindow->ui->comboBox_TList_CMess->setCurrentIndex(index);
-                    m_mainWindow->setting_TLists_CMess = cMess; // Update member variable
-                } else {
-                    qDebug() << "Congratulatory message type not found in combobox:" << cMess;
-                    validationFailed = true;
-                }
-            } else {
-                qDebug() << "Invalid congratulatory message value:" << cMess;
-                validationFailed = true;
-            }
-        } else {
-            qDebug() << "Failed to load congratulatory message setting";
-            validationFailed = true;
-        }
-
-        // Punitive Message
-        QString pMess = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_PMess);
-        if (pMess != Constants::ErrorMessage_Default) {
-            QStringList validMessageTypes = {"None", "Simple", "Advanced", "Intense", "Extreme"};
-            if (validMessageTypes.contains(pMess)) {
-                int index = m_mainWindow->ui->comboBox_TList_PMess->findText(pMess);
-                if (index >= 0) {
-                    m_mainWindow->ui->comboBox_TList_PMess->setCurrentIndex(index);
-                    m_mainWindow->setting_TLists_PMess = pMess; // Update member variable
-                } else {
-                    qDebug() << "Punitive message type not found in combobox:" << pMess;
-                    validationFailed = true;
-                }
-            } else {
-                qDebug() << "Invalid punitive message value:" << pMess;
-                validationFailed = true;
-            }
-        } else {
-            qDebug() << "Failed to load punitive message setting";
-            validationFailed = true;
-        }
-
-        // Notifications
-        QString notif = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_Notif);
-        if (notif != Constants::ErrorMessage_Default) {
-            if (notif == "0" || notif == "1") {
-                bool value = (notif == "1");
-                m_mainWindow->ui->checkBox_TList_Notif->setChecked(value);
-                m_mainWindow->setting_TLists_Notif = value; // Update member variable
-            } else {
-                qDebug() << "Invalid notifications value:" << notif;
-                validationFailed = true;
-            }
-        } else {
-            qDebug() << "Failed to load notifications setting";
-            validationFailed = true;
-        }
-
         // Text Size
         QString tlistTextSize = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_TextSize);
         if (tlistTextSize != Constants::ErrorMessage_Default) {
@@ -739,33 +641,6 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
     // ------- Save Task Lists Settings -------
     if (settingsType == Constants::DBSettings_Type_ALL || settingsType == Constants::DBSettings_Type_Tasklists)
     {
-        // Log to Diary
-        bool logToDiary = m_mainWindow->ui->checkBox_TList_LogToDiary->isChecked();
-        QString logToDiaryStr = logToDiary ? "1" : "0";
-        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_LogToDiary, logToDiaryStr);
-        m_mainWindow->setting_TLists_LogToDiary = logToDiary; // Update member variable
-
-        // Task Type
-        QString taskType = m_mainWindow->ui->comboBox_TList_TaskType->currentText();
-        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_TaskType, taskType);
-        m_mainWindow->setting_TLists_TaskType = taskType; // Update member variable
-
-        // Congratulatory Message
-        QString cMess = m_mainWindow->ui->comboBox_TList_CMess->currentText();
-        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_CMess, cMess);
-        m_mainWindow->setting_TLists_CMess = cMess; // Update member variable
-
-        // Punitive Message
-        QString pMess = m_mainWindow->ui->comboBox_TList_PMess->currentText();
-        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_PMess, pMess);
-        m_mainWindow->setting_TLists_PMess = pMess; // Update member variable
-
-        // Notifications
-        bool notif = m_mainWindow->ui->checkBox_TList_Notif->isChecked();
-        QString notifStr = notif ? "1" : "0";
-        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_Notif, notifStr);
-        m_mainWindow->setting_TLists_Notif = notif; // Update member variable
-
         // Text Size
         int tlistTextSize = m_mainWindow->ui->spinBox_TList_TextSize->value();
         QString tlistTextSizeStr = QString::number(tlistTextSize);
@@ -916,28 +791,6 @@ bool Operations_Settings::ValidateSettingsInput(const QString& settingsType)
         if (textSize < 5 || textSize > 30) {
             isValid = false;
             errorMessage += "- Task List Text Size: Must be between 5 and 30\n";
-        }
-
-        // Task type validation - make sure it's one of the expected values
-        QString taskType = m_mainWindow->ui->comboBox_TList_TaskType->currentText();
-        if (taskType != "Simple" && taskType != "Time Limit" && taskType != "Recurrent") {
-            isValid = false;
-            errorMessage += "- Task Type: Invalid selection\n";
-        }
-
-        // Message type validation
-        QString cMess = m_mainWindow->ui->comboBox_TList_CMess->currentText();
-        QString pMess = m_mainWindow->ui->comboBox_TList_PMess->currentText();
-        QStringList validMessageTypes = {"None", "Simple", "Advanced", "Intense", "Extreme"};
-
-        if (!validMessageTypes.contains(cMess)) {
-            isValid = false;
-            errorMessage += "- Congratulatory Message: Invalid selection\n";
-        }
-
-        if (!validMessageTypes.contains(pMess)) {
-            isValid = false;
-            errorMessage += "- Punitive Message: Invalid selection\n";
         }
     }
 
@@ -1128,56 +981,6 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         // Check if current UI values match database values
         bool matchesDatabase = true;
         bool matchesDefault = true;
-
-        // Log to Diary
-        QString dbLogToDiary = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_LogToDiary);
-        QString uiLogToDiary = m_mainWindow->ui->checkBox_TList_LogToDiary->isChecked() ? "1" : "0";
-        if (dbLogToDiary != uiLogToDiary) {
-            matchesDatabase = false;
-        }
-        if (uiLogToDiary != Default_UserSettings::DEFAULT_TLISTS_LOG_TO_DIARY) {
-            matchesDefault = false;
-        }
-
-        // Task Type
-        QString dbTaskType = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_TaskType);
-        QString uiTaskType = m_mainWindow->ui->comboBox_TList_TaskType->currentText();
-        if (dbTaskType != uiTaskType) {
-            matchesDatabase = false;
-        }
-        if (uiTaskType != Default_UserSettings::DEFAULT_TLISTS_TASK_TYPE) {
-            matchesDefault = false;
-        }
-
-        // Congratulatory Message
-        QString dbCMess = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_CMess);
-        QString uiCMess = m_mainWindow->ui->comboBox_TList_CMess->currentText();
-        if (dbCMess != uiCMess) {
-            matchesDatabase = false;
-        }
-        if (uiCMess != Default_UserSettings::DEFAULT_TLISTS_CMESS) {
-            matchesDefault = false;
-        }
-
-        // Punitive Message
-        QString dbPMess = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_PMess);
-        QString uiPMess = m_mainWindow->ui->comboBox_TList_PMess->currentText();
-        if (dbPMess != uiPMess) {
-            matchesDatabase = false;
-        }
-        if (uiPMess != Default_UserSettings::DEFAULT_TLISTS_PMESS) {
-            matchesDefault = false;
-        }
-
-        // Notifications
-        QString dbNotif = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_Notif);
-        QString uiNotif = m_mainWindow->ui->checkBox_TList_Notif->isChecked() ? "1" : "0";
-        if (dbNotif != uiNotif) {
-            matchesDatabase = false;
-        }
-        if (uiNotif != Default_UserSettings::DEFAULT_TLISTS_NOTIF) {
-            matchesDefault = false;
-        }
 
         // Text Size
         QString dbTextSize = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_TextSize);
@@ -1796,21 +1599,6 @@ void Operations_Settings::SetupSettingDescriptions()
     m_settingDescriptions[m_mainWindow->ui->checkBox_Diary_TManLogs] = "Whether to display Task Manager Logs in the diary or not.\n\nThe Task Manager Logs are still there, just hidden when this is activated.";
 
     // Task Lists Settings
-    m_settingNames[m_mainWindow->ui->checkBox_TList_LogToDiary] = "Log to Diary";
-    m_settingDescriptions[m_mainWindow->ui->checkBox_TList_LogToDiary] = "The default value to set the option for Log to Diary when creating a new task.";
-
-    m_settingNames[m_mainWindow->ui->comboBox_TList_TaskType] = "Task Type";
-    m_settingDescriptions[m_mainWindow->ui->comboBox_TList_TaskType] = "The default task type when creating a new task.\n\nMostly useful for Simple and Time Limit tasks, depending on your use case.";
-
-    m_settingNames[m_mainWindow->ui->comboBox_TList_CMess] = "Congratulatory Message";
-    m_settingDescriptions[m_mainWindow->ui->comboBox_TList_CMess] = "The default option for congratulatory message when creating a new task.\n\nRanges from banale to absolute glaze.\n\nIs shown via a message box and in the diary if logging is activated.";
-
-    m_settingNames[m_mainWindow->ui->comboBox_TList_PMess] = "Punitive Message";
-    m_settingDescriptions[m_mainWindow->ui->comboBox_TList_PMess] = "The default option for punitive message when creating a new task.\n\nRanges from banale to Insulting.\nExtreme is not recommended.\n\nMessage is shown in the notification when a time limit task is overdue and logged in the diary if logging is activated.";
-
-    m_settingNames[m_mainWindow->ui->checkBox_TList_Notif] = "Notifications";
-    m_settingDescriptions[m_mainWindow->ui->checkBox_TList_Notif] = "Used to Activate/Deactivate notifications for task lists.\n\nUseful if you want to disable notifications temporarily or permanently.";
-
     m_settingNames[m_mainWindow->ui->spinBox_TList_TextSize] = "Task List Text Size";
     m_settingDescriptions[m_mainWindow->ui->spinBox_TList_TextSize] = "Size of the text for tasklists.";
 

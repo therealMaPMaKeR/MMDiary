@@ -232,17 +232,7 @@ private slots:
 
     void on_checkBox_Diary_TManLogs_stateChanged(int arg1);
 
-    void on_comboBox_TList_TaskType_currentTextChanged(const QString &arg1);
-
-    void on_comboBox_TList_CMess_currentTextChanged(const QString &arg1);
-
-    void on_comboBox_TList_PMess_currentTextChanged(const QString &arg1);
-
     void on_spinBox_TList_TextSize_valueChanged(int arg1);
-
-    void on_checkBox_TList_LogToDiary_stateChanged(int arg1);
-
-    void on_checkBox_TList_Notif_stateChanged(int arg1);
 
     void on_comboBox_PWMan_SortBy_currentTextChanged(const QString &arg1);
 

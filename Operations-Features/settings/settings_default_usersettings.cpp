@@ -110,26 +110,6 @@ bool SetDefault_TasklistsSettings(QString username, const QByteArray& encryption
         qDebug() << "Failed to set tlists text size";
         return false;
     }
-    if (!db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_LogToDiary, DEFAULT_TLISTS_LOG_TO_DIARY)) {
-        qDebug() << "Failed to set tlists log to diary";
-        return false;
-    }
-    if (!db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_TaskType, DEFAULT_TLISTS_TASK_TYPE)) {
-        qDebug() << "Failed to set tlists task type";
-        return false;
-    }
-    if (!db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_CMess, DEFAULT_TLISTS_CMESS)) {
-        qDebug() << "Failed to set tlists cmess";
-        return false;
-    }
-    if (!db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_PMess, DEFAULT_TLISTS_PMESS)) {
-        qDebug() << "Failed to set tlists pmess";
-        return false;
-    }
-    if (!db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_TLists_Notif, DEFAULT_TLISTS_NOTIF)) {
-        qDebug() << "Failed to set tlists notif";
-        return false;
-    }
 
     return true;
 }

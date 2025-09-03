@@ -427,6 +427,8 @@ bool DatabaseSettingsManager::settingsMigrationCallback(int version)
     switch (version) {
     case 2:
         return migrateToV2();
+    case 3:
+        return migrateToV3();
     default:
         qWarning() << "No settings migration defined for version" << version;
         return false;
@@ -438,6 +440,8 @@ bool DatabaseSettingsManager::settingsRollbackCallback(int version)
     switch (version) {
     case 2:
         return rollbackFromV2();
+    case 3:
+        return rollbackFromV3();
     default:
         qWarning() << "No settings rollback defined for version" << version;
         return false;
@@ -502,6 +506,234 @@ bool DatabaseSettingsManager::rollbackFromV2()
         qWarning() << "Failed to drop settings table:" << m_dbManager.lastError();
         return false;
     }
+    return true;
+}
+
+bool DatabaseSettingsManager::migrateToV3()
+{
+    // Migration to version 3: Remove deprecated tasklist settings columns
+    // The columns to remove are:
+    // - TLists_LogToDiary
+    // - TLists_TaskType  
+    // - TLists_CMess
+    // - TLists_PMess
+    // - TLists_Notif
+    // We keep TLists_TextSize as it's still in use
+    
+    // SQLite doesn't support dropping columns directly, so we need to:
+    // 1. Create a new table with the desired schema
+    // 2. Copy data from old table
+    // 3. Drop old table
+    // 4. Rename new table
+    
+    // Create new table without the deprecated columns
+    QMap<QString, QString> settingsTableColumns;
+    settingsTableColumns["id"] = "INTEGER PRIMARY KEY";
+
+    // Global Settings
+    settingsTableColumns[Constants::SettingsT_Index_Displayname] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DisplaynameColor] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_MinToTray] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_AskPWAfterMinToTray] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_ReqPWDelay] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_OpenOnSettings] = "TEXT";
+
+    // Diary Settings
+    settingsTableColumns[Constants::SettingsT_Index_Diary_TextSize] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_TStampTimer] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_TStampCounter] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_CanEditRecent] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_ShowTManLogs] = "TEXT";
+
+    // Tasklists Settings - Only TextSize remains
+    settingsTableColumns[Constants::SettingsT_Index_TLists_TextSize] = "TEXT";
+    // Note: We're NOT adding the removed columns here
+
+    // Password Manager Settings
+    settingsTableColumns[Constants::SettingsT_Index_PWMan_DefSortingMethod] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_PWMan_ReqPassword] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_PWMan_HidePasswords] = "TEXT";
+
+    // Encrypted Data Settings
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_ReqPassword] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_HideThumbnails_Image] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_HideThumbnails_Video] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hidden_Categories] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hidden_Tags] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hide_Categories] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hide_Tags] = "TEXT";
+
+    // Create temporary table with new schema
+    if (!m_dbManager.createTable("settings_temp", settingsTableColumns)) {
+        qWarning() << "Failed to create temporary settings table:" << m_dbManager.lastError();
+        return false;
+    }
+
+    // Build column list for data migration (only columns that exist in both tables)
+    QStringList columns;
+    columns << "id"
+            << Constants::SettingsT_Index_Displayname
+            << Constants::SettingsT_Index_DisplaynameColor
+            << Constants::SettingsT_Index_MinToTray
+            << Constants::SettingsT_Index_AskPWAfterMinToTray
+            << Constants::SettingsT_Index_ReqPWDelay
+            << Constants::SettingsT_Index_OpenOnSettings
+            << Constants::SettingsT_Index_Diary_TextSize
+            << Constants::SettingsT_Index_Diary_TStampTimer
+            << Constants::SettingsT_Index_Diary_TStampCounter
+            << Constants::SettingsT_Index_Diary_CanEditRecent
+            << Constants::SettingsT_Index_Diary_ShowTManLogs
+            << Constants::SettingsT_Index_TLists_TextSize  // Only this tasklist setting remains
+            << Constants::SettingsT_Index_PWMan_DefSortingMethod
+            << Constants::SettingsT_Index_PWMan_ReqPassword
+            << Constants::SettingsT_Index_PWMan_HidePasswords
+            << Constants::SettingsT_Index_DataENC_ReqPassword
+            << Constants::SettingsT_Index_DataENC_HideThumbnails_Image
+            << Constants::SettingsT_Index_DataENC_HideThumbnails_Video
+            << Constants::SettingsT_Index_DataENC_Hidden_Categories
+            << Constants::SettingsT_Index_DataENC_Hidden_Tags
+            << Constants::SettingsT_Index_DataENC_Hide_Categories
+            << Constants::SettingsT_Index_DataENC_Hide_Tags;
+
+    QString columnList = columns.join(", ");
+
+    // Copy data from old table to new table
+    QString copyQuery = QString("INSERT INTO settings_temp (%1) SELECT %1 FROM settings").arg(columnList);
+    if (!m_dbManager.executeQuery(copyQuery)) {
+        qWarning() << "Failed to copy data to temporary table:" << m_dbManager.lastError();
+        m_dbManager.dropTable("settings_temp");
+        return false;
+    }
+
+    // Drop old table
+    if (!m_dbManager.dropTable("settings")) {
+        qWarning() << "Failed to drop old settings table:" << m_dbManager.lastError();
+        m_dbManager.dropTable("settings_temp");
+        return false;
+    }
+
+    // Rename temporary table to settings
+    QString renameQuery = "ALTER TABLE settings_temp RENAME TO settings";
+    if (!m_dbManager.executeQuery(renameQuery)) {
+        qWarning() << "Failed to rename temporary table:" << m_dbManager.lastError();
+        return false;
+    }
+
+    qDebug() << "Successfully migrated settings database to version 3 (removed deprecated tasklist settings)";
+    return true;
+}
+
+bool DatabaseSettingsManager::rollbackFromV3()
+{
+    // For rollback, we would need to recreate the old columns
+    // Since we've removed data, we can't fully restore it,
+    // but we can recreate the structure with default values
+    
+    // This is similar to migrateToV2 but with all columns
+    QMap<QString, QString> settingsTableColumns;
+    settingsTableColumns["id"] = "INTEGER PRIMARY KEY";
+
+    // Global Settings
+    settingsTableColumns[Constants::SettingsT_Index_Displayname] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DisplaynameColor] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_MinToTray] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_AskPWAfterMinToTray] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_ReqPWDelay] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_OpenOnSettings] = "TEXT";
+
+    // Diary Settings
+    settingsTableColumns[Constants::SettingsT_Index_Diary_TextSize] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_TStampTimer] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_TStampCounter] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_CanEditRecent] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_ShowTManLogs] = "TEXT";
+
+    // Tasklists Settings - Restore all columns
+    settingsTableColumns[Constants::SettingsT_Index_TLists_TextSize] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_TLists_LogToDiary] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_TLists_TaskType] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_TLists_CMess] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_TLists_PMess] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_TLists_Notif] = "TEXT";
+
+    // Password Manager Settings
+    settingsTableColumns[Constants::SettingsT_Index_PWMan_DefSortingMethod] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_PWMan_ReqPassword] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_PWMan_HidePasswords] = "TEXT";
+
+    // Encrypted Data Settings
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_ReqPassword] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_HideThumbnails_Image] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_HideThumbnails_Video] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hidden_Categories] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hidden_Tags] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hide_Categories] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hide_Tags] = "TEXT";
+
+    // Similar migration process as migrateToV3, but in reverse
+    if (!m_dbManager.createTable("settings_temp", settingsTableColumns)) {
+        qWarning() << "Failed to create temporary settings table for rollback:" << m_dbManager.lastError();
+        return false;
+    }
+
+    // Copy existing data and set defaults for missing columns
+    QStringList existingColumns;
+    existingColumns << "id"
+                   << Constants::SettingsT_Index_Displayname
+                   << Constants::SettingsT_Index_DisplaynameColor
+                   << Constants::SettingsT_Index_MinToTray
+                   << Constants::SettingsT_Index_AskPWAfterMinToTray
+                   << Constants::SettingsT_Index_ReqPWDelay
+                   << Constants::SettingsT_Index_OpenOnSettings
+                   << Constants::SettingsT_Index_Diary_TextSize
+                   << Constants::SettingsT_Index_Diary_TStampTimer
+                   << Constants::SettingsT_Index_Diary_TStampCounter
+                   << Constants::SettingsT_Index_Diary_CanEditRecent
+                   << Constants::SettingsT_Index_Diary_ShowTManLogs
+                   << Constants::SettingsT_Index_TLists_TextSize
+                   << Constants::SettingsT_Index_PWMan_DefSortingMethod
+                   << Constants::SettingsT_Index_PWMan_ReqPassword
+                   << Constants::SettingsT_Index_PWMan_HidePasswords
+                   << Constants::SettingsT_Index_DataENC_ReqPassword
+                   << Constants::SettingsT_Index_DataENC_HideThumbnails_Image
+                   << Constants::SettingsT_Index_DataENC_HideThumbnails_Video
+                   << Constants::SettingsT_Index_DataENC_Hidden_Categories
+                   << Constants::SettingsT_Index_DataENC_Hidden_Tags
+                   << Constants::SettingsT_Index_DataENC_Hide_Categories
+                   << Constants::SettingsT_Index_DataENC_Hide_Tags;
+
+    QString existingColumnList = existingColumns.join(", ");
+
+    // Copy existing data
+    QString copyQuery = QString("INSERT INTO settings_temp (%1, %2, %3, %4, %5, %6) "
+                                "SELECT %1, '0', 'Simple', 'None', 'None', '1' FROM settings")
+                        .arg(existingColumnList)
+                        .arg(Constants::SettingsT_Index_TLists_LogToDiary)
+                        .arg(Constants::SettingsT_Index_TLists_TaskType)
+                        .arg(Constants::SettingsT_Index_TLists_CMess)
+                        .arg(Constants::SettingsT_Index_TLists_PMess)
+                        .arg(Constants::SettingsT_Index_TLists_Notif);
+
+    if (!m_dbManager.executeQuery(copyQuery)) {
+        qWarning() << "Failed to copy data for rollback:" << m_dbManager.lastError();
+        m_dbManager.dropTable("settings_temp");
+        return false;
+    }
+
+    // Drop current table and rename
+    if (!m_dbManager.dropTable("settings")) {
+        qWarning() << "Failed to drop settings table during rollback:" << m_dbManager.lastError();
+        m_dbManager.dropTable("settings_temp");
+        return false;
+    }
+
+    QString renameQuery = "ALTER TABLE settings_temp RENAME TO settings";
+    if (!m_dbManager.executeQuery(renameQuery)) {
+        qWarning() << "Failed to rename temporary table during rollback:" << m_dbManager.lastError();
+        return false;
+    }
+
+    qDebug() << "Successfully rolled back settings database from version 3";
     return true;
 }
 

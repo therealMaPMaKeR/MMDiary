@@ -61,9 +61,11 @@ private:
 
     // Settings-specific migration methods
     bool migrateToV2();
+    bool migrateToV3();
     // Add more migration methods as needed
 
     bool rollbackFromV2();
+    bool rollbackFromV3();
     // Add more rollback methods as needed
 
     // Migration callback function for generic migration system
@@ -71,7 +73,7 @@ private:
     bool settingsRollbackCallback(int version);
 
     // Latest version for settings database
-    static const int LATEST_SETTINGS_VERSION = 2;
+    static const int LATEST_SETTINGS_VERSION = 3;
 
     // Helper methods
     QString getSettingsDatabasePath(const QString& username);
