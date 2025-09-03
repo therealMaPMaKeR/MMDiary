@@ -62,29 +62,59 @@ void enableLeakDetection()
     _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
 
-    // Save a baseline memory state at startup
-    static _CrtMemState startupState;
-    _CrtMemCheckpoint(&startupState);
-
-    // Register an atexit handler to dump leaks (ignores Qt's allocations)
-    atexit([] {
-        _CrtMemState endState, diff;
-        _CrtMemCheckpoint(&endState);
-
-        if (_CrtMemDifference(&diff, &startupState, &endState))
-            _CrtMemDumpStatistics(&diff);
-    });
+    // Save a baseline memory state AFTER Qt and OpenSSL init
+    // This will be done in main() after QApplication creation
 #endif
 }
+
+#ifdef QT_DEBUG
+static _CrtMemState g_startupState;
+
+void saveMemoryBaseline()
+{
+    // Take snapshot after Qt/OpenSSL initialization
+    _CrtMemCheckpoint(&g_startupState);
+    qDebug() << "main: Memory baseline saved after Qt/OpenSSL init";
+}
+
+void checkForRealLeaks()
+{
+    _CrtMemState endState, diff;
+    _CrtMemCheckpoint(&endState);
+    
+    if (_CrtMemDifference(&diff, &g_startupState, &endState)) {
+        qDebug() << "main: === Memory Leak Report (excluding Qt/OpenSSL init) ===";
+        _CrtMemDumpStatistics(&diff);
+        
+        // Also dump all objects if there are leaks
+        if (diff.lTotalCount > 0) {
+            qDebug() << "main: Dumping leaked objects:";
+            _CrtMemDumpAllObjectsSince(&g_startupState);
+        }
+    } else {
+        qDebug() << "main: No memory leaks detected (after baseline)";
+    }
+}
+#endif
 
 // Define a single application ID
 #define APP_ID "MMDiary_SingleInstance"
 
 int main(int argc, char *argv[])
 {
-    enableLeakDetection();  // must be called before any allocations
-    OPENSSL_init_ssl(0, NULL);
+    enableLeakDetection();  // Enable CRT debug heap
+    
+    // Initialize Qt and OpenSSL
     QApplication a(argc, argv);
+    OPENSSL_init_ssl(0, NULL);
+    
+#ifdef QT_DEBUG
+    // NOW save the baseline after Qt/OpenSSL have done their initial allocations
+    saveMemoryBaseline();
+    
+    // Register cleanup at exit
+    atexit(checkForRealLeaks);
+#endif
 
 
     QDir appDir(QCoreApplication::applicationDirPath());

@@ -22,6 +22,10 @@ win32 {
     QMAKE_LFLAGS += /fsanitize=address
 }
 }
+
+#used when memory leak debugging to remove the debug output from my app and keep only asan/mvsc heap
+CONFIG(debug, debug|release): DEFINES += QT_NO_DEBUG_OUTPUT QT_NO_WARNING_OUTPUT
+
 # Add include paths for project directories
 INCLUDEPATH += $$PWD \
                $$PWD/CustomWidgets \
