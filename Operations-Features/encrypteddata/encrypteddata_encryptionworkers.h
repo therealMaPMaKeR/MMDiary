@@ -8,6 +8,8 @@
 #include <QByteArray>
 #include <QPixmap>
 #include <QMap>
+#include <QAtomicInt>
+#include <memory>
 #include "encrypteddata_encryptedfilemetadata.h"
 
 // Forward declarations
@@ -57,9 +59,9 @@ public:
 
     ~EncryptionWorker();
 
-    // Public member variables (updated for multiple files)
-    QStringList m_sourceFiles;
-    QStringList m_targetFiles;
+    // Thread-safe getter functions instead of public variables
+    QStringList getSourceFiles() const { return m_sourceFiles; }
+    QStringList getTargetFiles() const { return m_targetFiles; }
 
     void cancel();
 
@@ -83,13 +85,17 @@ signals:
     void currentFileProgressUpdated(int percentage);
 
 private:
+    // Member variables (moved from public)
+    QStringList m_sourceFiles;
+    QStringList m_targetFiles;
+    
     QByteArray m_encryptionKey;
     QString m_username;
-    bool m_cancelled;
-    QMutex m_cancelMutex;
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe access
+    mutable QMutex m_cancelMutex;  // mutable for const functions
     QMap<QString, QPixmap> m_videoThumbnails; // Still used for pre-extracted video thumbnails
 
-    EncryptedFileMetadata* m_metadataManager;
+    std::unique_ptr<EncryptedFileMetadata> m_metadataManager;  // Smart pointer for automatic cleanup
 };
 
 class DecryptionWorker : public QObject
@@ -102,8 +108,9 @@ public:
 
     ~DecryptionWorker();
 
-    QString m_sourceFile;
-    QString m_targetFile;
+    // Thread-safe getter functions instead of public variables
+    QString getSourceFile() const { return m_sourceFile; }
+    QString getTargetFile() const { return m_targetFile; }
 
     void cancel();
 
@@ -115,10 +122,14 @@ signals:
     void decryptionFinished(bool success, const QString& errorMessage = QString());
 
 private:
+    // Member variables (moved from public)
+    QString m_sourceFile;
+    QString m_targetFile;
+    
     QByteArray m_encryptionKey;
-    bool m_cancelled;
-    QMutex m_cancelMutex;
-    EncryptedFileMetadata* m_metadataManager;
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe access
+    mutable QMutex m_cancelMutex;  // mutable for const functions
+    std::unique_ptr<EncryptedFileMetadata> m_metadataManager;  // Smart pointer for automatic cleanup
 };
 
 // Worker class for temporary decryption (for opening files)
@@ -132,8 +143,9 @@ public:
 
     ~TempDecryptionWorker();
 
-    QString m_sourceFile;
-    QString m_targetFile;
+    // Thread-safe getter functions instead of public variables
+    QString getSourceFile() const { return m_sourceFile; }
+    QString getTargetFile() const { return m_targetFile; }
 
     void cancel();
 
@@ -145,10 +157,14 @@ signals:
     void decryptionFinished(bool success, const QString& errorMessage = QString());
 
 private:
+    // Member variables (moved from public)
+    QString m_sourceFile;
+    QString m_targetFile;
+    
     QByteArray m_encryptionKey;
-    bool m_cancelled;
-    QMutex m_cancelMutex;
-    EncryptedFileMetadata* m_metadataManager;
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe access
+    mutable QMutex m_cancelMutex;  // mutable for const functions
+    std::unique_ptr<EncryptedFileMetadata> m_metadataManager;  // Smart pointer for automatic cleanup
 };
 
 // Batch decryption worker
@@ -180,9 +196,9 @@ private:
 
     QList<FileExportInfo> m_fileInfos;
     QByteArray m_encryptionKey;
-    bool m_cancelled;
-    QMutex m_cancelMutex;
-    EncryptedFileMetadata* m_metadataManager;
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe access
+    mutable QMutex m_cancelMutex;  // mutable for const functions
+    std::unique_ptr<EncryptedFileMetadata> m_metadataManager;  // Smart pointer for automatic cleanup
 };
 
 // Worker class for secure deletion
@@ -210,8 +226,8 @@ private:
     QStringList enumerateFilesInFolder(const QString& folderPath);
 
     QList<DeletionItem> m_items;
-    bool m_cancelled;
-    QMutex m_cancelMutex;
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe access
+    mutable QMutex m_cancelMutex;  // mutable for const functions
 };
 
 #endif // ENCRYPTEDDATA_ENCRYPTIONWORKERS_H

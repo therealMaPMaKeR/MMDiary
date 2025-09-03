@@ -27,6 +27,8 @@
 #include <QStandardPaths>
 #include <QDirIterator>
 #include <QDateTime>
+#include <QPointer>
+#include <memory>
 
 // ============================================================================
 // EncryptionWorker Implementation
@@ -35,40 +37,51 @@
 EncryptionWorker::EncryptionWorker(const QStringList& sourceFiles, const QStringList& targetFiles,
                                    const QByteArray& encryptionKey, const QString& username,
                                    const QMap<QString, QPixmap>& videoThumbnails)
-    : m_sourceFiles(sourceFiles)
+    : QObject(nullptr)  // No parent - will be moved to thread
+    , m_sourceFiles(sourceFiles)
     , m_targetFiles(targetFiles)
     , m_encryptionKey(encryptionKey)
     , m_username(username)
-    , m_cancelled(false)
+    , m_cancelled(0)  // 0 = false, 1 = true for atomic
     , m_videoThumbnails(videoThumbnails)
-    , m_metadataManager(new EncryptedFileMetadata(encryptionKey, username))
+    , m_metadataManager(std::make_unique<EncryptedFileMetadata>(encryptionKey, username))
 {
+    qDebug() << "EncryptionWorker: Constructor - creating worker for" << sourceFiles.size() << "files";
 }
 
 EncryptionWorker::EncryptionWorker(const QString& sourceFile, const QString& targetFile,
                                    const QByteArray& encryptionKey, const QString& username,
                                    const QMap<QString, QPixmap>& videoThumbnails)
-    : m_encryptionKey(encryptionKey)
+    : QObject(nullptr)  // No parent - will be moved to thread
+    , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(false)
     , m_videoThumbnails(videoThumbnails)
-    , m_metadataManager(new EncryptedFileMetadata(encryptionKey, username))
+    , m_metadataManager(std::make_unique<EncryptedFileMetadata>(encryptionKey, username))
 {
     m_sourceFiles << sourceFile;
     m_targetFiles << targetFile;
+    qDebug() << "EncryptionWorker: Constructor - creating worker for single file";
 }
 
 // Add cleanup in EncryptionWorker destructor (add if not exists):
 EncryptionWorker::~EncryptionWorker()
 {
-    if (m_metadataManager) {
-        delete m_metadataManager;
-        m_metadataManager = nullptr;
-    }
+    qDebug() << "EncryptionWorker: Destructor called";
+    // Cancel any ongoing operation
+    cancel();
+    // Smart pointer will automatically clean up m_metadataManager
 }
 
 void EncryptionWorker::doEncryption()
 {
+    qDebug() << "EncryptionWorker: doEncryption() started in thread" << QThread::currentThreadId();
+    
+    // Safety check - ensure we're not in the main thread
+    if (QThread::currentThread() == QApplication::instance()->thread()) {
+        qWarning() << "EncryptionWorker: WARNING - Running in main thread!";
+    }
+    
     try {
         if (m_sourceFiles.size() != m_targetFiles.size()) {
             if (m_sourceFiles.size() == 1) {
@@ -125,7 +138,7 @@ void EncryptionWorker::doEncryption()
             // Check for cancellation
             {
                 QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled) {
+                if (m_cancelled.loadAcquire() != 0) {
                     // Clean up any partial files created so far
                     for (int i = 0; i < fileIndex; ++i) {
                         if (QFile::exists(m_targetFiles[i])) {
@@ -268,7 +281,7 @@ void EncryptionWorker::doEncryption()
                 // Check for cancellation
                 {
                     QMutexLocker locker(&m_cancelMutex);
-                    if (m_cancelled) {
+                    if (m_cancelled.loadAcquire() != 0) {
                         target.close();
                         source.close();
                         QFile::remove(targetFile); // Clean up partial file
@@ -320,8 +333,8 @@ void EncryptionWorker::doEncryption()
                 int filePercentage = static_cast<int>((processedFileSize * 100) / currentFileSize);
                 emit currentFileProgressUpdated(filePercentage);
 
-                // Allow other threads to run
-                QCoreApplication::processEvents();
+                // Yield to other threads without using processEvents (which is dangerous in worker threads)
+                QThread::yieldCurrentThread();
             }
 
             source.close();
@@ -392,7 +405,8 @@ void EncryptionWorker::doEncryption()
 void EncryptionWorker::cancel()
 {
     QMutexLocker locker(&m_cancelMutex);
-    m_cancelled = true;
+    qDebug() << "EncryptionWorker: Cancellation requested";
+    m_cancelled.storeRelease(1);  // Set to true atomically
 }
 
 // ============================================================================
@@ -401,24 +415,33 @@ void EncryptionWorker::cancel()
 
 DecryptionWorker::DecryptionWorker(const QString& sourceFile, const QString& targetFile,
                                    const QByteArray& encryptionKey)
-    : m_sourceFile(sourceFile)
+    : QObject(nullptr)  // No parent - will be moved to thread
+    , m_sourceFile(sourceFile)
     , m_targetFile(targetFile)
     , m_encryptionKey(encryptionKey)
-    , m_cancelled(false)
-    , m_metadataManager(new EncryptedFileMetadata(encryptionKey, QString()))
+    , m_cancelled(0)  // 0 = false, 1 = true for atomic
+    , m_metadataManager(std::make_unique<EncryptedFileMetadata>(encryptionKey, QString()))
 {
+    qDebug() << "DecryptionWorker: Constructor - creating worker for decryption";
 }
 
 DecryptionWorker::~DecryptionWorker()
 {
-    if (m_metadataManager) {
-        delete m_metadataManager;
-        m_metadataManager = nullptr;
-    }
+    qDebug() << "DecryptionWorker: Destructor called";
+    // Cancel any ongoing operation
+    cancel();
+    // Smart pointer will automatically clean up m_metadataManager
 }
 
 void DecryptionWorker::doDecryption()
 {
+    qDebug() << "DecryptionWorker: doDecryption() started in thread" << QThread::currentThreadId();
+    
+    // Safety check - ensure we're not in the main thread
+    if (QThread::currentThread() == QApplication::instance()->thread()) {
+        qWarning() << "DecryptionWorker: WARNING - Running in main thread!";
+    }
+    
     try {
         QFile sourceFile(m_sourceFile);
         if (!sourceFile.open(QIODevice::ReadOnly)) {
@@ -462,7 +485,7 @@ void DecryptionWorker::doDecryption()
             // Check for cancellation
             {
                 QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled) {
+                if (m_cancelled.loadAcquire() != 0) {
                     targetFile.close();
                     QFile::remove(m_targetFile); // Clean up partial file
                     emit decryptionFinished(false, "Operation was cancelled");
@@ -524,8 +547,8 @@ void DecryptionWorker::doDecryption()
             int percentage = static_cast<int>((processedSize * 100) / totalSize);
             emit progressUpdated(percentage);
 
-            // Allow other threads to run
-            QCoreApplication::processEvents();
+            // Yield to other threads without using processEvents (which is dangerous in worker threads)
+            QThread::yieldCurrentThread();
         }
 
         sourceFile.close();
@@ -559,7 +582,8 @@ void DecryptionWorker::doDecryption()
 void DecryptionWorker::cancel()
 {
     QMutexLocker locker(&m_cancelMutex);
-    m_cancelled = true;
+    qDebug() << "DecryptionWorker: Cancellation requested";
+    m_cancelled.storeRelease(1);  // Set to true atomically
 }
 
 // ============================================================================
@@ -568,24 +592,33 @@ void DecryptionWorker::cancel()
 
 TempDecryptionWorker::TempDecryptionWorker(const QString& sourceFile, const QString& targetFile,
                                            const QByteArray& encryptionKey)
-    : m_sourceFile(sourceFile)
+    : QObject(nullptr)  // No parent - will be moved to thread
+    , m_sourceFile(sourceFile)
     , m_targetFile(targetFile)
     , m_encryptionKey(encryptionKey)
-    , m_cancelled(false)
-    , m_metadataManager(new EncryptedFileMetadata(encryptionKey, QString()))
+    , m_cancelled(0)  // 0 = false, 1 = true for atomic
+    , m_metadataManager(std::make_unique<EncryptedFileMetadata>(encryptionKey, QString()))
 {
+    qDebug() << "TempDecryptionWorker: Constructor - creating worker for temp decryption";
 }
 
 TempDecryptionWorker::~TempDecryptionWorker()
 {
-    if (m_metadataManager) {
-        delete m_metadataManager;
-        m_metadataManager = nullptr;
-    }
+    qDebug() << "TempDecryptionWorker: Destructor called";
+    // Cancel any ongoing operation
+    cancel();
+    // Smart pointer will automatically clean up m_metadataManager
 }
 
 void TempDecryptionWorker::doDecryption()
 {
+    qDebug() << "TempDecryptionWorker: doDecryption() started in thread" << QThread::currentThreadId();
+    
+    // Safety check - ensure we're not in the main thread
+    if (QThread::currentThread() == QApplication::instance()->thread()) {
+        qWarning() << "TempDecryptionWorker: WARNING - Running in main thread!";
+    }
+    
     try {
         QFile sourceFile(m_sourceFile);
         if (!sourceFile.open(QIODevice::ReadOnly)) {
@@ -629,7 +662,7 @@ void TempDecryptionWorker::doDecryption()
             // Check for cancellation
             {
                 QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled) {
+                if (m_cancelled.loadAcquire() != 0) {
                     targetFile.close();
                     QFile::remove(m_targetFile); // Clean up partial file
                     emit decryptionFinished(false, "Operation was cancelled");
@@ -691,8 +724,8 @@ void TempDecryptionWorker::doDecryption()
             int percentage = static_cast<int>((processedSize * 100) / totalSize);
             emit progressUpdated(percentage);
 
-            // Allow other threads to run
-            QCoreApplication::processEvents();
+            // Yield to other threads without using processEvents (which is dangerous in worker threads)
+            QThread::yieldCurrentThread();
         }
 
         sourceFile.close();
@@ -726,7 +759,8 @@ void TempDecryptionWorker::doDecryption()
 void TempDecryptionWorker::cancel()
 {
     QMutexLocker locker(&m_cancelMutex);
-    m_cancelled = true;
+    qDebug() << "TempDecryptionWorker: Cancellation requested";
+    m_cancelled.storeRelease(1);  // Set to true atomically
 }
 
 // ============================================================================
@@ -735,23 +769,32 @@ void TempDecryptionWorker::cancel()
 
 BatchDecryptionWorker::BatchDecryptionWorker(const QList<FileExportInfo>& fileInfos,
                                              const QByteArray& encryptionKey)
-    : m_fileInfos(fileInfos)
+    : QObject(nullptr)  // No parent - will be moved to thread
+    , m_fileInfos(fileInfos)
     , m_encryptionKey(encryptionKey)
-    , m_cancelled(false)
-    , m_metadataManager(new EncryptedFileMetadata(encryptionKey, QString()))
+    , m_cancelled(0)  // 0 = false, 1 = true for atomic
+    , m_metadataManager(std::make_unique<EncryptedFileMetadata>(encryptionKey, QString()))
 {
+    qDebug() << "BatchDecryptionWorker: Constructor - creating worker for" << fileInfos.size() << "files";
 }
 
 BatchDecryptionWorker::~BatchDecryptionWorker()
 {
-    if (m_metadataManager) {
-        delete m_metadataManager;
-        m_metadataManager = nullptr;
-    }
+    qDebug() << "BatchDecryptionWorker: Destructor called";
+    // Cancel any ongoing operation
+    cancel();
+    // Smart pointer will automatically clean up m_metadataManager
 }
 
 void BatchDecryptionWorker::doDecryption()
 {
+    qDebug() << "BatchDecryptionWorker: doDecryption() started in thread" << QThread::currentThreadId();
+    
+    // Safety check - ensure we're not in the main thread
+    if (QThread::currentThread() == QApplication::instance()->thread()) {
+        qWarning() << "BatchDecryptionWorker: WARNING - Running in main thread!";
+    }
+    
     try {
         if (m_fileInfos.isEmpty()) {
             emit batchDecryptionFinished(false, "No files to decrypt", QStringList(), QStringList());
@@ -772,7 +815,7 @@ void BatchDecryptionWorker::doDecryption()
             // Check for cancellation
             {
                 QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled) {
+                if (m_cancelled.loadAcquire() != 0) {
                     emit batchDecryptionFinished(false, "Operation was cancelled",
                                                  successfulFiles, failedFiles);
                     return;
@@ -870,7 +913,7 @@ bool BatchDecryptionWorker::decryptSingleFile(const FileExportInfo& fileInfo,
             // Check for cancellation
             {
                 QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled) {
+                if (m_cancelled.loadAcquire() != 0) {
                     targetFile.close();
                     QFile::remove(fileInfo.targetFile);
                     sourceFile.close();
@@ -937,8 +980,8 @@ bool BatchDecryptionWorker::decryptSingleFile(const FileExportInfo& fileInfo,
             int overallPercentage = static_cast<int>((totalProcessed * 100) / totalSize);
             emit overallProgressUpdated(overallPercentage);
 
-            // Allow other threads to run
-            QCoreApplication::processEvents();
+            // Yield to other threads without using processEvents (which is dangerous in worker threads)
+            QThread::yieldCurrentThread();
         }
 
         sourceFile.close();
@@ -969,7 +1012,8 @@ bool BatchDecryptionWorker::decryptSingleFile(const FileExportInfo& fileInfo,
 void BatchDecryptionWorker::cancel()
 {
     QMutexLocker locker(&m_cancelMutex);
-    m_cancelled = true;
+    qDebug() << "BatchDecryptionWorker: Cancellation requested";
+    m_cancelled.storeRelease(1);  // Set to true atomically
 }
 
 // ============================================================================
@@ -977,17 +1021,29 @@ void BatchDecryptionWorker::cancel()
 // ============================================================================
 
 SecureDeletionWorker::SecureDeletionWorker(const QList<DeletionItem>& items)
-    : m_items(items)
-    , m_cancelled(false)
+    : QObject(nullptr)  // No parent - will be moved to thread
+    , m_items(items)
+    , m_cancelled(0)  // 0 = false, 1 = true for atomic
 {
+    qDebug() << "SecureDeletionWorker: Constructor - creating worker for" << items.size() << "items";
 }
 
 SecureDeletionWorker::~SecureDeletionWorker()
 {
+    qDebug() << "SecureDeletionWorker: Destructor called";
+    // Cancel any ongoing operation
+    cancel();
 }
 
 void SecureDeletionWorker::doSecureDeletion()
 {
+    qDebug() << "SecureDeletionWorker: doSecureDeletion() started in thread" << QThread::currentThreadId();
+    
+    // Safety check - ensure we're not in the main thread
+    if (QThread::currentThread() == QApplication::instance()->thread()) {
+        qWarning() << "SecureDeletionWorker: WARNING - Running in main thread!";
+    }
+    
     try {
         DeletionResult result;
 
@@ -1008,7 +1064,7 @@ void SecureDeletionWorker::doSecureDeletion()
             // Check for cancellation
             {
                 QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled) {
+                if (m_cancelled.loadAcquire() != 0) {
                     result.failedItems.append(QString("Cancelled - %1").arg(item.displayName));
                     break;
                 }
@@ -1076,7 +1132,7 @@ bool SecureDeletionWorker::secureDeleteFolder(const QString& folderPath, int& pr
             // Check for cancellation
             {
                 QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled) {
+                if (m_cancelled.loadAcquire() != 0) {
                     return false;
                 }
             }
@@ -1092,8 +1148,8 @@ bool SecureDeletionWorker::secureDeleteFolder(const QString& folderPath, int& pr
             int percentage = (totalFiles > 0) ? static_cast<int>((processedFiles * 100) / totalFiles) : 100;
             emit progressUpdated(percentage);
 
-            // Allow other threads to run
-            QCoreApplication::processEvents();
+            // Yield to other threads without using processEvents (which is dangerous in worker threads)
+            QThread::yieldCurrentThread();
         }
 
         // Now delete the empty folder
@@ -1129,5 +1185,6 @@ QStringList SecureDeletionWorker::enumerateFilesInFolder(const QString& folderPa
 void SecureDeletionWorker::cancel()
 {
     QMutexLocker locker(&m_cancelMutex);
-    m_cancelled = true;
+    qDebug() << "SecureDeletionWorker: Cancellation requested";
+    m_cancelled.storeRelease(1);  // Set to true atomically
 }
