@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QDateTime>
 #include <QRandomGenerator>
+#include <cstring> // For secure memory operations
 
 DatabaseAuthManager::DatabaseAuthManager()
 {
@@ -557,31 +558,47 @@ bool DatabaseAuthManager::CreateUser(const QString& username, const QString& has
 {
     // Ensure database connection
     if (!isConnected() && !connect()) {
-        qDebug() << "Failed to connect to auth database for user creation";
+        qDebug() << "DatabaseAuthManager: Failed to connect to auth database for user creation";
         return false;
     }
 
     // Check if user already exists
     if (UserExists(username)) {
-        qDebug() << "User already exists:" << username;
+        qDebug() << "DatabaseAuthManager: User already exists:" << username;
         return false;
     }
 
     // Create backup before modification
     if (!createBackupBeforeWrite()) {
-        qWarning() << "Failed to create backup before user creation";
+        qWarning() << "DatabaseAuthManager: Failed to create backup before user creation";
         // Continue anyway - backup failure shouldn't prevent user creation
     }
+
+    // Create copies of sensitive data for database storage
+    QByteArray encryptionKeyCopy = encryptionKey;
+    QByteArray saltCopy = salt;
 
     // Prepare user data
     QMap<QString, QVariant> userData;
     userData[Constants::UserT_Index_Username] = username;
     userData[Constants::UserT_Index_Password] = hashedPassword;
-    userData[Constants::UserT_Index_EncryptionKey] = encryptionKey;
-    userData[Constants::UserT_Index_Salt] = salt;
+    userData[Constants::UserT_Index_EncryptionKey] = encryptionKeyCopy;
+    userData[Constants::UserT_Index_Salt] = saltCopy;
     userData[Constants::UserT_Index_Iterations] = "500000"; // Default iterations
 
-    return m_dbManager.insert("users", userData);
+    bool result = m_dbManager.insert("users", userData);
+    
+    // Clear the copies from memory (originals are cleared by caller)
+    if (!encryptionKeyCopy.isEmpty()) {
+        std::memset(encryptionKeyCopy.data(), 0, encryptionKeyCopy.size());
+        encryptionKeyCopy.clear();
+    }
+    if (!saltCopy.isEmpty()) {
+        std::memset(saltCopy.data(), 0, saltCopy.size());
+        saltCopy.clear();
+    }
+    
+    return result;
 }
 
 bool DatabaseAuthManager::UserExists(const QString& username)
@@ -846,6 +863,10 @@ bool DatabaseAuthManager::secureDeleteBackups()
                 }
                 
                 file.flush();
+                
+                // Clear random data buffer
+                std::memset(randomData.data(), 0, randomData.size());
+                randomData.clear();
             }
             
             file.close();
@@ -880,6 +901,10 @@ bool DatabaseAuthManager::secureDeleteBackups()
                 if (bytesWritten < 0) break;
                 written += bytesWritten;
             }
+            
+            // Clear random data buffer
+            std::memset(randomData.data(), 0, randomData.size());
+            randomData.clear();
             
             oldFile.close();
         }

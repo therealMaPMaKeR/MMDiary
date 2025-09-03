@@ -23,6 +23,7 @@
 #include "noncechecker.h"
 #include <QApplication>
 #include <QWindow>
+#include <cstring> // For secure memory operations
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -164,7 +165,17 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
-    qDebug() << "MainWindow: Destructor called";
+    qDebug() << "MainWindow: Destructor called - clearing sensitive data";
+    
+    // Securely clear the encryption key from memory
+    if (!user_Key.isEmpty()) {
+        std::memset(user_Key.data(), 0, user_Key.size());
+        user_Key.clear();
+    }
+    
+    // Clear username and other sensitive strings
+    user_Username.clear();
+    user_Displayname.clear();
     
     // Perform centralized cleanup
     cleanupPointers();
@@ -1082,8 +1093,9 @@ void MainWindow::showEvent(QShowEvent *event)
 
 void MainWindow::ReceiveDataLogin_Slot(QString username, QByteArray key) // receives the userName from the login window.
 {
+    qDebug() << "MainWindow: Receiving login data";
     user_Username = username;
-    user_Key = key;
+    user_Key = key;  // Store the key - will be cleared in destructor
     FinishInitialization(); // This function also sets the diaries directory since it is based off of the username, it also executes the diaryloader function.
     ApplySettings();
     
@@ -1515,6 +1527,14 @@ void MainWindow::UpdateTasklistTextSize()
 
 void MainWindow::on_pushButton_LogOut_clicked()
 {
+    qDebug() << "MainWindow: Log out initiated by user";
+    
+    // Clear sensitive data before logging out
+    if (!user_Key.isEmpty()) {
+        std::memset(user_Key.data(), 0, user_Key.size());
+        user_Key.clear();
+    }
+    
     loginscreen* w = new loginscreen(this->parentWidget());
     w->show();
     quitToLogin = true;

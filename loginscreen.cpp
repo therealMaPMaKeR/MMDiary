@@ -7,6 +7,7 @@
 #include "sqlite-database-auth.h"
 #include "constants.h"
 #include "settings_default_usersettings.h"
+#include <cstring> // For secure_zero_memory operations
 
 loginscreen::loginscreen(QWidget *parent)
     : QDialog(parent)
@@ -47,6 +48,30 @@ loginscreen::loginscreen(QWidget *parent)
 
 loginscreen::~loginscreen()
 {
+    qDebug() << "loginscreen: Destructor - Clearing sensitive data from memory";
+    
+    // Securely clear password field before deletion
+    if (ui && ui->lineEdit_Password) {
+        QString clearText = ui->lineEdit_Password->text();
+        if (!clearText.isEmpty()) {
+            // Overwrite the QString's internal buffer
+            QChar* data = clearText.data();
+            int len = clearText.length();
+            for (int i = 0; i < len; ++i) {
+                data[i] = QChar('\0');
+            }
+            clearText.clear();
+        }
+        ui->lineEdit_Password->clear();
+        ui->lineEdit_Password->setText(QString());
+    }
+    
+    // Clear username field
+    if (ui && ui->lineEdit_Username) {
+        ui->lineEdit_Username->clear();
+        ui->lineEdit_Username->setText(QString());
+    }
+    
     delete ui;
 }
 
@@ -111,8 +136,44 @@ void loginscreen::on_pushButton_Login_clicked()
         }
         else if(CryptoUtils::Hashing_CompareHash(db.GetUserData_String(ui->lineEdit_Username->text(),Constants::UserT_Index_Password), ui->lineEdit_Password->text())) // password is correct
         {
+            qDebug() << "loginscreen: Authentication successful, deriving encryption key";
+            
+            // Store password temporarily for key derivation
+            QString tempPassword = ui->lineEdit_Password->text();
+            
+            // Immediately clear the UI password field
+            ui->lineEdit_Password->clear();
+            ui->lineEdit_Password->setText(QString());
+            
             OperationsFiles::setUsername(ui->lineEdit_Username->text()); // set the username in OperationsFiles so that we may create temp files at the correct location
-            QByteArray encryptionKey = CryptoUtils::Encryption_DecryptBArray(CryptoUtils::Encryption_DeriveWithSalt(ui->lineEdit_Password->text(),db.GetUserData_ByteA(ui->lineEdit_Username->text(), Constants::UserT_Index_Salt)),db.GetUserData_ByteA(ui->lineEdit_Username->text(),Constants::UserT_Index_EncryptionKey));
+            
+            // Derive encryption key
+            QByteArray salt = db.GetUserData_ByteA(ui->lineEdit_Username->text(), Constants::UserT_Index_Salt);
+            QByteArray derivedKey = CryptoUtils::Encryption_DeriveWithSalt(tempPassword, salt);
+            QByteArray encryptedStoredKey = db.GetUserData_ByteA(ui->lineEdit_Username->text(), Constants::UserT_Index_EncryptionKey);
+            QByteArray encryptionKey = CryptoUtils::Encryption_DecryptBArray(derivedKey, encryptedStoredKey);
+            
+            // Securely clear temporary password from memory
+            QChar* pwData = tempPassword.data();
+            int pwLen = tempPassword.length();
+            for (int i = 0; i < pwLen; ++i) {
+                pwData[i] = QChar('\0');
+            }
+            tempPassword.clear();
+            
+            // Securely clear intermediate key materials
+            if (!derivedKey.isEmpty()) {
+                std::memset(derivedKey.data(), 0, derivedKey.size());
+                derivedKey.clear();
+            }
+            if (!salt.isEmpty()) {
+                std::memset(salt.data(), 0, salt.size());
+                salt.clear();
+            }
+            if (!encryptedStoredKey.isEmpty()) {
+                std::memset(encryptedStoredKey.data(), 0, encryptedStoredKey.size());
+                encryptedStoredKey.clear();
+            }
 
             // Check if we need to delete backups (after password change)
             qDebug() << "loginscreen: Checking for scheduled backup deletion";
@@ -123,6 +184,9 @@ void loginscreen::on_pushButton_Login_clicked()
             MainWindow *mw =  new MainWindow(this->parentWidget());
             connect(this, &loginscreen::passDataMW_Signal, mw, &MainWindow::ReceiveDataLogin_Slot);
             passDataMW_Signal(ui->lineEdit_Username->text(), encryptionKey);
+            
+            // Note: encryptionKey will be cleared by MainWindow after receiving it
+            
             mw->show();
             loggingIn = true;
             this->close();
@@ -159,33 +223,84 @@ void loginscreen::on_pushButton_NewAccount_clicked()
                 }
             }
 
+            // Store password temporarily for processing
+            QString tempPassword = ui->lineEdit_Password->text();
+            QString tempUsername = ui->lineEdit_Username->text();
+            
+            // Immediately clear the UI password field
+            ui->lineEdit_Password->clear();
+            ui->lineEdit_Password->setText(QString());
+            
             // Prepare user creation data
-            QString hashedPassword = CryptoUtils::Hashing_HashPassword(ui->lineEdit_Password->text());
+            QString hashedPassword = CryptoUtils::Hashing_HashPassword(tempPassword);
 
             QByteArray salt;
-            QByteArray derivedKeyWithSalt = CryptoUtils::Encryption_DeriveKey(ui->lineEdit_Password->text(), &salt);
+            QByteArray derivedKeyWithSalt = CryptoUtils::Encryption_DeriveKey(tempPassword, &salt);
             // Extract just the derivedKey part (remove the salt)
             QByteArray derivedKey = derivedKeyWithSalt.mid(salt.size());
             QByteArray encryptionKey = CryptoUtils::Encryption_GenerateKey(); // creates the encryption key
-            QByteArray encryptedKey = CryptoUtils::Encryption_EncryptBArray(derivedKey, encryptionKey, ui->lineEdit_Username->text());
+            QByteArray encryptedKey = CryptoUtils::Encryption_EncryptBArray(derivedKey, encryptionKey, tempUsername);
+            
+            // Securely clear temporary password from memory
+            QChar* pwData = tempPassword.data();
+            int pwLen = tempPassword.length();
+            for (int i = 0; i < pwLen; ++i) {
+                pwData[i] = QChar('\0');
+            }
+            tempPassword.clear();
+            
+            // Securely clear intermediate key materials after use
+            bool createSuccess = db.CreateUser(tempUsername, hashedPassword, encryptedKey, salt, tempUsername);
+            
+            // Clear sensitive intermediate data
+            if (!derivedKeyWithSalt.isEmpty()) {
+                std::memset(derivedKeyWithSalt.data(), 0, derivedKeyWithSalt.size());
+                derivedKeyWithSalt.clear();
+            }
+            if (!derivedKey.isEmpty()) {
+                std::memset(derivedKey.data(), 0, derivedKey.size());
+                derivedKey.clear();
+            }
+            if (!salt.isEmpty()) {
+                std::memset(salt.data(), 0, salt.size());
+                salt.clear();
+            }
+            if (!encryptedKey.isEmpty()) {
+                std::memset(encryptedKey.data(), 0, encryptedKey.size());
+                encryptedKey.clear();
+            }
 
             // Create user using the new CreateUser method
-            if (db.CreateUser(ui->lineEdit_Username->text(), hashedPassword, encryptedKey, salt, ui->lineEdit_Username->text())) {
-                qDebug() << "User created with ID:" << db.lastInsertId();
+            if (createSuccess) {
+                qDebug() << "loginscreen: User created with ID:" << db.lastInsertId();
 
-                if(!Default_UserSettings::SetAllDefaults(ui->lineEdit_Username->text(), encryptionKey)) // set user defaults
+                if(!Default_UserSettings::SetAllDefaults(tempUsername, encryptionKey)) // set user defaults
                 {
+                    // Clear encryption key before closing
+                    if (!encryptionKey.isEmpty()) {
+                        std::memset(encryptionKey.data(), 0, encryptionKey.size());
+                        encryptionKey.clear();
+                    }
                     this->close(); // if unable to do so, exit app
                 }
                 MainWindow *mw =  new MainWindow(this->parentWidget());
                 connect(this, &loginscreen::passDataMW_Signal, mw, &MainWindow::ReceiveDataLogin_Slot);
-                passDataMW_Signal(ui->lineEdit_Username->text(), encryptionKey);
+                passDataMW_Signal(tempUsername, encryptionKey);
+                
+                // Note: encryptionKey will be cleared by MainWindow after receiving it
+                
                 mw->show();
                 loggingIn = true;
                 this->close();
             } else {
-                qWarning() << "Failed to create user:" << db.lastError();
+                qWarning() << "loginscreen: Failed to create user:" << db.lastError();
                 ui->label_ErrorDisplay->setText("Failed to create user account.");
+                
+                // Clear encryption key on failure
+                if (!encryptionKey.isEmpty()) {
+                    std::memset(encryptionKey.data(), 0, encryptionKey.size());
+                    encryptionKey.clear();
+                }
             }
         }
         else // the user does exist

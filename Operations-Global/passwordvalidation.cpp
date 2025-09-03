@@ -5,8 +5,10 @@
 #include "sqlite-database-settings.h"
 #include <QMessageBox>
 #include "../constants.h"
+#include <cstring> // For secure memory operations
 
 QMap<QString, QDateTime> PasswordValidation::s_lastValidationTimes;
+const int MAX_GRACE_PERIOD_ENTRIES = 100; // Prevent unbounded growth
 
 PasswordValidation::PasswordValidation(QWidget *parent)
     : QDialog(parent)
@@ -28,6 +30,24 @@ PasswordValidation::PasswordValidation(QWidget *parent)
 
 PasswordValidation::~PasswordValidation()
 {
+    qDebug() << "PasswordValidation: Destructor - Clearing sensitive data";
+    
+    // Securely clear password field before deletion
+    if (ui && ui->lineEdit_Password) {
+        QString clearText = ui->lineEdit_Password->text();
+        if (!clearText.isEmpty()) {
+            // Overwrite the QString's internal buffer
+            QChar* data = clearText.data();
+            int len = clearText.length();
+            for (int i = 0; i < len; ++i) {
+                data[i] = QChar('\0');
+            }
+            clearText.clear();
+        }
+        ui->lineEdit_Password->clear();
+        ui->lineEdit_Password->setText(QString());
+    }
+    
     delete ui;
 }
 
@@ -93,8 +113,44 @@ bool PasswordValidation::isWithinGracePeriod(const QString& username, int graceP
 // NEW: Public static method to record successful validation
 void PasswordValidation::recordSuccessfulValidation(const QString& username)
 {
+    // Clean up old entries if map is getting too large
+    if (s_lastValidationTimes.size() >= MAX_GRACE_PERIOD_ENTRIES) {
+        qDebug() << "PasswordValidation: Grace period map size limit reached, cleaning old entries";
+        
+        // Remove entries older than 1 hour
+        QDateTime cutoffTime = QDateTime::currentDateTime().addSecs(-3600);
+        QMutableMapIterator<QString, QDateTime> it(s_lastValidationTimes);
+        while (it.hasNext()) {
+            it.next();
+            if (it.value() < cutoffTime) {
+                it.remove();
+            }
+        }
+        
+        // If still too many, keep only the most recent half
+        if (s_lastValidationTimes.size() >= MAX_GRACE_PERIOD_ENTRIES) {
+            QList<QPair<QString, QDateTime>> entries;
+            for (auto it = s_lastValidationTimes.begin(); it != s_lastValidationTimes.end(); ++it) {
+                entries.append(qMakePair(it.key(), it.value()));
+            }
+            
+            // Sort by time (newest first)
+            std::sort(entries.begin(), entries.end(),
+                     [](const QPair<QString, QDateTime>& a, const QPair<QString, QDateTime>& b) {
+                         return a.second > b.second;
+                     });
+            
+            // Keep only the newest half
+            s_lastValidationTimes.clear();
+            int keepCount = MAX_GRACE_PERIOD_ENTRIES / 2;
+            for (int i = 0; i < keepCount && i < entries.size(); ++i) {
+                s_lastValidationTimes[entries[i].first] = entries[i].second;
+            }
+        }
+    }
+    
     s_lastValidationTimes[username] = QDateTime::currentDateTime();
-    qDebug() << "Recorded successful password validation for user:" << username;
+    qDebug() << "PasswordValidation: Recorded successful password validation for user:" << username;
 }
 
 void PasswordValidation::clearGracePeriod(const QString& username)
@@ -119,6 +175,7 @@ void PasswordValidation::setOperationName(const QString& operationName)
 
 QString PasswordValidation::getPassword() const
 {
+    // Note: Caller is responsible for securely clearing the returned password
     return ui->lineEdit_Password->text();
 }
 
@@ -168,6 +225,14 @@ bool PasswordValidation::validatePasswordForOperation(QWidget* parent, const QSt
 
     // Ensure database connection
     if (!dbManager.isConnected()) {
+        // Clear password before returning
+        QChar* pwData = enteredPassword.data();
+        int pwLen = enteredPassword.length();
+        for (int i = 0; i < pwLen; ++i) {
+            pwData[i] = QChar('\0');
+        }
+        enteredPassword.clear();
+        
         QMessageBox::critical(parent, "Error", "Database connection failed.");
         return false;
     }
@@ -177,6 +242,14 @@ bool PasswordValidation::validatePasswordForOperation(QWidget* parent, const QSt
 
     // Validate the password
     bool isValid = CryptoUtils::Hashing_CompareHash(storedHash, enteredPassword);
+    
+    // Securely clear the entered password from memory
+    QChar* pwData = enteredPassword.data();
+    int pwLen = enteredPassword.length();
+    for (int i = 0; i < pwLen; ++i) {
+        pwData[i] = QChar('\0');
+    }
+    enteredPassword.clear();
 
     if (!isValid) {
         QMessageBox::critical(parent, "Invalid Password", "The password you entered is incorrect.");
@@ -221,6 +294,14 @@ bool PasswordValidation::validatePasswordWithCustomCancel(QWidget* parent, const
 
     // Ensure database connection
     if (!dbManager.isConnected()) {
+        // Clear password before returning
+        QChar* pwData = enteredPassword.data();
+        int pwLen = enteredPassword.length();
+        for (int i = 0; i < pwLen; ++i) {
+            pwData[i] = QChar('\0');
+        }
+        enteredPassword.clear();
+        
         QMessageBox::critical(parent, "Error", "Database connection failed.");
         return false;
     }
@@ -230,6 +311,14 @@ bool PasswordValidation::validatePasswordWithCustomCancel(QWidget* parent, const
 
     // Validate the password
     bool isValid = CryptoUtils::Hashing_CompareHash(storedHash, enteredPassword);
+    
+    // Securely clear the entered password from memory
+    QChar* pwData = enteredPassword.data();
+    int pwLen = enteredPassword.length();
+    for (int i = 0; i < pwLen; ++i) {
+        pwData[i] = QChar('\0');
+    }
+    enteredPassword.clear();
 
     if (!isValid) {
         QMessageBox::critical(parent, "Invalid Password", "The password you entered is incorrect.");
@@ -270,6 +359,14 @@ bool PasswordValidation::validatePasswordForOperation(QWidget* parent, const QSt
 
     // Ensure database connection
     if (!dbManager.isConnected()) {
+        // Clear password before returning
+        QChar* pwData = enteredPassword.data();
+        int pwLen = enteredPassword.length();
+        for (int i = 0; i < pwLen; ++i) {
+            pwData[i] = QChar('\0');
+        }
+        enteredPassword.clear();
+        
         QMessageBox::critical(parent, "Error", "Database connection failed.");
         return false;
     }
@@ -279,6 +376,14 @@ bool PasswordValidation::validatePasswordForOperation(QWidget* parent, const QSt
 
     // Validate the password
     bool isValid = CryptoUtils::Hashing_CompareHash(storedHash, enteredPassword);
+    
+    // Securely clear the entered password from memory
+    QChar* pwData = enteredPassword.data();
+    int pwLen = enteredPassword.length();
+    for (int i = 0; i < pwLen; ++i) {
+        pwData[i] = QChar('\0');
+    }
+    enteredPassword.clear();
 
     if (!isValid) {
         QMessageBox::critical(parent, "Invalid Password", "The password you entered is incorrect.");
@@ -321,6 +426,14 @@ bool PasswordValidation::validatePasswordWithCustomCancel(QWidget* parent, const
 
     // Ensure database connection
     if (!dbManager.isConnected()) {
+        // Clear password before returning
+        QChar* pwData = enteredPassword.data();
+        int pwLen = enteredPassword.length();
+        for (int i = 0; i < pwLen; ++i) {
+            pwData[i] = QChar('\0');
+        }
+        enteredPassword.clear();
+        
         QMessageBox::critical(parent, "Error", "Database connection failed.");
         return false;
     }
@@ -330,6 +443,14 @@ bool PasswordValidation::validatePasswordWithCustomCancel(QWidget* parent, const
 
     // Validate the password
     bool isValid = CryptoUtils::Hashing_CompareHash(storedHash, enteredPassword);
+    
+    // Securely clear the entered password from memory
+    QChar* pwData = enteredPassword.data();
+    int pwLen = enteredPassword.length();
+    for (int i = 0; i < pwLen; ++i) {
+        pwData[i] = QChar('\0');
+    }
+    enteredPassword.clear();
 
     if (!isValid) {
         QMessageBox::critical(parent, "Invalid Password", "The password you entered is incorrect.");
