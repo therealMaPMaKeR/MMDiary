@@ -354,7 +354,7 @@ void MainWindow::FinishInitialization()
         return;
     }
     
-    Operations_TaskLists_ptr = new Operations_TaskLists(this, Operations_Diary_ptr);
+    Operations_TaskLists_ptr = new Operations_TaskLists(this);
     if (!Operations_TaskLists_ptr) {
         qCritical() << "MainWindow: Failed to create Operations_TaskLists";
         this->close();
