@@ -39,11 +39,50 @@ void fileMessageHandler(QtMsgType type,
 }
 */
 
+#ifdef QT_DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <cstdlib>
+#include <crtdbg.h>
+// Redefine new so allocations track file + line
+#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#define new DEBUG_NEW
+#endif
+
+void enableLeakDetection()
+{
+#ifdef QT_DEBUG
+    // Enable debug heap tracking
+    int flags = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
+    flags |= _CRTDBG_ALLOC_MEM_DF;
+    flags |= _CRTDBG_LEAK_CHECK_DF;
+    _CrtSetDbgFlag(flags);
+
+    // Report to DebugView or debugger
+    _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
+
+    // Save a baseline memory state at startup
+    static _CrtMemState startupState;
+    _CrtMemCheckpoint(&startupState);
+
+    // Register an atexit handler to dump leaks (ignores Qt's allocations)
+    atexit([] {
+        _CrtMemState endState, diff;
+        _CrtMemCheckpoint(&endState);
+
+        if (_CrtMemDifference(&diff, &startupState, &endState))
+            _CrtMemDumpStatistics(&diff);
+    });
+#endif
+}
+
 // Define a single application ID
 #define APP_ID "MMDiary_SingleInstance"
 
 int main(int argc, char *argv[])
 {
+    enableLeakDetection();  // must be called before any allocations
     OPENSSL_init_ssl(0, NULL);
     QApplication a(argc, argv);
 

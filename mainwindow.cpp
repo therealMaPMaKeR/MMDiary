@@ -27,11 +27,25 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
+    , initFinished(false)
+    , quitToLogin(false)
 {
+    qDebug() << "MainWindow: Constructor started";
+    
     // Initialization
     ui->setupUi(this);
     this->setWindowTitle("MMDiary");
+    
+    // Ensure all pointers are initialized (redundant with header initialization, but explicit for safety)
     m_persistentSettingsManager = nullptr;
+    Operations_Diary_ptr = nullptr;
+    Operations_PasswordManager_ptr = nullptr;
+    Operations_TaskLists_ptr = nullptr;
+    Operations_Settings_ptr = nullptr;
+    Operations_EncryptedData_ptr = nullptr;
+    Operations_VP_Shows_ptr = nullptr;
+    trayIcon = nullptr;
+    trayMenu = nullptr;
     //set window sizes
     //this->setBaseSize(1280,573);
     //this->setMinimumWidth(800);
@@ -83,14 +97,16 @@ MainWindow::MainWindow(QWidget *parent)
         // Save persistent settings
         if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
             SavePersistentSettings();
-            m_persistentSettingsManager->close();
             qDebug() << "MainWindow: Saved persistent settings from system tray quit";
         }
         
         // Clean up and quit
         PasswordValidation::clearGracePeriod(user_Username);
         OperationsFiles::cleanupAllUserTempFolders();
-        Operations_Diary_ptr->DeleteEmptyCurrentDayDiary();
+        
+        if (Operations_Diary_ptr) {
+            Operations_Diary_ptr->DeleteEmptyCurrentDayDiary();
+        }
         
         // Clear sensitive data
         QByteArray ba(user_Key);
@@ -98,10 +114,7 @@ MainWindow::MainWindow(QWidget *parent)
         ba.fill('\0');          // overwrite all bytes
         ba.clear();             // reset size to 0
         
-        trayIcon->hide();
-        trayIcon->disconnect();
-        trayIcon->deleteLater();
-        
+        // Cleanup will be handled by destructor
         qApp->quit();
     });
 
@@ -113,8 +126,14 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(qApp, &QCoreApplication::aboutToQuit, [&]() {
-        // Your custom code here
-        Operations_Diary_ptr->DeleteEmptyCurrentDayDiary();
+        qDebug() << "MainWindow: aboutToQuit signal received";
+        
+        // Ensure Operations_Diary_ptr is valid before use
+        if (Operations_Diary_ptr) {
+            Operations_Diary_ptr->DeleteEmptyCurrentDayDiary();
+        }
+        
+        // Clear sensitive data
         QByteArray ba(user_Key);
         ba.detach();            // ensure unique buffer
         ba.fill('\0');          // overwrite all bytes
@@ -142,10 +161,89 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->checkBox_OpenOnSettings, &QCheckBox::stateChanged,
             this, &MainWindow::on_checkBox_OpenOnSettings_stateChanged);
 }
+
 MainWindow::~MainWindow()
 {
-    trayIcon->destroyed();
+    qDebug() << "MainWindow: Destructor called";
+    
+    // Perform centralized cleanup
+    cleanupPointers();
+    
+    // Delete UI last
     delete ui;
+    ui = nullptr;
+    
+    qDebug() << "MainWindow: Destructor completed";
+}
+
+void MainWindow::cleanupPointers()
+{
+    qDebug() << "MainWindow: Starting pointer cleanup";
+    
+    // Clean up tray icon and menu
+    if (trayIcon) {
+        // Always hide the tray icon first to ensure it's removed from system tray
+        if (trayIcon->isVisible()) {
+            trayIcon->hide();
+            qDebug() << "MainWindow: Tray icon hidden during cleanup";
+        }
+        trayIcon->disconnect();
+        if (trayIcon->parent() != this) {
+            // Only delete if not parented to this
+            delete trayIcon;
+        }
+        trayIcon = nullptr;
+    }
+    
+    if (trayMenu) {
+        trayMenu->disconnect();
+        if (trayMenu->parent() != this) {
+            // Only delete if not parented to this
+            delete trayMenu;
+        }
+        trayMenu = nullptr;
+    }
+    
+    // Clean up Operations pointers (they have 'this' as parent, so Qt will delete them)
+    // But we null them to prevent any use-after-free
+    if (Operations_Diary_ptr) {
+        Operations_Diary_ptr->disconnect();
+        Operations_Diary_ptr = nullptr;
+    }
+    
+    if (Operations_PasswordManager_ptr) {
+        Operations_PasswordManager_ptr->disconnect();
+        Operations_PasswordManager_ptr = nullptr;
+    }
+    
+    if (Operations_TaskLists_ptr) {
+        Operations_TaskLists_ptr->disconnect();
+        Operations_TaskLists_ptr = nullptr;
+    }
+    
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->disconnect();
+        Operations_Settings_ptr = nullptr;
+    }
+    
+    if (Operations_EncryptedData_ptr) {
+        Operations_EncryptedData_ptr->disconnect();
+        Operations_EncryptedData_ptr = nullptr;
+    }
+    
+    if (Operations_VP_Shows_ptr) {
+        Operations_VP_Shows_ptr->disconnect();
+        Operations_VP_Shows_ptr = nullptr;
+    }
+    
+    // Don't delete m_persistentSettingsManager as it's a singleton
+    // Just close connection if needed
+    if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
+        m_persistentSettingsManager->close();
+    }
+    m_persistentSettingsManager = nullptr;
+    
+    qDebug() << "MainWindow: Pointer cleanup completed";
 }
 
 
@@ -156,13 +254,15 @@ MainWindow::~MainWindow()
 void MainWindow::FinishInitialization()
 {
     initFinished = false;
+    
+    qDebug() << "MainWindow: Starting FinishInitialization";
 
     DatabaseAuthManager& authDb = DatabaseAuthManager::instance();
     DatabaseSettingsManager& settingsDb = DatabaseSettingsManager::instance();
 
     // Connect to the auth database
     if (!authDb.connect()) {
-        qCritical() << "Failed to connect to auth database:" << authDb.lastError();
+        qCritical() << "MainWindow: Failed to connect to auth database:" << authDb.lastError();
         return;
     }
 
@@ -170,7 +270,7 @@ void MainWindow::FinishInitialization()
     if(authDb.GetUserData_String(user_Username,Constants::UserT_Index_Username) == "ERROR" ||
         authDb.GetUserData_String(user_Username,Constants::UserT_Index_Username) == "INVALIDUSER")
     {
-        qDebug() << "ERROR ACCESSING USER DATA FROM DATABASE";
+        qDebug() << "MainWindow: ERROR ACCESSING USER DATA FROM DATABASE";
         this->close();
         return;
     }
@@ -199,14 +299,84 @@ void MainWindow::FinishInitialization()
     fontSize = settingsDb.GetSettingsData_String(Constants::SettingsT_Index_Diary_TextSize).toInt();
 
 
-    //Variables Init
+    //Variables Init - Create operations objects with null checks
+    qDebug() << "MainWindow: Creating Operations objects";
+    
+    // Delete any existing objects first (shouldn't happen, but defensive programming)
+    if (Operations_Diary_ptr) {
+        delete Operations_Diary_ptr;
+        Operations_Diary_ptr = nullptr;
+    }
+    if (Operations_PasswordManager_ptr) {
+        delete Operations_PasswordManager_ptr;
+        Operations_PasswordManager_ptr = nullptr;
+    }
+    if (Operations_TaskLists_ptr) {
+        delete Operations_TaskLists_ptr;
+        Operations_TaskLists_ptr = nullptr;
+    }
+    if (Operations_Settings_ptr) {
+        delete Operations_Settings_ptr;
+        Operations_Settings_ptr = nullptr;
+    }
+    if (Operations_EncryptedData_ptr) {
+        delete Operations_EncryptedData_ptr;
+        Operations_EncryptedData_ptr = nullptr;
+    }
+    if (Operations_VP_Shows_ptr) {
+        delete Operations_VP_Shows_ptr;
+        Operations_VP_Shows_ptr = nullptr;
+    }
+    
+    // Create new objects
     Operations_Diary_ptr = new Operations_Diary(this);
+    if (!Operations_Diary_ptr) {
+        qCritical() << "MainWindow: Failed to create Operations_Diary";
+        this->close();
+        return;
+    }
+    
     Operations_PasswordManager_ptr = new Operations_PasswordManager(this);
+    if (!Operations_PasswordManager_ptr) {
+        qCritical() << "MainWindow: Failed to create Operations_PasswordManager";
+        this->close();
+        return;
+    }
+    
     Operations_TaskLists_ptr = new Operations_TaskLists(this, Operations_Diary_ptr);
+    if (!Operations_TaskLists_ptr) {
+        qCritical() << "MainWindow: Failed to create Operations_TaskLists";
+        this->close();
+        return;
+    }
+    
     Operations_Settings_ptr = new Operations_Settings(this);
+    if (!Operations_Settings_ptr) {
+        qCritical() << "MainWindow: Failed to create Operations_Settings";
+        this->close();
+        return;
+    }
+    
     Operations_EncryptedData_ptr = new Operations_EncryptedData(this);
+    if (!Operations_EncryptedData_ptr) {
+        qCritical() << "MainWindow: Failed to create Operations_EncryptedData";
+        this->close();
+        return;
+    }
+    
     Operations_VP_Shows_ptr = new Operations_VP_Shows(this);
+    if (!Operations_VP_Shows_ptr) {
+        qCritical() << "MainWindow: Failed to create Operations_VP_Shows";
+        this->close();
+        return;
+    }
+    
     CombinedDelegate *delegate = new CombinedDelegate(this);
+    if (!delegate) {
+        qCritical() << "MainWindow: Failed to create CombinedDelegate";
+        this->close();
+        return;
+    }
 
     // Initialize persistent settings manager
     m_persistentSettingsManager = &DatabasePersistentSettingsManager::instance();
@@ -289,9 +459,12 @@ void MainWindow::FinishInitialization()
 void MainWindow::ApplySettings()
 {
     if(setting_Diary_CanEditRecent == true){ui->DiaryTextDisplay->setEditTriggers(QAbstractItemView::DoubleClicked);}else{ui->DiaryTextDisplay->setEditTriggers(QAbstractItemView::NoEditTriggers);} // set double click to edit if enabled
-    Operations_Diary_ptr->UpdateDisplayName();
-    Operations_Diary_ptr->UpdateDelegate();
-    Operations_Diary_ptr->DiaryLoader(); // reload diaries
+    
+    if (Operations_Diary_ptr) {
+        Operations_Diary_ptr->UpdateDisplayName();
+        Operations_Diary_ptr->UpdateDelegate();
+        Operations_Diary_ptr->DiaryLoader(); // reload diaries
+    }
 
     // Update password protection settings for tabs
     ui->tabWidget_Main->setRequirePasswordForTab("tab_Passwords", setting_PWMan_ReqPassword);
@@ -829,6 +1002,8 @@ void MainWindow::resizeEvent(QResizeEvent *event)
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    qDebug() << "MainWindow: closeEvent called, quitToLogin=" << quitToLogin << ", setting_MinToTray=" << setting_MinToTray;
+    
     if(quitToLogin == false && setting_MinToTray == true) // minimize to tray
     {
         // Hide immediately for responsive feel
@@ -844,40 +1019,52 @@ void MainWindow::closeEvent(QCloseEvent *event)
         if (isCurrentTabPasswordProtected()) {
             PasswordValidation::recordSuccessfulValidation(user_Username);
             qDebug() << "MainWindow: Renewed grace period for password-protected tab on minimize to tray";
-        } else {
-            // No need to do anything.
         }
 
         event->ignore(); // Ignore the close event to keep the app running
     }
     else if(quitToLogin == false && setting_MinToTray == false) // close app entirely
     {
+        qDebug() << "MainWindow: Closing app entirely";
         hide(); // first hide mainwindow so the user doesn't notice any delay
+        
+        // Clear grace period
         PasswordValidation::clearGracePeriod(user_Username);
+        
+        // Clean up temp folders
         OperationsFiles::cleanupAllUserTempFolders();
+        
         // Save persistent settings before closing
         if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
             SavePersistentSettings();
-            m_persistentSettingsManager->close();
         }
-        trayIcon->hide();
-        trayIcon->disconnect();
-        trayIcon->deleteLater();
+        
+        // Quit the application (destructor will handle cleanup)
         qApp->quit();
     }
     else if(quitToLogin == true) // log out
     {
+        qDebug() << "MainWindow: Logging out";
         hide(); // first hide mainwindow so the user doesn't notice any delay
+        
+        // Clear grace period
         PasswordValidation::clearGracePeriod(user_Username);
+        
+        // Clean up temp folders
         OperationsFiles::cleanupAllUserTempFolders();
+        
         // Save persistent settings before closing
         if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
             SavePersistentSettings();
-            m_persistentSettingsManager->close();
         }
-        trayIcon->hide();
-        trayIcon->disconnect();
-        trayIcon->deleteLater();
+        
+        // Hide and disconnect tray icon for logout (don't delete, destructor will handle that)
+        if (trayIcon) {
+            trayIcon->hide();
+            trayIcon->disconnect();
+            qDebug() << "MainWindow: Tray icon hidden for logout";
+        }
+        
         event->accept();
     }
 }
@@ -899,7 +1086,10 @@ void MainWindow::ReceiveDataLogin_Slot(QString username, QByteArray key) // rece
     user_Key = key;
     FinishInitialization(); // This function also sets the diaries directory since it is based off of the username, it also executes the diaryloader function.
     ApplySettings();
-    Operations_Diary_ptr->UpdateDelegate();
+    
+    if (Operations_Diary_ptr) {
+        Operations_Diary_ptr->UpdateDelegate();
+    }
 }
 
 void MainWindow::refreshEncryptedDataDisplay()
@@ -912,50 +1102,68 @@ void MainWindow::refreshEncryptedDataDisplay()
 //------------DIARY SIGNALS----------//
 void MainWindow::on_DiaryListYears_currentTextChanged(const QString &arg1)
 {
-    Operations_Diary_ptr->on_DiaryListYears_currentTextChanged(arg1);
+    if (Operations_Diary_ptr) {
+        Operations_Diary_ptr->on_DiaryListYears_currentTextChanged(arg1);
+    }
 }
 
 void MainWindow::on_DiaryListMonths_currentTextChanged(const QString &currentText)
 {
-    Operations_Diary_ptr->on_DiaryListMonths_currentTextChanged(currentText);
+    if (Operations_Diary_ptr) {
+        Operations_Diary_ptr->on_DiaryListMonths_currentTextChanged(currentText);
+    }
 }
 
 void MainWindow::on_DiaryListDays_currentTextChanged(const QString &currentText)
 {
-    Operations_Diary_ptr->on_DiaryListDays_currentTextChanged(currentText);
+    if (Operations_Diary_ptr) {
+        Operations_Diary_ptr->on_DiaryListDays_currentTextChanged(currentText);
+    }
 }
 
 void MainWindow::on_DiaryTextDisplay_itemChanged(QListWidgetItem *item)
 {
-    Operations_Diary_ptr->on_DiaryTextDisplay_itemChanged();
+    if (Operations_Diary_ptr) {
+        Operations_Diary_ptr->on_DiaryTextDisplay_itemChanged();
+    }
 }
 
 void MainWindow::on_DiaryTextDisplay_entered(const QModelIndex &index)
 {
-    Operations_Diary_ptr->on_DiaryTextDisplay_entered(index);
+    if (Operations_Diary_ptr) {
+        Operations_Diary_ptr->on_DiaryTextDisplay_entered(index);
+    }
 }
 
 void MainWindow::on_DiaryTextDisplay_clicked(const QModelIndex &index)
 {
-    Operations_Diary_ptr->on_DiaryTextDisplay_clicked();
+    if (Operations_Diary_ptr) {
+        Operations_Diary_ptr->on_DiaryTextDisplay_clicked();
+    }
 }
 
 //-----------------Password Manager Signals -----------------//
 void MainWindow::on_comboBox_PWSortBy_currentTextChanged(const QString &arg1)
 {
-    Operations_PasswordManager_ptr->on_SortByChanged(arg1);
+    if (Operations_PasswordManager_ptr) {
+        Operations_PasswordManager_ptr->on_SortByChanged(arg1);
+    }
 }
 
 
 void MainWindow::on_pushButton_PWAdd_clicked()
 {
-    Operations_PasswordManager_ptr->on_AddPasswordClicked();
+    if (Operations_PasswordManager_ptr) {
+        Operations_PasswordManager_ptr->on_AddPasswordClicked();
+    }
 }
 
 //-----------------Task Lists Signals -----------------//
 void MainWindow::on_pushButton_NewTaskList_clicked()
 {
-    Operations_TaskLists_ptr->CreateNewTaskList();
+    if (Operations_TaskLists_ptr) {
+        Operations_TaskLists_ptr->CreateNewTaskList();
+    }
 }
 
 
@@ -969,22 +1177,24 @@ void MainWindow::on_listWidget_TaskList_List_currentItemChanged(QListWidgetItem 
 
 void MainWindow::on_listWidget_TaskList_List_itemClicked(QListWidgetItem *item)
 {
+    if (!item || !Operations_TaskLists_ptr) return;
+    
     if(ui->listWidget_TaskListDisplay->count()-1 > -1) // if the listdisplay is populated.
     {
-    Operations_TaskLists_ptr->LoadIndividualTasklist(item->text(), ui->listWidget_TaskListDisplay->item(ui->listWidget_TaskListDisplay->count()-1)->text());
+        Operations_TaskLists_ptr->LoadIndividualTasklist(item->text(), ui->listWidget_TaskListDisplay->item(ui->listWidget_TaskListDisplay->count()-1)->text());
     }
     else
     {
-    Operations_TaskLists_ptr->LoadIndividualTasklist(item->text(), "NULL"); // if there is no item in the tasklistdisplay. used to fix bug that happens when deleting a task list.
+        Operations_TaskLists_ptr->LoadIndividualTasklist(item->text(), "NULL"); // if there is no item in the tasklistdisplay. used to fix bug that happens when deleting a task list.
     }
 }
 
 void MainWindow::on_listWidget_TaskListDisplay_itemClicked(QListWidgetItem *item)
 {
-    if(!item){return;}
+    if(!item || !Operations_TaskLists_ptr){return;}
     if(item->text() != "No tasks in this list")
     {
-    Operations_TaskLists_ptr->LoadTaskDetails(item->text());
+        Operations_TaskLists_ptr->LoadTaskDetails(item->text());
     }
 }
 
@@ -992,7 +1202,9 @@ void MainWindow::on_listWidget_TaskListDisplay_itemClicked(QListWidgetItem *item
 
 void MainWindow::on_pushButton_AddTask_clicked()
 {
-    Operations_TaskLists_ptr->ShowTaskMenu(false);
+    if (Operations_TaskLists_ptr) {
+        Operations_TaskLists_ptr->ShowTaskMenu(false);
+    }
 }
 
 
@@ -1000,57 +1212,79 @@ void MainWindow::on_pushButton_AddTask_clicked()
 
 void MainWindow::on_pushButton_Acc_Save_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SaveGlobal);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SaveGlobal);
+    }
 }
 
 void MainWindow::on_pushButton_Acc_Cancel_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelGlobal);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelGlobal);
+    }
 }
 
 void MainWindow::on_pushButton_Diary_Save_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SaveDiary);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SaveDiary);
+    }
 }
 
 void MainWindow::on_pushButton_Diary_Cancel_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelDiary);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelDiary);
+    }
 }
 
 void MainWindow::on_pushButton_Diary_RDefault_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_ResetDiary);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_ResetDiary);
+    }
 }
 
 void MainWindow::on_pushButton_TList_Save_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SaveTasklists);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SaveTasklists);
+    }
 }
 
 void MainWindow::on_pushButton_TList_Cancel_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelTasklists);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelTasklists);
+    }
 }
 
 void MainWindow::on_pushButton_TList_RDefault_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_ResetTasklists);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_ResetTasklists);
+    }
 }
 
 void MainWindow::on_pushButton_PWMan_Save_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SavePWManager);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SavePWManager);
+    }
 }
 
 void MainWindow::on_pushButton_PWMan_Cancel_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelPWManager);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelPWManager);
+    }
 }
 
 void MainWindow::on_pushButton_PWMan_RDefault_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_ResetPWManager);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_ResetPWManager);
+    }
 }
 
 //----Settings Value Changed Signals----//
@@ -1058,70 +1292,70 @@ void MainWindow::on_pushButton_PWMan_RDefault_clicked()
 //Global
 void MainWindow::on_lineEdit_DisplayName_textChanged(const QString &arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Global);
 }
 
 void MainWindow::on_comboBox_DisplayNameColor_currentTextChanged(const QString &arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Global);
 }
 
 void MainWindow::on_checkBox_MinToTray_stateChanged(int arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Global);
 }
 
 void MainWindow::on_checkBox_AskPW_stateChanged(int arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Global);
 }
 
 void MainWindow::on_spinBox_ReqPWDelay_valueChanged(int arg1)
 {
-    if (initFinished) {
+    if (initFinished && Operations_Settings_ptr) {
         Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Global);
     }
 }
 
 void MainWindow::on_checkBox_OpenOnSettings_stateChanged(int arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Global);
 }
 
 //Diary
 void MainWindow::on_spinBox_Diary_TextSize_valueChanged(int arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Diary);
 }
 
 void MainWindow::on_spinBox_Diary_TStampTimer_valueChanged(int arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Diary);
 }
 
 void MainWindow::on_spinBox_Diary_TStampReset_valueChanged(int arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Diary);
 }
 
 void MainWindow::on_checkBox_Diary_CanEditRecent_stateChanged(int arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Diary);
 }
 
 
 void MainWindow::on_checkBox_Diary_TManLogs_stateChanged(int arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Diary);
 }
 
@@ -1130,58 +1364,58 @@ void MainWindow::on_checkBox_Diary_TManLogs_stateChanged(int arg1)
 
 void MainWindow::on_comboBox_TList_TaskType_currentTextChanged(const QString &arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Tasklists);
 }
 
 void MainWindow::on_comboBox_TList_CMess_currentTextChanged(const QString &arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Tasklists);
 }
 
 void MainWindow::on_comboBox_TList_PMess_currentTextChanged(const QString &arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Tasklists);
 }
 
 void MainWindow::on_spinBox_TList_TextSize_valueChanged(int arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Tasklists);
 }
 
 void MainWindow::on_checkBox_TList_LogToDiary_stateChanged(int arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Tasklists);
 }
 
 
 void MainWindow::on_checkBox_TList_Notif_stateChanged(int arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Tasklists);
 }
 
 //Password Manager
 void MainWindow::on_comboBox_PWMan_SortBy_currentTextChanged(const QString &arg1)
 {
-    if(initFinished == false){return;}
+    if(initFinished == false || !Operations_Settings_ptr){return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_PWManager);
 }
 
 void MainWindow::on_checkBox_PWMan_HidePWS_stateChanged(int arg1)
 {
-    if (initFinished == false) {return;}
+    if (initFinished == false || !Operations_Settings_ptr) {return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_PWManager);
 
 }
 
 void MainWindow::on_checkBox_PWMan_ReqPW_stateChanged(int arg1)
 {
-    if (initFinished == false) {return;}
+    if (initFinished == false || !Operations_Settings_ptr) {return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_PWManager);
 }
 
@@ -1189,36 +1423,42 @@ void MainWindow::on_checkBox_PWMan_ReqPW_stateChanged(int arg1)
 
 void MainWindow::on_pushButton_DataENC_Save_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SaveEncryptedData);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SaveEncryptedData);
+    }
 }
 
 void MainWindow::on_pushButton_DataENC_Cancel_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelEncryptedData);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelEncryptedData);
+    }
 }
 
 void MainWindow::on_pushButton_DataENC_RDefault_clicked()
 {
-    Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_ResetEncryptedData);
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_ResetEncryptedData);
+    }
 }
 
 void MainWindow::on_checkBox_DataENC_ReqPW_stateChanged(int arg1)
 {
     Q_UNUSED(arg1)
-    if (initFinished == false) {return;}
+    if (initFinished == false || !Operations_Settings_ptr) {return;}
     Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData);
 }
 
 void MainWindow::on_checkBox_DataENC_HideThumbnails_Image_stateChanged(int arg1)
 {
-    if (initFinished) {
+    if (initFinished && Operations_Settings_ptr) {
         Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData);
     }
 }
 
 void MainWindow::on_checkBox_DataENC_HideThumbnails_Video_stateChanged(int arg1)
 {
-    if (initFinished) {
+    if (initFinished && Operations_Settings_ptr) {
         Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData);
     }
 }
@@ -1226,7 +1466,9 @@ void MainWindow::on_checkBox_DataENC_HideThumbnails_Video_stateChanged(int arg1)
 //---------- Encrypted Data Feature ----------//
 void MainWindow::on_pushButton_DataENC_Encrypt_clicked()
 {
-    Operations_EncryptedData_ptr->encryptSelectedFile();
+    if (Operations_EncryptedData_ptr) {
+        Operations_EncryptedData_ptr->encryptSelectedFile();
+    }
 }
 
 void MainWindow::on_pushButton_NonceCheck_clicked()
@@ -1235,17 +1477,23 @@ void MainWindow::on_pushButton_NonceCheck_clicked()
     
     // Create nonce checker instance and perform check
     NonceChecker* checker = new NonceChecker(this);
-    checker->performCheck();
-    
-    // The checker will delete itself when done
-    connect(checker, &QObject::destroyed, [](){ 
-        qDebug() << "MainWindow: NonceChecker cleaned up"; 
-    });
+    if (checker) {
+        checker->performCheck();
+        
+        // The checker will delete itself when done
+        connect(checker, &QObject::destroyed, [](){ 
+            qDebug() << "MainWindow: NonceChecker cleaned up"; 
+        });
+    } else {
+        qDebug() << "MainWindow: Failed to create NonceChecker";
+    }
 }
 
 void MainWindow::on_pushButton_DataENC_SecureDel_clicked()
 {
-    Operations_EncryptedData_ptr->secureDeleteExternalItems();
+    if (Operations_EncryptedData_ptr) {
+        Operations_EncryptedData_ptr->secureDeleteExternalItems();
+    }
 }
 
 //------Video Player Debug Button-----//
@@ -1258,7 +1506,9 @@ void MainWindow::on_pushButton_Debug_clicked()
 
 void MainWindow::UpdateTasklistTextSize()
 {
-    Operations_TaskLists_ptr->UpdateTasklistsTextSize(setting_TLists_TextSize);
+    if (Operations_TaskLists_ptr) {
+        Operations_TaskLists_ptr->UpdateTasklistsTextSize(setting_TLists_TextSize);
+    }
 }
 
 //----App Buttons---//
@@ -1284,22 +1534,24 @@ void MainWindow::on_pushButton_CloseApp_clicked()
     
     // Check if minimize to tray is enabled
     if (setting_MinToTray == true) {
+        qDebug() << "MainWindow: Closing with tray icon enabled";
+        
         // Hide window immediately for responsive feel
         hide();
-        
-        // When minimize to tray is enabled, we need to save settings and clean up properly
         
         // Save persistent settings
         if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
             SavePersistentSettings();
-            m_persistentSettingsManager->close();
             qDebug() << "MainWindow: Saved persistent settings from Close App button";
         }
         
         // Clean up
         PasswordValidation::clearGracePeriod(user_Username);
         OperationsFiles::cleanupAllUserTempFolders();
-        Operations_Diary_ptr->DeleteEmptyCurrentDayDiary();
+        
+        if (Operations_Diary_ptr) {
+            Operations_Diary_ptr->DeleteEmptyCurrentDayDiary();
+        }
         
         // Clear sensitive data
         QByteArray ba(user_Key);
@@ -1307,10 +1559,7 @@ void MainWindow::on_pushButton_CloseApp_clicked()
         ba.fill('\0');          // overwrite all bytes
         ba.clear();             // reset size to 0
         
-        trayIcon->hide();
-        trayIcon->disconnect();
-        trayIcon->deleteLater();
-        
+        // Quit (destructor will handle cleanup)
         qApp->quit();
     } else {
         // When minimize to tray is disabled, the normal closeEvent will handle everything
@@ -1333,7 +1582,7 @@ void MainWindow::onTabChanged(int index)
     // Find the Password Manager tab dynamically instead of using hardcoded index
     int passwordTabIndex = Operations::GetTabIndexByObjectName("tab_Passwords", ui->tabWidget_Main);
 
-    if (passwordTabIndex != -1 && index == passwordTabIndex) {
+    if (passwordTabIndex != -1 && index == passwordTabIndex && Operations_PasswordManager_ptr) {
         // Update password masking state when switching to Password Manager tab
         Operations_PasswordManager_ptr->UpdatePasswordMasking();
     }
@@ -1381,7 +1630,10 @@ void MainWindow::onPasswordValidationRequested(int targetTabIndex, int currentIn
 void MainWindow::onUnsavedChangesCheckRequested(int targetTabIndex, int currentIndex)
 {
     // Check for unsaved settings changes
-    bool canProceed = Operations_Settings_ptr->handleUnsavedChanges(Constants::DBSettings_Type_ALL, targetTabIndex);
+    bool canProceed = true;
+    if (Operations_Settings_ptr) {
+        canProceed = Operations_Settings_ptr->handleUnsavedChanges(Constants::DBSettings_Type_ALL, targetTabIndex);
+    }
 
     if (canProceed) {
         // Get tab indices dynamically

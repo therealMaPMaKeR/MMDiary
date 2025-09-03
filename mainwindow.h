@@ -164,14 +164,14 @@ private:
     bool setting_DataENC_Hide_Tags = false;
 
     //Member Classes
-    Operations_Diary* Operations_Diary_ptr;
-    Operations_PasswordManager* Operations_PasswordManager_ptr;
-    Operations_TaskLists* Operations_TaskLists_ptr;
-    Operations_Settings* Operations_Settings_ptr;
-    Operations_EncryptedData* Operations_EncryptedData_ptr;
-    Operations_VP_Shows* Operations_VP_Shows_ptr;
+    Operations_Diary* Operations_Diary_ptr = nullptr;
+    Operations_PasswordManager* Operations_PasswordManager_ptr = nullptr;
+    Operations_TaskLists* Operations_TaskLists_ptr = nullptr;
+    Operations_Settings* Operations_Settings_ptr = nullptr;
+    Operations_EncryptedData* Operations_EncryptedData_ptr = nullptr;
+    Operations_VP_Shows* Operations_VP_Shows_ptr = nullptr;
 
-    DatabasePersistentSettingsManager* m_persistentSettingsManager;
+    DatabasePersistentSettingsManager* m_persistentSettingsManager = nullptr;
 
     // NEW: Helper method to check if current tab requires password protection
     bool isCurrentTabPasswordProtected() const;
@@ -284,9 +284,10 @@ private slots:
 
 private:
     void UpdateTasklistTextSize();
-    QSystemTrayIcon *trayIcon;
-    QMenu *trayMenu;
+    QSystemTrayIcon *trayIcon = nullptr;
+    QMenu *trayMenu = nullptr;
     void LoadPersistentSettings();
     void SavePersistentSettings();
+    void cleanupPointers();  // Centralized cleanup method
 };
 #endif // MAINWINDOW_H

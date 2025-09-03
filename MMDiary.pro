@@ -15,7 +15,13 @@ greaterThan(QT_MAJOR_VERSION, 5) {
 }
 
 CONFIG += c++17
-
+#Enable Address sanitizer in debug build
+CONFIG(debug, debug|release) {
+win32 {
+    QMAKE_CXXFLAGS += /fsanitize=address
+    QMAKE_LFLAGS += /fsanitize=address
+}
+}
 # Add include paths for project directories
 INCLUDEPATH += $$PWD \
                $$PWD/CustomWidgets \
