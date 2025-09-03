@@ -61,10 +61,20 @@ Operations_Diary::~Operations_Diary()
 QList<QListWidgetItem*> Operations_Diary::getTextDisplayItems()
 {
     QList<QListWidgetItem*> items;
+    
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->DiaryTextDisplay) {
+        qWarning() << "Operations_Diary: getTextDisplayItems called with invalid m_mainWindow or UI";
+        return items; // Return empty list
+    }
+    
     int count = m_mainWindow->ui->DiaryTextDisplay->count();
     for(int i=0;i<count;i++)
     {
-        items.append(m_mainWindow->ui->DiaryTextDisplay->item(i));
+        QListWidgetItem* item = m_mainWindow->ui->DiaryTextDisplay->item(i);
+        if (item) {  // Only add non-null items
+            items.append(item);
+        }
     }
     return items;
 }
@@ -405,6 +415,15 @@ void Operations_Diary::AddNewEntryToDisplay()
 
 void Operations_Diary::InputNewEntry(QString DiaryFileName)
 {
+    // Mutex protection for thread safety
+    QMutexLocker locker(&m_diaryModificationMutex);
+    
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->DiaryTextDisplay || !m_mainWindow->ui->DiaryTextInput) {
+        qCritical() << "Operations_Diary: InputNewEntry called with invalid m_mainWindow or UI";
+        return;
+    }
+    
     // Validate the diary file name
     InputValidation::ValidationResult fileResult =
         InputValidation::validateInput(DiaryFileName, InputValidation::InputType::FilePath);
@@ -1618,13 +1637,30 @@ void Operations_Diary::CreateNewDiary()
 void Operations_Diary::DeleteEntry()
 {
     qDebug() << "=== DeleteEntry called ===";
+    
+    // Mutex protection for thread safety
+    QMutexLocker locker(&m_diaryModificationMutex);
+    
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->DiaryTextDisplay) {
+        qCritical() << "Operations_Diary: DeleteEntry called with invalid m_mainWindow or UI";
+        return;
+    }
 
     QList<QListWidgetItem*> items = getTextDisplayItems();
-    if(items.length() > 0 && m_mainWindow->ui->DiaryTextDisplay->currentRow() > 0) {
-        QListWidgetItem* currentItem = m_mainWindow->ui->DiaryTextDisplay->item(m_mainWindow->ui->DiaryTextDisplay->currentRow());
+    int currentRow = m_mainWindow->ui->DiaryTextDisplay->currentRow();
+    
+    if(items.length() > 0 && currentRow > 0) {
+        QListWidgetItem* currentItem = m_mainWindow->ui->DiaryTextDisplay->item(currentRow);
+        
+        // Null check for currentItem
+        if (!currentItem) {
+            qWarning() << "Operations_Diary: DeleteEntry - No item at row" << currentRow;
+            return;
+        }
 
-        qDebug() << "Current row:" << m_mainWindow->ui->DiaryTextDisplay->currentRow();
-        qDebug() << "Current item text:" << (currentItem ? currentItem->text() : "NULL");
+        qDebug() << "Current row:" << currentRow;
+        qDebug() << "Current item text:" << currentItem->text();
 
         // Check if this is an image item and delete associated files
         if (currentItem && currentItem->data(Qt::UserRole+3).toBool()) {
@@ -1982,7 +2018,19 @@ void Operations_Diary::DiaryLoader()
 
 void Operations_Diary::OpenEditor() // Open the entry editor
 {
-    m_mainWindow->ui->DiaryTextDisplay->editItem(m_mainWindow->ui->DiaryTextDisplay->currentItem()); // open text editor
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->DiaryTextDisplay) {
+        qCritical() << "Operations_Diary: OpenEditor called with invalid m_mainWindow or UI";
+        return;
+    }
+    
+    QListWidgetItem* currentItem = m_mainWindow->ui->DiaryTextDisplay->currentItem();
+    if (!currentItem) {
+        qWarning() << "Operations_Diary: OpenEditor - No current item to edit";
+        return;
+    }
+    
+    m_mainWindow->ui->DiaryTextDisplay->editItem(currentItem); // open text editor
 }
 
 void Operations_Diary::DeleteDiaryFromListDays()
@@ -2019,14 +2067,40 @@ void Operations_Diary::DeleteDiaryFromListDays()
 
 void Operations_Diary::CopyToClipboard()
 {
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->DiaryTextDisplay) {
+        qCritical() << "Operations_Diary: CopyToClipboard called with invalid m_mainWindow or UI";
+        return;
+    }
+    
+    QListWidgetItem* currentItem = m_mainWindow->ui->DiaryTextDisplay->currentItem();
+    if (!currentItem) {
+        qWarning() << "Operations_Diary: CopyToClipboard - No current item to copy";
+        return;
+    }
+    
     QClipboard *clipboard = QGuiApplication::clipboard();
-    clipboard->setText(m_mainWindow->ui->DiaryTextDisplay->currentItem()->text());
+    if (clipboard) {
+        clipboard->setText(currentItem->text());
+    }
 }
 
 void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
 {
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->DiaryTextDisplay) {
+        qCritical() << "Operations_Diary: showContextMenu_TextDisplay called with invalid m_mainWindow or UI";
+        return;
+    }
+    
     if(!m_mainWindow->ui->DiaryTextDisplay->selectedItems().isEmpty()) {
         QListWidgetItem* selectedItem = m_mainWindow->ui->DiaryTextDisplay->selectedItems().first();
+        
+        // Null check for selectedItem
+        if (!selectedItem) {
+            qWarning() << "Operations_Diary: showContextMenu_TextDisplay - No selected item";
+            return;
+        }
 
         // Store the context menu position for click detection
         m_lastContextMenuPos = pos;
@@ -2118,6 +2192,12 @@ void Operations_Diary::showContextMenu_TextDisplay(const QPoint &pos)
 
 void Operations_Diary::showContextMenu_ListDays(const QPoint &pos)
 {
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->DiaryListDays) {
+        qCritical() << "Operations_Diary: showContextMenu_ListDays called with invalid m_mainWindow or UI";
+        return;
+    }
+    
     if(!m_mainWindow->ui->DiaryListDays->selectedItems().isEmpty()) // if we requested a context menu and we currently have an item selected
     {
         //Initialize context menu
@@ -2141,29 +2221,63 @@ void Operations_Diary::showContextMenu_ListDays(const QPoint &pos)
 
 void Operations_Diary::UpdateDelegate()
 {
+    // Safety check for m_mainWindow
+    if (!m_mainWindow) {
+        qCritical() << "Operations_Diary: UpdateDelegate called with null m_mainWindow";
+        return;
+    }
+    
+    // Store old delegate to prevent memory leak
+    QAbstractItemDelegate* oldDelegate = m_mainWindow->ui->DiaryTextDisplay->itemDelegate();
+    
     CombinedDelegate *delegate = new CombinedDelegate(m_mainWindow);
     connect(delegate, &CombinedDelegate::TextModificationsMade, m_mainWindow->ui->DiaryTextDisplay, &qlist_DiaryTextDisplay::TextWasEdited);
     delegate->setColorLength(m_mainWindow->user_Displayname.length());  // Color first 5 characters
     delegate->setTextColor(QColor(m_mainWindow->user_nameColor));  // Use red color for the text
     m_mainWindow->ui->DiaryTextDisplay->setItemDelegate(delegate);
+    
+    // Delete old delegate if it exists and was created by us (has m_mainWindow as parent)
+    if (oldDelegate && oldDelegate->parent() == m_mainWindow) {
+        oldDelegate->deleteLater();
+    }
 }
 
 void Operations_Diary::ScrollBottom()
 {
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->DiaryTextDisplay) {
+        qCritical() << "Operations_Diary: ScrollBottom called with invalid m_mainWindow or UI";
+        return;
+    }
+    
     m_mainWindow->ui->DiaryTextDisplay->scrollToBottom();
 }
 
 void Operations_Diary::UpdateDisplayName()
 {
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->DiaryTextDisplay) {
+        qCritical() << "Operations_Diary: UpdateDisplayName called with invalid m_mainWindow or UI";
+        return;
+    }
+    
     QList<QListWidgetItem*>  templist = m_mainWindow->ui->DiaryTextDisplay->findItems(Constants::Diary_TimeStampStart, Qt::MatchStartsWith); // get a list of all timestamp locations
     if(!templist.isEmpty()) //if templist is not empty, otherwise the software would crash by returning an invalid index
     {
         foreach(QListWidgetItem *item, templist) // for each timestamp
         {
-            if(m_mainWindow->ui->DiaryTextDisplay->item(m_mainWindow->ui->DiaryTextDisplay->row(item)+1)->text().section(" at ",0,0) != m_mainWindow->user_Displayname) // if the display name of current time stamp isnt the same as the current display name
+            if (!item) continue; // Skip null items
+            
+            int nextRow = m_mainWindow->ui->DiaryTextDisplay->row(item) + 1;
+            if (nextRow >= m_mainWindow->ui->DiaryTextDisplay->count()) continue; // Bounds check
+            
+            QListWidgetItem* nextItem = m_mainWindow->ui->DiaryTextDisplay->item(nextRow);
+            if (!nextItem) continue; // Null check
+            
+            if(nextItem->text().section(" at ",0,0) != m_mainWindow->user_Displayname) // if the display name of current time stamp isnt the same as the current display name
             {
-                QString timestamp_Time = m_mainWindow->ui->DiaryTextDisplay->item(m_mainWindow->ui->DiaryTextDisplay->row(item)+1)->text().section(" at ",1,1); // save the timestamp minus the display name and " at "
-                m_mainWindow->ui->DiaryTextDisplay->item(m_mainWindow->ui->DiaryTextDisplay->row(item)+1)->setText(m_mainWindow->user_Displayname + " at " + timestamp_Time); // set text to new display name + " at " + saved timestamp
+                QString timestamp_Time = nextItem->text().section(" at ",1,1); // save the timestamp minus the display name and " at "
+                nextItem->setText(m_mainWindow->user_Displayname + " at " + timestamp_Time); // set text to new display name + " at " + saved timestamp
             }
         }
     }
@@ -2171,6 +2285,12 @@ void Operations_Diary::UpdateDisplayName()
 
 void Operations_Diary::remove_EmptyTimestamps(bool previousDiary)
 {
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->DiaryTextDisplay) {
+        qCritical() << "Operations_Diary: remove_EmptyTimestamps called with invalid m_mainWindow or UI";
+        return;
+    }
+    
     QDateTime date = QDateTime::currentDateTime(); // Get date and time
     QString formattedTime = date.toString("yyyy.MM.dd"); // Format approprietly
     currentdiary_DateStamp = GetDiaryDateStamp(formattedTime);
@@ -3855,75 +3975,6 @@ int Operations_Diary::calculateClickedImageIndex(QListWidgetItem* item, const QP
 
 // ----  SLOTS implementation ----- //
 
-void Operations_Diary::on_DiaryTextInput_returnPressed()
-{
-    QDateTime date = QDateTime::currentDateTime(); // Get date and time
-    QString formattedTime = date.toString("yyyy.MM.dd"); // Format approprietly
-    QString todayDiaryPath = getDiaryFilePath(formattedTime); //Get the name of today's diary file.
-
-    // Validate the diary input text
-    QString diaryText = m_mainWindow->ui->DiaryTextInput->toPlainText();
-    InputValidation::ValidationResult contentResult =
-        InputValidation::validateInput(diaryText, InputValidation::InputType::DiaryContent, 10000);
-
-    if (!contentResult.isValid) {
-        QMessageBox::warning(m_mainWindow, "Invalid Diary Content",
-                             contentResult.errorMessage + "\nPlease edit your entry.");
-        return;
-    }
-
-    //Add new entry to diary
-    if(!diaryText.isEmpty()) //if the text input isnt empty
-    {
-        if (current_DiaryFileName == todayDiaryPath) // if todays diary is currently loaded
-        {
-            InputNewEntry(current_DiaryFileName); // add text to todays diary
-            // Select the newly added entry (the next-to-last item, since the last is the spacer)
-            QList<QListWidgetItem*> items = getTextDisplayItems();
-            if (items.length() > 1) {
-                m_mainWindow->ui->DiaryTextDisplay->setCurrentItem(items.at(items.length() - 2));
-            }
-        }
-        else if (!QFileInfo::exists(todayDiaryPath)) // else if todays diary isn't currently loaded and does not exist
-        {
-            current_DiaryFileName = todayDiaryPath;
-            CreateNewDiary();
-            cur_entriesNoSpacer = 100000; //set to absurb value to make sure a spacer/timestamp is added.
-            InputNewEntry(current_DiaryFileName);
-        }
-        else //else if todays diary isnt currently loaded but does exist
-        {
-            // Force set current_DiaryFileName to today's diary
-            current_DiaryFileName = todayDiaryPath;
-
-            // Properly select today's year, month, and day in the UI
-            m_mainWindow->ui->DiaryListYears->setCurrentIndex(m_mainWindow->ui->DiaryListYears->findText(formattedTime.section('.',0,0), Qt::MatchExactly));
-
-            // Find today's month by exact match, not wildcard
-            QList<QListWidgetItem*> monthItems = m_mainWindow->ui->DiaryListMonths->findItems(
-                Operations::ConvertMonthtoText(formattedTime.section('.',1,1)),
-                Qt::MatchContains);
-
-            if (!monthItems.isEmpty()) {
-                m_mainWindow->ui->DiaryListMonths->setCurrentItem(monthItems.at(0));
-            }
-
-            // Find today's day by exact match, not wildcard
-            QList<QListWidgetItem*> dayItems = m_mainWindow->ui->DiaryListDays->findItems(
-                formattedTime.section('.',2,2),
-                Qt::MatchContains);
-
-            if (!dayItems.isEmpty()) {
-                m_mainWindow->ui->DiaryListDays->setCurrentItem(dayItems.at(0));
-            }
-
-            // Add entry to today's diary
-            InputNewEntry(current_DiaryFileName);
-        }
-    }
-    // as for preventing the user from typing in an older diary, this is handled in on_DiaryListDays_currentTextChanged().
-}
-
 void Operations_Diary::on_DiaryListYears_currentTextChanged(const QString &arg1)
 {
     currentdiary_Year = arg1; // Sets the value of the currently selected year
@@ -4141,6 +4192,12 @@ void Operations_Diary::on_DiaryTextDisplay_entered(const QModelIndex &index)
 
 void Operations_Diary::on_DiaryTextDisplay_clicked()
 {
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->DiaryTextDisplay) {
+        qCritical() << "Operations_Diary: on_DiaryTextDisplay_clicked called with invalid m_mainWindow or UI";
+        return;
+    }
+    
     QListWidgetItem* currentItem = m_mainWindow->ui->DiaryTextDisplay->currentItem();
 
     if (currentItem) {
@@ -4166,6 +4223,81 @@ void Operations_Diary::on_DiaryTextDisplay_clicked()
 
     // For non-image items, keep the original behavior
     m_mainWindow->ui->DiaryTextInput->setFocus();
+}
+
+void Operations_Diary::on_DiaryTextInput_returnPressed()
+{
+    // Safety check for m_mainWindow
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->DiaryTextInput || !m_mainWindow->ui->DiaryTextDisplay) {
+        qCritical() << "Operations_Diary: on_DiaryTextInput_returnPressed called with invalid m_mainWindow or UI";
+        return;
+    }
+    
+    QDateTime date = QDateTime::currentDateTime(); // Get date and time
+    QString formattedTime = date.toString("yyyy.MM.dd"); // Format approprietly
+    QString todayDiaryPath = getDiaryFilePath(formattedTime); //Get the name of today's diary file.
+    
+    // Validate the diary input text
+    QString diaryText = m_mainWindow->ui->DiaryTextInput->toPlainText();
+    InputValidation::ValidationResult contentResult =
+        InputValidation::validateInput(diaryText, InputValidation::InputType::DiaryContent, 10000);
+    
+    if (!contentResult.isValid) {
+        QMessageBox::warning(m_mainWindow, "Invalid Diary Content",
+                             contentResult.errorMessage + "\nPlease edit your entry.");
+        return;
+    }
+    
+    //Add new entry to diary
+    if(!diaryText.isEmpty()) //if the text input isnt empty
+    {
+        if (current_DiaryFileName == todayDiaryPath) // if todays diary is currently loaded
+        {
+            InputNewEntry(current_DiaryFileName); // add text to todays diary
+            // Select the newly added entry (the next-to-last item, since the last is the spacer)
+            QList<QListWidgetItem*> items = getTextDisplayItems();
+            if (items.length() > 1) {
+                m_mainWindow->ui->DiaryTextDisplay->setCurrentItem(items.at(items.length() - 2));
+            }
+        }
+        else if (!QFileInfo::exists(todayDiaryPath)) // else if todays diary isn't currently loaded and does not exist
+        {
+            current_DiaryFileName = todayDiaryPath;
+            CreateNewDiary();
+            cur_entriesNoSpacer = 100000; //set to absurb value to make sure a spacer/timestamp is added.
+            InputNewEntry(current_DiaryFileName);
+        }
+        else //else if todays diary isnt currently loaded but does exist
+        {
+            // Force set current_DiaryFileName to today's diary
+            current_DiaryFileName = todayDiaryPath;
+            
+            // Properly select today's year, month, and day in the UI
+            m_mainWindow->ui->DiaryListYears->setCurrentIndex(m_mainWindow->ui->DiaryListYears->findText(formattedTime.section('.',0,0), Qt::MatchExactly));
+            
+            // Find today's month by exact match, not wildcard
+            QList<QListWidgetItem*> monthItems = m_mainWindow->ui->DiaryListMonths->findItems(
+                Operations::ConvertMonthtoText(formattedTime.section('.',1,1)),
+                Qt::MatchContains);
+            
+            if (!monthItems.isEmpty()) {
+                m_mainWindow->ui->DiaryListMonths->setCurrentItem(monthItems.at(0));
+            }
+            
+            // Find today's day by exact match, not wildcard
+            QList<QListWidgetItem*> dayItems = m_mainWindow->ui->DiaryListDays->findItems(
+                formattedTime.section('.',2,2),
+                Qt::MatchContains);
+            
+            if (!dayItems.isEmpty()) {
+                m_mainWindow->ui->DiaryListDays->setCurrentItem(dayItems.at(0));
+            }
+            
+            // Add entry to today's diary
+            InputNewEntry(current_DiaryFileName);
+        }
+    }
+    // as for preventing the user from typing in an older diary, this is handled in on_DiaryListDays_currentTextChanged().
 }
 
 //--------Task Logging--------//

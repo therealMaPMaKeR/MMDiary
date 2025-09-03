@@ -8,6 +8,7 @@
 #include <QMessageBox>
 #include <QMutex>
 #include <QPointer>
+#include <QAbstractItemDelegate>
 
 class MainWindow;
 class ImageViewer;
@@ -41,7 +42,7 @@ class Operations_Diary : public QObject
 {
     Q_OBJECT
 private:
-    MainWindow* m_mainWindow;
+    QPointer<MainWindow> m_mainWindow;  // Using QPointer for automatic null-checking when MainWindow is deleted
     QString current_DiaryFileName, previous_DiaryFileName, currentdiary_Year, currentdiary_Month, DiariesFilePath = "Diaries/", currentdiary_DateStamp;
     int lastTimeStamp_Hours, lastTimeStamp_Minutes, entrySpacer_Delay = 5, entriesNoSpacerLimit = 5, cur_entriesNoSpacer, previousDiaryLineCounter;
     QStringList DiariesList, currentyear_DiaryList, currentmonth_DiaryList;
@@ -50,6 +51,7 @@ private:
     bool prevent_onDiaryTextDisplay_itemChanged;
 
     QMutex m_saveDiaryMutex;
+    QMutex m_diaryModificationMutex;  // Mutex to protect concurrent diary modifications
 
     // Image handling functions
     QString generateImageFilename(const QString& originalExtension, const QString& diaryDir);
