@@ -353,8 +353,7 @@ DataStorage_FieldManager::ValidationResult DataStorage_FieldManager::validateAnd
     }
     
     // Step 1: Add all expected fields (with type conversion and defaults for missing ones)
-    // Reserve space to avoid reallocations
-    validatedData.reserve(fieldDefs.size());
+    // Note: QMap doesn't support reserve, but it's self-balancing so performance is still good
     
     for (const FieldDefinition& def : fieldDefs) {
         if (currentData.contains(def.name)) {
