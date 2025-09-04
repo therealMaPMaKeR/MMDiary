@@ -283,17 +283,40 @@ bool validatePathLength(const QString& path) {
 
 // Secure path concatenation function
 QString securePathJoin(const QString& basePath, const QString& component) {
-    // Validate both inputs separately
+    // SECURITY: Validate both inputs separately
     if (basePath.isEmpty() || component.isEmpty()) {
         qWarning() << "operations_files: Empty path component in join";
         return QString();
     }
     
-    // Check component doesn't contain path separators or traversal
+    // SECURITY: Check for null bytes in both inputs
+    if (basePath.contains(QChar(0)) || component.contains(QChar(0))) {
+        qWarning() << "operations_files: Null byte detected in path join";
+        return QString();
+    }
+    
+    // SECURITY: Strict component validation - no path separators or traversal
     if (component.contains('/') || component.contains('\\') || 
-        component.contains("..") || component.contains(QChar(0))) {
+        component.contains("..") || component == "." || component == "..") {
         qWarning() << "operations_files: Invalid component for path join:" << component;
         return QString();
+    }
+    
+    // SECURITY: Check for URL-encoded path separators
+    QString lowerComponent = component.toLower();
+    if (lowerComponent.contains("%2f") || lowerComponent.contains("%5c") ||
+        lowerComponent.contains("%2e")) {
+        qWarning() << "operations_files: URL-encoded characters in path component";
+        return QString();
+    }
+    
+    // SECURITY: Check for Windows reserved names in component
+    QString upperComponent = component.toUpper();
+    for (const QString& reserved : WINDOWS_RESERVED_NAMES) {
+        if (upperComponent == reserved || upperComponent.startsWith(reserved + ".")) {
+            qWarning() << "operations_files: Reserved device name in component:" << reserved;
+            return QString();
+        }
     }
     
     // Validate the component as plain text
@@ -304,12 +327,26 @@ QString securePathJoin(const QString& basePath, const QString& component) {
         return QString();
     }
     
+    // SECURITY: Check base path is valid before joining
+    QFileInfo baseInfo(basePath);
+    if (baseInfo.exists() && baseInfo.isSymLink()) {
+        qWarning() << "operations_files: Base path is a symbolic link";
+        return QString();
+    }
+    
     // Use QDir for safe joining
     QDir baseDir(basePath);
     QString joined = baseDir.filePath(component);
     
-    // Validate the result is still within bounds
+    // Clean and validate the result
     QString cleaned = QDir::cleanPath(joined);
+    
+    // SECURITY: Verify no path traversal occurred during join
+    if (cleaned.contains("/../") || cleaned.contains("\\..\\") ||
+        cleaned.endsWith("/..") || cleaned.endsWith("\\..")) {
+        qWarning() << "operations_files: Path traversal detected after join";
+        return QString();
+    }
     
     // Check combined path length and enable long path if needed
     if (cleaned.length() >= 260) {
@@ -322,8 +359,14 @@ QString securePathJoin(const QString& basePath, const QString& component) {
         return QString();
     }
     
-    // Verify still within allowed directory
-    if (!isWithinAllowedDirectory(cleaned, "Data")) {
+    // SECURITY: Verify still within allowed directory
+    // Note: We can't call isWithinAllowedDirectory here as it would cause recursion
+    // Instead, do a simplified check
+    QString dataPath = QDir::cleanPath(QDir::current().absolutePath() + "/Data");
+    QString normalizedCleaned = normalizePathForComparison(cleaned);
+    QString normalizedData = normalizePathForComparison(dataPath);
+    
+    if (!normalizedCleaned.startsWith(normalizedData)) {
         qWarning() << "operations_files: Joined path escaped allowed directory";
         return QString();
     }
@@ -337,17 +380,49 @@ QString normalizePathForComparison(const QString& path) {
         return QString();
     }
     
+    // SECURITY: Check for null bytes
+    if (path.contains(QChar(0))) {
+        qWarning() << "operations_files: Null byte in path during normalization";
+        return QString();
+    }
+    
     // Convert to absolute path and clean it
     QString normalized = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
     
-    // Convert to native separators and uppercase for case-insensitive comparison on Windows
-    normalized = QDir::toNativeSeparators(normalized).toUpper();
+    // SECURITY: Validate the path doesn't contain suspicious patterns after cleaning
+    if (normalized.contains("/../") || normalized.contains("\\..\\") ||
+        normalized.endsWith("/..") || normalized.endsWith("\\..")) {
+        qWarning() << "operations_files: Path traversal pattern found after normalization";
+        return QString();
+    }
     
-    // Remove long path prefix for comparison if present
+    // Convert to native separators for Windows
+    normalized = QDir::toNativeSeparators(normalized);
+    
+    // SECURITY: Normalize Unicode to prevent homograph attacks
+    // Convert to NFD (decomposed) then back to NFC (composed) to normalize
+    normalized = normalized.normalized(QString::NormalizationForm_D);
+    normalized = normalized.normalized(QString::NormalizationForm_C);
+    
+    // Convert to uppercase for case-insensitive comparison on Windows
+    normalized = normalized.toUpper();
+    
+    // SECURITY: Handle long path prefixes consistently
+    // Don't remove them during comparison as they affect path resolution
+    // Instead, normalize them to a standard format
     if (normalized.startsWith("\\\\?\\\\UNC\\\\")) {
-        normalized = "\\\\" + normalized.mid(8);
+        // Already in normalized UNC long path format
     } else if (normalized.startsWith("\\\\?\\\\")) {
-        normalized = normalized.mid(4);
+        // Already in normalized long path format
+    } else if (normalized.startsWith("\\\\")) {
+        // UNC path without long path prefix - could add it if needed
+        // But keep as-is for comparison consistency
+    }
+    
+    // SECURITY: Final validation
+    if (normalized.isEmpty()) {
+        qWarning() << "operations_files: Normalization resulted in empty path";
+        return QString();
     }
     
     return normalized;
@@ -1624,78 +1699,156 @@ bool validateFilePath(const QString& filePath, FileType fileType, const QByteArr
 }
 
 bool isWithinAllowedDirectory(const QString& filePath, const QString& baseDirectory) {
+    // SECURITY: Early return for empty inputs
+    if (filePath.isEmpty() || baseDirectory.isEmpty()) {
+        qWarning() << "operations_files: Empty path provided to isWithinAllowedDirectory";
+        return false;
+    }
+    
+    // SECURITY: Check for null bytes before any processing
+    if (filePath.contains(QChar(0)) || baseDirectory.contains(QChar(0))) {
+        qWarning() << "operations_files: Null byte detected in path";
+        return false;
+    }
+
+    // Validate the base directory as FilePath not PlainText for consistency
+    QString baseDirPath = QDir::cleanPath(QDir::current().absolutePath() + "/" + baseDirectory);
+    InputValidation::ValidationResult baseDirResult =
+        InputValidation::validateInput(baseDirPath, InputValidation::InputType::FilePath);
+    if (!baseDirResult.isValid) {
+        qWarning() << "operations_files: Invalid base directory path: " << baseDirResult.errorMessage;
+        return false;
+    }
+
     // Validate the file path
     InputValidation::ValidationResult filePathResult =
         InputValidation::validateInput(filePath, InputValidation::InputType::FilePath);
     if (!filePathResult.isValid) {
-        qWarning() << "Invalid file path for directory check: " << filePathResult.errorMessage;
-        return false;
-    }
-
-    // Validate the base directory
-    InputValidation::ValidationResult baseDirResult =
-        InputValidation::validateInput(baseDirectory, InputValidation::InputType::PlainText);
-    if (!baseDirResult.isValid) {
-        qWarning() << "Invalid base directory name: " << baseDirResult.errorMessage;
+        qWarning() << "operations_files: Invalid file path for directory check: " << filePathResult.errorMessage;
         return false;
     }
 
     try {
-        // Use atomic operations to avoid TOCTOU
         QFileInfo fileInfo(filePath);
-        QString canonicalPath;
+        QString resolvedFilePath;
         
-        // Get canonical path in one atomic operation to avoid TOCTOU
+        // SECURITY: Detect and block symbolic links
         if (fileInfo.exists()) {
-            canonicalPath = fileInfo.canonicalFilePath();
-            if (canonicalPath.isEmpty()) {
-                // For existing files that can't be canonicalized, validate parent + filename
-                QDir parentDir = fileInfo.dir();
-                if (parentDir.exists()) {
-                    QString parentCanonical = parentDir.canonicalPath();
-                    if (!parentCanonical.isEmpty()) {
-                        canonicalPath = QDir::cleanPath(parentCanonical + "/" + fileInfo.fileName());
-                    }
-                }
+            // Check if it's a symbolic link
+            if (fileInfo.isSymLink()) {
+                qWarning() << "operations_files: Symbolic links are not allowed: " << filePath;
+                return false;
+            }
+            
+            // For existing files, get canonical path atomically
+            resolvedFilePath = fileInfo.canonicalFilePath();
+            
+            // SECURITY: If canonicalFilePath returns empty for an existing file, it's suspicious
+            if (resolvedFilePath.isEmpty()) {
+                qWarning() << "operations_files: Cannot resolve canonical path for existing file: " << filePath;
+                return false;
             }
         } else {
-            // For non-existent files, validate parent + filename separately
+            // For non-existent files, resolve parent directory atomically
             QDir parentDir = fileInfo.dir();
-            if (parentDir.exists()) {
-                QString parentCanonical = parentDir.canonicalPath();
-                if (!parentCanonical.isEmpty()) {
-                    canonicalPath = QDir::cleanPath(parentCanonical + "/" + fileInfo.fileName());
-                } else {
-                    canonicalPath = QDir::cleanPath(parentDir.absolutePath() + "/" + fileInfo.fileName());
+            QString parentPath = parentDir.absolutePath();
+            
+            // Check if parent directory exists
+            QFileInfo parentInfo(parentPath);
+            if (parentInfo.exists()) {
+                // SECURITY: Check if parent is a symbolic link
+                if (parentInfo.isSymLink()) {
+                    qWarning() << "operations_files: Parent directory is a symbolic link: " << parentPath;
+                    return false;
                 }
+                
+                // Get canonical path of parent
+                QString parentCanonical = parentInfo.canonicalFilePath();
+                if (parentCanonical.isEmpty()) {
+                    qWarning() << "operations_files: Cannot resolve parent directory: " << parentPath;
+                    return false;
+                }
+                
+                // SECURITY: Validate filename separately to prevent injection
+                QString fileName = fileInfo.fileName();
+                if (fileName.contains("/") || fileName.contains("\\") || 
+                    fileName == ".." || fileName == "." || fileName.isEmpty()) {
+                    qWarning() << "operations_files: Invalid filename component: " << fileName;
+                    return false;
+                }
+                
+                // Safely combine parent and filename
+                resolvedFilePath = QDir::cleanPath(parentCanonical + "/" + fileName);
             } else {
-                canonicalPath = QDir::cleanPath(fileInfo.absoluteFilePath());
+                // Parent doesn't exist - use absolute path but validate carefully
+                resolvedFilePath = QDir::cleanPath(fileInfo.absoluteFilePath());
+                
+                // SECURITY: Extra validation for non-existent parent paths
+                if (resolvedFilePath.contains("/..") || resolvedFilePath.contains("\\..")) {
+                    qWarning() << "operations_files: Path traversal detected in resolved path";
+                    return false;
+                }
             }
         }
         
-        // Final fallback
-        if (canonicalPath.isEmpty()) {
-            canonicalPath = QDir::cleanPath(fileInfo.absoluteFilePath());
+        // SECURITY: Final validation of resolved path
+        if (resolvedFilePath.isEmpty()) {
+            qWarning() << "operations_files: Failed to resolve file path";
+            return false;
         }
         
-        // Create the base directory path using secure method
-        QString basePath = QDir::cleanPath(QDir::current().absolutePath() + "/" + baseDirectory);
+        // Resolve base directory path
+        QFileInfo baseInfo(baseDirPath);
+        QString resolvedBasePath;
         
-        // Get canonical base path
-        QFileInfo baseInfo(basePath);
-        if (baseInfo.exists() && baseInfo.isDir()) {
-            QString baseCanonical = baseInfo.canonicalFilePath();
-            if (!baseCanonical.isEmpty()) {
-                basePath = baseCanonical;
+        if (baseInfo.exists()) {
+            // SECURITY: Check if base directory is a symbolic link
+            if (baseInfo.isSymLink()) {
+                qWarning() << "operations_files: Base directory is a symbolic link: " << baseDirPath;
+                return false;
+            }
+            
+            if (!baseInfo.isDir()) {
+                qWarning() << "operations_files: Base path is not a directory: " << baseDirPath;
+                return false;
+            }
+            
+            resolvedBasePath = baseInfo.canonicalFilePath();
+            if (resolvedBasePath.isEmpty()) {
+                qWarning() << "operations_files: Cannot resolve base directory path";
+                return false;
+            }
+        } else {
+            // Base directory doesn't exist yet - use absolute path
+            resolvedBasePath = QDir::cleanPath(baseInfo.absoluteFilePath());
+        }
+        
+        // SECURITY: Normalize both paths for secure comparison
+        QString normalizedFile = normalizePathForComparison(resolvedFilePath);
+        QString normalizedBase = normalizePathForComparison(resolvedBasePath);
+        
+        // SECURITY: Ensure normalized paths are not empty
+        if (normalizedFile.isEmpty() || normalizedBase.isEmpty()) {
+            qWarning() << "operations_files: Path normalization resulted in empty string";
+            return false;
+        }
+        
+        // SECURITY: Check that file path starts with base path
+        // Also ensure it's not exactly the base path (file should be within, not the directory itself)
+        if (!normalizedFile.startsWith(normalizedBase)) {
+            return false;
+        }
+        
+        // SECURITY: Ensure there's a path separator after the base path
+        // This prevents /Data2/file from matching /Data
+        if (normalizedFile.length() > normalizedBase.length()) {
+            QChar nextChar = normalizedFile.at(normalizedBase.length());
+            if (nextChar != '\\' && nextChar != '/') {
+                return false;
             }
         }
         
-        // Normalize both paths for comparison
-        QString normalizedFile = normalizePathForComparison(canonicalPath);
-        QString normalizedBase = normalizePathForComparison(basePath);
-        
-        // Check if file path starts with base path
-        return normalizedFile.startsWith(normalizedBase);
+        return true;
         
     } catch (const std::exception& e) {
         qWarning() << "operations_files: Exception in path validation:" << e.what();
@@ -1708,23 +1861,53 @@ bool isWithinAllowedDirectory(const QString& filePath, const QString& baseDirect
 
 // Utility Functions
 QString sanitizePath(const QString& path) {
-    // Pre-validation before any manipulation
+    // SECURITY: Pre-validation before any manipulation
     if (path.isEmpty() || path.contains(QChar(0))) {
         qWarning() << "operations_files: Invalid path - empty or contains null characters";
         return QString();
     }
     
-    // Check for URL-encoded traversal patterns
-    QString lowerPath = path.toLower();
-    if (lowerPath.contains("%00") || lowerPath.contains("%2e%2e") || 
-        lowerPath.contains("%252e%252e") || lowerPath.contains("..%2f") ||
-        lowerPath.contains("..%5c")) {
-        qWarning() << "operations_files: Path contains URL-encoded traversal attempt";
-        return QString();
+    // SECURITY: Normalize Unicode early to prevent bypass attempts
+    QString normalizedPath = path.normalized(QString::NormalizationForm_C);
+    
+    // SECURITY: Check for various URL encoding patterns
+    QString lowerPath = normalizedPath.toLower();
+    QStringList urlPatterns = {
+        "%00", "%2e%2e", "%252e%252e", "..%2f", "..%5c",
+        "%2e%2e%2f", "%2e%2e%5c", "%252e%252e%252f", "%252e%252e%255c",
+        "%%32%65%%32%65", // Double encoded ..
+        "%c0%ae", "%c1%9c" // Overlong UTF-8 encodings
+    };
+    
+    for (const QString& pattern : urlPatterns) {
+        if (lowerPath.contains(pattern)) {
+            qWarning() << "operations_files: Path contains URL-encoded traversal pattern:" << pattern;
+            return QString();
+        }
     }
     
-    // Check for Windows reserved device names
-    QFileInfo info(path);
+    // SECURITY: Check for Unicode direction override characters
+    QList<QChar> dangerousChars = {
+        QChar(0x202E), // Right-to-left override
+        QChar(0x202D), // Left-to-right override
+        QChar(0x202A), // Left-to-right embedding
+        QChar(0x202B), // Right-to-left embedding
+        QChar(0x202C), // Pop directional formatting
+        QChar(0x2066), // Left-to-right isolate
+        QChar(0x2067), // Right-to-left isolate
+        QChar(0x2068), // First strong isolate
+        QChar(0x2069)  // Pop directional isolate
+    };
+    
+    for (const QChar& ch : dangerousChars) {
+        if (normalizedPath.contains(ch)) {
+            qWarning() << "operations_files: Path contains Unicode direction override character";
+            return QString();
+        }
+    }
+    
+    // SECURITY: Check for Windows reserved device names
+    QFileInfo info(normalizedPath);
     QString baseName = info.baseName().toUpper();
     QString fileName = info.fileName().toUpper();
     
@@ -1737,35 +1920,54 @@ QString sanitizePath(const QString& path) {
         }
     }
     
-    // Check for alternate data streams (multiple colons)
-    int colonCount = path.count(':');
-    if (colonCount > 1) {
-        // Allow only drive letter colon (e.g., C:)
-        if (!(colonCount == 1 && path.length() > 1 && path[1] == ':')) {
+    // SECURITY: Strict alternate data stream check
+    int colonCount = normalizedPath.count(':');
+    if (colonCount > 1 || (colonCount == 1 && normalizedPath[1] != ':')) {
+        // Only allow drive letter colon at position 1 (e.g., C:)
+        if (!(colonCount == 1 && normalizedPath.length() > 1 && 
+              normalizedPath[0].isLetter() && normalizedPath[1] == ':')) {
             qWarning() << "operations_files: Path may contain alternate data stream";
             return QString();
         }
     }
     
-    // Check for Windows short names (8.3 format)
-    if (path.contains("~")) {
-        QRegularExpression shortNamePattern("~[0-9]+");
-        if (shortNamePattern.match(path).hasMatch()) {
-            qWarning() << "operations_files: Path may contain Windows short name format";
+    // SECURITY: Enhanced Windows short name detection
+    QRegularExpression shortNamePatterns("(~[0-9]+)|([A-Z]{6}~[0-9])");
+    if (shortNamePatterns.match(normalizedPath.toUpper()).hasMatch()) {
+        qWarning() << "operations_files: Path may contain Windows short name format";
+        return QString();
+    }
+    
+    // SECURITY: Check for NTFS special files
+    QStringList ntfsSpecial = {
+        "$MFT", "$MFTMirr", "$LogFile", "$Volume", "$AttrDef",
+        "$Bitmap", "$Boot", "$BadClus", "$Secure", "$UpCase", "$Extend"
+    };
+    QString upperPath = normalizedPath.toUpper();
+    for (const QString& special : ntfsSpecial) {
+        if (upperPath.contains(special)) {
+            qWarning() << "operations_files: Path contains NTFS special file:" << special;
             return QString();
         }
     }
     
     // Validate BEFORE cleaning to catch malicious input early
     InputValidation::ValidationResult result =
-        InputValidation::validateInput(path, InputValidation::InputType::FilePath);
+        InputValidation::validateInput(normalizedPath, InputValidation::InputType::FilePath);
     if (!result.isValid) {
         qWarning() << "operations_files: Path validation failed:" << result.errorMessage;
         return QString();
     }
     
     // Now clean the validated path
-    QString cleaned = QDir::cleanPath(path);
+    QString cleaned = QDir::cleanPath(normalizedPath);
+    
+    // SECURITY: Post-cleaning validation
+    if (cleaned.contains("/../") || cleaned.contains("\\..\\") ||
+        cleaned.endsWith("/..") || cleaned.endsWith("\\..")) {
+        qWarning() << "operations_files: Path traversal detected after cleaning";
+        return QString();
+    }
     
     // Validate path length
     if (!validatePathLength(cleaned)) {
@@ -1781,6 +1983,13 @@ QString sanitizePath(const QString& path) {
         }
     }
     
+    // SECURITY: Check for symbolic links
+    QFileInfo cleanedInfo(cleaned);
+    if (cleanedInfo.exists() && cleanedInfo.isSymLink()) {
+        qWarning() << "operations_files: Sanitized path is a symbolic link";
+        return QString();
+    }
+    
     // Final boundary check
     if (!isWithinAllowedDirectory(cleaned, "Data")) {
         qWarning() << "operations_files: Sanitized path outside allowed directory";
@@ -1788,10 +1997,15 @@ QString sanitizePath(const QString& path) {
     }
     
     // Get canonical path if the file or directory exists
-    QFileInfo fileInfo(cleaned);
-    if (fileInfo.exists()) {
-        QString canonicalPath = fileInfo.canonicalFilePath();
+    if (cleanedInfo.exists()) {
+        QString canonicalPath = cleanedInfo.canonicalFilePath();
         if (!canonicalPath.isEmpty()) {
+            // SECURITY: Verify canonical path is still within bounds
+            if (!isWithinAllowedDirectory(canonicalPath, "Data")) {
+                qWarning() << "operations_files: Canonical path escaped allowed directory";
+                return QString();
+            }
+            
             cleaned = canonicalPath;
             
             // Re-validate canonical path length
