@@ -4,6 +4,8 @@
 #include <QCryptographicHash>
 #include <QPasswordDigestor>
 #include <QMessageBox>
+#include <climits>
+#include <cstddef>  // For SIZE_MAX
 
 namespace CryptoUtils {
 
@@ -159,6 +161,12 @@ QString Encryption_Encrypt(const QByteArray& encryptionKey, const QString& textT
         return QString();
     }
 
+    // SECURITY: Check input text size to prevent overflow
+    if (textToEncrypt.size() > INT_MAX / 4) { // UTF-8 can expand up to 4x
+        qWarning() << "Text too large for encryption";
+        return QString();
+    }
+
     try {
         // Create AESGCM256Crypto instance with our key
         std::string key(encryptionKey.constData(), encryptionKey.size());
@@ -182,9 +190,21 @@ QString Encryption_Decrypt(const QByteArray& encryptionKey, const QString& textT
         return QString();
     }
 
+    // SECURITY: Validate base64 input size
+    if (textToDecrypt.isEmpty() || textToDecrypt.size() > INT_MAX) {
+        qWarning() << "Invalid base64 input size";
+        return QString();
+    }
+
     try {
         // Convert base64 encoded data to byte array
         QByteArray cipherTextBytes = QByteArray::fromBase64(textToDecrypt.toLatin1());
+        
+        // SECURITY: Validate decoded size
+        if (cipherTextBytes.isEmpty()) {
+            qWarning() << "Failed to decode base64 data";
+            return QString();
+        }
 
         // Create AESGCM256Crypto instance with our key
         std::string key(encryptionKey.constData(), encryptionKey.size());
@@ -213,9 +233,23 @@ bool Encryption_EncryptFile(const QByteArray& encryptionKey, const QString& sour
             return false;
         }
 
+        // SECURITY: Check file size before reading into memory
+        qint64 fileSize = sourceFile.size();
+        if (fileSize < 0 || fileSize > static_cast<qint64>(INT_MAX)) {
+            qWarning() << "File size exceeds maximum supported size: " << fileSize;
+            sourceFile.close();
+            return false;
+        }
+
         // Read file content
         QByteArray fileData = sourceFile.readAll();
         sourceFile.close();
+        
+        // SECURITY: Validate read data size matches file size
+        if (fileData.size() != static_cast<int>(fileSize)) {
+            qWarning() << "File read size mismatch. Expected:" << fileSize << "Got:" << fileData.size();
+            return false;
+        }
 
         // Create AESGCM256Crypto instance with our key
         std::string key(encryptionKey.constData(), encryptionKey.size());
@@ -257,9 +291,23 @@ bool Encryption_DecryptFile(const QByteArray& encryptionKey, const QString& sour
             return false;
         }
 
+        // SECURITY: Check file size before reading into memory
+        qint64 fileSize = sourceFile.size();
+        if (fileSize < 0 || fileSize > static_cast<qint64>(INT_MAX)) {
+            qWarning() << "File size exceeds maximum supported size: " << fileSize;
+            sourceFile.close();
+            return false;
+        }
+
         // Read encrypted content
         QByteArray fileData = sourceFile.readAll();
         sourceFile.close();
+        
+        // SECURITY: Validate read data size matches file size
+        if (fileData.size() != static_cast<int>(fileSize)) {
+            qWarning() << "File read size mismatch. Expected:" << fileSize << "Got:" << fileData.size();
+            return false;
+        }
 
         // Create AESGCM256Crypto instance with our key
         std::string key(encryptionKey.constData(), encryptionKey.size());
@@ -305,6 +353,12 @@ QByteArray Encryption_EncryptBArray(const QByteArray& encryptionKey, const QByte
         return QByteArray();
     }
 
+    // SECURITY: Check input size to prevent overflow
+    if (byteArrayToEncrypt.size() < 0 || byteArrayToEncrypt.size() > INT_MAX - 28) { // 28 = nonce(12) + tag(16)
+        qWarning() << "Input byte array too large for encryption";
+        return QByteArray();
+    }
+
     try {
         // Create AESGCM256Crypto instance with our key (using the QByteArray constructor)
         AESGCM256Crypto crypto(encryptionKey);
@@ -324,6 +378,18 @@ QByteArray Encryption_DecryptBArray(const QByteArray& encryptionKey, const QByte
     // Check if key has correct size for AES-256
     if (encryptionKey.size() != 32) {
         qWarning() << "Invalid key size:" << encryptionKey.size() << "bytes (expected 32 bytes)";
+        return QByteArray();
+    }
+
+    // SECURITY: Validate minimum size (nonce + tag)
+    if (dataToDecrypt.size() < 28) { // 28 = nonce(12) + tag(16)
+        qWarning() << "Input too small for valid encrypted data";
+        return QByteArray();
+    }
+    
+    // SECURITY: Check maximum size
+    if (dataToDecrypt.size() > INT_MAX) {
+        qWarning() << "Input too large for decryption";
         return QByteArray();
     }
 

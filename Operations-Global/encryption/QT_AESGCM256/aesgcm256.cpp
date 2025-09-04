@@ -9,6 +9,7 @@
 #include <QMessageAuthenticationCode>
 #include <QElapsedTimer>
 #include <climits>
+#include <cstddef>  // For SIZE_MAX
 
 #define DECL_OPENSSL_PTR(tname, free_func) \
 struct openssl_##tname##_dtor {            \
@@ -180,14 +181,20 @@ QByteArray AESGCM256Crypto::encrypt(const QString& data, const QString& username
     // Generate system nonce for this encryption operation
     std::vector<uint8_t> nonce = generateNonce(username);
 
+    // SECURITY: Check for integer overflow before allocating buffers
+    if (cryptoinput.size() > static_cast<size_t>(INT_MAX)) {
+        throw error("Input too large for encryption. Maximum supported size is 2GB.");
+    }
+    
+    // SECURITY: Check for potential overflow in buffer size calculation
+    if (cryptoinput.size() > SIZE_MAX - GCM_TAG_LENGTH) {
+        throw error("Input size would cause integer overflow in buffer allocation.");
+    }
+
     // Allocate output buffer for encrypted data and auth tag
     // The output buffer needs to hold: encrypted data + auth tag
     std::vector<uint8_t> cryptooutput(cryptoinput.size() + GCM_TAG_LENGTH);
     std::vector<uint8_t> tag(GCM_TAG_LENGTH);
-
-    if (cryptoinput.size() > static_cast<size_t>(INT_MAX)) {
-        throw error("Input too large for encryption. Maximum supported size is 2GB.");
-    }
     int inlen = static_cast<int>(cryptoinput.size());
     int outlen = 0;
     size_t total_out = 0;
@@ -217,21 +224,33 @@ QByteArray AESGCM256Crypto::encrypt(const QString& data, const QString& username
     cryptooutput.resize(total_out);
 
     // Create result: nonce + ciphertext + tag
+    // SECURITY: Calculate total size and check for overflow
+    size_t totalSize = nonce.size() + cryptooutput.size() + tag.size();
+    if (totalSize < nonce.size() || totalSize < cryptooutput.size() || totalSize < tag.size()) {
+        throw error("Integer overflow in result buffer size calculation.");
+    }
+    
+    // SECURITY: Check if total size exceeds reasonable limits
+    if (totalSize > static_cast<size_t>(INT_MAX)) {
+        throw error("Result buffer size exceeds maximum allowed size.");
+    }
+    
     QByteArray result;
+    result.reserve(static_cast<int>(totalSize));
 
     // Add nonce (12 bytes)
     for (size_t i = 0; i < nonce.size(); ++i) {
-        result.append(nonce[i]);
+        result.append(static_cast<char>(nonce[i]));
     }
 
     // Add ciphertext
     for (size_t i = 0; i < cryptooutput.size(); ++i) {
-        result.append(cryptooutput[i]);
+        result.append(static_cast<char>(cryptooutput[i]));
     }
 
     // Add tag (16 bytes)
     for (size_t i = 0; i < tag.size(); ++i) {
-        result.append(tag[i]);
+        result.append(static_cast<char>(tag[i]));
     }
 
     return result;
@@ -243,10 +262,24 @@ QString AESGCM256Crypto::decrypt(const QByteArray& data) {
         throw error("Decryption key is not set. Call setKey() before decrypting.");
     }
 
-    // Data format: nonce (12 bytes) + ciphertext + tag (16 bytes)
-    if (data.size() < GCM_NONCE_LENGTH + GCM_TAG_LENGTH) {
-        throw error("Invalid encrypted data size");
+    // SECURITY: Validate minimum size before any calculations
+    const size_t minimumSize = GCM_NONCE_LENGTH + GCM_TAG_LENGTH;
+    if (static_cast<size_t>(data.size()) < minimumSize) {
+        throw error("Invalid encrypted data size: too small");
     }
+    
+    // SECURITY: Safe calculation of ciphertext length with underflow check
+    if (static_cast<size_t>(data.size()) < (GCM_NONCE_LENGTH + GCM_TAG_LENGTH)) {
+        throw error("Invalid encrypted data: size calculation underflow");
+    }
+    
+    size_t ciphertextLengthSize = static_cast<size_t>(data.size()) - GCM_NONCE_LENGTH - GCM_TAG_LENGTH;
+    
+    if (ciphertextLengthSize > static_cast<size_t>(INT_MAX)) {
+        throw error("Input too large for decryption. Maximum supported size is 2GB.");
+    }
+    
+    int ciphertextLength = static_cast<int>(ciphertextLengthSize);
 
     // Extract nonce (first 12 bytes)
     std::vector<uint8_t> nonce(GCM_NONCE_LENGTH);
@@ -259,12 +292,7 @@ QString AESGCM256Crypto::decrypt(const QByteArray& data) {
     for (int i = 0; i < GCM_TAG_LENGTH; ++i) {
         tag[i] = static_cast<uint8_t>(data[data.size() - GCM_TAG_LENGTH + i]);
     }
-
     // Extract ciphertext (everything in the middle)
-    if ((data.size() - GCM_NONCE_LENGTH - GCM_TAG_LENGTH) > static_cast<size_t>(INT_MAX)) {
-        throw error("Input too large for decryption. Maximum supported size is 2GB.");
-    }
-    int ciphertextLength = static_cast<int>(data.size() - GCM_NONCE_LENGTH - GCM_TAG_LENGTH);
     std::vector<uint8_t> ciphertext(ciphertextLength);
     for (int i = 0; i < ciphertextLength; ++i) {
         ciphertext[i] = static_cast<uint8_t>(data[GCM_NONCE_LENGTH + i]);
@@ -318,6 +346,11 @@ QByteArray AESGCM256Crypto::encryptBinary(const QByteArray& data, const QString&
 
     //qDebug() << "encryptBinary: Input data size:" << data.size() << "bytes";
 
+    // SECURITY: Check input size before conversion
+    if (data.size() < 0 || static_cast<size_t>(data.size()) > static_cast<size_t>(INT_MAX)) {
+        throw error("Invalid input data size.");
+    }
+
     // Convert QByteArray directly to vector<uint8_t> for encryption
     std::vector<uint8_t> cryptoinput(data.size());
     for (int i = 0; i < data.size(); ++i) {
@@ -327,13 +360,19 @@ QByteArray AESGCM256Crypto::encryptBinary(const QByteArray& data, const QString&
     // Generate system nonce for this encryption operation
     std::vector<uint8_t> nonce = generateNonce(username);
 
-    // Allocate output buffer for encrypted data and auth tag
-    std::vector<uint8_t> cryptooutput(cryptoinput.size() + GCM_TAG_LENGTH);
-    std::vector<uint8_t> tag(GCM_TAG_LENGTH);
-
+    // SECURITY: Check for integer overflow before allocating buffers
     if (cryptoinput.size() > static_cast<size_t>(INT_MAX)) {
         throw error("Input too large for encryption. Maximum supported size is 2GB.");
     }
+    
+    // SECURITY: Check for potential overflow in buffer size calculation
+    if (cryptoinput.size() > SIZE_MAX - GCM_TAG_LENGTH) {
+        throw error("Input size would cause integer overflow in buffer allocation.");
+    }
+
+    // Allocate output buffer for encrypted data and auth tag
+    std::vector<uint8_t> cryptooutput(cryptoinput.size() + GCM_TAG_LENGTH);
+    std::vector<uint8_t> tag(GCM_TAG_LENGTH);
     int inlen = static_cast<int>(cryptoinput.size());
     int outlen = 0;
     size_t total_out = 0;
@@ -363,7 +402,19 @@ QByteArray AESGCM256Crypto::encryptBinary(const QByteArray& data, const QString&
     cryptooutput.resize(total_out);
 
     // Create result: nonce + ciphertext + tag
+    // SECURITY: Calculate total size and check for overflow
+    size_t totalSize = nonce.size() + cryptooutput.size() + tag.size();
+    if (totalSize < nonce.size() || totalSize < cryptooutput.size() || totalSize < tag.size()) {
+        throw error("Integer overflow in result buffer size calculation.");
+    }
+    
+    // SECURITY: Check if total size exceeds reasonable limits
+    if (totalSize > static_cast<size_t>(INT_MAX)) {
+        throw error("Result buffer size exceeds maximum allowed size.");
+    }
+    
     QByteArray result;
+    result.reserve(static_cast<int>(totalSize));
 
     // Add nonce (12 bytes)
     for (size_t i = 0; i < nonce.size(); ++i) {
@@ -390,12 +441,26 @@ QByteArray AESGCM256Crypto::decryptBinary(const QByteArray& data) {
         throw error("Decryption key is not set. Call setKey() before decrypting.");
     }
 
-    qDebug() << "decryptBinary: Input data size:" << data.size() << "bytes";
+    qDebug() << "AESGCM256Crypto: decryptBinary: Input data size:" << data.size() << "bytes";
 
-    // Data format: nonce (12 bytes) + ciphertext + tag (16 bytes)
-    if (data.size() < GCM_NONCE_LENGTH + GCM_TAG_LENGTH) {
-        throw error("Invalid encrypted data size");
+    // SECURITY: Validate minimum size before any calculations
+    const size_t minimumSize = GCM_NONCE_LENGTH + GCM_TAG_LENGTH;
+    if (static_cast<size_t>(data.size()) < minimumSize) {
+        throw error("Invalid encrypted data size: too small");
     }
+    
+    // SECURITY: Safe calculation of ciphertext length with underflow check
+    if (static_cast<size_t>(data.size()) < (GCM_NONCE_LENGTH + GCM_TAG_LENGTH)) {
+        throw error("Invalid encrypted data: size calculation underflow");
+    }
+    
+    size_t ciphertextLengthSize = static_cast<size_t>(data.size()) - GCM_NONCE_LENGTH - GCM_TAG_LENGTH;
+    
+    if (ciphertextLengthSize > static_cast<size_t>(INT_MAX)) {
+        throw error("Input too large for decryption. Maximum supported size is 2GB.");
+    }
+    
+    int ciphertextLength = static_cast<int>(ciphertextLengthSize);
 
     // Extract nonce (first 12 bytes)
     std::vector<uint8_t> nonce(GCM_NONCE_LENGTH);
@@ -410,10 +475,6 @@ QByteArray AESGCM256Crypto::decryptBinary(const QByteArray& data) {
     }
 
     // Extract ciphertext (everything in the middle)
-    if ((data.size() - GCM_NONCE_LENGTH - GCM_TAG_LENGTH) > static_cast<size_t>(INT_MAX)) {
-        throw error("Input too large for decryption. Maximum supported size is 2GB.");
-    }
-    int ciphertextLength = static_cast<int>(data.size() - GCM_NONCE_LENGTH - GCM_TAG_LENGTH);
     std::vector<uint8_t> ciphertext(ciphertextLength);
     for (int i = 0; i < ciphertextLength; ++i) {
         ciphertext[i] = static_cast<uint8_t>(data[GCM_NONCE_LENGTH + i]);
@@ -456,7 +517,7 @@ QByteArray AESGCM256Crypto::decryptBinary(const QByteArray& data) {
         result.append(static_cast<char>(plaintext[i]));
     }
 
-    qDebug() << "decryptBinary: Output data size:" << result.size() << "bytes";
+    qDebug() << "AESGCM256Crypto: decryptBinary: Output data size:" << result.size() << "bytes";
     return result;
 }
 
@@ -478,9 +539,14 @@ std::vector<uint8_t> AESGCM256Crypto::str2Bytes(const std::string& message) {
         qWarning() << "Warning: Empty string passed to str2Bytes";
     }
 
+    // SECURITY: Validate size before allocation
+    if (message.size() > SIZE_MAX) {
+        throw error("String size exceeds maximum allowed size");
+    }
+
     std::vector<uint8_t> out(message.size());
     for(size_t n = 0; n < message.size(); n++) {
-        out[n] = message[n];
+        out[n] = static_cast<uint8_t>(message[n]);
     }
 
     //qDebug() << "String converted to" << out.size() << "bytes";
@@ -492,6 +558,11 @@ std::vector<uint8_t> AESGCM256Crypto::QByteArray2Bytes(const QByteArray& data) {
     //qDebug() << "Converting QByteArray to bytes, length:" << data.length() << "bytes";
     if (data.isEmpty()) {
         qWarning() << "Warning: Empty QByteArray passed to QByteArray2Bytes";
+    }
+
+    // SECURITY: Validate size before allocation
+    if (data.size() < 0 || static_cast<size_t>(data.size()) > SIZE_MAX) {
+        throw error("Invalid QByteArray size for conversion");
     }
 
     std::vector<uint8_t> out(data.size());
