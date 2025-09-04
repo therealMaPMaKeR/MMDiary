@@ -38,7 +38,8 @@ private:
 protected:
     void closeEvent(QCloseEvent *event);
 signals:
-    void passDataMW_Signal(QString username, SecureByteArray&& key);
+    // Note: Ownership of the SecureByteArray pointer is transferred to the receiver
+    void passDataMW_Signal(QString username, SecureByteArray* key);
 };
 
 #endif // LOGINSCREEN_H

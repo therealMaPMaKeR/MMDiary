@@ -1080,11 +1080,14 @@ void MainWindow::showEvent(QShowEvent *event)
     }
 }
 
-void MainWindow::ReceiveDataLogin_Slot(QString username, SecureByteArray&& key) // receives the userName from the login window.
+void MainWindow::ReceiveDataLogin_Slot(QString username, SecureByteArray* key) // receives the userName from the login window.
 {
     qDebug() << "MainWindow: Receiving login data";
     user_Username = username;
-    user_Key = std::move(key);  // Move the key to avoid copying
+    if (key) {
+        user_Key = std::move(*key);  // Move the SecureByteArray data
+        delete key;  // Clean up the pointer after moving its contents
+    }
     FinishInitialization(); // This function also sets the diaries directory since it is based off of the username, it also executes the diaryloader function.
     ApplySettings();
     

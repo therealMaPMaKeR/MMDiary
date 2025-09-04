@@ -192,9 +192,11 @@ void loginscreen::on_pushButton_Login_clicked()
 
             MainWindow *mw =  new MainWindow(this->parentWidget());
             connect(this, &loginscreen::passDataMW_Signal, mw, &MainWindow::ReceiveDataLogin_Slot);
-            passDataMW_Signal(ui->lineEdit_Username->text(), std::move(secureKey));
+            // Transfer ownership of the key to MainWindow
+            SecureByteArray* keyPtr = new SecureByteArray(std::move(secureKey));
+            passDataMW_Signal(ui->lineEdit_Username->text(), keyPtr);
             
-            // Note: secureKey has been moved to MainWindow
+            // Note: ownership of keyPtr has been transferred to MainWindow
             
             mw->show();
             loggingIn = true;
@@ -298,9 +300,11 @@ void loginscreen::on_pushButton_NewAccount_clicked()
                 }
                 MainWindow *mw =  new MainWindow(this->parentWidget());
                 connect(this, &loginscreen::passDataMW_Signal, mw, &MainWindow::ReceiveDataLogin_Slot);
-                passDataMW_Signal(tempUsername, std::move(secureEncryptionKey));
+                // Transfer ownership of the key to MainWindow
+                SecureByteArray* keyPtr = new SecureByteArray(std::move(secureEncryptionKey));
+                passDataMW_Signal(tempUsername, keyPtr);
                 
-                // Note: secureEncryptionKey has been moved to MainWindow
+                // Note: ownership of keyPtr has been transferred to MainWindow
                 
                 mw->show();
                 loggingIn = true;
