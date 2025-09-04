@@ -1,5 +1,7 @@
 #include "imageviewer.h"
 #include "ui_imageviewer.h"
+#include "inputvalidation.h"
+#include "operations_files.h"
 #include <QScrollBar>
 #include <QFileInfo>
 #include <QMessageBox>
@@ -11,12 +13,21 @@
 #include <QLabel>
 #include <QStatusBar>
 #include <QDebug>
+#include <QImageReader>
+#include <QBuffer>
 #include <cmath>
 
 // Constants
 const double ImageViewer::ZOOM_STEP = 1.25;
 const double ImageViewer::MIN_ZOOM_FACTOR = 0.1;
 const double ImageViewer::MAX_ZOOM_FACTOR = 10.0;
+
+// Security limits for image loading
+const qint64 MAX_IMAGE_FILE_SIZE = 100 * 1024 * 1024; // 100MB max file size
+const int MAX_IMAGE_DIMENSION = 10000; // Max width or height in pixels
+const int MAX_GIF_FILE_SIZE = 50 * 1024 * 1024; // 50MB max for animated images
+const qint64 MAX_PIXEL_COUNT = 100000000; // 100 million pixels max (e.g., 10000x10000)
+const int MAX_GIF_FRAMES = 1000; // Maximum frames in animated images
 
 ImageViewer::ImageViewer(QWidget *parent) :
     QDialog(parent),
@@ -105,52 +116,145 @@ ImageViewer::~ImageViewer()
 
 bool ImageViewer::loadImage(const QString& imagePath)
 {
-    qDebug() << "ImageViewer1: Loading image:" << imagePath;
-    qDebug() << "ImageViewer1: File exists:" << QFile::exists(imagePath);
+    qDebug() << "ImageViewer: Loading image:" << imagePath;
+    qDebug() << "ImageViewer: File exists:" << QFile::exists(imagePath);
+
+    // Security: Validate file path using InputValidation
+    InputValidation::ValidationResult pathResult = 
+        InputValidation::validateInput(imagePath, InputValidation::InputType::ExternalFilePath, 1000);
+    if (!pathResult.isValid) {
+        qWarning() << "ImageViewer: Invalid image path:" << pathResult.errorMessage;
+        QMessageBox::warning(this, "Security Error", "Invalid file path: " + pathResult.errorMessage);
+        return false;
+    }
+
+    // Security: Check file size before loading
+    QFileInfo fileInfo(imagePath);
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        qWarning() << "ImageViewer: File does not exist or is not a regular file:" << imagePath;
+        QMessageBox::warning(this, "Error", "File does not exist or is not accessible");
+        return false;
+    }
+
+    qint64 fileSize = fileInfo.size();
+    qDebug() << "ImageViewer: File size:" << fileSize << "bytes";
+    
+    // Security: Enforce file size limits
+    if (fileSize > MAX_IMAGE_FILE_SIZE) {
+        qWarning() << "ImageViewer: Image file too large:" << fileSize << "bytes (max:" << MAX_IMAGE_FILE_SIZE << ")";
+        QMessageBox::warning(this, "Security Error", 
+            QString("Image file is too large. Maximum size is %1 MB").arg(MAX_IMAGE_FILE_SIZE / (1024*1024)));
+        return false;
+    }
 
     // Clean up any existing movie
     cleanupMovie();
 
     // Check if this is an animated image file
     bool isAnimated = isAnimatedImageFile(imagePath);
-    qDebug() << "ImageViewer1: Is animated file:" << isAnimated;
+    qDebug() << "ImageViewer: Is animated file:" << isAnimated;
 
     if (isAnimated) {
-        qDebug() << "ImageViewer1: Detected as animated image (GIF)";
+        qDebug() << "ImageViewer: Detected as animated image (GIF)";
+        
+        // Security: Additional size check for animated images
+        if (fileSize > MAX_GIF_FILE_SIZE) {
+            qWarning() << "ImageViewer: Animated image file too large:" << fileSize << "bytes (max:" << MAX_GIF_FILE_SIZE << ")";
+            QMessageBox::warning(this, "Security Error", 
+                QString("Animated image file is too large. Maximum size is %1 MB").arg(MAX_GIF_FILE_SIZE / (1024*1024)));
+            return false;
+        }
 
         // Load as animated image
         setupMovie(imagePath);
         if (!m_movie || !m_movie->isValid()) {
-            qDebug() << "ImageViewer1: Failed to create valid QMovie";
+            qDebug() << "ImageViewer: Failed to create valid QMovie";
             QMessageBox::warning(this, "Error", "Could not load animated image: " + imagePath);
             return false;
         }
 
-        qDebug() << "ImageViewer1: QMovie created successfully. Frame count:" << m_movie->frameCount();
-        qDebug() << "ImageViewer1: Movie state:" << m_movie->state();
-        qDebug() << "ImageViewer1: Original movie size:" << m_originalMovieSize;
+        // Security: Check frame count
+        int frameCount = m_movie->frameCount();
+        if (frameCount > MAX_GIF_FRAMES) {
+            qWarning() << "ImageViewer: Too many frames in animated image:" << frameCount << "(max:" << MAX_GIF_FRAMES << ")";
+            cleanupMovie();
+            QMessageBox::warning(this, "Security Error", 
+                QString("Animated image has too many frames. Maximum is %1").arg(MAX_GIF_FRAMES));
+            return false;
+        }
+
+        qDebug() << "ImageViewer: QMovie created successfully. Frame count:" << frameCount;
+        qDebug() << "ImageViewer: Movie state:" << m_movie->state();
+        qDebug() << "ImageViewer: Original movie size:" << m_originalMovieSize;
+        
+        // Security: Validate movie dimensions
+        if (m_originalMovieSize.width() > MAX_IMAGE_DIMENSION || 
+            m_originalMovieSize.height() > MAX_IMAGE_DIMENSION) {
+            qWarning() << "ImageViewer: Animated image dimensions too large:" << m_originalMovieSize;
+            cleanupMovie();
+            QMessageBox::warning(this, "Security Error", 
+                QString("Image dimensions exceed maximum allowed (%1x%1 pixels)").arg(MAX_IMAGE_DIMENSION));
+            return false;
+        }
 
         m_isAnimated = true;
         m_originalPixmap = QPixmap(); // Clear static image
     } else {
-        qDebug() << "ImageViewer1: Loading as static image";
+        qDebug() << "ImageViewer: Loading as static image";
 
-        // Load as static image
-        QPixmap pixmap(imagePath);
-        if (pixmap.isNull()) {
-            qDebug() << "ImageViewer1: Failed to load static image";
-            QMessageBox::warning(this, "Error", "Could not load image: " + imagePath);
+        // Security: Use QImageReader for better control and validation
+        QImageReader reader(imagePath);
+        
+        // Get image size without loading the full image
+        QSize imageSize = reader.size();
+        qDebug() << "ImageViewer: Image dimensions:" << imageSize;
+        
+        // Security: Validate image dimensions before loading
+        if (!imageSize.isValid()) {
+            qWarning() << "ImageViewer: Invalid image dimensions";
+            QMessageBox::warning(this, "Error", "Invalid image format or corrupted file");
             return false;
         }
-        qDebug() << "ImageViewer1: Static image loaded successfully. Size:" << pixmap.size();
+        
+        if (imageSize.width() > MAX_IMAGE_DIMENSION || imageSize.height() > MAX_IMAGE_DIMENSION) {
+            qWarning() << "ImageViewer: Image dimensions too large:" << imageSize;
+            QMessageBox::warning(this, "Security Error", 
+                QString("Image dimensions exceed maximum allowed (%1x%1 pixels)").arg(MAX_IMAGE_DIMENSION));
+            return false;
+        }
+        
+        // Security: Check total pixel count to prevent memory exhaustion
+        qint64 pixelCount = static_cast<qint64>(imageSize.width()) * static_cast<qint64>(imageSize.height());
+        if (pixelCount > MAX_PIXEL_COUNT) {
+            qWarning() << "ImageViewer: Total pixel count too large:" << pixelCount;
+            QMessageBox::warning(this, "Security Error", "Image resolution is too high");
+            return false;
+        }
+        
+        // Load the image with size constraints
+        QImage image = reader.read();
+        if (image.isNull()) {
+            qWarning() << "ImageViewer: Failed to load image:" << reader.errorString();
+            QMessageBox::warning(this, "Error", "Could not load image: " + reader.errorString());
+            return false;
+        }
+        
+        // Convert to pixmap
+        QPixmap pixmap = QPixmap::fromImage(image);
+        if (pixmap.isNull()) {
+            qWarning() << "ImageViewer: Failed to convert image to pixmap";
+            QMessageBox::warning(this, "Error", "Could not process image");
+            return false;
+        }
+        
+        qDebug() << "ImageViewer: Static image loaded successfully. Size:" << pixmap.size();
         m_originalPixmap = pixmap;
         m_isAnimated = false;
     }
 
     m_imagePath = imagePath;
 
-    // Set window title
-    QFileInfo fileInfo(imagePath);
+    // Set window title (reuse existing fileInfo variable)
     setWindowTitle(QString("Image Viewer - %1").arg(fileInfo.fileName()));
 
     // Reset zoom settings
@@ -163,20 +267,38 @@ bool ImageViewer::loadImage(const QString& imagePath)
     updateImage();
     updateZoomInfo();
 
-    qDebug() << "ImageViewer1: Load completed. m_isAnimated:" << m_isAnimated;
+    qDebug() << "ImageViewer: Load completed. m_isAnimated:" << m_isAnimated;
     return true;
 }
 
 bool ImageViewer::loadImage(const QPixmap& pixmap, const QString& title)
 {
-    qDebug() << "ImageViewer1: Loading QPixmap with title:" << title;
-    qDebug() << "ImageViewer1: Pixmap size:" << pixmap.size() << "isNull:" << pixmap.isNull();
+    qDebug() << "ImageViewer: Loading QPixmap with title:" << title;
+    qDebug() << "ImageViewer: Pixmap size:" << pixmap.size() << "isNull:" << pixmap.isNull();
 
     // Clean up any existing movie
     cleanupMovie();
 
     if (pixmap.isNull()) {
+        qWarning() << "ImageViewer: Null pixmap provided";
         QMessageBox::warning(this, "Error", "Invalid image data");
+        return false;
+    }
+    
+    // Security: Validate pixmap dimensions
+    QSize pixmapSize = pixmap.size();
+    if (pixmapSize.width() > MAX_IMAGE_DIMENSION || pixmapSize.height() > MAX_IMAGE_DIMENSION) {
+        qWarning() << "ImageViewer: Pixmap dimensions too large:" << pixmapSize;
+        QMessageBox::warning(this, "Security Error", 
+            QString("Image dimensions exceed maximum allowed (%1x%1 pixels)").arg(MAX_IMAGE_DIMENSION));
+        return false;
+    }
+    
+    // Security: Check total pixel count
+    qint64 pixelCount = static_cast<qint64>(pixmapSize.width()) * static_cast<qint64>(pixmapSize.height());
+    if (pixelCount > MAX_PIXEL_COUNT) {
+        qWarning() << "ImageViewer: Pixmap pixel count too large:" << pixelCount;
+        QMessageBox::warning(this, "Security Error", "Image resolution is too high");
         return false;
     }
 
@@ -184,7 +306,7 @@ bool ImageViewer::loadImage(const QPixmap& pixmap, const QString& title)
     m_imagePath.clear();
     m_isAnimated = false;
 
-    qDebug() << "ImageViewer1: Set as static image (QPixmap overload)";
+    qDebug() << "ImageViewer: Set as static image (QPixmap overload)";
 
     // Set window title
     if (title.isEmpty()) {
@@ -356,41 +478,55 @@ void ImageViewer::showEvent(QShowEvent *event)
 void ImageViewer::updateImage()
 {
     if (!hasImage() || !m_imageLabel) {
-        qDebug() << "updateImage: No image or no label";
+        qDebug() << "ImageViewer: updateImage - No image or no label";
         return;
     }
 
-    qDebug() << "updateImage: isAnimated=" << m_isAnimated << ", zoomFactor=" << m_zoomFactor;
+    qDebug() << "ImageViewer: updateImage - isAnimated=" << m_isAnimated << ", zoomFactor=" << m_zoomFactor;
 
     if (m_isAnimated && m_movie) {
-        qDebug() << "Updating animated image";
+        qDebug() << "ImageViewer: Updating animated image";
 
         // For animated images, just handle scaling
         QSize originalSize = m_originalMovieSize;
         if (qAbs(m_zoomFactor - 1.0) >= 0.001) {
-            // Scale the movie
-            QSize scaledSize = QSize(originalSize.width() * m_zoomFactor,
-                                     originalSize.height() * m_zoomFactor);
-            qDebug() << "Scaling movie from" << originalSize << "to" << scaledSize;
+            // Security: Calculate scaled size with bounds checking
+            qint64 newWidth = static_cast<qint64>(originalSize.width() * m_zoomFactor);
+            qint64 newHeight = static_cast<qint64>(originalSize.height() * m_zoomFactor);
+            
+            // Security: Prevent integer overflow and excessive memory usage
+            if (newWidth > MAX_IMAGE_DIMENSION || newHeight > MAX_IMAGE_DIMENSION) {
+                qWarning() << "ImageViewer: Scaled dimensions would exceed maximum:" << newWidth << "x" << newHeight;
+                // Clamp to maximum dimensions
+                double scaleRatio = qMin(
+                    static_cast<double>(MAX_IMAGE_DIMENSION) / originalSize.width(),
+                    static_cast<double>(MAX_IMAGE_DIMENSION) / originalSize.height()
+                );
+                newWidth = static_cast<qint64>(originalSize.width() * scaleRatio);
+                newHeight = static_cast<qint64>(originalSize.height() * scaleRatio);
+            }
+            
+            QSize scaledSize = QSize(static_cast<int>(newWidth), static_cast<int>(newHeight));
+            qDebug() << "ImageViewer: Scaling movie from" << originalSize << "to" << scaledSize;
             m_movie->setScaledSize(scaledSize);
         } else {
             // Use original size
-            qDebug() << "Using original movie size:" << originalSize;
+            qDebug() << "ImageViewer: Using original movie size:" << originalSize;
             m_movie->setScaledSize(originalSize);
         }
 
         // Update label size
         QSize currentSize = m_movie->scaledSize().isEmpty() ? originalSize : m_movie->scaledSize();
         m_imageLabel->resize(currentSize);
-        qDebug() << "Set label size to:" << currentSize;
+        qDebug() << "ImageViewer: Set label size to:" << currentSize;
 
         // Ensure movie is still running
         if (m_movie->state() != QMovie::Running) {
-            qDebug() << "Movie not running, starting it. Current state:" << m_movie->state();
+            qDebug() << "ImageViewer: Movie not running, starting it. Current state:" << m_movie->state();
             m_movie->start();
         }
     } else {
-        qDebug() << "Updating static image";
+        qDebug() << "ImageViewer: Updating static image";
 
         // Handle static image
         // Clear any movie from the label first
@@ -400,8 +536,32 @@ void ImageViewer::updateImage()
             // Use original size
             m_scaledPixmap = m_originalPixmap;
         } else {
-            // Scale the image
-            QSize scaledSize = m_originalPixmap.size() * m_zoomFactor;
+            // Security: Calculate scaled size with bounds checking
+            QSize originalSize = m_originalPixmap.size();
+            qint64 newWidth = static_cast<qint64>(originalSize.width() * m_zoomFactor);
+            qint64 newHeight = static_cast<qint64>(originalSize.height() * m_zoomFactor);
+            
+            // Security: Prevent integer overflow and excessive memory usage
+            if (newWidth > MAX_IMAGE_DIMENSION || newHeight > MAX_IMAGE_DIMENSION) {
+                qWarning() << "ImageViewer: Scaled dimensions would exceed maximum:" << newWidth << "x" << newHeight;
+                // Clamp to maximum dimensions
+                double scaleRatio = qMin(
+                    static_cast<double>(MAX_IMAGE_DIMENSION) / originalSize.width(),
+                    static_cast<double>(MAX_IMAGE_DIMENSION) / originalSize.height()
+                );
+                newWidth = static_cast<qint64>(originalSize.width() * scaleRatio);
+                newHeight = static_cast<qint64>(originalSize.height() * scaleRatio);
+            }
+            
+            // Security: Check memory requirements before scaling (rough estimate: 4 bytes per pixel)
+            qint64 estimatedMemory = newWidth * newHeight * 4;
+            const qint64 MAX_MEMORY = 500 * 1024 * 1024; // 500MB max for scaled image
+            if (estimatedMemory > MAX_MEMORY) {
+                qWarning() << "ImageViewer: Scaled image would use too much memory:" << estimatedMemory << "bytes";
+                return;
+            }
+            
+            QSize scaledSize = QSize(static_cast<int>(newWidth), static_cast<int>(newHeight));
             m_scaledPixmap = m_originalPixmap.scaled(scaledSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         }
 
@@ -600,13 +760,20 @@ void ImageViewer::updateCursor()
 
 bool ImageViewer::isAnimatedImageFile(const QString& filePath) const
 {
-    qDebug() << "ImageViewer1: Checking if animated:" << filePath;
+    qDebug() << "ImageViewer: Checking if animated:" << filePath;
+    
+    // Security: Validate the file path first
+    if (filePath.isEmpty() || filePath.contains(QChar(0))) {
+        qWarning() << "ImageViewer: Invalid file path for animated check";
+        return false;
+    }
+    
     QString lowerPath = filePath.toLower();
-    qDebug() << "ImageViewer1: Lowercase path:" << lowerPath;
+    qDebug() << "ImageViewer: Lowercase path:" << lowerPath;
 
     // Check for GIF files
     bool isGif = lowerPath.endsWith(".gif");
-    qDebug() << "ImageViewer1: Is GIF?" << isGif;
+    qDebug() << "ImageViewer: Is GIF?" << isGif;
 
     if (isGif) {
         return true;
@@ -623,7 +790,7 @@ bool ImageViewer::isAnimatedImageFile(const QString& filePath) const
 void ImageViewer::cleanupMovie()
 {
     if (m_movie) {
-        qDebug() << "Cleaning up movie. Current state:" << m_movie->state();
+        qDebug() << "ImageViewer: Cleaning up movie. Current state:" << m_movie->state();
 
         // Stop the movie if it's running
         if (m_movie->state() == QMovie::Running) {
@@ -638,7 +805,7 @@ void ImageViewer::cleanupMovie()
         // Delete the movie object
         delete m_movie;
         m_movie = nullptr;
-        qDebug() << "Movie cleaned up";
+        qDebug() << "ImageViewer: Movie cleaned up";
     }
     m_isAnimated = false;
     m_originalMovieSize = QSize();
@@ -646,22 +813,30 @@ void ImageViewer::cleanupMovie()
 
 void ImageViewer::setupMovie(const QString& filePath)
 {
-    qDebug() << "Setting up QMovie for:" << filePath;
+    qDebug() << "ImageViewer: Setting up QMovie for:" << filePath;
 
     cleanupMovie();
+    
+    // Security: Validate file path again
+    InputValidation::ValidationResult pathResult = 
+        InputValidation::validateInput(filePath, InputValidation::InputType::ExternalFilePath, 1000);
+    if (!pathResult.isValid) {
+        qWarning() << "ImageViewer: Invalid path for movie setup:" << pathResult.errorMessage;
+        return;
+    }
 
     // Create the movie
     m_movie = new QMovie(filePath, QByteArray(), this);
 
     if (!m_movie->isValid()) {
-        qDebug() << "QMovie is not valid for file:" << filePath;
+        qDebug() << "ImageViewer: QMovie is not valid for file:" << filePath;
         delete m_movie;
         m_movie = nullptr;
         return;
     }
 
-    qDebug() << "QMovie is valid. Frame count:" << m_movie->frameCount();
-    qDebug() << "Movie format:" << m_movie->format();
+    qDebug() << "ImageViewer: QMovie is valid. Frame count:" << m_movie->frameCount();
+    qDebug() << "ImageViewer: Movie format:" << m_movie->format();
 
     // Connect to finished signal to loop the animation
     connect(m_movie, &QMovie::finished, m_movie, &QMovie::start);
@@ -670,25 +845,36 @@ void ImageViewer::setupMovie(const QString& filePath)
     if (m_movie->frameCount() > 0) {
         m_movie->jumpToFrame(0);
         QPixmap firstFrame = m_movie->currentPixmap();
-        m_originalMovieSize = firstFrame.size();
-        qDebug() << "Got size from first frame:" << m_originalMovieSize;
+        
+        // Security: Validate first frame dimensions
+        if (!firstFrame.isNull()) {
+            QSize frameSize = firstFrame.size();
+            if (frameSize.width() > MAX_IMAGE_DIMENSION || frameSize.height() > MAX_IMAGE_DIMENSION) {
+                qWarning() << "ImageViewer: First frame dimensions too large:" << frameSize;
+                delete m_movie;
+                m_movie = nullptr;
+                return;
+            }
+            m_originalMovieSize = frameSize;
+            qDebug() << "ImageViewer: Got size from first frame:" << m_originalMovieSize;
+        }
     }
 
     // Fallback if we couldn't get size
     if (m_originalMovieSize.isEmpty()) {
         m_originalMovieSize = QSize(300, 300); // Default size
-        qDebug() << "Using default size:" << m_originalMovieSize;
+        qDebug() << "ImageViewer: Using default size:" << m_originalMovieSize;
     }
 
     // Set movie to label and start it
     if (m_imageLabel) {
-        qDebug() << "Setting movie to label";
+        qDebug() << "ImageViewer: Setting movie to label";
         m_imageLabel->setMovie(m_movie);
-        qDebug() << "Starting movie";
+        qDebug() << "ImageViewer: Starting movie";
         m_movie->start();
-        qDebug() << "Movie state after start:" << m_movie->state();
+        qDebug() << "ImageViewer: Movie state after start:" << m_movie->state();
     } else {
-        qDebug() << "ERROR: m_imageLabel is null!";
+        qDebug() << "ImageViewer: ERROR: m_imageLabel is null!";
     }
 }
 
@@ -699,4 +885,133 @@ QSize ImageViewer::getCurrentImageSize() const
     } else {
         return m_scaledPixmap.isNull() ? m_originalPixmap.size() : m_scaledPixmap.size();
     }
+}
+
+// Security-enhanced thumbnail generation function
+QPixmap ImageViewer::createSecureThumbnail(const QString& imagePath, const QSize& maxSize)
+{
+    qDebug() << "ImageViewer: Creating secure thumbnail for:" << imagePath << "max size:" << maxSize;
+    
+    // Security: Validate input parameters
+    if (imagePath.isEmpty() || !maxSize.isValid()) {
+        qWarning() << "ImageViewer: Invalid parameters for thumbnail creation";
+        return QPixmap();
+    }
+    
+    // Security: Validate file path
+    InputValidation::ValidationResult pathResult = 
+        InputValidation::validateInput(imagePath, InputValidation::InputType::ExternalFilePath, 1000);
+    if (!pathResult.isValid) {
+        qWarning() << "ImageViewer: Invalid image path for thumbnail:" << pathResult.errorMessage;
+        return QPixmap();
+    }
+    
+    // Security: Check file existence and size
+    QFileInfo fileInfo(imagePath);
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        qWarning() << "ImageViewer: File does not exist for thumbnail:" << imagePath;
+        return QPixmap();
+    }
+    
+    qint64 fileSize = fileInfo.size();
+    // Use smaller limit for thumbnails
+    const qint64 MAX_THUMBNAIL_FILE_SIZE = 20 * 1024 * 1024; // 20MB max for thumbnail source
+    if (fileSize > MAX_THUMBNAIL_FILE_SIZE) {
+        qWarning() << "ImageViewer: Source file too large for thumbnail:" << fileSize;
+        return QPixmap();
+    }
+    
+    // Security: Limit thumbnail dimensions
+    const int MAX_THUMBNAIL_DIMENSION = 512; // Maximum thumbnail size
+    int targetWidth = qMin(maxSize.width(), MAX_THUMBNAIL_DIMENSION);
+    int targetHeight = qMin(maxSize.height(), MAX_THUMBNAIL_DIMENSION);
+    QSize constrainedSize(targetWidth, targetHeight);
+    
+    // Use QImageReader for efficient thumbnail generation
+    QImageReader reader(imagePath);
+    
+    // Get original dimensions without loading full image
+    QSize originalSize = reader.size();
+    if (!originalSize.isValid()) {
+        qWarning() << "ImageViewer: Cannot read image dimensions for thumbnail";
+        return QPixmap();
+    }
+    
+    // Security: Check original dimensions
+    if (originalSize.width() > MAX_IMAGE_DIMENSION || originalSize.height() > MAX_IMAGE_DIMENSION) {
+        qWarning() << "ImageViewer: Source image dimensions too large for thumbnail:" << originalSize;
+        return QPixmap();
+    }
+    
+    // Calculate scaled size maintaining aspect ratio
+    QSize scaledSize = originalSize.scaled(constrainedSize, Qt::KeepAspectRatio);
+    
+    // Set the reader to scale while loading (more memory efficient)
+    reader.setScaledSize(scaledSize);
+    
+    // Security: Set quality for reasonable file size
+    reader.setQuality(85);
+    
+    // Load the scaled image
+    QImage thumbnail = reader.read();
+    if (thumbnail.isNull()) {
+        qWarning() << "ImageViewer: Failed to create thumbnail:" << reader.errorString();
+        return QPixmap();
+    }
+    
+    // Security: Final check on thumbnail dimensions
+    if (thumbnail.width() > MAX_THUMBNAIL_DIMENSION || thumbnail.height() > MAX_THUMBNAIL_DIMENSION) {
+        qWarning() << "ImageViewer: Generated thumbnail exceeds size limits";
+        return QPixmap();
+    }
+    
+    qDebug() << "ImageViewer: Thumbnail created successfully, size:" << thumbnail.size();
+    return QPixmap::fromImage(thumbnail);
+}
+
+// Security-enhanced thumbnail generation from QPixmap
+QPixmap ImageViewer::createSecureThumbnailFromPixmap(const QPixmap& sourcePixmap, const QSize& maxSize)
+{
+    qDebug() << "ImageViewer: Creating secure thumbnail from pixmap, max size:" << maxSize;
+    
+    // Security: Validate input parameters
+    if (sourcePixmap.isNull() || !maxSize.isValid()) {
+        qWarning() << "ImageViewer: Invalid parameters for thumbnail creation from pixmap";
+        return QPixmap();
+    }
+    
+    // Security: Check source dimensions
+    QSize sourceSize = sourcePixmap.size();
+    if (sourceSize.width() > MAX_IMAGE_DIMENSION || sourceSize.height() > MAX_IMAGE_DIMENSION) {
+        qWarning() << "ImageViewer: Source pixmap too large for thumbnail:" << sourceSize;
+        return QPixmap();
+    }
+    
+    // Security: Limit thumbnail dimensions
+    const int MAX_THUMBNAIL_DIMENSION = 512;
+    int targetWidth = qMin(maxSize.width(), MAX_THUMBNAIL_DIMENSION);
+    int targetHeight = qMin(maxSize.height(), MAX_THUMBNAIL_DIMENSION);
+    QSize constrainedSize(targetWidth, targetHeight);
+    
+    // Calculate scaled size maintaining aspect ratio
+    QSize scaledSize = sourceSize.scaled(constrainedSize, Qt::KeepAspectRatio);
+    
+    // Security: Check memory requirements (rough estimate: 4 bytes per pixel)
+    qint64 estimatedMemory = static_cast<qint64>(scaledSize.width()) * static_cast<qint64>(scaledSize.height()) * 4;
+    const qint64 MAX_THUMBNAIL_MEMORY = 10 * 1024 * 1024; // 10MB max for thumbnail
+    if (estimatedMemory > MAX_THUMBNAIL_MEMORY) {
+        qWarning() << "ImageViewer: Thumbnail would use too much memory:" << estimatedMemory;
+        return QPixmap();
+    }
+    
+    // Create the thumbnail
+    QPixmap thumbnail = sourcePixmap.scaled(scaledSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    
+    if (thumbnail.isNull()) {
+        qWarning() << "ImageViewer: Failed to create thumbnail from pixmap";
+        return QPixmap();
+    }
+    
+    qDebug() << "ImageViewer: Thumbnail created successfully from pixmap, size:" << thumbnail.size();
+    return thumbnail;
 }

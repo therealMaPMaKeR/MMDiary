@@ -104,6 +104,10 @@ private:
     static const double ZOOM_STEP;
     static const double MIN_ZOOM_FACTOR;
     static const double MAX_ZOOM_FACTOR;
+    
+    // Security-enhanced thumbnail generation methods
+    QPixmap createSecureThumbnail(const QString& imagePath, const QSize& maxSize);
+    QPixmap createSecureThumbnailFromPixmap(const QPixmap& sourcePixmap, const QSize& maxSize);
 };
 
 #endif // IMAGEVIEWER_H
