@@ -36,7 +36,8 @@ public:
     
     // Data access methods
     void setData(const QByteArray& data);
-    QByteArray data() const;
+    QByteArray data() const;  // Returns a copy
+    const QByteArray& constDataRef() const;  // Returns const reference (for passing to functions)
     const char* constData() const;
     char* data();
     
@@ -67,6 +68,11 @@ public:
     // Comparison
     bool operator==(const SecureByteArray& other) const;
     bool operator!=(const SecureByteArray& other) const;
+    
+    // Conversion operators for compatibility
+    // Explicit conversion to prevent accidental copies
+    explicit operator QByteArray() const { return m_data; }
+    operator const QByteArray&() const { return m_data; }  // Implicit for const reference
     
 private:
     QByteArray m_data;

@@ -73,8 +73,13 @@ void SecureByteArray::setData(const QByteArray& data) {
     tryLockMemory();
 }
 
-// Get data (const)
+// Get data (const) - returns a copy
 QByteArray SecureByteArray::data() const {
+    return m_data;
+}
+
+// Get const reference to data - for passing to functions
+const QByteArray& SecureByteArray::constDataRef() const {
     return m_data;
 }
 
