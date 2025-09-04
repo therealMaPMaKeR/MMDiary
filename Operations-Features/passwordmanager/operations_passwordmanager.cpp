@@ -50,7 +50,7 @@ static void secureStringClear(QString& str) {
 }
 
 Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
-    : m_mainWindow(mainWindow), m_currentLoadedValue(QString())
+    : m_mainWindow(mainWindow), m_currentLoadedValue(QString()), m_clipboardTimer(nullptr)
 {
     connect(m_mainWindow->ui->listWidget_PWList, &QListWidget::itemClicked,
             this, &Operations_PasswordManager::on_PWListItemClicked);
@@ -82,6 +82,77 @@ Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
     updateSearchPlaceholder();
 }
 
+Operations_PasswordManager::~Operations_PasswordManager()
+{
+    qDebug() << "Operations_PasswordManager: Destructor called - performing secure cleanup";
+    
+    // Stop and delete the clipboard timer
+    if (m_clipboardTimer) {
+        if (m_clipboardTimer->isActive()) {
+            m_clipboardTimer->stop();
+            // Clear clipboard immediately if timer was active
+            clearClipboard();
+        }
+        delete m_clipboardTimer;
+        m_clipboardTimer = nullptr;
+    }
+    
+    // Clean up any cached passwords in widgets
+    cleanupCachedPasswords();
+    
+    // Clear the current loaded value
+    if (!m_currentLoadedValue.isEmpty()) {
+        secureStringClear(m_currentLoadedValue);
+    }
+}
+
+void Operations_PasswordManager::cleanupCachedPasswords()
+{
+    qDebug() << "Operations_PasswordManager: Cleaning up cached passwords";
+    
+    // Clean up passwords stored in table widget UserRole data
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->tableWidget_PWDisplay) {
+        int rowCount = m_mainWindow->ui->tableWidget_PWDisplay->rowCount();
+        int colCount = m_mainWindow->ui->tableWidget_PWDisplay->columnCount();
+        
+        for (int row = 0; row < rowCount; ++row) {
+            for (int col = 0; col < colCount; ++col) {
+                QTableWidgetItem* item = m_mainWindow->ui->tableWidget_PWDisplay->item(row, col);
+                if (item) {
+                    // Clear UserRole+10 (stored password)
+                    if (item->data(Qt::UserRole + 10).isValid()) {
+                        QString storedPassword = item->data(Qt::UserRole + 10).toString();
+                        secureStringClear(storedPassword);
+                        item->setData(Qt::UserRole + 10, QVariant());
+                    }
+                    // Clear UserRole+1 (password in metadata)
+                    if (item->data(Qt::UserRole + 1).isValid()) {
+                        QString storedPassword = item->data(Qt::UserRole + 1).toString();
+                        secureStringClear(storedPassword);
+                        item->setData(Qt::UserRole + 1, QVariant());
+                    }
+                }
+            }
+        }
+    }
+    
+    // Clean up passwords stored in list widget UserRole data
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->listWidget_PWList) {
+        int listCount = m_mainWindow->ui->listWidget_PWList->count();
+        
+        for (int i = 0; i < listCount; ++i) {
+            QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
+            if (item && item->data(Qt::UserRole + 10).isValid()) {
+                QString storedPassword = item->data(Qt::UserRole + 10).toString();
+                secureStringClear(storedPassword);
+                item->setData(Qt::UserRole + 10, QVariant());
+            }
+        }
+    }
+    
+    qDebug() << "Operations_PasswordManager: Cached passwords cleanup completed";
+}
+
 //-----------------Password Generation-----------------//
 QString Operations_PasswordManager::generatePassword()
 {
@@ -110,6 +181,10 @@ QString Operations_PasswordManager::generatePassword()
     
     // Use cryptographically secure random generator
     QRandomGenerator* rng = QRandomGenerator::system();
+    if (!rng) {
+        qCritical() << "Operations_PasswordManager: Failed to get system random generator";
+        return QString();
+    }
     
     // First, ensure we meet minimum requirements
     // Add one uppercase
@@ -235,19 +310,8 @@ void Operations_PasswordManager::SetupPWDisplay(QString sortingMethod)
     // Temporarily disable sorting to prevent unwanted sorting during setup
     m_mainWindow->ui->tableWidget_PWDisplay->setSortingEnabled(false);
 
-    // Clear any stored passwords in UserRole data before clearing the table
-    int rowCount = m_mainWindow->ui->tableWidget_PWDisplay->rowCount();
-    int colCount = m_mainWindow->ui->tableWidget_PWDisplay->columnCount();
-    for (int row = 0; row < rowCount; ++row) {
-        for (int col = 0; col < colCount; ++col) {
-            QTableWidgetItem* item = m_mainWindow->ui->tableWidget_PWDisplay->item(row, col);
-            if (item && item->data(Qt::UserRole + 10).isValid()) {
-                QString storedPassword = item->data(Qt::UserRole + 10).toString();
-                secureStringClear(storedPassword);
-                item->setData(Qt::UserRole + 10, QVariant());
-            }
-        }
-    }
+    // Use centralized cleanup function for cached passwords
+    cleanupCachedPasswords();
 
     m_mainWindow->ui->tableWidget_PWDisplay->clear(); // first we clear the display
     m_mainWindow->ui->tableWidget_PWDisplay->setRowCount(0); // then, we remove all rows
@@ -297,16 +361,8 @@ void Operations_PasswordManager::SetupPWList(QString sortingMethod, bool applyMa
         currentSelection = m_mainWindow->ui->listWidget_PWList->currentItem()->text();
     }
 
-    // Clear any stored passwords in UserRole data before clearing the list
-    int listCount = m_mainWindow->ui->listWidget_PWList->count();
-    for (int i = 0; i < listCount; ++i) {
-        QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
-        if (item && item->data(Qt::UserRole + 10).isValid()) {
-            QString storedPassword = item->data(Qt::UserRole + 10).toString();
-            secureStringClear(storedPassword);
-            item->setData(Qt::UserRole + 10, QVariant());
-        }
-    }
+    // Use centralized cleanup function for cached passwords before clearing
+    cleanupCachedPasswords();
 
     m_mainWindow->ui->listWidget_PWList->clear();
 
@@ -342,6 +398,9 @@ void Operations_PasswordManager::SetupPWList(QString sortingMethod, bool applyMa
     QTextStream fileStream(&fileContent);
     QString line;
     QString account, password, service;
+    
+    // Track passwords for secure cleanup
+    QStringList passwordsToClean;
 
     while (!fileStream.atEnd()) {
         line = fileStream.readLine();
@@ -378,6 +437,7 @@ void Operations_PasswordManager::SetupPWList(QString sortingMethod, bool applyMa
                     account = line.mid(9); // Remove "Account: " prefix
                 } else if (line.startsWith("Password: ")) {
                     password = line.mid(10); // Remove "Password: " prefix
+                    passwordsToClean.append(password); // Track for cleanup
                 } else if (line.startsWith("Service: ")) {
                     service = line.mid(9); // Remove "Service: " prefix
                 }
@@ -401,8 +461,19 @@ void Operations_PasswordManager::SetupPWList(QString sortingMethod, bool applyMa
                     uniqueValues.insert(service);
                 }
             }
+            
+            // Clear password for this entry after processing
+            if (!password.isEmpty()) {
+                secureStringClear(password);
+            }
         }
     }
+    
+    // Final cleanup of any remaining passwords
+    for (QString& pwd : passwordsToClean) {
+        secureStringClear(pwd);
+    }
+    passwordsToClean.clear();
 
     // Convert the set to a sorted list with case-insensitive sorting
     QStringList sortedValues = uniqueValues.values();
@@ -584,6 +655,9 @@ void Operations_PasswordManager::UpdatePWDisplayForSelection(const QString &sele
     QString line;
     QString account, password, service;
     int row = 0;
+    
+    // Track all passwords for secure cleanup
+    QStringList passwordsToClean;
 
     while (!fileStream.atEnd()) {
         line = fileStream.readLine();
@@ -620,6 +694,7 @@ void Operations_PasswordManager::UpdatePWDisplayForSelection(const QString &sele
                     account = line.mid(9); // Remove "Account: " prefix
                 } else if (line.startsWith("Password: ")) {
                     password = line.mid(10); // Remove "Password: " prefix
+                    passwordsToClean.append(password); // Track for cleanup
                 } else if (line.startsWith("Service: ")) {
                     service = line.mid(9); // Remove "Service: " prefix
                 }
@@ -683,8 +758,19 @@ void Operations_PasswordManager::UpdatePWDisplayForSelection(const QString &sele
 
                 row++;
             }
+            
+            // Clear password for this entry
+            if (!password.isEmpty() && password != "(None)") {
+                secureStringClear(password);
+            }
         }
     }
+    
+    // Secure cleanup of all tracked passwords
+    for (QString& pwd : passwordsToClean) {
+        secureStringClear(pwd);
+    }
+    passwordsToClean.clear();
 
     // Set default sort on the second column (index 1) in ascending order
     m_mainWindow->ui->tableWidget_PWDisplay->horizontalHeader()->setSortIndicator(1, Qt::AscendingOrder);
@@ -772,15 +858,24 @@ void Operations_PasswordManager::AddPassword(QString account, QString password, 
 
                     // Check if this is a duplicate entry
                     if (currentAccount == account &&
-                        currentPassword == password &&
-                        currentService == service) {
-                        duplicateFound = true;
+                    currentPassword == password &&
+                    currentService == service) {
+                    duplicateFound = true;
                     }
+            
+            // Clear the current password after checking
+            if (!currentPassword.isEmpty()) {
+                secureStringClear(currentPassword);
+            }
                 }
                 else if (line.startsWith("Account: ")) {
                     currentAccount = line.mid(9);  // Remove "Account: " prefix
                 }
                 else if (line.startsWith("Password: ")) {
+                    // Clear any previous password before assigning new one
+                    if (!currentPassword.isEmpty()) {
+                        secureStringClear(currentPassword);
+                    }
                     currentPassword = line.mid(10);  // Remove "Password: " prefix
                 }
                 else if (line.startsWith("Service: ")) {
@@ -948,6 +1043,11 @@ bool Operations_PasswordManager::ModifyPassword(const QString &oldAccount, const
                                                                          // Add this block to the new content
                                                                          newFileContent += currentBlock + "\n";
                                                                      }
+                                                                     
+                                                                     // Clear the current password after processing
+                                                                     if (!currentPassword.isEmpty()) {
+                                                                         secureStringClear(currentPassword);
+                                                                     }
                                                                      continue;
                                                                  }
 
@@ -958,6 +1058,10 @@ bool Operations_PasswordManager::ModifyPassword(const QString &oldAccount, const
                                                                      if (line.startsWith("Account: ")) {
                                                                          currentAccount = line.mid(9);  // Remove "Account: " prefix
                                                                      } else if (line.startsWith("Password: ")) {
+                                                                         // Clear any previous password before assigning new one
+                                                                         if (!currentPassword.isEmpty()) {
+                                                                             secureStringClear(currentPassword);
+                                                                         }
                                                                          currentPassword = line.mid(10);  // Remove "Password: " prefix
                                                                      } else if (line.startsWith("Service: ")) {
                                                                          currentService = line.mid(9);  // Remove "Service: " prefix
@@ -1164,6 +1268,11 @@ bool Operations_PasswordManager::DeleteAllAssociatedPasswords(const QString &val
             if (shouldDelete) {
                 matchingCount++;
             }
+            
+            // Clear the current password after checking
+            if (!currentPassword.isEmpty()) {
+                secureStringClear(currentPassword);
+            }
             continue;
         }
 
@@ -1171,6 +1280,10 @@ bool Operations_PasswordManager::DeleteAllAssociatedPasswords(const QString &val
             if (line.startsWith("Account: ")) {
                 currentAccount = line.mid(9);  // Remove "Account: " prefix
             } else if (line.startsWith("Password: ")) {
+                // Clear any previous password before assigning new one
+                if (!currentPassword.isEmpty()) {
+                    secureStringClear(currentPassword);
+                }
                 currentPassword = line.mid(10);  // Remove "Password: " prefix
             } else if (line.startsWith("Service: ")) {
                 currentService = line.mid(9);  // Remove "Service: " prefix
@@ -1227,6 +1340,11 @@ bool Operations_PasswordManager::DeleteAllAssociatedPasswords(const QString &val
                                                                  if (!shouldDelete) {
                                                                      newFileContent += currentBlock + "\n";
                                                                  }
+                                                                 
+                                                                 // Clear the current password after processing
+                                                                 if (!currentPassword.isEmpty()) {
+                                                                     secureStringClear(currentPassword);
+                                                                 }
                                                                  continue;
                                                              }
 
@@ -1237,6 +1355,10 @@ bool Operations_PasswordManager::DeleteAllAssociatedPasswords(const QString &val
                                                                  if (line.startsWith("Account: ")) {
                                                                      currentAccount = line.mid(9);  // Remove "Account: " prefix
                                                                  } else if (line.startsWith("Password: ")) {
+                                                                     // Clear any previous password before assigning new one
+                                                                     if (!currentPassword.isEmpty()) {
+                                                                         secureStringClear(currentPassword);
+                                                                     }
                                                                      currentPassword = line.mid(10);  // Remove "Password: " prefix
                                                                  } else if (line.startsWith("Service: ")) {
                                                                      currentService = line.mid(9);  // Remove "Service: " prefix
@@ -1511,19 +1633,29 @@ void Operations_PasswordManager::onEditPasswordClicked()
 
     // Prevent whitespace in lineEdit_Password
     QRegularExpression noWhitespace("[^\\s]*"); // Matches any non-whitespace characters
-    QRegularExpressionValidator* validator = new QRegularExpressionValidator(noWhitespace, &dialog);
+    QRegularExpressionValidator* validator = new QRegularExpressionValidator(noWhitespace, ui.lineEdit_Password);
     ui.lineEdit_Password->setValidator(validator);
     
     // Connect the Generate Password button
     QObject::connect(ui.pushButton_GenPassword, &QPushButton::clicked, [&]()
     {
         qDebug() << "Operations_PasswordManager: Generate Password button clicked in Edit dialog";
+        
+        // Clear any existing password first
+        QString oldPassword = ui.lineEdit_Password->text();
+        if (!oldPassword.isEmpty()) {
+            ui.lineEdit_Password->clear();
+            secureStringClear(oldPassword);
+        }
+        
         QString generatedPassword = generatePassword();
         if (!generatedPassword.isEmpty()) {
             ui.lineEdit_Password->setText(generatedPassword);
             ui.label_ErrorDisplay->setText("Password generated successfully!");
             ui.label_ErrorDisplay->setStyleSheet("color: green;");
             qDebug() << "Operations_PasswordManager: Password set in field";
+            // Clear the generated password from memory after setting
+            secureStringClear(generatedPassword);
         } else {
             ui.label_ErrorDisplay->setText("Failed to generate password.");
             ui.label_ErrorDisplay->setStyleSheet("color: red;");
@@ -1539,6 +1671,10 @@ void Operations_PasswordManager::onEditPasswordClicked()
                              ui.lineEdit_Password->text() == "<Password>" ||
                              ui.lineEdit_Service->text() == "<Password>") {
                              ui.label_ErrorDisplay->setText("The text \"<Password>\" is not allowed in any field.");
+                             // Clear password field for security
+                             QString tempPwd = ui.lineEdit_Password->text();
+                             ui.lineEdit_Password->clear();
+                             secureStringClear(tempPwd);
                              return;
                          }
 
@@ -1811,19 +1947,29 @@ void Operations_PasswordManager::on_AddPasswordClicked()
     ui.label_ErrorDisplay->clear();
     // Prevent whitespace in lineEdit_Password
     QRegularExpression noWhitespace("[^\\s]*"); // Matches any non-whitespace characters
-    QRegularExpressionValidator* validator = new QRegularExpressionValidator(noWhitespace, &dialog);
+    QRegularExpressionValidator* validator = new QRegularExpressionValidator(noWhitespace, ui.lineEdit_Password);
     ui.lineEdit_Password->setValidator(validator);
     
     // Connect the Generate Password button
     QObject::connect(ui.pushButton_GenPassword, &QPushButton::clicked, [&]()
     {
         qDebug() << "Operations_PasswordManager: Generate Password button clicked";
+        
+        // Clear any existing password first
+        QString oldPassword = ui.lineEdit_Password->text();
+        if (!oldPassword.isEmpty()) {
+            ui.lineEdit_Password->clear();
+            secureStringClear(oldPassword);
+        }
+        
         QString generatedPassword = generatePassword();
         if (!generatedPassword.isEmpty()) {
             ui.lineEdit_Password->setText(generatedPassword);
             ui.label_ErrorDisplay->setText("Password generated successfully!");
             ui.label_ErrorDisplay->setStyleSheet("color: green;");
             qDebug() << "Operations_PasswordManager: Password set in field";
+            // Clear the generated password from memory after setting
+            secureStringClear(generatedPassword);
         } else {
             ui.label_ErrorDisplay->setText("Failed to generate password.");
             ui.label_ErrorDisplay->setStyleSheet("color: red;");
@@ -1839,6 +1985,10 @@ void Operations_PasswordManager::on_AddPasswordClicked()
                              ui.lineEdit_Password->text() == "<Password>" ||
                              ui.lineEdit_Service->text() == "<Password>") {
                              ui.label_ErrorDisplay->setText("The text \"<Password>\" is not allowed in any field.");
+                             // Clear password field for security
+                             QString tempPwd = ui.lineEdit_Password->text();
+                             ui.lineEdit_Password->clear();
+                             secureStringClear(tempPwd);
                              return;
                          }
 

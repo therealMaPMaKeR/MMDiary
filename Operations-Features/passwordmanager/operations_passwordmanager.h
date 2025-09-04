@@ -15,6 +15,7 @@ private:
     MainWindow* m_mainWindow;
 public:
     explicit Operations_PasswordManager(MainWindow* mainWindow);
+    ~Operations_PasswordManager(); // Destructor for secure cleanup
     friend class MainWindow;
 
 
@@ -36,8 +37,11 @@ private:
     
     // Currently loaded password tracking
     QString m_currentLoadedValue;  // The value from the list that's currently loaded in the display
+    
+    // Secure cleanup helper
+    void cleanupCachedPasswords();
 
-    QTimer* m_clipboardTimer; // Timer for clearing clipboard
+    QTimer* m_clipboardTimer = nullptr; // Timer for clearing clipboard
     void startClipboardClearTimer();
     void clearClipboard();
 
