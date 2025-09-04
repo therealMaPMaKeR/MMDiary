@@ -293,7 +293,8 @@ void loginscreen::on_pushButton_NewAccount_clicked()
             if (createSuccess) {
                 qDebug() << "loginscreen: User created with ID:" << db.lastInsertId();
 
-                if(!Default_UserSettings::SetAllDefaults(tempUsername, secureEncryptionKey.data())) // set user defaults
+                // Use const reference conversion instead of .data() to prevent copy
+                if(!Default_UserSettings::SetAllDefaults(tempUsername, secureEncryptionKey)) // set user defaults
                 {
                     // SecureByteArray will clear automatically on destruction
                     this->close(); // if unable to do so, exit app

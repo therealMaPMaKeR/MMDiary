@@ -276,7 +276,8 @@ void MainWindow::FinishInitialization()
     }
 
     // Connect to or create the settings database
-    if (!settingsDb.connect(user_Username, user_Key.data())) {
+    // Use const reference conversion instead of .data() to prevent copy
+    if (!settingsDb.connect(user_Username, user_Key)) {
         qCritical() << "Failed to connect to settings database";
         this->close();
         return;
@@ -286,7 +287,8 @@ void MainWindow::FinishInitialization()
     QString testSetting = settingsDb.GetSettingsData_String(Constants::SettingsT_Index_Displayname);
     if (testSetting == Constants::ErrorMessage_Default || testSetting.isEmpty()) {
         qDebug() << "Settings database appears to be new, setting defaults";
-        if (!Default_UserSettings::SetAllDefaults(user_Username, user_Key.data())) {
+        // Use const reference conversion instead of .data() to prevent copy
+        if (!Default_UserSettings::SetAllDefaults(user_Username, user_Key)) {
             qDebug() << "Failed to set default settings";
             this->close();
             return;
@@ -388,7 +390,8 @@ void MainWindow::FinishInitialization()
     }
 
     // Connect to persistent settings database and load settings
-    if (m_persistentSettingsManager->connect(user_Username, user_Key.data())) {
+    // Use const reference conversion instead of .data() to prevent copy
+    if (m_persistentSettingsManager->connect(user_Username, user_Key)) {
         LoadPersistentSettings();
     } else {
         qDebug() << "Failed to connect to persistent settings database, using defaults";
@@ -1545,7 +1548,8 @@ void MainWindow::on_pushButton_CloseApp_clicked()
 void MainWindow::on_pushButton_Acc_ChangePW_clicked()
 {
     ChangePassword* cpw = new ChangePassword(this);
-    cpw->initialize(user_Username, user_Key.data());
+    // Use const reference conversion instead of .data() to prevent copy
+    cpw->initialize(user_Username, user_Key);
     cpw->exec();
 }
 
