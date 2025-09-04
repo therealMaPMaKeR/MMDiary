@@ -305,8 +305,18 @@ void EncryptionWorker::doEncryption()
                 // Read chunk
                 buffer = source.read(chunkSize);
                 if (buffer.isEmpty()) {
-                    break;
+                break;
                 }
+            
+            // SECURITY: Track cumulative memory usage
+            static const qint64 MAX_CUMULATIVE_SIZE = 2LL * 1024 * 1024 * 1024; // 2GB max cumulative
+            static qint64 cumulativeProcessed = 0;
+            cumulativeProcessed += buffer.size();
+            if (cumulativeProcessed > MAX_CUMULATIVE_SIZE) {
+                qWarning() << "EncryptionWorker: Cumulative size limit exceeded:" << cumulativeProcessed;
+                fileSuccess = false;
+                break;
+            }
 
                 // Encrypt chunk
                 QByteArray encryptedChunk = CryptoUtils::Encryption_EncryptBArray(

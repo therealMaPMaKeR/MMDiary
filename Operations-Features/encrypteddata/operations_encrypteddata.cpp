@@ -364,6 +364,26 @@ void Operations_EncryptedData::encryptSelectedFile()
             continue;
         }
 
+        // SECURITY: Validate file format matches content
+        InputValidation::FileValidationResult formatResult = InputValidation::validateFileFormat(filePath);
+        if (!formatResult.isValid) {
+            invalidFiles.append(QString("%1 (Invalid format: %2)").arg(fileInfo.fileName(), formatResult.errorMessage));
+            qDebug() << "Operations_EncryptedData: File format validation failed:" << filePath << formatResult.errorMessage;
+            continue;
+        }
+        
+        if (!formatResult.contentMatchesExtension) {
+            // Warning but allow if valid file format detected
+            if (formatResult.hasValidHeader) {
+                qDebug() << "Operations_EncryptedData: File extension mismatch warning for:" << filePath
+                         << "Detected:" << formatResult.detectedMimeType;
+                // You could show a warning to user here if desired
+            } else {
+                invalidFiles.append(QString("%1 (File content does not match extension)").arg(fileInfo.fileName()));
+                continue;
+            }
+        }
+
         validFiles.append(filePath);
     }
 

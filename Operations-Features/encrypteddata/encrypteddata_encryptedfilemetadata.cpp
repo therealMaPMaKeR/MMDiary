@@ -550,138 +550,106 @@ bool EncryptedFileMetadata::parseMetadataChunk(const QByteArray& chunk, FileMeta
         return false;
     }
 
-    const char* data = chunk.constData();
-    int pos = 0;
-    int totalSize = chunk.size();
+    // SECURITY: Use QDataStream for safe parsing instead of raw pointer operations
+    QDataStream stream(chunk);
+    stream.setByteOrder(QDataStream::LittleEndian);
+    stream.setVersion(QDataStream::Qt_5_15);
 
     try {
         // 1. Read filename
         quint32 filenameLength = 0;
-        if (!safeRead(data, pos, totalSize, &filenameLength, sizeof(filenameLength))) {
+        stream >> filenameLength;
+        
+        // SECURITY: Validate length before reading
+        if (filenameLength > MAX_FILENAME_LENGTH || filenameLength == 0) {
+            qWarning() << "Invalid filename length:" << filenameLength;
             return false;
         }
-
-        if (filenameLength == 0 || filenameLength > 1000) {
-            qWarning() << "Invalid filename length in metadata:" << filenameLength;
-            return false;
-        }
-
+        
         QByteArray filenameBytes(filenameLength, '\0');
-        if (!safeRead(data, pos, totalSize, filenameBytes.data(), filenameLength)) {
+        int bytesRead = stream.readRawData(filenameBytes.data(), filenameLength);
+        if (bytesRead != static_cast<int>(filenameLength)) {
+            qWarning() << "Failed to read filename completely";
             return false;
         }
-
         metadata.filename = QString::fromUtf8(filenameBytes);
-        if (!isValidFilename(metadata.filename)) {
-            qWarning() << "Invalid filename in metadata:" << metadata.filename;
-            return false;
-        }
 
         // 2. Read category
         quint32 categoryLength = 0;
-        if (!safeRead(data, pos, totalSize, &categoryLength, sizeof(categoryLength))) {
-            return false;
-        }
-
+        stream >> categoryLength;
+        
+        // SECURITY: Validate length
         if (categoryLength > MAX_CATEGORY_LENGTH) {
-            qWarning() << "Invalid category length in metadata:" << categoryLength;
+            qWarning() << "Invalid category length:" << categoryLength;
             return false;
         }
-
+        
         if (categoryLength > 0) {
             QByteArray categoryBytes(categoryLength, '\0');
-            if (!safeRead(data, pos, totalSize, categoryBytes.data(), categoryLength)) {
+            bytesRead = stream.readRawData(categoryBytes.data(), categoryLength);
+            if (bytesRead != static_cast<int>(categoryLength)) {
+                qWarning() << "Failed to read category completely";
                 return false;
             }
-
             metadata.category = QString::fromUtf8(categoryBytes);
-            if (!isValidCategory(metadata.category)) {
-                qWarning() << "Invalid category in metadata:" << metadata.category;
-                return false;
-            }
         }
 
         // 3. Read tags
         quint32 tagCount = 0;
-        if (!safeRead(data, pos, totalSize, &tagCount, sizeof(tagCount))) {
-            return false;
-        }
-
+        stream >> tagCount;
+        
+        // SECURITY: Validate tag count
         if (tagCount > MAX_TAGS) {
-            qWarning() << "Too many tags in metadata:" << tagCount;
+            qWarning() << "Invalid tag count:" << tagCount;
             return false;
         }
-
+        
         for (quint32 i = 0; i < tagCount; ++i) {
             quint32 tagLength = 0;
-            if (!safeRead(data, pos, totalSize, &tagLength, sizeof(tagLength))) {
+            stream >> tagLength;
+            
+            // SECURITY: Validate tag length
+            if (tagLength > MAX_TAG_LENGTH || tagLength == 0) {
+                qWarning() << "Invalid tag length:" << tagLength;
                 return false;
             }
-
-            if (tagLength > MAX_TAG_LENGTH) {
-                qWarning() << "Invalid tag length in metadata:" << tagLength;
+            
+            QByteArray tagBytes(tagLength, '\0');
+            bytesRead = stream.readRawData(tagBytes.data(), tagLength);
+            if (bytesRead != static_cast<int>(tagLength)) {
+                qWarning() << "Failed to read tag completely";
                 return false;
             }
-
-            QString tag;
-            if (tagLength > 0) {
-                QByteArray tagBytes(tagLength, '\0');
-                if (!safeRead(data, pos, totalSize, tagBytes.data(), tagLength)) {
-                    return false;
-                }
-
-                tag = QString::fromUtf8(tagBytes);
-                if (!isValidTag(tag)) {
-                    qWarning() << "Invalid tag in metadata:" << tag;
-                    return false;
-                }
-            }
-
-            metadata.tags.append(tag);
+            metadata.tags.append(QString::fromUtf8(tagBytes));
         }
 
         // 4. Read thumbnail data
         quint32 thumbnailLength = 0;
-        if (!safeRead(data, pos, totalSize, &thumbnailLength, sizeof(thumbnailLength))) {
-            return false;
-        }
-
+        stream >> thumbnailLength;
+        
+        // SECURITY: Validate thumbnail size
         if (thumbnailLength > MAX_THUMBNAIL_SIZE) {
-            qWarning() << "Invalid thumbnail length in metadata:" << thumbnailLength;
+            qWarning() << "Thumbnail too large:" << thumbnailLength << "bytes";
             return false;
         }
-
+        
         if (thumbnailLength > 0) {
             metadata.thumbnailData.resize(thumbnailLength);
-            if (!safeRead(data, pos, totalSize, metadata.thumbnailData.data(), thumbnailLength)) {
+            bytesRead = stream.readRawData(metadata.thumbnailData.data(), thumbnailLength);
+            if (bytesRead != static_cast<int>(thumbnailLength)) {
+                qWarning() << "Failed to read thumbnail data completely";
                 return false;
             }
-            qDebug() << "Read thumbnail data from metadata:" << thumbnailLength << "bytes";
+            qDebug() << "Read thumbnail data from chunk:" << thumbnailLength << "bytes";
         }
 
-        // 5. NEW: Read encryption datetime (if available - backwards compatibility)
-        if (pos + static_cast<int>(sizeof(qint64)) <= totalSize) {
+        // 5. Read encryption datetime (if present)
+        if (!stream.atEnd()) {
             qint64 encryptionTimestamp = 0;
-            if (safeRead(data, pos, totalSize, &encryptionTimestamp, sizeof(encryptionTimestamp))) {
+            stream >> encryptionTimestamp;
+            if (stream.status() == QDataStream::Ok && encryptionTimestamp > 0) {
                 metadata.encryptionDateTime = QDateTime::fromMSecsSinceEpoch(encryptionTimestamp);
-                qDebug() << "Read encryption datetime from metadata:" << metadata.encryptionDateTime.toString();
-            } else {
-                qDebug() << "Failed to read encryption datetime, but continuing (backwards compatibility)";
-                // Don't return false here - this is backwards compatibility
-            }
-        } else {
-            qDebug() << "No encryption datetime in metadata (backwards compatibility with older files)";
-        }
-
-        // Verify we consumed all or almost all data (allow for missing datetime in old files)
-        if (pos > totalSize) {
-            qWarning() << "Metadata chunk read overflow. Position" << pos << "exceeds total size" << totalSize;
-            return false;
-        } else if (pos < totalSize) {
-            int remainingBytes = totalSize - pos;
-            if (remainingBytes != sizeof(qint64)) {
-                qDebug() << "Metadata chunk has" << remainingBytes << "unexpected remaining bytes (expected 0 or 8 for datetime)";
-                // This could be normal for old files or files with different formatting, so don't fail
+                qDebug() << "Read encryption datetime from chunk:" << metadata.encryptionDateTime.toString();
             }
         }
 

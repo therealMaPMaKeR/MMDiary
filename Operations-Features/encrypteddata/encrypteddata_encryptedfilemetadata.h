@@ -79,6 +79,7 @@ public:
     static bool isValidFilename(const QString& filename);
 
     // Constants for validation limits
+    static const int MAX_FILENAME_LENGTH = 255;  // Maximum filename length
     static const int MAX_TAGS = 50;
     static const int MAX_CATEGORY_LENGTH = 50;
     static const int MAX_TAG_LENGTH = 50;

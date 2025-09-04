@@ -749,8 +749,13 @@ QStringList Operations_VP_Shows::findVideoFiles(const QString& folderPath, bool 
         if (fileInfo.isFile()) {
             QString extension = fileInfo.suffix().toLower();
             if (videoExtensions.contains(extension)) {
-                videoFiles.append(filePath);
-                qDebug() << "Operations_VP_Shows: Found video file:" << fileInfo.fileName();
+                // SECURITY: Validate that the file is actually a video
+                if (InputValidation::isValidVideoFile(filePath)) {
+                    videoFiles.append(filePath);
+                    qDebug() << "Operations_VP_Shows: Found valid video file:" << fileInfo.fileName();
+                } else {
+                    qDebug() << "Operations_VP_Shows: Skipping file with video extension but invalid header:" << fileInfo.fileName();
+                }
             }
         }
     }

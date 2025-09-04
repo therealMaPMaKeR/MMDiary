@@ -33,6 +33,15 @@ struct ValidationResult {
     QString errorMessage;
 };
 
+// File format validation structure
+struct FileValidationResult {
+    bool isValid;
+    bool hasValidHeader;
+    bool contentMatchesExtension;
+    QString detectedMimeType;
+    QString errorMessage;
+};
+
 // The common passwords deny list (defined in cpp file)
 extern const QStringList commonPasswords;
 
@@ -55,6 +64,15 @@ bool validatePasswordFile(const QString& filePath, const QByteArray& expectedEnc
 // Validate tasklist file integrity
 bool validateTasklistFile(const QString& filePath, const QByteArray& expectedEncryptionKey);
 bool validateTasklistFile(const QString& filePath, const QByteArray& expectedEncryptionKey, bool requireExistence);
+
+// New file format validation functions
+FileValidationResult validateFileFormat(const QString& filePath);
+bool isValidImageFile(const QString& filePath);
+bool isValidVideoFile(const QString& filePath);
+bool isValidAudioFile(const QString& filePath);
+bool checkFileHeader(const QString& filePath, const QByteArray& expectedMagic, int offset = 0);
+QString detectMimeType(const QString& filePath);
+bool hasValidFileStructure(const QString& filePath, qint64 maxSize = -1);
 
 } // namespace InputValidation
 

@@ -949,4 +949,237 @@ bool validateTasklistFile(const QString& filePath, const QByteArray& expectedEnc
     return validateTasklistFile(filePath, expectedEncryptionKey, false); // Default to not requiring existence
 }
 
+// File format validation implementation
+FileValidationResult validateFileFormat(const QString& filePath) {
+    FileValidationResult result;
+    result.isValid = false;
+    result.hasValidHeader = false;
+    result.contentMatchesExtension = false;
+    
+    // Check if file exists
+    QFile file(filePath);
+    if (!file.exists()) {
+        result.errorMessage = "File does not exist";
+        return result;
+    }
+    
+    // Security: Check file size limits
+    qint64 fileSize = file.size();
+    const qint64 MAX_FILE_SIZE = 5LL * 1024 * 1024 * 1024; // 5GB max
+    if (fileSize > MAX_FILE_SIZE) {
+        result.errorMessage = QString("File too large: %1 bytes (max: %2 bytes)").arg(fileSize).arg(MAX_FILE_SIZE);
+        return result;
+    }
+    
+    if (fileSize == 0) {
+        result.errorMessage = "File is empty";
+        return result;
+    }
+    
+    // Open file and read header
+    if (!file.open(QIODevice::ReadOnly)) {
+        result.errorMessage = "Cannot open file for reading";
+        return result;
+    }
+    
+    // Read first 512 bytes for header analysis
+    QByteArray header = file.read(512);
+    file.close();
+    
+    if (header.isEmpty()) {
+        result.errorMessage = "Cannot read file header";
+        return result;
+    }
+    
+    // Get file extension
+    QFileInfo fileInfo(filePath);
+    QString extension = fileInfo.suffix().toLower();
+    
+    // Detect actual MIME type from content
+    result.detectedMimeType = detectMimeType(filePath);
+    
+    // Check for specific file types
+    if (isValidImageFile(filePath)) {
+        result.hasValidHeader = true;
+        QStringList imageExtensions = {"jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif"};
+        result.contentMatchesExtension = imageExtensions.contains(extension);
+    } else if (isValidVideoFile(filePath)) {
+        result.hasValidHeader = true;
+        QStringList videoExtensions = {"mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp"};
+        result.contentMatchesExtension = videoExtensions.contains(extension);
+    } else if (isValidAudioFile(filePath)) {
+        result.hasValidHeader = true;
+        QStringList audioExtensions = {"mp3", "wav", "flac", "ogg", "m4a", "aac", "wma"};
+        result.contentMatchesExtension = audioExtensions.contains(extension);
+    }
+    
+    // Security: Check for embedded executables
+    if (header.contains("MZ") && (header.indexOf("MZ") < 100)) {
+        // Potential Windows executable embedded
+        if (!extension.isEmpty() && extension != "exe" && extension != "dll") {
+            result.errorMessage = "File may contain embedded executable code";
+            result.isValid = false;
+            return result;
+        }
+    }
+    
+    result.isValid = result.hasValidHeader;
+    if (!result.isValid && result.errorMessage.isEmpty()) {
+        result.errorMessage = "Unknown or unsupported file format";
+    }
+    
+    return result;
+}
+
+bool isValidImageFile(const QString& filePath) {
+    // JPEG magic numbers
+    if (checkFileHeader(filePath, QByteArray::fromHex("FFD8FF"))) return true;
+    // PNG magic number
+    if (checkFileHeader(filePath, QByteArray::fromHex("89504E470D0A1A0A"))) return true;
+    // GIF magic numbers (GIF87a or GIF89a)
+    if (checkFileHeader(filePath, QByteArray("GIF87a")) || 
+        checkFileHeader(filePath, QByteArray("GIF89a"))) return true;
+    // BMP magic number
+    if (checkFileHeader(filePath, QByteArray("BM"))) return true;
+    // WebP magic number
+    if (checkFileHeader(filePath, QByteArray("RIFF"), 0) && 
+        checkFileHeader(filePath, QByteArray("WEBP"), 8)) return true;
+    // TIFF magic numbers (little-endian or big-endian)
+    if (checkFileHeader(filePath, QByteArray::fromHex("49492A00")) || 
+        checkFileHeader(filePath, QByteArray::fromHex("4D4D002A"))) return true;
+    
+    return false;
+}
+
+bool isValidVideoFile(const QString& filePath) {
+    // MP4/MOV magic numbers
+    if (checkFileHeader(filePath, QByteArray("ftyp"), 4)) return true;
+    // AVI magic number
+    if (checkFileHeader(filePath, QByteArray("RIFF"), 0) && 
+        checkFileHeader(filePath, QByteArray("AVI "), 8)) return true;
+    // MKV/WebM magic number
+    if (checkFileHeader(filePath, QByteArray::fromHex("1A45DFA3"))) return true;
+    // FLV magic number
+    if (checkFileHeader(filePath, QByteArray("FLV"))) return true;
+    // WMV/ASF magic number
+    if (checkFileHeader(filePath, QByteArray::fromHex("3026B2758E66CF11"))) return true;
+    
+    return false;
+}
+
+bool isValidAudioFile(const QString& filePath) {
+    // MP3 magic numbers (ID3 or direct MPEG audio)
+    if (checkFileHeader(filePath, QByteArray("ID3")) || 
+        checkFileHeader(filePath, QByteArray::fromHex("FFFB"))) return true;
+    // WAV magic number
+    if (checkFileHeader(filePath, QByteArray("RIFF"), 0) && 
+        checkFileHeader(filePath, QByteArray("WAVE"), 8)) return true;
+    // FLAC magic number
+    if (checkFileHeader(filePath, QByteArray("fLaC"))) return true;
+    // OGG magic number
+    if (checkFileHeader(filePath, QByteArray("OggS"))) return true;
+    // M4A (similar to MP4)
+    if (checkFileHeader(filePath, QByteArray("ftyp"), 4)) {
+        // Additional check for M4A specific atoms
+        QFile file(filePath);
+        if (file.open(QIODevice::ReadOnly)) {
+            file.seek(8);
+            QByteArray brand = file.read(4);
+            file.close();
+            if (brand == "M4A " || brand == "mp42") return true;
+        }
+    }
+    
+    return false;
+}
+
+bool checkFileHeader(const QString& filePath, const QByteArray& expectedMagic, int offset) {
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    
+    if (offset > 0) {
+        file.seek(offset);
+    }
+    
+    QByteArray header = file.read(expectedMagic.size());
+    file.close();
+    
+    return header == expectedMagic;
+}
+
+QString detectMimeType(const QString& filePath) {
+    // Image types
+    if (checkFileHeader(filePath, QByteArray::fromHex("FFD8FF"))) return "image/jpeg";
+    if (checkFileHeader(filePath, QByteArray::fromHex("89504E470D0A1A0A"))) return "image/png";
+    if (checkFileHeader(filePath, QByteArray("GIF8"))) return "image/gif";
+    if (checkFileHeader(filePath, QByteArray("BM"))) return "image/bmp";
+    if (checkFileHeader(filePath, QByteArray("RIFF"), 0) && 
+        checkFileHeader(filePath, QByteArray("WEBP"), 8)) return "image/webp";
+    
+    // Video types
+    if (checkFileHeader(filePath, QByteArray("ftyp"), 4)) {
+        // Could be MP4, MOV, or M4A - need more specific check
+        QFile file(filePath);
+        if (file.open(QIODevice::ReadOnly)) {
+            file.seek(8);
+            QByteArray brand = file.read(4);
+            file.close();
+            if (brand == "M4A " || brand == "mp42") return "audio/mp4";
+            return "video/mp4";
+        }
+    }
+    if (checkFileHeader(filePath, QByteArray("RIFF"), 0) && 
+        checkFileHeader(filePath, QByteArray("AVI "), 8)) return "video/x-msvideo";
+    if (checkFileHeader(filePath, QByteArray::fromHex("1A45DFA3"))) return "video/webm";
+    if (checkFileHeader(filePath, QByteArray("FLV"))) return "video/x-flv";
+    
+    // Audio types
+    if (checkFileHeader(filePath, QByteArray("ID3")) || 
+        checkFileHeader(filePath, QByteArray::fromHex("FFFB"))) return "audio/mpeg";
+    if (checkFileHeader(filePath, QByteArray("RIFF"), 0) && 
+        checkFileHeader(filePath, QByteArray("WAVE"), 8)) return "audio/wav";
+    if (checkFileHeader(filePath, QByteArray("fLaC"))) return "audio/flac";
+    if (checkFileHeader(filePath, QByteArray("OggS"))) return "audio/ogg";
+    
+    // Document types
+    if (checkFileHeader(filePath, QByteArray("%PDF"))) return "application/pdf";
+    
+    // Archive types (for detection only)
+    if (checkFileHeader(filePath, QByteArray("PK\x03\x04"))) return "application/zip";
+    if (checkFileHeader(filePath, QByteArray("Rar!"))) return "application/x-rar";
+    if (checkFileHeader(filePath, QByteArray("7z\xBC\xAF\x27\x1C"))) return "application/x-7z-compressed";
+    
+    return "application/octet-stream"; // Unknown binary
+}
+
+bool hasValidFileStructure(const QString& filePath, qint64 maxSize) {
+    QFileInfo fileInfo(filePath);
+    
+    // Check if file exists
+    if (!fileInfo.exists()) {
+        return false;
+    }
+    
+    // Check file size
+    qint64 fileSize = fileInfo.size();
+    if (fileSize == 0) {
+        return false;
+    }
+    
+    if (maxSize > 0 && fileSize > maxSize) {
+        return false;
+    }
+    
+    // Check if file is readable
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    file.close();
+    
+    return true;
+}
+
 } // namespace InputValidation
