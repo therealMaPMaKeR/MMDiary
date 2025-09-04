@@ -28,6 +28,7 @@
 #include <QMutex>
 #include <QFuture>
 #include <QtConcurrent/QtConcurrent>
+#include <QHash>
 #include <functional>
 #include <memory>
 
@@ -41,6 +42,12 @@ namespace OperationsFiles {
 // Default secure permissions - owner read/write only
 const QFile::Permissions DEFAULT_FILE_PERMISSIONS = QFile::ReadOwner | QFile::WriteOwner;
 const QFile::Permissions DEFAULT_DIR_PERMISSIONS = QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner;
+
+// Size limits for operations_files encryption functions
+// These functions are designed for text-based files (diary, tasklist, settings)
+// For larger files (videos, bulk data), use dedicated encryption worker classes
+const qint64 MAX_ENCRYPTED_FILE_SIZE = 50 * 1024 * 1024; // 50MB limit for encrypted files
+const qint64 MAX_CONTENT_SIZE = 50 * 1024 * 1024; // 50MB limit for content to encrypt
 
 // Windows-specific reserved device names
 static const QStringList WINDOWS_RESERVED_NAMES = {
@@ -61,6 +68,7 @@ QString enableWindowsLongPath(const QString& path);
 bool validatePathLength(const QString& path);
 QString securePathJoin(const QString& basePath, const QString& component);
 QString normalizePathForComparison(const QString& path);
+bool isWeakEncryptionKey(const QByteArray& key);
 
 // RAII class for temporary file management
 TempFileCleaner::TempFileCleaner(const QString& filePath, FileType fileType)
@@ -350,6 +358,58 @@ void setUsername(const QString& username) {
     if (!username.isEmpty()) {
         g_username = username;
     }
+}
+
+// Check if encryption key is weak (all zeros, all same byte, etc.)
+bool isWeakEncryptionKey(const QByteArray& key) {
+    if (key.isEmpty() || key.size() != 32) {
+        return true; // Invalid key size
+    }
+    
+    // Check if all bytes are the same (e.g., all zeros, all 0xFF)
+    char firstByte = key[0];
+    bool allSame = true;
+    for (int i = 1; i < key.size(); ++i) {
+        if (key[i] != firstByte) {
+            allSame = false;
+            break;
+        }
+    }
+    
+    if (allSame) {
+        qWarning() << "operations_files: Weak encryption key detected (all bytes identical)";
+        return true;
+    }
+    
+    // Check for simple patterns (0x00, 0x01, 0x02, 0x03...)
+    bool sequentialPattern = true;
+    for (int i = 0; i < key.size(); ++i) {
+        if (static_cast<unsigned char>(key[i]) != (i % 256)) {
+            sequentialPattern = false;
+            break;
+        }
+    }
+    
+    if (sequentialPattern) {
+        qWarning() << "operations_files: Weak encryption key detected (sequential pattern)";
+        return true;
+    }
+    
+    // Check for low entropy (too many repeated bytes)
+    QHash<char, int> byteCount;
+    for (char byte : key) {
+        byteCount[byte]++;
+    }
+    
+    // If any byte appears more than 8 times in a 32-byte key, it's suspicious
+    for (auto count : byteCount) {
+        if (count > 8) {
+            qWarning() << "operations_files: Potentially weak encryption key detected (low entropy)";
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 QString getUsername() {
@@ -978,6 +1038,15 @@ bool readEncryptedFileLines(const QString& filePath, const QByteArray& encryptio
         return false;
     }
 
+    // SECURITY: Check file size to prevent memory exhaustion
+    qint64 fileSize = fileInfo.size();
+    if (fileSize > MAX_ENCRYPTED_FILE_SIZE) {
+        qWarning() << "operations_files: File too large for readEncryptedFileLines:"
+                   << fileSize << "bytes (max:" << MAX_ENCRYPTED_FILE_SIZE << "bytes)";
+        qWarning() << "operations_files: Use dedicated encryption worker classes for large files";
+        return false;
+    }
+
     // Create a temporary file
     auto tempFile = createTempFile();
     if (!tempFile) {
@@ -1042,6 +1111,25 @@ bool writeEncryptedFileLines(const QString& filePath, const QByteArray& encrypti
         InputValidation::validateInput(filePath, InputValidation::InputType::FilePath);
     if (!result.isValid) {
         qWarning() << "Invalid file path for encryption: " << result.errorMessage;
+        return false;
+    }
+
+    // SECURITY: Check total content size to prevent memory exhaustion
+    qint64 totalSize = 0;
+    for (const QString& line : lines) {
+        qint64 lineSize = line.toUtf8().size() + 1; // +1 for newline
+        
+        // Check for integer overflow before addition
+        if (totalSize > MAX_CONTENT_SIZE - lineSize) {
+            qWarning() << "operations_files: Content size would overflow limit";
+            return false;
+        }
+        totalSize += lineSize;
+    }
+    if (totalSize > MAX_CONTENT_SIZE) {
+        qWarning() << "operations_files: Content too large for writeEncryptedFileLines:"
+                   << totalSize << "bytes (max:" << MAX_CONTENT_SIZE << "bytes)";
+        qWarning() << "operations_files: Use dedicated encryption worker classes for large content";
         return false;
     }
 
@@ -1233,6 +1321,12 @@ bool deleteFileAndCleanEmptyDirs(const QString& filePath, const QStringList& hie
 bool readEncryptedFile(const QString& filePath, const QByteArray& encryptionKey, QString& outContent) {
     outContent.clear();
 
+    // SECURITY: Check for weak encryption keys
+    if (isWeakEncryptionKey(encryptionKey)) {
+        qWarning() << "operations_files: Refusing to use weak encryption key for reading";
+        return false;
+    }
+
     // Validate the file path
     InputValidation::ValidationResult result =
         InputValidation::validateInput(filePath, InputValidation::InputType::FilePath);
@@ -1245,6 +1339,15 @@ bool readEncryptedFile(const QString& filePath, const QByteArray& encryptionKey,
     QFileInfo fileInfo(filePath);
     if (!fileInfo.exists() || !fileInfo.isFile()) {
         qWarning() << "Encrypted file does not exist: " << filePath;
+        return false;
+    }
+
+    // SECURITY: Check file size to prevent memory exhaustion
+    qint64 fileSize = fileInfo.size();
+    if (fileSize > MAX_ENCRYPTED_FILE_SIZE) {
+        qWarning() << "operations_files: File too large for readEncryptedFile:"
+                   << fileSize << "bytes (max:" << MAX_ENCRYPTED_FILE_SIZE << "bytes)";
+        qWarning() << "operations_files: Use dedicated encryption worker classes for large files";
         return false;
     }
 
@@ -1295,6 +1398,15 @@ bool readEncryptedFile(const QString& filePath, const QByteArray& encryptionKey,
         outContent = in.readAll();
         file.close();
 
+        // SECURITY: TOCTOU mitigation - validate decrypted content size
+        qint64 decryptedSize = outContent.toUtf8().size();
+        if (decryptedSize > MAX_CONTENT_SIZE) {
+            qWarning() << "operations_files: Decrypted content exceeds size limit:"
+                       << decryptedSize << "bytes (max:" << MAX_CONTENT_SIZE << "bytes)";
+            outContent.clear(); // Clear potentially malicious content
+            return false;
+        }
+
         qDebug() << "Successfully read" << outContent.length() << "characters from decrypted file";
 
         // Cleaner will handle deletion when it goes out of scope
@@ -1305,11 +1417,26 @@ bool readEncryptedFile(const QString& filePath, const QByteArray& encryptionKey,
 
 // Optimized writing to encrypted files
 bool writeEncryptedFile(const QString& filePath, const QByteArray& encryptionKey, const QString& content) {
+    // SECURITY: Check for weak encryption keys
+    if (isWeakEncryptionKey(encryptionKey)) {
+        qWarning() << "operations_files: Refusing to use weak encryption key for writing";
+        return false;
+    }
+
     // Validate the file path
     InputValidation::ValidationResult result =
         InputValidation::validateInput(filePath, InputValidation::InputType::FilePath);
     if (!result.isValid) {
         qWarning() << "Invalid file path for encryption: " << result.errorMessage;
+        return false;
+    }
+
+    // SECURITY: Check content size to prevent memory exhaustion
+    qint64 contentSize = content.toUtf8().size();
+    if (contentSize > MAX_CONTENT_SIZE) {
+        qWarning() << "operations_files: Content too large for writeEncryptedFile:"
+                   << contentSize << "bytes (max:" << MAX_CONTENT_SIZE << "bytes)";
+        qWarning() << "operations_files: Use dedicated encryption worker classes for large content";
         return false;
     }
 
@@ -1392,6 +1519,7 @@ bool writeEncryptedFile(const QString& filePath, const QByteArray& encryptionKey
 // Process (modify) the content of an encrypted file
 bool processEncryptedFile(const QString& filePath, const QByteArray& encryptionKey,
                           std::function<bool(QString&)> processFunction) {
+    // SECURITY: Check file size before processing (size check is done in readEncryptedFile)
     // Read the content
     QString content;
     if (!readEncryptedFile(filePath, encryptionKey, content)) {
@@ -1425,6 +1553,7 @@ bool searchEncryptedFile(const QString& filePath, const QByteArray& encryptionKe
                          const QRegularExpression& searchPattern, QStringList& results) {
     results.clear();
 
+    // SECURITY: File size check is performed in readEncryptedFile
     // Read the content
     QString content;
     if (!readEncryptedFile(filePath, encryptionKey, content)) {
@@ -1696,6 +1825,14 @@ bool readTasklistFile(const QString& filePath, const QByteArray& encryptionKey,
         return false;
     }
 
+    // SECURITY: Check file size to prevent memory exhaustion
+    qint64 fileSize = fileInfo.size();
+    if (fileSize > MAX_ENCRYPTED_FILE_SIZE) {
+        qWarning() << "operations_files: Tasklist file too large:"
+                   << fileSize << "bytes (max:" << MAX_ENCRYPTED_FILE_SIZE << "bytes)";
+        return false;
+    }
+
     // Validate the tasklist file for security
     if (!InputValidation::validateTasklistFile(filePath, encryptionKey)) {
         qWarning() << "Invalid task list file during reading:" << filePath;
@@ -1770,6 +1907,24 @@ bool writeTasklistFile(const QString& filePath, const QByteArray& encryptionKey,
         InputValidation::validateInput(filePath, InputValidation::InputType::FilePath);
     if (!result.isValid) {
         qWarning() << "Invalid tasklist file path for writing:" << result.errorMessage;
+        return false;
+    }
+
+    // SECURITY: Check total content size to prevent memory exhaustion
+    qint64 totalSize = 0;
+    for (const QString& taskLine : taskLines) {
+        qint64 lineSize = taskLine.toUtf8().size() + 1; // +1 for newline
+        
+        // Check for integer overflow before addition
+        if (totalSize > MAX_CONTENT_SIZE - lineSize) {
+            qWarning() << "operations_files: Tasklist content size would overflow limit";
+            return false;
+        }
+        totalSize += lineSize;
+    }
+    if (totalSize > MAX_CONTENT_SIZE) {
+        qWarning() << "operations_files: Tasklist content too large:"
+                   << totalSize << "bytes (max:" << MAX_CONTENT_SIZE << "bytes)";
         return false;
     }
 

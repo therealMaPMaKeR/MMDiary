@@ -24,6 +24,12 @@ enum class FileType {
 extern const QFile::Permissions DEFAULT_FILE_PERMISSIONS;
 extern const QFile::Permissions DEFAULT_DIR_PERMISSIONS;
 
+// Size limits for operations_files encryption functions
+// These functions are designed for text-based files (diary, tasklist, settings)
+// For larger files (videos, bulk data), use dedicated encryption worker classes
+extern const qint64 MAX_ENCRYPTED_FILE_SIZE; // 50MB limit for encrypted files
+extern const qint64 MAX_CONTENT_SIZE; // 50MB limit for content to encrypt
+
 // RAII class for temporary file management
 class TempFileCleaner {
 public:
@@ -83,6 +89,9 @@ QString enableWindowsLongPath(const QString& path);
 bool validatePathLength(const QString& path);
 QString securePathJoin(const QString& basePath, const QString& component);
 QString normalizePathForComparison(const QString& path);
+
+// Security validation  
+bool isWeakEncryptionKey(const QByteArray& key);
 
 // Task list operations
 bool readTasklistFile(const QString& filePath, const QByteArray& encryptionKey, QStringList& taskLines);

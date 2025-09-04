@@ -11,6 +11,9 @@ namespace CryptoUtils {
 
 // Constants
 const int SALT_SIZE = 16; // 16 bytes (128 bits) salt
+// Size limit for file operations - consistent with operations_files.cpp
+// For larger files, use dedicated encryption worker classes
+const qint64 MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB limit
 #ifdef QT_DEBUG
 const int PBKDF2_ITERATIONS = 500; // Number of iterations for PBKDF2 in debug mode
 #else
@@ -235,8 +238,10 @@ bool Encryption_EncryptFile(const QByteArray& encryptionKey, const QString& sour
 
         // SECURITY: Check file size before reading into memory
         qint64 fileSize = sourceFile.size();
-        if (fileSize < 0 || fileSize > static_cast<qint64>(INT_MAX)) {
-            qWarning() << "File size exceeds maximum supported size: " << fileSize;
+        if (fileSize < 0 || fileSize > MAX_FILE_SIZE) {
+            qWarning() << "CryptoUtils: File too large for Encryption_EncryptFile:"
+                       << fileSize << "bytes (max:" << MAX_FILE_SIZE << "bytes)";
+            qWarning() << "CryptoUtils: Use dedicated encryption worker classes for large files";
             sourceFile.close();
             return false;
         }
@@ -293,8 +298,10 @@ bool Encryption_DecryptFile(const QByteArray& encryptionKey, const QString& sour
 
         // SECURITY: Check file size before reading into memory
         qint64 fileSize = sourceFile.size();
-        if (fileSize < 0 || fileSize > static_cast<qint64>(INT_MAX)) {
-            qWarning() << "File size exceeds maximum supported size: " << fileSize;
+        if (fileSize < 0 || fileSize > MAX_FILE_SIZE) {
+            qWarning() << "CryptoUtils: File too large for Encryption_DecryptFile:"
+                       << fileSize << "bytes (max:" << MAX_FILE_SIZE << "bytes)";
+            qWarning() << "CryptoUtils: Use dedicated encryption worker classes for large files";
             sourceFile.close();
             return false;
         }
