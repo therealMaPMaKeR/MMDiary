@@ -11,6 +11,9 @@
 #include <QFile>
 #include <QtDebug>
 #include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/crypto.h>
 #include "operations_files.h"
 
 // for writing debug to text file
@@ -47,7 +50,35 @@ int main(int argc, char *argv[])
 {
     // Initialize Qt and OpenSSL
     QApplication a(argc, argv);
-    OPENSSL_init_ssl(0, NULL);
+    
+    // Properly initialize OpenSSL 3.x with all required components
+    // SECURITY: Initialize SSL and crypto libraries with proper error strings
+    OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS | 
+                     OPENSSL_INIT_LOAD_CRYPTO_STRINGS |
+                     OPENSSL_INIT_ADD_ALL_CIPHERS |
+                     OPENSSL_INIT_ADD_ALL_DIGESTS, NULL);
+    
+    OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CRYPTO_STRINGS |
+                       OPENSSL_INIT_ADD_ALL_CIPHERS |
+                       OPENSSL_INIT_ADD_ALL_DIGESTS |
+                       OPENSSL_INIT_LOAD_CONFIG, NULL);
+    
+    // Initialize error strings for proper error reporting
+    ERR_load_crypto_strings();
+    
+    #ifdef QT_DEBUG
+    // Verify OpenSSL initialization in debug mode
+    const EVP_CIPHER *cipher = EVP_aes_256_gcm();
+    if (!cipher) {
+        qCritical() << "main: AES-256-GCM cipher not available in OpenSSL";
+        return -1;
+    }
+    if (EVP_CIPHER_key_length(cipher) != 32) {
+        qCritical() << "main: AES-256-GCM key length mismatch";
+        return -1;
+    }
+    qDebug() << "main: OpenSSL initialized successfully with AES-256-GCM support";
+    #endif
 
     QDir appDir(QCoreApplication::applicationDirPath());
     if (!appDir.exists("Data")) {
@@ -122,6 +153,22 @@ int main(int argc, char *argv[])
     });
     #endif
 
+    // Register cleanup handler for OpenSSL
+    auto cleanup_openssl = []() {
+        #ifdef QT_DEBUG
+        qDebug() << "main: Cleaning up OpenSSL resources";
+        #endif
+        
+        // Clean up OpenSSL resources
+        EVP_cleanup();
+        ERR_free_strings();
+        CRYPTO_cleanup_all_ex_data();
+        OPENSSL_cleanup();
+    };
+    
+    // Connect cleanup to application aboutToQuit signal
+    QObject::connect(&a, &QApplication::aboutToQuit, cleanup_openssl);
+    
     loginscreen w;
 
     //set dark theme palette
