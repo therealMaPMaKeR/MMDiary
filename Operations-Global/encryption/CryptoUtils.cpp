@@ -6,6 +6,7 @@
 #include <QMessageBox>
 #include <climits>
 #include <cstddef>  // For SIZE_MAX
+#include <openssl/crypto.h> // For OPENSSL_cleanse
 
 namespace CryptoUtils {
 
@@ -73,12 +74,9 @@ bool Hashing_CompareHash(const QString& hashedPassword, const QString& password)
         32 // 32 bytes output length
         );
 
-    // Clear password bytes immediately after use
+    // Clear password bytes immediately after use with OPENSSL_cleanse
     if (!passwordBytes.isEmpty()) {
-        volatile char* data = reinterpret_cast<volatile char*>(passwordBytes.data());
-        for (int i = 0; i < passwordBytes.size(); ++i) {
-            data[i] = 0;
-        }
+        OPENSSL_cleanse(passwordBytes.data(), passwordBytes.size());
         passwordBytes.clear();
     }
 
@@ -92,12 +90,9 @@ bool Hashing_CompareHash(const QString& hashedPassword, const QString& password)
         result |= static_cast<unsigned char>(computedHash[i]) ^ static_cast<unsigned char>(storedHash[i]);
     }
     
-    // Clear sensitive data
+    // Clear sensitive data with OPENSSL_cleanse
     if (!computedHash.isEmpty()) {
-        volatile char* data = reinterpret_cast<volatile char*>(computedHash.data());
-        for (int i = 0; i < computedHash.size(); ++i) {
-            data[i] = 0;
-        }
+        OPENSSL_cleanse(computedHash.data(), computedHash.size());
         computedHash.clear();
     }
     
@@ -128,6 +123,12 @@ QByteArray Encryption_DeriveWithSalt(const QString& deriveFrom, const QByteArray
         32 // 32 bytes output length
         );
 
+    // Clear input bytes after use
+    if (!inputBytes.isEmpty()) {
+        OPENSSL_cleanse(inputBytes.data(), inputBytes.size());
+        inputBytes.clear();
+    }
+
     return derivedKey;
 }
 
@@ -150,6 +151,12 @@ QByteArray Encryption_DeriveKey(const QString& deriveFrom, QByteArray* outSalt) 
         32 // 32 bytes output length
         );
 
+    // Clear input bytes after use
+    if (!inputBytes.isEmpty()) {
+        OPENSSL_cleanse(inputBytes.data(), inputBytes.size());
+        inputBytes.clear();
+    }
+
     // Combine salt and key
     QByteArray result = salt + derivedKey;
 
@@ -165,8 +172,15 @@ QString Encryption_Encrypt(const QByteArray& encryptionKey, const QString& textT
     }
 
     // SECURITY: Check input text size to prevent overflow
-    if (textToEncrypt.size() > INT_MAX / 4) { // UTF-8 can expand up to 4x
-        qWarning() << "Text too large for encryption";
+    if (textToEncrypt.isEmpty()) {
+        qWarning() << "Empty text provided for encryption";
+        return QString();
+    }
+    
+    // Check for integer overflow in size calculation
+    qint64 textSize = static_cast<qint64>(textToEncrypt.size());
+    if (textSize > INT_MAX / 4 || textSize < 0) { // UTF-8 can expand up to 4x
+        qWarning() << "Text too large for encryption or invalid size";
         return QString();
     }
 
@@ -187,15 +201,29 @@ QString Encryption_Encrypt(const QByteArray& encryptionKey, const QString& textT
 }
 
 QString Encryption_Decrypt(const QByteArray& encryptionKey, const QString& textToDecrypt) {
-    // Check if key has correct size for AES-256
-    if (encryptionKey.size() != 32) {
+    // Check if key has correct size for AES-256 using constant-time comparison
+    volatile bool validKeySize = (encryptionKey.size() == 32);
+    if (!validKeySize) {
         qWarning() << "Invalid key size:" << encryptionKey.size() << "bytes (expected 32 bytes)";
         return QString();
     }
 
     // SECURITY: Validate base64 input size
-    if (textToDecrypt.isEmpty() || textToDecrypt.size() > INT_MAX) {
+    if (textToDecrypt.isEmpty()) {
+        qWarning() << "Empty text provided for decryption";
+        return QString();
+    }
+    
+    // Check for valid base64 and size limits
+    qint64 inputSize = static_cast<qint64>(textToDecrypt.size());
+    if (inputSize > INT_MAX || inputSize < 0) {
         qWarning() << "Invalid base64 input size";
+        return QString();
+    }
+    
+    // Basic base64 validation - length should be multiple of 4
+    if (textToDecrypt.size() % 4 != 0) {
+        qWarning() << "Invalid base64 format - incorrect padding";
         return QString();
     }
 

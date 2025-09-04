@@ -4,6 +4,7 @@
 #include <QDialog>
 #include <QSettings>
 #include <QDebug>
+#include "Operations-Global/encryption/SecureByteArray.h"
 
 //Forward Declarations
 class MainWindow;
@@ -37,7 +38,7 @@ private:
 protected:
     void closeEvent(QCloseEvent *event);
 signals:
-    void passDataMW_Signal(QString username, QByteArray key);
+    void passDataMW_Signal(QString username, SecureByteArray key);
 };
 
 #endif // LOGINSCREEN_H

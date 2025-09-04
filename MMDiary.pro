@@ -394,6 +394,7 @@ SOURCES += \
     Operations-Global/databases/sqlite/sqlite-database-persistentsettings.cpp \
     Operations-Global/databases/sqlite/sqlite-database-settings.cpp \
     Operations-Global/encryption/CryptoUtils.cpp \
+    Operations-Global/encryption/SecureByteArray.cpp \
     Operations-Global/encryption/noncechecker.cpp \
     Operations-Global/encryption/QT_AESGCM256/aesgcm256.cpp \
     constants.cpp \
@@ -456,6 +457,7 @@ HEADERS += \
     Operations-Global/databases/sqlite/sqlite-database-persistentsettings.h \
     Operations-Global/databases/sqlite/sqlite-database-settings.h \
     Operations-Global/encryption/CryptoUtils.h \
+    Operations-Global/encryption/SecureByteArray.h \
     Operations-Global/encryption/noncechecker.h \
     Operations-Global/encryption/QT_AESGCM256/aesgcm256.h \
     constants.h \

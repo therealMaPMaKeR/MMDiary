@@ -21,6 +21,7 @@
 #include <QChar>
 #include <QSystemTrayIcon>
 #include <QScreen>
+#include "Operations-Global/encryption/SecureByteArray.h"
 #include "qcheckbox_PWValidation.h"
 #include "sqlite-database-handler.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
 #include "sqlite-database-auth.h" // everywhere that this is needed is somewhere that mainwindow is needed.// more practical to have this here
@@ -58,7 +59,7 @@ public:
 
     // Saved Settings
     QString user_Username;
-    QByteArray user_Key;
+    SecureByteArray user_Key;  // Changed from QByteArray for secure key storage
     QString user_Displayname, user_nameColor;
 
     // public functions
@@ -72,7 +73,7 @@ public:
     void refreshEncryptedDataDisplay();
 
 public slots:
-    void ReceiveDataLogin_Slot(QString username, QByteArray key);
+    void ReceiveDataLogin_Slot(QString username, SecureByteArray key);
     void showAndActivate();
 protected:
     void resizeEvent(QResizeEvent *event) override;

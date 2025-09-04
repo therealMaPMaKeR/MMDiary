@@ -107,11 +107,8 @@ MainWindow::MainWindow(QWidget *parent)
             Operations_Diary_ptr->DeleteEmptyCurrentDayDiary();
         }
         
-        // Clear sensitive data
-        QByteArray ba(user_Key);
-        ba.detach();            // ensure unique buffer
-        ba.fill('\0');          // overwrite all bytes
-        ba.clear();             // reset size to 0
+        // Clear sensitive data - SecureByteArray handles this securely
+        user_Key.clear();
         
         // Cleanup will be handled by destructor
         qApp->quit();
@@ -132,11 +129,8 @@ MainWindow::MainWindow(QWidget *parent)
             Operations_Diary_ptr->DeleteEmptyCurrentDayDiary();
         }
         
-        // Clear sensitive data
-        QByteArray ba(user_Key);
-        ba.detach();            // ensure unique buffer
-        ba.fill('\0');          // overwrite all bytes
-        ba.clear();             // reset size to 0
+        // Clear sensitive data - SecureByteArray handles this securely
+        user_Key.clear();
     });
     // Connect the custom signal to our slot
     connect(ui->tabWidget_Main, &qtab_Main::passwordValidationRequested,
@@ -165,11 +159,8 @@ MainWindow::~MainWindow()
 {
     qDebug() << "MainWindow: Destructor called - clearing sensitive data";
     
-    // Securely clear the encryption key from memory
-    if (!user_Key.isEmpty()) {
-        std::memset(user_Key.data(), 0, user_Key.size());
-        user_Key.clear();
-    }
+    // SecureByteArray will handle secure clearing automatically
+    user_Key.clear();
     
     // Clear username and other sensitive strings
     user_Username.clear();
@@ -285,7 +276,7 @@ void MainWindow::FinishInitialization()
     }
 
     // Connect to or create the settings database
-    if (!settingsDb.connect(user_Username, user_Key)) {
+    if (!settingsDb.connect(user_Username, user_Key.data())) {
         qCritical() << "Failed to connect to settings database";
         this->close();
         return;
@@ -295,7 +286,7 @@ void MainWindow::FinishInitialization()
     QString testSetting = settingsDb.GetSettingsData_String(Constants::SettingsT_Index_Displayname);
     if (testSetting == Constants::ErrorMessage_Default || testSetting.isEmpty()) {
         qDebug() << "Settings database appears to be new, setting defaults";
-        if (!Default_UserSettings::SetAllDefaults(user_Username, user_Key)) {
+        if (!Default_UserSettings::SetAllDefaults(user_Username, user_Key.data())) {
             qDebug() << "Failed to set default settings";
             this->close();
             return;
@@ -397,7 +388,7 @@ void MainWindow::FinishInitialization()
     }
 
     // Connect to persistent settings database and load settings
-    if (m_persistentSettingsManager->connect(user_Username, user_Key)) {
+    if (m_persistentSettingsManager->connect(user_Username, user_Key.data())) {
         LoadPersistentSettings();
     } else {
         qDebug() << "Failed to connect to persistent settings database, using defaults";
@@ -1089,11 +1080,11 @@ void MainWindow::showEvent(QShowEvent *event)
     }
 }
 
-void MainWindow::ReceiveDataLogin_Slot(QString username, QByteArray key) // receives the userName from the login window.
+void MainWindow::ReceiveDataLogin_Slot(QString username, SecureByteArray key) // receives the userName from the login window.
 {
     qDebug() << "MainWindow: Receiving login data";
     user_Username = username;
-    user_Key = key;  // Store the key - will be cleared in destructor
+    user_Key = std::move(key);  // Move the key to avoid copying
     FinishInitialization(); // This function also sets the diaries directory since it is based off of the username, it also executes the diaryloader function.
     ApplySettings();
     
@@ -1495,11 +1486,8 @@ void MainWindow::on_pushButton_LogOut_clicked()
 {
     qDebug() << "MainWindow: Log out initiated by user";
     
-    // Clear sensitive data before logging out
-    if (!user_Key.isEmpty()) {
-        std::memset(user_Key.data(), 0, user_Key.size());
-        user_Key.clear();
-    }
+    // Clear sensitive data before logging out - SecureByteArray handles this
+    user_Key.clear();
     
     loginscreen* w = new loginscreen(this->parentWidget());
     w->show();
@@ -1539,11 +1527,8 @@ void MainWindow::on_pushButton_CloseApp_clicked()
             Operations_Diary_ptr->DeleteEmptyCurrentDayDiary();
         }
         
-        // Clear sensitive data
-        QByteArray ba(user_Key);
-        ba.detach();            // ensure unique buffer
-        ba.fill('\0');          // overwrite all bytes
-        ba.clear();             // reset size to 0
+        // Clear sensitive data - SecureByteArray handles this securely
+        user_Key.clear();
         
         // Quit (destructor will handle cleanup)
         qApp->quit();
@@ -1557,7 +1542,7 @@ void MainWindow::on_pushButton_CloseApp_clicked()
 void MainWindow::on_pushButton_Acc_ChangePW_clicked()
 {
     ChangePassword* cpw = new ChangePassword(this);
-    cpw->initialize(user_Username,user_Key);
+    cpw->initialize(user_Username, user_Key.data());
     cpw->exec();
 }
 
