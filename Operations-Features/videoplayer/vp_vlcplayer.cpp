@@ -84,6 +84,22 @@ bool VP_VLCPlayer::initialize()
     
     // First, try to find plugins in the application directory
     QString appDir = QCoreApplication::applicationDirPath();
+    
+    // Security: Basic path cleaning for application directory (not user files)
+    // We don't use sanitizePath here because it's meant for user file validation
+    // Application directory is trusted and outside the user data directories
+    // QDir::cleanPath removes redundant ".", ".." and normalizes separators
+    appDir = QDir::cleanPath(appDir);
+    
+    // Security: Additional check for path traversal attempts
+    // Although QDir::cleanPath should have removed these, we double-check for safety
+    if (appDir.contains("..\\") || appDir.contains("../") || 
+        appDir.endsWith("..") || appDir.contains("/..\\") || appDir.contains("/\\..")) {
+        setLastError("Application directory path contains traversal attempts");
+        qDebug() << "VP_VLCPlayer: Application directory path contains traversal attempts:" << appDir;
+        return false;
+    }
+    
     QString appPlugins = appDir + "/plugins";
     
     // Check if plugins exist in app directory (for deployed version)
@@ -97,8 +113,13 @@ bool VP_VLCPlayer::initialize()
         
         // Try to find the project directory by looking for the 3rdparty folder
         for (int i = 0; i < 5; ++i) {
-            if (buildDir.exists("3rdparty/libvlc/bin/plugins")) {
-                pluginPath = buildDir.absolutePath() + "/3rdparty/libvlc/bin/plugins";
+            QString testPath = buildDir.absolutePath() + "/3rdparty/libvlc/bin/plugins";
+            // Security: Clean and validate the constructed path
+            testPath = QDir::cleanPath(testPath);
+            
+            // Check for traversal attempts
+            if (!testPath.contains("..\\") && !testPath.contains("../") && QDir(testPath).exists()) {
+                pluginPath = testPath;
                 qDebug() << "VP_VLCPlayer: Using plugins from project directory:" << pluginPath;
                 break;
             }
@@ -109,8 +130,13 @@ bool VP_VLCPlayer::initialize()
         
         // If still not found, try the fallback path
         if (pluginPath.isEmpty()) {
-            pluginPath = "C:/Users/Gabriel/Storage/Coding/Projects/MMDiary/MMDiary/3rdparty/libvlc/bin/plugins";
-            if (QDir(pluginPath).exists()) {
+            QString fallbackPath = "C:/Users/Gabriel/Storage/Coding/Projects/MMDiary/MMDiary/3rdparty/libvlc/bin/plugins";
+            // Security: Clean the fallback path
+            fallbackPath = QDir::cleanPath(fallbackPath);
+            
+            // Check for traversal attempts and verify existence
+            if (!fallbackPath.contains("..\\") && !fallbackPath.contains("../") && QDir(fallbackPath).exists()) {
+                pluginPath = fallbackPath;
                 qDebug() << "VP_VLCPlayer: Using fallback plugin path:" << pluginPath;
             } else {
                 qDebug() << "VP_VLCPlayer: Warning - Could not find VLC plugins!";
@@ -118,8 +144,26 @@ bool VP_VLCPlayer::initialize()
         }
     }
     
-    // Convert to native separators
-    pluginPath = QDir::toNativeSeparators(pluginPath);
+    // Security: Final validation of plugin path
+    if (!pluginPath.isEmpty()) {
+        // Clean the path one more time
+        pluginPath = QDir::cleanPath(pluginPath);
+        
+        // Final check for any traversal attempts
+        if (pluginPath.contains("..\\") || pluginPath.contains("../")) {
+            qDebug() << "VP_VLCPlayer: Warning - Plugin path contains traversal attempts";
+            pluginPath.clear();
+        } else {
+            // Verify the path actually exists
+            if (!QDir(pluginPath).exists()) {
+                qDebug() << "VP_VLCPlayer: Warning - Plugin path does not exist:" << pluginPath;
+                pluginPath.clear();
+            } else {
+                // Convert to native separators after validation
+                pluginPath = QDir::toNativeSeparators(pluginPath);
+            }
+        }
+    }
     
     // Prepare VLC arguments with the correct plugin path
     std::string pluginArg = "--plugin-path=" + pluginPath.toStdString();

@@ -354,6 +354,22 @@ bool VRVideoRenderer::createSphereMesh()
     qDebug() << "VRVideoRenderer: Creating sphere mesh with" << m_sphereSegments 
              << "segments and" << m_sphereRings << "rings";
     
+    // Security: Validate mesh parameters are within safe bounds
+    if (m_sphereSegments > 256 || m_sphereRings > 128) {
+        qDebug() << "VRVideoRenderer: Mesh tessellation exceeds safe limits";
+        return false;
+    }
+    
+    // Security: Pre-calculate and validate vertex/index counts
+    int expectedVertices = (m_sphereSegments + 1) * (m_sphereRings + 1);
+    int expectedIndices = m_sphereSegments * m_sphereRings * 6; // 2 triangles per quad, 3 indices per triangle
+    
+    if (expectedVertices > 100000 || expectedIndices > 600000) {
+        qDebug() << "VRVideoRenderer: Mesh would be too large - vertices:" << expectedVertices
+                 << "indices:" << expectedIndices;
+        return false;
+    }
+    
     struct Vertex {
         float x, y, z;
         float u, v;
@@ -362,6 +378,10 @@ bool VRVideoRenderer::createSphereMesh()
     
     QVector<Vertex> vertices;
     QVector<GLuint> indices;
+    
+    // Reserve memory to avoid reallocations
+    vertices.reserve(expectedVertices);
+    indices.reserve(expectedIndices);
     
     // Generate sphere vertices
     for (int ring = 0; ring <= m_sphereRings; ++ring) {
@@ -473,13 +493,33 @@ bool VRVideoRenderer::createDomeMesh()
 
 bool VRVideoRenderer::createDomeMeshWithCoverage(float horizontalDegrees, float verticalDegrees)
 {
+    // Security: Validate coverage parameters
+    horizontalDegrees = qBound(10.0f, horizontalDegrees, 360.0f);
+    verticalDegrees = qBound(10.0f, verticalDegrees, 180.0f);
+    
     qDebug() << "VRVideoRenderer: Creating dome mesh with coverage:" 
              << horizontalDegrees << "x" << verticalDegrees << "degrees"
              << "with" << m_sphereSegments << "segments and" << m_sphereRings << "rings";
     
+    // Security: Validate mesh parameters are within safe bounds
+    if (m_sphereSegments > 256 || m_sphereRings > 128) {
+        qDebug() << "VRVideoRenderer: Mesh tessellation exceeds safe limits";
+        return false;
+    }
+    
     // Store the coverage values
     m_domeHorizontalCoverage = horizontalDegrees;
     m_domeVerticalCoverage = verticalDegrees;
+    
+    // Security: Pre-calculate and validate vertex/index counts
+    int expectedVertices = (m_sphereSegments + 1) * (m_sphereRings + 1);
+    int expectedIndices = m_sphereSegments * m_sphereRings * 6; // 2 triangles per quad, 3 indices per triangle
+    
+    if (expectedVertices > 100000 || expectedIndices > 600000) {
+        qDebug() << "VRVideoRenderer: Dome mesh would be too large - vertices:" << expectedVertices
+                 << "indices:" << expectedIndices;
+        return false;
+    }
     
     struct Vertex {
         float x, y, z;
@@ -489,6 +529,10 @@ bool VRVideoRenderer::createDomeMeshWithCoverage(float horizontalDegrees, float 
     
     QVector<Vertex> vertices;
     QVector<GLuint> indices;
+    
+    // Reserve memory to avoid reallocations
+    vertices.reserve(expectedVertices);
+    indices.reserve(expectedIndices);
     
     // Convert degrees to radians
     float horizontalRadians = qDegreesToRadians(horizontalDegrees);
@@ -680,6 +724,24 @@ bool VRVideoRenderer::updateVideoTextureDirect(void* buffer, unsigned int width,
         if (updateCount % 30 == 0) {
             qDebug() << "VRVideoRenderer: Cannot update texture - not initialized or null buffer";
         }
+        return false;
+    }
+    
+    // Security: Validate dimensions to prevent buffer overflow
+    const unsigned int MAX_TEXTURE_WIDTH = 8192;  // 8K max
+    const unsigned int MAX_TEXTURE_HEIGHT = 8192; // 8K max
+    
+    if (width == 0 || height == 0 || width > MAX_TEXTURE_WIDTH || height > MAX_TEXTURE_HEIGHT) {
+        if (updateCount % 30 == 0) {
+            qDebug() << "VRVideoRenderer: Invalid texture dimensions:" << width << "x" << height;
+        }
+        return false;
+    }
+    
+    // Security: Check for buffer size overflow (RGBA = 4 bytes per pixel)
+    size_t expectedSize = static_cast<size_t>(width) * height * 4;
+    if (expectedSize / 4 != static_cast<size_t>(width) * height) {
+        qDebug() << "VRVideoRenderer: Buffer size calculation overflow";
         return false;
     }
     
@@ -1329,12 +1391,31 @@ GLuint VRVideoRenderer::getEyeTexture(bool leftEye) const
 
 void VRVideoRenderer::setSphereTessellation(int segments, int rings)
 {
+    // Security: Validate tessellation parameters to prevent excessive memory allocation
+    const int MAX_SEGMENTS = 256;  // Reasonable maximum for segments
+    const int MAX_RINGS = 128;     // Reasonable maximum for rings
+    const int MIN_SEGMENTS = 8;    // Minimum for basic sphere
+    const int MIN_RINGS = 4;       // Minimum for basic sphere
+    
+    // Clamp to valid range
+    segments = qBound(MIN_SEGMENTS, segments, MAX_SEGMENTS);
+    rings = qBound(MIN_RINGS, rings, MAX_RINGS);
+    
     if (segments == m_sphereSegments && rings == m_sphereRings) {
         return;
     }
     
+    // Security: Check for potential vertex count overflow
+    // Vertices = (segments + 1) * (rings + 1)
+    int vertexCount = (segments + 1) * (rings + 1);
+    if (vertexCount > 100000) {  // Limit to 100k vertices
+        qDebug() << "VRVideoRenderer: Tessellation would create too many vertices:" << vertexCount;
+        return;
+    }
+    
     qDebug() << "VRVideoRenderer: Updating sphere tessellation to" 
-             << segments << "segments and" << rings << "rings";
+             << segments << "segments and" << rings << "rings"
+             << "(" << vertexCount << "vertices)";
     
     m_sphereSegments = segments;
     m_sphereRings = rings;

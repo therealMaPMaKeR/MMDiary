@@ -173,6 +173,20 @@ bool VRVLCFrameExtractor::lockFrameBuffer(void** buffer, unsigned int& width, un
         return false;
     }
     
+    // Security: Validate dimensions and buffer
+    if (m_videoWidth == 0 || m_videoHeight == 0 || m_bufferSize == 0) {
+        qDebug() << "VRVLCFrameExtractor: Invalid dimensions or buffer size in lockFrameBuffer";
+        return false;
+    }
+    
+    // Security: Verify expected buffer size matches actual
+    size_t expectedSize = static_cast<size_t>(m_videoWidth) * 4 * m_videoHeight;
+    if (expectedSize != m_bufferSize) {
+        qDebug() << "VRVLCFrameExtractor: Buffer size mismatch. Expected:" 
+                 << expectedSize << "Actual:" << m_bufferSize;
+        return false;
+    }
+    
     *buffer = m_pixelBuffer.get();
     width = m_videoWidth;
     height = m_videoHeight;
@@ -232,6 +246,14 @@ void* VRVLCFrameExtractor::lock(void** planes)
         m_frameMutex.unlock();  // Early unlock on error.
         return nullptr;
     }
+    
+    // Security: Validate buffer size is still valid
+    if (m_bufferSize == 0) {
+        qDebug() << "VRVLCFrameExtractor: Invalid buffer size";
+        m_frameMutex.unlock();
+        return nullptr;
+    }
+    
     *planes = m_pixelBuffer.get();
     return nullptr;  // Return; mutex stays locked.
 }
@@ -292,6 +314,22 @@ unsigned VRVLCFrameExtractor::format(char* chroma, unsigned* width, unsigned* he
     qDebug() << "VRVLCFrameExtractor: Format callback - Input size:" 
              << *width << "x" << *height;
     
+    // Security: Validate video dimensions to prevent buffer overflow
+    const unsigned MAX_VIDEO_WIDTH = 8192;  // 8K max width
+    const unsigned MAX_VIDEO_HEIGHT = 4320; // 8K max height
+    const size_t MAX_BUFFER_SIZE = 512 * 1024 * 1024; // 512MB max buffer
+    
+    if (*width == 0 || *height == 0) {
+        qDebug() << "VRVLCFrameExtractor: Invalid zero dimensions";
+        return 0;
+    }
+    
+    if (*width > MAX_VIDEO_WIDTH || *height > MAX_VIDEO_HEIGHT) {
+        qDebug() << "VRVLCFrameExtractor: Video dimensions exceed maximum allowed:"
+                 << *width << "x" << *height << "(max:" << MAX_VIDEO_WIDTH << "x" << MAX_VIDEO_HEIGHT << ")";
+        return 0;
+    }
+    
     // Store video dimensions
     m_videoWidth = *width;
     m_videoHeight = *height;
@@ -299,14 +337,38 @@ unsigned VRVLCFrameExtractor::format(char* chroma, unsigned* width, unsigned* he
     // We want RGBA format for OpenGL
     memcpy(chroma, "RV32", 4); // RV32 = RGBA 32-bit
     
-    // Calculate buffer size
-    *pitches = m_videoWidth * 4; // 4 bytes per pixel (RGBA)
-    *lines = m_videoHeight;
+    // Calculate buffer size with overflow protection
+    // Check for multiplication overflow
+    size_t pitch = m_videoWidth * 4; // 4 bytes per pixel (RGBA)
+    if (pitch / 4 != m_videoWidth) {
+        qDebug() << "VRVLCFrameExtractor: Pitch calculation overflow";
+        return 0;
+    }
     
-    m_bufferSize = (*pitches) * (*lines);
+    size_t bufferSize = pitch * m_videoHeight;
+    if (bufferSize / pitch != m_videoHeight) {
+        qDebug() << "VRVLCFrameExtractor: Buffer size calculation overflow";
+        return 0;
+    }
+    
+    if (bufferSize > MAX_BUFFER_SIZE) {
+        qDebug() << "VRVLCFrameExtractor: Buffer size" << bufferSize 
+                 << "exceeds maximum" << MAX_BUFFER_SIZE;
+        return 0;
+    }
+    
+    *pitches = static_cast<unsigned>(pitch);
+    *lines = m_videoHeight;
+    m_bufferSize = bufferSize;
     
     // Allocate pixel buffer
-    m_pixelBuffer = std::make_unique<unsigned char[]>(m_bufferSize);
+    try {
+        m_pixelBuffer = std::make_unique<unsigned char[]>(m_bufferSize);
+    } catch (const std::bad_alloc&) {
+        qDebug() << "VRVLCFrameExtractor: Failed to allocate buffer of size" << m_bufferSize;
+        m_bufferSize = 0;
+        return 0;
+    }
     
     qDebug() << "VRVLCFrameExtractor: Allocated buffer of" << m_bufferSize << "bytes";
     qDebug() << "VRVLCFrameExtractor: Video format set to" << m_videoWidth 

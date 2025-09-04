@@ -128,6 +128,32 @@ bool VP_ShowsMetadata::isValidFilename(const QString& filename)
 
 QByteArray VP_ShowsMetadata::createMetadataChunk(const ShowMetadata& metadata)
 {
+    // Security: Validate metadata fields before serialization
+    if (metadata.filename.length() > MAX_FILENAME_LENGTH) {
+        qDebug() << "VP_ShowsMetadata: Filename too long:" << metadata.filename.length();
+        return QByteArray();
+    }
+    
+    if (metadata.showName.length() > MAX_SHOW_NAME_LENGTH) {
+        qDebug() << "VP_ShowsMetadata: Show name too long:" << metadata.showName.length();
+        return QByteArray();
+    }
+    
+    if (metadata.EPName.length() > MAX_EP_NAME_LENGTH) {
+        qDebug() << "VP_ShowsMetadata: Episode name too long:" << metadata.EPName.length();
+        return QByteArray();
+    }
+    
+    if (metadata.EPDescription.length() > MAX_EP_DESCRIPTION_LENGTH) {
+        qDebug() << "VP_ShowsMetadata: Episode description too long:" << metadata.EPDescription.length();
+        return QByteArray();
+    }
+    
+    if (metadata.EPImage.size() > MAX_EP_IMAGE_SIZE) {
+        qDebug() << "VP_ShowsMetadata: Episode image too large:" << metadata.EPImage.size() << "bytes";
+        return QByteArray();
+    }
+    
     QByteArray chunk;
     QDataStream stream(&chunk, QIODevice::WriteOnly);
     stream.setVersion(QDataStream::Qt_5_15);
@@ -206,6 +232,17 @@ QByteArray VP_ShowsMetadata::createFixedSizeEncryptedMetadata(const ShowMetadata
         return QByteArray();
     }
     
+    // Security: Validate encrypted size fits in buffer with header
+    // Header size: 4 bytes (magic) + 4 bytes (size) = 8 bytes
+    const int HEADER_SIZE = 8;
+    const int MAX_ENCRYPTED_SIZE = METADATA_RESERVED_SIZE - HEADER_SIZE;
+    
+    if (encryptedMetadata.size() > MAX_ENCRYPTED_SIZE) {
+        qDebug() << "VP_ShowsMetadata: Encrypted metadata too large:" 
+                 << encryptedMetadata.size() << "bytes (max:" << MAX_ENCRYPTED_SIZE << ")";
+        return QByteArray();
+    }
+    
     // Create fixed-size buffer
     QByteArray fixedSizeBuffer(METADATA_RESERVED_SIZE, '\0');
     
@@ -219,8 +256,18 @@ QByteArray VP_ShowsMetadata::createFixedSizeEncryptedMetadata(const ShowMetadata
     // Write the size of encrypted metadata
     stream << qint32(encryptedMetadata.size());
     
+    // Security: Verify stream position before writing data
+    if (stream.device()->pos() + encryptedMetadata.size() > METADATA_RESERVED_SIZE) {
+        qDebug() << "VP_ShowsMetadata: Stream position check failed";
+        return QByteArray();
+    }
+    
     // Write the encrypted metadata
-    stream.writeRawData(encryptedMetadata.constData(), encryptedMetadata.size());
+    int written = stream.writeRawData(encryptedMetadata.constData(), encryptedMetadata.size());
+    if (written != encryptedMetadata.size()) {
+        qDebug() << "VP_ShowsMetadata: Failed to write complete encrypted metadata";
+        return QByteArray();
+    }
     
     return fixedSizeBuffer;
 }
