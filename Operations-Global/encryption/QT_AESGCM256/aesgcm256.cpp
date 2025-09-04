@@ -8,6 +8,7 @@
 #include <QCryptographicHash>
 #include <QMessageAuthenticationCode>
 #include <QElapsedTimer>
+#include <openssl/rand.h>  // For RAND_bytes
 #include <climits>
 #include <cstddef>  // For SIZE_MAX
 
@@ -522,12 +523,27 @@ QByteArray AESGCM256Crypto::decryptBinary(const QByteArray& data) {
 }
 
 std::vector<uint8_t> AESGCM256Crypto::generateNonce(const QString& username) {
-    // Create a fully random 96-bit nonce (12 bytes) using CSPRNG
+    // SECURITY: Create a fully random 96-bit nonce (12 bytes) using OpenSSL's CSPRNG
     std::vector<uint8_t> nonce(GCM_NONCE_LENGTH);
 
-    // Use QRandomGenerator::system() for cryptographically system random generation
-    for (int i = 0; i < GCM_NONCE_LENGTH; ++i) {
-        nonce[i] = static_cast<uint8_t>(QRandomGenerator::system()->bounded(256));
+    // Primary: Use OpenSSL's RAND_bytes for cryptographically secure random generation
+    // RAND_bytes returns 1 on success, 0 otherwise
+    if (RAND_bytes(nonce.data(), GCM_NONCE_LENGTH) != 1) {
+        // Fallback: Use Qt's system random generator if OpenSSL fails
+        // This should rarely happen, but provides defense in depth
+        qWarning() << "AESGCM256Crypto: RAND_bytes failed, using QRandomGenerator::system() fallback";
+        
+        for (int i = 0; i < GCM_NONCE_LENGTH; ++i) {
+            nonce[i] = static_cast<uint8_t>(QRandomGenerator::system()->bounded(256));
+        }
+        
+        // Log OpenSSL error for debugging
+        unsigned long err = ERR_get_error();
+        if (err != 0) {
+            char err_buf[256];
+            ERR_error_string_n(err, err_buf, sizeof(err_buf));
+            qWarning() << "AESGCM256Crypto: OpenSSL error:" << err_buf;
+        }
     }
 
     return nonce;
