@@ -1080,7 +1080,7 @@ void MainWindow::showEvent(QShowEvent *event)
     }
 }
 
-void MainWindow::ReceiveDataLogin_Slot(QString username, SecureByteArray key) // receives the userName from the login window.
+void MainWindow::ReceiveDataLogin_Slot(QString username, SecureByteArray&& key) // receives the userName from the login window.
 {
     qDebug() << "MainWindow: Receiving login data";
     user_Username = username;

@@ -161,7 +161,8 @@ void loginscreen::on_pushButton_Login_clicked()
             volatile QChar* pwData = const_cast<volatile QChar*>(tempPassword.constData());
             int pwLen = tempPassword.length();
             for (int i = 0; i < pwLen; ++i) {
-                pwData[i] = QChar('\0');
+                // Use const_cast to temporarily remove volatile for assignment
+                const_cast<QChar*>(pwData)[i] = QChar('\0');
             }
             tempPassword.clear();
             
@@ -253,7 +254,8 @@ void loginscreen::on_pushButton_NewAccount_clicked()
             volatile QChar* pwData = const_cast<volatile QChar*>(tempPassword.constData());
             int pwLen = tempPassword.length();
             for (int i = 0; i < pwLen; ++i) {
-                pwData[i] = QChar('\0');
+                // Use const_cast to temporarily remove volatile for assignment
+                const_cast<QChar*>(pwData)[i] = QChar('\0');
             }
             tempPassword.clear();
             

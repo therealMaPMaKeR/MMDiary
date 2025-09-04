@@ -73,7 +73,7 @@ public:
     void refreshEncryptedDataDisplay();
 
 public slots:
-    void ReceiveDataLogin_Slot(QString username, SecureByteArray key);
+    void ReceiveDataLogin_Slot(QString username, SecureByteArray&& key);
     void showAndActivate();
 protected:
     void resizeEvent(QResizeEvent *event) override;
