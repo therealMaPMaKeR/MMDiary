@@ -14,6 +14,9 @@
 #include <QMessageBox>
 #include "ui_HiddenItemsList.h"
 
+// SECURITY: Maximum number of hidden categories/tags allowed to prevent memory exhaustion
+const int MAX_HIDDEN_ITEMS = 100;
+
 Operations_Settings::Operations_Settings(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
 {
@@ -181,16 +184,18 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         QString reqPWDelay = db.GetSettingsData_String(Constants::SettingsT_Index_ReqPWDelay);
         if (reqPWDelay != Constants::ErrorMessage_Default) {
             bool ok;
-            int delay = reqPWDelay.toInt(&ok);
-            if (ok && delay >= 0 && delay <= 300) {
+            // SECURITY: Use long long to detect overflow before casting to int
+            long long delayLong = reqPWDelay.toLongLong(&ok);
+            if (ok && delayLong >= 0 && delayLong <= 300) {
+                int delay = static_cast<int>(delayLong);
                 m_mainWindow->ui->spinBox_ReqPWDelay->setValue(delay);
                 m_mainWindow->setting_ReqPWDelay = delay; // Update member variable
             } else {
-                qDebug() << "Invalid password request delay from database:" << reqPWDelay;
+                qDebug() << "Operations_Settings: Invalid password request delay from database (overflow or out of range):" << reqPWDelay;
                 validationFailed = true;
             }
         } else {
-            qDebug() << "Failed to load password request delay setting";
+            qDebug() << "Operations_Settings: Failed to load password request delay setting";
             validationFailed = true;
         }
 
@@ -228,17 +233,20 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         QString diaryTextSize = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_TextSize);
         if (diaryTextSize != Constants::ErrorMessage_Default) {
             bool ok;
-            int size = diaryTextSize.toInt(&ok);
-            if (ok && size >= 5 && size <= 30) {
+            // SECURITY: Use long long to detect overflow before casting to int
+            long long sizeLong = diaryTextSize.toLongLong(&ok);
+            // SECURITY FIX: Use consistent range 10-30 (not 5-30)
+            if (ok && sizeLong >= 10 && sizeLong <= 30) {
+                int size = static_cast<int>(sizeLong);
                 m_mainWindow->ui->spinBox_Diary_TextSize->setValue(size);
                 m_mainWindow->setting_Diary_TextSize = size; // Update member variable
                 m_mainWindow->fontSize = size; // Also update the fontSize variable
             } else {
-                qDebug() << "Invalid diary text size from database:" << diaryTextSize;
+                qDebug() << "Operations_Settings: Invalid diary text size from database (overflow or out of range):" << diaryTextSize;
                 validationFailed = true;
             }
         } else {
-            qDebug() << "Failed to load diary text size";
+            qDebug() << "Operations_Settings: Failed to load diary text size";
             validationFailed = true;
         }
 
@@ -246,16 +254,18 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         QString tsTimer = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_TStampTimer);
         if (tsTimer != Constants::ErrorMessage_Default) {
             bool ok;
-            int timer = tsTimer.toInt(&ok);
-            if (ok && timer >= 1 && timer <= 60) {
+            // SECURITY: Use long long to detect overflow before casting to int
+            long long timerLong = tsTimer.toLongLong(&ok);
+            if (ok && timerLong >= 1 && timerLong <= 60) {
+                int timer = static_cast<int>(timerLong);
                 m_mainWindow->ui->spinBox_Diary_TStampTimer->setValue(timer);
                 m_mainWindow->setting_Diary_TStampTimer = timer; // Update member variable
             } else {
-                qDebug() << "Invalid timestamp timer from database:" << tsTimer;
+                qDebug() << "Operations_Settings: Invalid timestamp timer from database (overflow or out of range):" << tsTimer;
                 validationFailed = true;
             }
         } else {
-            qDebug() << "Failed to load timestamp timer";
+            qDebug() << "Operations_Settings: Failed to load timestamp timer";
             validationFailed = true;
         }
 
@@ -263,16 +273,19 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         QString tsCounter = db.GetSettingsData_String(Constants::SettingsT_Index_Diary_TStampCounter);
         if (tsCounter != Constants::ErrorMessage_Default) {
             bool ok;
-            int counter = tsCounter.toInt(&ok);
-            if (ok && counter >= 1 && counter <= 100) {
+            // SECURITY: Use long long to detect overflow before casting to int
+            long long counterLong = tsCounter.toLongLong(&ok);
+            // SECURITY FIX: Use consistent range 0-99 (as validated in ValidateSettingsInput)
+            if (ok && counterLong >= 0 && counterLong <= 99) {
+                int counter = static_cast<int>(counterLong);
                 m_mainWindow->ui->spinBox_Diary_TStampReset->setValue(counter);
                 m_mainWindow->setting_Diary_TStampCounter = counter; // Update member variable
             } else {
-                qDebug() << "Invalid timestamp counter from database:" << tsCounter;
+                qDebug() << "Operations_Settings: Invalid timestamp counter from database (overflow or out of range):" << tsCounter;
                 validationFailed = true;
             }
         } else {
-            qDebug() << "Failed to load timestamp counter";
+            qDebug() << "Operations_Settings: Failed to load timestamp counter";
             validationFailed = true;
         }
 
@@ -328,16 +341,18 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         QString tlistTextSize = db.GetSettingsData_String(Constants::SettingsT_Index_TLists_TextSize);
         if (tlistTextSize != Constants::ErrorMessage_Default) {
             bool ok;
-            int size = tlistTextSize.toInt(&ok);
-            if (ok && size >= 5 && size <= 30) {
+            // SECURITY: Use long long to detect overflow before casting to int
+            long long sizeLong = tlistTextSize.toLongLong(&ok);
+            if (ok && sizeLong >= 5 && sizeLong <= 30) {
+                int size = static_cast<int>(sizeLong);
                 m_mainWindow->ui->spinBox_TList_TextSize->setValue(size);
                 m_mainWindow->setting_TLists_TextSize = size; // Update member variable
             } else {
-                qDebug() << "Invalid task list text size from database:" << tlistTextSize;
+                qDebug() << "Operations_Settings: Invalid task list text size from database (overflow or out of range):" << tlistTextSize;
                 validationFailed = true;
             }
         } else {
-            qDebug() << "Failed to load task list text size";
+            qDebug() << "Operations_Settings: Failed to load task list text size";
             validationFailed = true;
         }
 
@@ -474,18 +489,56 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         // Hidden Categories
         QString hiddenCategories = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hidden_Categories);
         if (hiddenCategories != Constants::ErrorMessage_Default) {
-            m_mainWindow->setting_DataENC_Hidden_Categories = hiddenCategories;
+            // SECURITY: Validate hidden categories before use
+            if (!hiddenCategories.isEmpty()) {
+                QStringList categories = hiddenCategories.split(';', Qt::SkipEmptyParts);
+                QStringList validatedCategories;
+                for (const QString& category : categories) {
+                    QString trimmedCategory = category.trimmed();
+                    if (!trimmedCategory.isEmpty()) {
+                        InputValidation::ValidationResult result = InputValidation::validateInput(
+                            trimmedCategory, InputValidation::InputType::CategoryTag, 50);
+                        if (result.isValid) {
+                            validatedCategories.append(trimmedCategory);
+                        } else {
+                            qDebug() << "Operations_Settings: Invalid hidden category detected and removed:" << trimmedCategory;
+                        }
+                    }
+                }
+                m_mainWindow->setting_DataENC_Hidden_Categories = validatedCategories.join(';');
+            } else {
+                m_mainWindow->setting_DataENC_Hidden_Categories = "";
+            }
         } else {
-            qDebug() << "Failed to load hidden categories setting";
+            qDebug() << "Operations_Settings: Failed to load hidden categories setting";
             validationFailed = true;
         }
 
         // Hidden Tags
         QString hiddenTags = db.GetSettingsData_String(Constants::SettingsT_Index_DataENC_Hidden_Tags);
         if (hiddenTags != Constants::ErrorMessage_Default) {
-            m_mainWindow->setting_DataENC_Hidden_Tags = hiddenTags;
+            // SECURITY: Validate hidden tags before use
+            if (!hiddenTags.isEmpty()) {
+                QStringList tags = hiddenTags.split(';', Qt::SkipEmptyParts);
+                QStringList validatedTags;
+                for (const QString& tag : tags) {
+                    QString trimmedTag = tag.trimmed();
+                    if (!trimmedTag.isEmpty()) {
+                        InputValidation::ValidationResult result = InputValidation::validateInput(
+                            trimmedTag, InputValidation::InputType::CategoryTag, 50);
+                        if (result.isValid) {
+                            validatedTags.append(trimmedTag);
+                        } else {
+                            qDebug() << "Operations_Settings: Invalid hidden tag detected and removed:" << trimmedTag;
+                        }
+                    }
+                }
+                m_mainWindow->setting_DataENC_Hidden_Tags = validatedTags.join(';');
+            } else {
+                m_mainWindow->setting_DataENC_Hidden_Tags = "";
+            }
         } else {
-            qDebug() << "Failed to load hidden tags setting";
+            qDebug() << "Operations_Settings: Failed to load hidden tags setting";
             validationFailed = true;
         }
 
@@ -692,10 +745,50 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         m_mainWindow->setting_DataENC_HideThumbnails_Video = hideVideoThumbnails;
 
         // Hidden Categories (stored in member variable, not directly from UI)
-        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hidden_Categories, m_mainWindow->setting_DataENC_Hidden_Categories);
+        // SECURITY: Validate before saving
+        QString categoriesToSave = m_mainWindow->setting_DataENC_Hidden_Categories;
+        if (!categoriesToSave.isEmpty()) {
+            QStringList categories = categoriesToSave.split(';', Qt::SkipEmptyParts);
+            QStringList validatedCategories;
+            for (const QString& category : categories) {
+                QString trimmedCategory = category.trimmed();
+                if (!trimmedCategory.isEmpty()) {
+                    InputValidation::ValidationResult result = InputValidation::validateInput(
+                        trimmedCategory, InputValidation::InputType::CategoryTag, 50);
+                    if (result.isValid) {
+                        validatedCategories.append(trimmedCategory);
+                    } else {
+                        qDebug() << "Operations_Settings: Removing invalid category before save:" << trimmedCategory;
+                    }
+                }
+            }
+            categoriesToSave = validatedCategories.join(';');
+            m_mainWindow->setting_DataENC_Hidden_Categories = categoriesToSave;
+        }
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hidden_Categories, categoriesToSave);
 
         // Hidden Tags (stored in member variable, not directly from UI)
-        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hidden_Tags, m_mainWindow->setting_DataENC_Hidden_Tags);
+        // SECURITY: Validate before saving
+        QString tagsToSave = m_mainWindow->setting_DataENC_Hidden_Tags;
+        if (!tagsToSave.isEmpty()) {
+            QStringList tags = tagsToSave.split(';', Qt::SkipEmptyParts);
+            QStringList validatedTags;
+            for (const QString& tag : tags) {
+                QString trimmedTag = tag.trimmed();
+                if (!trimmedTag.isEmpty()) {
+                    InputValidation::ValidationResult result = InputValidation::validateInput(
+                        trimmedTag, InputValidation::InputType::CategoryTag, 50);
+                    if (result.isValid) {
+                        validatedTags.append(trimmedTag);
+                    } else {
+                        qDebug() << "Operations_Settings: Removing invalid tag before save:" << trimmedTag;
+                    }
+                }
+            }
+            tagsToSave = validatedTags.join(';');
+            m_mainWindow->setting_DataENC_Hidden_Tags = tagsToSave;
+        }
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_DataENC_Hidden_Tags, tagsToSave);
 
         // Hide Categories
         bool hideCategories = m_mainWindow->ui->checkBox_DataENC_HideCategories->isChecked();
@@ -1872,6 +1965,12 @@ void Operations_Settings::showHiddenItemsDialog(const QString& itemType, QString
 
     // Load existing items
     QStringList currentItems = parseItemList(settingValue);
+    // SECURITY: Limit to MAX_HIDDEN_ITEMS to prevent memory exhaustion
+    if (currentItems.size() > MAX_HIDDEN_ITEMS) {
+        currentItems = currentItems.mid(0, MAX_HIDDEN_ITEMS);
+        QMessageBox::warning(&dialog, "Item Limit", 
+            QString("Only the first %1 items were loaded. Maximum allowed is %1.").arg(MAX_HIDDEN_ITEMS));
+    }
     for (const QString& item : currentItems) {
         ui.listWidget_ItemsList->addItem(item);
     }
@@ -1904,6 +2003,7 @@ void Operations_Settings::showHiddenItemsDialog(const QString& itemType, QString
                 }
 
                 if (!duplicate) {
+                    // SECURITY: Final validation before setting
                     item->setText(newText);
                 } else {
                     QMessageBox::warning(&dialog, "Duplicate Entry",
@@ -1937,7 +2037,13 @@ void Operations_Settings::showHiddenItemsDialog(const QString& itemType, QString
                 }
 
                 if (!duplicate) {
-                    ui.listWidget_ItemsList->addItem(newItem);
+                    // SECURITY: Check item count limit
+                    if (ui.listWidget_ItemsList->count() >= MAX_HIDDEN_ITEMS) {
+                        QMessageBox::warning(&dialog, "Item Limit Reached",
+                            QString("Cannot add more items. Maximum allowed is %1.").arg(MAX_HIDDEN_ITEMS));
+                    } else {
+                        ui.listWidget_ItemsList->addItem(newItem);
+                    }
                 } else {
                     QMessageBox::warning(&dialog, "Duplicate Entry",
                                          QString("This %1 already exists in the list.").arg(itemType.toLower()));
