@@ -2713,6 +2713,17 @@ void Operations_Diary::handleClipboardImage(const QImage& image, const QString& 
     
     qDebug() << "Operations_Diary: Saved clipboard image to:" << tempFilePath;
     
+    // SECURITY: Validate that the file is actually an image before processing
+    if (!InputValidation::isValidImageFile(tempFilePath)) {
+        qWarning() << "Operations_Diary: Clipboard file is not a valid image:" << tempFilePath;
+        QFile::remove(tempFilePath); // Clean up temp file
+        QMessageBox::warning(m_mainWindow, "Invalid Image", 
+                           "The clipboard content is not a valid image file.");
+        return;
+    }
+    
+    qDebug() << "Operations_Diary: Validated clipboard image format";
+    
     // Process the image (encrypt, move to diary folder, etc.)
     QStringList imagePaths;
     imagePaths.append(tempFilePath);
@@ -2735,6 +2746,31 @@ void Operations_Diary::handleClipboardImage(const QImage& image, const QString& 
 void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool forceThumbnails)
 {
     if (imagePaths.isEmpty()) {
+        return;
+    }
+    
+    // SECURITY: Validate all image files before processing
+    QStringList validImagePaths;
+    QStringList invalidFiles;
+    
+    for (const QString& imagePath : imagePaths) {
+        if (InputValidation::isValidImageFile(imagePath)) {
+            validImagePaths.append(imagePath);
+        } else {
+            invalidFiles.append(QFileInfo(imagePath).fileName());
+            qWarning() << "Operations_Diary: Invalid image file:" << imagePath;
+        }
+    }
+    
+    // Show warning for invalid files
+    if (!invalidFiles.isEmpty()) {
+        QString errorMsg = "The following files are not valid images and will be skipped:\n\n" + invalidFiles.join("\n");
+        QMessageBox::warning(m_mainWindow, "Invalid Image Files", errorMsg);
+    }
+    
+    // If no valid images, return early
+    if (validImagePaths.isEmpty()) {
+        qDebug() << "Operations_Diary: No valid images to process";
         return;
     }
 
@@ -2760,8 +2796,8 @@ void Operations_Diary::processAndAddImages(const QStringList& imagePaths, bool f
     QStringList processedImages;
     QStringList failedImages;
 
-    // Process each image individually (no grouping)
-    foreach(const QString& imagePath, imagePaths) {
+    // Process each image individually (no grouping) - use validated images only
+    foreach(const QString& imagePath, validImagePaths) {
         try {
             // Validate image file
             if (!QFileInfo::exists(imagePath)) {

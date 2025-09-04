@@ -29,6 +29,105 @@
 #include <QDateTime>
 #include <QPointer>
 #include <memory>
+#include <QStorageInfo>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+// Get available system memory in bytes
+static qint64 getAvailableSystemMemory()
+{
+#ifdef Q_OS_WIN
+    MEMORYSTATUSEX memStatus;
+    memStatus.dwLength = sizeof(memStatus);
+    if (GlobalMemoryStatusEx(&memStatus)) {
+        return static_cast<qint64>(memStatus.ullAvailPhys);
+    }
+#elif defined(Q_OS_LINUX)
+    QFile meminfo("/proc/meminfo");
+    if (meminfo.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream stream(&meminfo);
+        QString line;
+        while (!stream.atEnd()) {
+            line = stream.readLine();
+            if (line.startsWith("MemAvailable:")) {
+                QStringList parts = line.split(QRegularExpression("\\s+"));
+                if (parts.size() >= 2) {
+                    bool ok;
+                    qint64 kb = parts[1].toLongLong(&ok);
+                    if (ok) {
+                        return kb * 1024; // Convert KB to bytes
+                    }
+                }
+                break;
+            }
+        }
+        meminfo.close();
+    }
+#elif defined(Q_OS_MAC)
+    // macOS implementation would go here
+    // For now, return a conservative estimate
+    return 2LL * 1024 * 1024 * 1024; // 2GB default
+#endif
+    
+    // Fallback: return conservative estimate
+    return 2LL * 1024 * 1024 * 1024; // 2GB default
+}
+
+// Check if a file can be processed given available memory
+static bool canProcessFile(qint64 fileSize, QString& errorMessage)
+{
+    qint64 availableMemory = getAvailableSystemMemory();
+    
+    // Calculate the memory limit: 50% of available RAM, min 1GB, max 10GB
+    const qint64 MIN_LIMIT = 1LL * 1024 * 1024 * 1024;  // 1GB minimum
+    const qint64 MAX_LIMIT = 10LL * 1024 * 1024 * 1024; // 10GB maximum
+    qint64 memoryLimit = availableMemory / 2; // Use 50% of available RAM
+    
+    // Apply min/max constraints
+    if (memoryLimit < MIN_LIMIT) {
+        memoryLimit = MIN_LIMIT;
+    } else if (memoryLimit > MAX_LIMIT) {
+        memoryLimit = MAX_LIMIT;
+    }
+    
+    qDebug() << "EncryptionWorker: Available memory:" << (availableMemory / (1024*1024)) << "MB"
+             << "Memory limit:" << (memoryLimit / (1024*1024)) << "MB"
+             << "File size:" << (fileSize / (1024*1024)) << "MB";
+    
+    if (fileSize > memoryLimit) {
+        // Format sizes for user-friendly message
+        auto formatSize = [](qint64 bytes) -> QString {
+            const qint64 kb = 1024;
+            const qint64 mb = kb * 1024;
+            const qint64 gb = mb * 1024;
+            
+            if (bytes >= gb) {
+                return QString("%1 GB").arg(bytes / double(gb), 0, 'f', 2);
+            } else if (bytes >= mb) {
+                return QString("%1 MB").arg(bytes / double(mb), 0, 'f', 2);
+            } else if (bytes >= kb) {
+                return QString("%1 KB").arg(bytes / double(kb), 0, 'f', 2);
+            } else {
+                return QString("%1 bytes").arg(bytes);
+            }
+        };
+        
+        errorMessage = QString("File size (%1) exceeds memory limit (%2). "
+                             "Available RAM: %3. Please free up memory or process smaller files.")
+                      .arg(formatSize(fileSize))
+                      .arg(formatSize(memoryLimit))
+                      .arg(formatSize(availableMemory));
+        return false;
+    }
+    
+    return true;
+}
 
 // ============================================================================
 // EncryptionWorker Implementation
@@ -158,6 +257,16 @@ void EncryptionWorker::doEncryption()
             const QString& sourceFile = m_sourceFiles[fileIndex];
             const QString& targetFile = m_targetFiles[fileIndex];
             qint64 currentFileSize = fileSizes[fileIndex];
+            
+            // SECURITY: Check if file can be processed with available memory
+            QString memoryErrorMsg;
+            if (!canProcessFile(currentFileSize, memoryErrorMsg)) {
+                QString fileName = QFileInfo(sourceFile).fileName();
+                failedFiles.append(QString("%1 (%2)").arg(fileName).arg(memoryErrorMsg));
+                processedTotalSize += currentFileSize; // Still count it for progress
+                qWarning() << "EncryptionWorker: Skipping file due to memory limit:" << fileName;
+                continue;
+            }
 
             // Update progress to show which file we're working on (only for multiple files)
             if (isMultipleFiles) {
@@ -305,18 +414,8 @@ void EncryptionWorker::doEncryption()
                 // Read chunk
                 buffer = source.read(chunkSize);
                 if (buffer.isEmpty()) {
-                break;
+                    break;
                 }
-            
-            // SECURITY: Track cumulative memory usage
-            static const qint64 MAX_CUMULATIVE_SIZE = 2LL * 1024 * 1024 * 1024; // 2GB max cumulative
-            static qint64 cumulativeProcessed = 0;
-            cumulativeProcessed += buffer.size();
-            if (cumulativeProcessed > MAX_CUMULATIVE_SIZE) {
-                qWarning() << "EncryptionWorker: Cumulative size limit exceeded:" << cumulativeProcessed;
-                fileSuccess = false;
-                break;
-            }
 
                 // Encrypt chunk
                 QByteArray encryptedChunk = CryptoUtils::Encryption_EncryptBArray(
@@ -461,6 +560,15 @@ void DecryptionWorker::doDecryption()
 
         // Get file size for progress calculation
         qint64 totalSize = sourceFile.size();
+        
+        // SECURITY: Check if file can be processed with available memory
+        QString memoryErrorMsg;
+        if (!canProcessFile(totalSize, memoryErrorMsg)) {
+            sourceFile.close();
+            emit decryptionFinished(false, memoryErrorMsg);
+            qWarning() << "DecryptionWorker: File too large for available memory:" << m_sourceFile;
+            return;
+        }
         qint64 processedSize = 0;
 
         // Skip the fixed-size encrypted metadata header (40KB)
@@ -638,6 +746,15 @@ void TempDecryptionWorker::doDecryption()
 
         // Get file size for progress calculation
         qint64 totalSize = sourceFile.size();
+        
+        // SECURITY: Check if file can be processed with available memory
+        QString memoryErrorMsg;
+        if (!canProcessFile(totalSize, memoryErrorMsg)) {
+            sourceFile.close();
+            emit decryptionFinished(false, memoryErrorMsg);
+            qWarning() << "TempDecryptionWorker: File too large for available memory:" << m_sourceFile;
+            return;
+        }
         qint64 processedSize = 0;
 
         // Skip the fixed-size encrypted metadata header (40KB)
@@ -885,6 +1002,14 @@ bool BatchDecryptionWorker::decryptSingleFile(const FileExportInfo& fileInfo,
                                                qint64 currentTotalProcessed, qint64 totalSize)
 {
     try {
+        // SECURITY: Check if file can be processed with available memory
+        QString memoryErrorMsg;
+        if (!canProcessFile(fileInfo.fileSize, memoryErrorMsg)) {
+            qWarning() << "BatchDecryptionWorker: Skipping file due to memory limit:" << fileInfo.originalFilename;
+            qDebug() << "BatchDecryptionWorker:" << memoryErrorMsg;
+            return false;
+        }
+        
         QFile sourceFile(fileInfo.sourceFile);
         if (!sourceFile.open(QIODevice::ReadOnly)) {
             qDebug() << "BatchDecryptionWorker: Failed to open encrypted file:" << fileInfo.sourceFile;

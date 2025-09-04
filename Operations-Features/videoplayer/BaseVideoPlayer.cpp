@@ -1,4 +1,5 @@
 #include "BaseVideoPlayer.h"
+#include "inputvalidation.h"
 #include <QGuiApplication>
 #include <QDebug>
 #include <QFileInfo>
@@ -475,6 +476,15 @@ bool BaseVideoPlayer::loadVideo(const QString& filePath)
         emit errorOccurred(tr("File not found: %1").arg(filePath));
         return false;
     }
+    
+    // SECURITY: Validate that the file is actually a video before processing
+    if (!InputValidation::isValidVideoFile(filePath)) {
+        qDebug() << "BaseVideoPlayer: File is not a valid video:" << filePath;
+        emit errorOccurred(tr("Invalid video file: %1\nThe file does not appear to be a valid video format.").arg(fileInfo.fileName()));
+        return false;
+    }
+    
+    qDebug() << "BaseVideoPlayer: Validated video file format";
     
     // Stop current playback if any
     if (m_mediaPlayer->isPlaying()) {
