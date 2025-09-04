@@ -235,33 +235,12 @@ bool EditEncryptedFileDialog::validateCategory(const QString& category)
         return true;
     }
 
-    // Check length
-    if (category.length() > EncryptedFileMetadata::MAX_CATEGORY_LENGTH) {
-        QMessageBox::warning(this, "Invalid Category",
-                             QString("Category too long. Maximum %1 characters allowed.")
-                                 .arg(EncryptedFileMetadata::MAX_CATEGORY_LENGTH));
-        return false;
-    }
+    // Use InputValidation for consistent validation
+    InputValidation::ValidationResult result = InputValidation::validateInput(
+        category, InputValidation::InputType::CategoryTag, EncryptedFileMetadata::MAX_CATEGORY_LENGTH);
 
-    // Check for invalid characters - allow only alphanumeric, spaces, and basic punctuation
-    QRegularExpression validCharsPattern("^[a-zA-Z0-9\\s\\-_.,!?()]+$");
-    if (!validCharsPattern.match(category).hasMatch()) {
-        QMessageBox::warning(this, "Invalid Category",
-                             "Category contains invalid characters. Only letters, numbers, spaces, and basic punctuation are allowed.");
-        return false;
-    }
-
-    // Check for leading/trailing spaces
-    if (category != category.trimmed()) {
-        QMessageBox::warning(this, "Invalid Category",
-                             "Category cannot have leading or trailing spaces.");
-        return false;
-    }
-
-    // Check for multiple consecutive spaces
-    if (category.contains("  ")) {
-        QMessageBox::warning(this, "Invalid Category",
-                             "Category cannot contain multiple consecutive spaces.");
+    if (!result.isValid) {
+        QMessageBox::warning(this, "Invalid Category", result.errorMessage);
         return false;
     }
 
@@ -305,11 +284,14 @@ bool EditEncryptedFileDialog::validateTags(const QString& tagsString, QStringLis
             return false;
         }
 
-        // Use the static validation method
-        if (!EncryptedFileMetadata::isValidTag(tag)) {
+        // Use InputValidation for consistent validation
+        InputValidation::ValidationResult tagResult = InputValidation::validateInput(
+            tag, InputValidation::InputType::CategoryTag, EncryptedFileMetadata::MAX_TAG_LENGTH);
+        
+        if (!tagResult.isValid) {
             QMessageBox::warning(this, "Invalid Tag",
-                                 QString("Tag '%1' contains invalid characters. Only letters, numbers, spaces, and basic punctuation are allowed.")
-                                     .arg(tag));
+                                 QString("Tag '%1' is invalid: %2")
+                                     .arg(tag).arg(tagResult.errorMessage));
             return false;
         }
 

@@ -487,7 +487,7 @@ bool VP_ShowsEditMetadataDialog::validateInput()
     }
     
     InputValidation::ValidationResult result = InputValidation::validateInput(
-        filename, InputValidation::InputType::FileName);
+        filename, InputValidation::InputType::FileName, 255);
     
     if (!result.isValid) {
         QMessageBox::warning(this, tr("Validation Error"), 
@@ -496,17 +496,37 @@ bool VP_ShowsEditMetadataDialog::validateInput()
         return false;
     }
     
-    // Show name validation is not needed since it's always read-only (determined from folder structure)
-    // The show name is already validated when it was initially created
+    // Validate season if provided and enabled
+    if (ui->lineEdit_Season->isEnabled()) {
+        QString season = ui->lineEdit_Season->text().trimmed();
+        if (!season.isEmpty()) {
+            // Season should be numeric or alphanumeric (e.g., "1", "2A", "Special")
+            InputValidation::ValidationResult seasonResult = InputValidation::validateInput(
+                season, InputValidation::InputType::PlainText, 50);
+            
+            if (!seasonResult.isValid) {
+                QMessageBox::warning(this, tr("Validation Error"), 
+                                   tr("Invalid season: %1").arg(seasonResult.errorMessage));
+                ui->lineEdit_Season->setFocus();
+                return false;
+            }
+        }
+    }
     
-    // Validate episode number if provided
-    QString episode = ui->lineEdit_Episode->text().trimmed();
-    if (!episode.isEmpty()) {
-        if (episode.length() > VP_ShowsMetadata::MAX_EPISODE_LENGTH) {
-            QMessageBox::warning(this, tr("Validation Error"), 
-                               tr("Episode number is too long (maximum 100 characters)."));
-            ui->lineEdit_Episode->setFocus();
-            return false;
+    // Validate episode number if provided and enabled
+    if (ui->lineEdit_Episode->isEnabled()) {
+        QString episode = ui->lineEdit_Episode->text().trimmed();
+        if (!episode.isEmpty()) {
+            // Episode can be numeric or alphanumeric (e.g., "1", "12.5", "OVA1")
+            InputValidation::ValidationResult episodeResult = InputValidation::validateInput(
+                episode, InputValidation::InputType::PlainText, VP_ShowsMetadata::MAX_EPISODE_LENGTH);
+            
+            if (!episodeResult.isValid) {
+                QMessageBox::warning(this, tr("Validation Error"), 
+                                   tr("Invalid episode number: %1").arg(episodeResult.errorMessage));
+                ui->lineEdit_Episode->setFocus();
+                return false;
+            }
         }
     }
     
@@ -528,11 +548,42 @@ bool VP_ShowsEditMetadataDialog::validateInput()
     // Validate episode description if provided
     QString epDescription = ui->textEdit_EPDescription->toPlainText().trimmed();
     if (!epDescription.isEmpty()) {
-        if (epDescription.length() > VP_ShowsMetadata::MAX_EP_DESCRIPTION_LENGTH) {
+        // Use PlainText validation with appropriate length limit
+        InputValidation::ValidationResult descResult = InputValidation::validateInput(
+            epDescription, InputValidation::InputType::PlainText, VP_ShowsMetadata::MAX_EP_DESCRIPTION_LENGTH);
+        
+        if (!descResult.isValid) {
             QMessageBox::warning(this, tr("Validation Error"), 
-                               tr("Episode description is too long (maximum %1 characters).")
-                               .arg(VP_ShowsMetadata::MAX_EP_DESCRIPTION_LENGTH));
+                               tr("Invalid episode description: %1").arg(descResult.errorMessage));
             ui->textEdit_EPDescription->setFocus();
+            return false;
+        }
+    }
+    
+    // Validate language
+    QString language = ui->comboBox_Language->currentText();
+    if (!language.isEmpty()) {
+        InputValidation::ValidationResult langResult = InputValidation::validateInput(
+            language, InputValidation::InputType::PlainText, 50);
+        
+        if (!langResult.isValid) {
+            QMessageBox::warning(this, tr("Validation Error"), 
+                               tr("Invalid language: %1").arg(langResult.errorMessage));
+            ui->comboBox_Language->setFocus();
+            return false;
+        }
+    }
+    
+    // Validate translation
+    QString translation = ui->comboBox_Translation->currentText();
+    if (!translation.isEmpty()) {
+        InputValidation::ValidationResult transResult = InputValidation::validateInput(
+            translation, InputValidation::InputType::PlainText, 50);
+        
+        if (!transResult.isValid) {
+            QMessageBox::warning(this, tr("Validation Error"), 
+                               tr("Invalid translation: %1").arg(transResult.errorMessage));
+            ui->comboBox_Translation->setFocus();
             return false;
         }
     }
