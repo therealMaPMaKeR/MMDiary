@@ -16,6 +16,7 @@
 #include <QReadLocker>
 #include <QWriteLocker>
 #include <memory>
+#include <cstring>  // For std::memset
 
 // RAII wrapper for file operations
 class FileGuard {
@@ -50,7 +51,7 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
     , m_translation(translation)
     , m_encryptionKey(encryptionKey)
     , m_username(username)
-    , m_cancelled(false)
+    , m_cancelled(0)  // 0 = false, 1 = true for atomic
     , m_useTMDB(useTMDB)
     , m_customPoster(customPoster)
     , m_customDescription(customDescription)
@@ -88,6 +89,9 @@ VP_ShowsEncryptionWorker::~VP_ShowsEncryptionWorker()
 {
     qDebug() << "VP_ShowsEncryptionWorker: Destructor called";
     
+    // Cancel any ongoing operation
+    cancel();
+    
     // Clean up temp directory
     VP_ShowsConfig::cleanupTempDirectory(m_username);
     
@@ -98,20 +102,30 @@ VP_ShowsEncryptionWorker::~VP_ShowsEncryptionWorker()
         m_metadataManager = nullptr;
     }
     if (m_tmdbManager) {
-        // Disconnect all signals before deletion
-        if (QThread::currentThread() != thread()) {
-            m_tmdbManager->disconnect();
-        }
+        // Safely disconnect signals without thread check to avoid deadlock
+        m_tmdbManager->disconnect();
         delete m_tmdbManager;
         m_tmdbManager = nullptr;
+    }
+    
+    // SECURITY: Clear sensitive data
+    if (!m_encryptionKey.isEmpty()) {
+        volatile char* keyData = const_cast<volatile char*>(m_encryptionKey.data());
+        std::memset(const_cast<char*>(keyData), 0, m_encryptionKey.size());
+        m_encryptionKey.clear();
     }
 }
 
 void VP_ShowsEncryptionWorker::cancel()
 {
-    QMutexLocker locker(&m_cancelMutex);
-    m_cancelled = true;
-    qDebug() << "VP_ShowsEncryptionWorker: Cancellation requested";
+    qDebug() << "VP_ShowsEncryptionWorker: Cancellation requested from thread" << QThread::currentThreadId();
+    // THREAD SAFETY: Use only atomic operation, no mutex needed
+    int oldValue = m_cancelled.fetchAndStoreOrdered(1);
+    if (oldValue == 0) {
+        qDebug() << "VP_ShowsEncryptionWorker: Cancellation flag set successfully";
+    } else {
+        qDebug() << "VP_ShowsEncryptionWorker: Already cancelled";
+    }
 }
 
 void VP_ShowsEncryptionWorker::doEncryption()
@@ -186,15 +200,12 @@ void VP_ShowsEncryptionWorker::doEncryption()
     
     // Process each file
     for (int i = 0; i < m_sourceFiles.size(); ++i) {
-        // Check for cancellation
-        {
-            QMutexLocker locker(&m_cancelMutex);
-            if (m_cancelled) {
-                qDebug() << "VP_ShowsEncryptionWorker: Encryption cancelled by user";
-                emit encryptionFinished(false, "Encryption cancelled by user", 
-                                       successfulFiles, failedFiles);
-                return;
-            }
+        // Check for cancellation using atomic operation
+        if (m_cancelled.loadAcquire() != 0) {
+            qDebug() << "VP_ShowsEncryptionWorker: Encryption cancelled by user";
+            emit encryptionFinished(false, "Encryption cancelled by user", 
+                                   successfulFiles, failedFiles);
+            return;
         }
         
         QString sourceFile = m_sourceFiles[i];
@@ -289,15 +300,12 @@ bool VP_ShowsEncryptionWorker::encryptSingleFile(const QString& sourceFile,
     qint64 fileSize = source.size();
     
     while (!source.atEnd()) {
-        // Check for cancellation
-        {
-            QMutexLocker locker(&m_cancelMutex);
-            if (m_cancelled) {
-                source.close();
-                target.close();
-                target.remove();
-                return false;
-            }
+        // Check for cancellation using atomic operation
+        if (m_cancelled.loadAcquire() != 0) {
+            source.close();
+            target.close();
+            target.remove();
+            return false;
         }
         
         // Read chunk
@@ -839,6 +847,8 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 QMutexLocker pointerLock(&m_pointerMutex);
                 if (m_tmdbManager) {
                     episodeInfoFetched = m_tmdbManager->getEpisodeInfo(tmdbId, tmdbSeason, tmdbEpisode, episodeInfo);
+                } else {
+                    qDebug() << "VP_ShowsEncryptionWorker: TMDB manager is null during episode info fetch";
                 }
             }
             
@@ -1119,7 +1129,7 @@ VP_ShowsDecryptionWorker::VP_ShowsDecryptionWorker(const QString& sourceFile,
     , m_targetFile(targetFile)
     , m_encryptionKey(encryptionKey)
     , m_username(username)
-    , m_cancelled(false)
+    , m_cancelled(0)  // 0 = false, 1 = true for atomic
     , m_metadataManager(nullptr)
 {
     qDebug() << "VP_ShowsDecryptionWorker: Constructor called";
@@ -1129,19 +1139,36 @@ VP_ShowsDecryptionWorker::VP_ShowsDecryptionWorker(const QString& sourceFile,
 
 VP_ShowsDecryptionWorker::~VP_ShowsDecryptionWorker()
 {
-    qDebug() << "VP_ShowsDecryptionWorker: Destructor called";
+    qDebug() << "VP_ShowsDecryptionWorker: Destructor called in thread" << QThread::currentThreadId();
+    
+    // Cancel any ongoing operation
+    cancel();
+    
+    // Thread-safe cleanup of pointers
     QMutexLocker pointerLock(&m_pointerMutex);
     if (m_metadataManager) {
         delete m_metadataManager;
         m_metadataManager = nullptr;
     }
+    
+    // SECURITY: Clear sensitive data
+    if (!m_encryptionKey.isEmpty()) {
+        volatile char* keyData = const_cast<volatile char*>(m_encryptionKey.data());
+        std::memset(const_cast<char*>(keyData), 0, m_encryptionKey.size());
+        m_encryptionKey.clear();
+    }
 }
 
 void VP_ShowsDecryptionWorker::cancel()
 {
-    QMutexLocker locker(&m_cancelMutex);
-    m_cancelled = true;
-    qDebug() << "VP_ShowsDecryptionWorker: Cancellation requested";
+    qDebug() << "VP_ShowsDecryptionWorker: Cancellation requested from thread" << QThread::currentThreadId();
+    // THREAD SAFETY: Use only atomic operation, no mutex needed
+    int oldValue = m_cancelled.fetchAndStoreOrdered(1);
+    if (oldValue == 0) {
+        qDebug() << "VP_ShowsDecryptionWorker: Cancellation flag set successfully";
+    } else {
+        qDebug() << "VP_ShowsDecryptionWorker: Already cancelled";
+    }
 }
 
 void VP_ShowsDecryptionWorker::doDecryption()
@@ -1200,16 +1227,13 @@ void VP_ShowsDecryptionWorker::doDecryption()
     QDataStream stream(&source);
     
     while (!source.atEnd()) {
-        // Check for cancellation
-        {
-            QMutexLocker locker(&m_cancelMutex);
-            if (m_cancelled) {
-                source.close();
-                target.close();
-                target.remove();
-                emit decryptionFinished(false, "Decryption cancelled by user");
-                return;
-            }
+        // Check for cancellation using atomic operation
+        if (m_cancelled.loadAcquire() != 0) {
+            source.close();
+            target.close();
+            target.remove();
+            emit decryptionFinished(false, "Decryption cancelled by user");
+            return;
         }
         
         // Read chunk size
@@ -1284,7 +1308,7 @@ VP_ShowsExportWorker::VP_ShowsExportWorker(const QList<ExportFileInfo>& files,
     : m_files(files)
     , m_encryptionKey(encryptionKey)
     , m_username(username)
-    , m_cancelled(false)
+    , m_cancelled(0)  // 0 = false, 1 = true for atomic
     , m_metadataManager(nullptr)
 {
     qDebug() << "VP_ShowsExportWorker: Constructor called for" << files.size() << "files";
@@ -1294,19 +1318,36 @@ VP_ShowsExportWorker::VP_ShowsExportWorker(const QList<ExportFileInfo>& files,
 
 VP_ShowsExportWorker::~VP_ShowsExportWorker()
 {
-    qDebug() << "VP_ShowsExportWorker: Destructor called";
+    qDebug() << "VP_ShowsExportWorker: Destructor called in thread" << QThread::currentThreadId();
+    
+    // Cancel any ongoing operation
+    cancel();
+    
+    // Thread-safe cleanup of pointers
     QMutexLocker pointerLock(&m_pointerMutex);
     if (m_metadataManager) {
         delete m_metadataManager;
         m_metadataManager = nullptr;
     }
+    
+    // SECURITY: Clear sensitive data
+    if (!m_encryptionKey.isEmpty()) {
+        volatile char* keyData = const_cast<volatile char*>(m_encryptionKey.data());
+        std::memset(const_cast<char*>(keyData), 0, m_encryptionKey.size());
+        m_encryptionKey.clear();
+    }
 }
 
 void VP_ShowsExportWorker::cancel()
 {
-    QMutexLocker locker(&m_cancelMutex);
-    m_cancelled = true;
-    qDebug() << "VP_ShowsExportWorker: Cancellation requested";
+    qDebug() << "VP_ShowsExportWorker: Cancellation requested from thread" << QThread::currentThreadId();
+    // THREAD SAFETY: Use only atomic operation, no mutex needed
+    int oldValue = m_cancelled.fetchAndStoreOrdered(1);
+    if (oldValue == 0) {
+        qDebug() << "VP_ShowsExportWorker: Cancellation flag set successfully";
+    } else {
+        qDebug() << "VP_ShowsExportWorker: Already cancelled";
+    }
 }
 
 void VP_ShowsExportWorker::doExport()
@@ -1341,15 +1382,12 @@ void VP_ShowsExportWorker::doExport()
     
     // Process each file
     for (int i = 0; i < m_files.size(); ++i) {
-        // Check for cancellation
-        {
-            QMutexLocker locker(&m_cancelMutex);
-            if (m_cancelled) {
-                qDebug() << "VP_ShowsExportWorker: Export cancelled by user";
-                emit exportFinished(false, "Export cancelled by user", 
-                                   successfulFiles, failedFiles);
-                return;
-            }
+        // Check for cancellation using atomic operation
+        if (m_cancelled.loadAcquire() != 0) {
+            qDebug() << "VP_ShowsExportWorker: Export cancelled by user";
+            emit exportFinished(false, "Export cancelled by user", 
+                               successfulFiles, failedFiles);
+            return;
         }
         
         const ExportFileInfo& fileInfo = m_files[i];
@@ -1522,15 +1560,12 @@ bool VP_ShowsExportWorker::exportSingleFile(const ExportFileInfo& fileInfo, int&
     QDataStream stream(&source);
     
     while (!source.atEnd()) {
-        // Check for cancellation
-        {
-            QMutexLocker locker(&m_cancelMutex);
-            if (m_cancelled) {
-                source.close();
-                target.close();
-                target.remove();
-                return false;
-            }
+        // Check for cancellation using atomic operation
+        if (m_cancelled.loadAcquire() != 0) {
+            source.close();
+            target.close();
+            target.remove();
+            return false;
         }
         
         // Read chunk size

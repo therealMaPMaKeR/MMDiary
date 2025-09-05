@@ -11,6 +11,7 @@
 #include <QMap>
 #include <QPixmap>
 #include <QPointer>
+#include <QAtomicInt>
 #include <memory>
 #include "vp_shows_metadata.h"
 #include "vp_shows_tmdb.h"
@@ -74,8 +75,7 @@ signals:
 private:
     QByteArray m_encryptionKey;
     QString m_username;
-    bool m_cancelled;
-    mutable QMutex m_cancelMutex;
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation (0=false, 1=true)
     
     // Custom poster and description
     bool m_useTMDB;
@@ -146,8 +146,7 @@ signals:
 private:
     QByteArray m_encryptionKey;
     QString m_username;
-    bool m_cancelled;
-    mutable QMutex m_cancelMutex;
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation (0=false, 1=true)
     mutable QMutex m_pointerMutex;  // Protects pointer access
     VP_ShowsMetadata* m_metadataManager;
 };
@@ -198,8 +197,7 @@ private:
     QList<ExportFileInfo> m_files;
     QByteArray m_encryptionKey;
     QString m_username;
-    bool m_cancelled;
-    mutable QMutex m_cancelMutex;
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation (0=false, 1=true)
     mutable QMutex m_pointerMutex;  // Protects pointer access
     VP_ShowsMetadata* m_metadataManager;
     
