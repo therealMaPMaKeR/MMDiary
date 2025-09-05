@@ -7,6 +7,7 @@
 #include <openssl/crypto.h>
 #include <windows.h>
 #include <atomic>
+#include <stdexcept>
 
 /**
  * SecureByteArray - A secure wrapper for sensitive byte data
@@ -57,9 +58,13 @@ public:
     QByteArray toBase64() const;
     static SecureByteArray fromBase64(const QByteArray& base64);
     
-    // Operators for compatibility
+    // Operators for compatibility (with bounds checking)
     char operator[](int index) const;
     char& operator[](int index);
+    
+    // Safe access methods with exception throwing
+    char at(int index) const;
+    char& at(int index);
     
     // Append operations
     SecureByteArray& append(const QByteArray& data);
@@ -87,6 +92,9 @@ private:
     bool tryLockMemory();
     void forceUnlockMemory();
     void moveFrom(SecureByteArray&& other) noexcept;
+    
+    // Static dummy char for safe out-of-bounds access
+    static char s_dummyChar;
 };
 
 #endif // SECUREBYTEARRAY_H

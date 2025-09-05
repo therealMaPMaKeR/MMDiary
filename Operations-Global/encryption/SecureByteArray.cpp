@@ -2,8 +2,9 @@
 #include <QRandomGenerator>
 #include <cstring>
 
-// Initialize static member
+// Initialize static members
 std::atomic<size_t> SecureByteArray::s_totalLockedMemory{0};
+char SecureByteArray::s_dummyChar = 0;
 
 // Default constructor
 SecureByteArray::SecureByteArray() 
@@ -21,6 +22,12 @@ SecureByteArray::SecureByteArray(const QByteArray& data)
 // Constructor with size
 SecureByteArray::SecureByteArray(int size) 
     : m_locked(false) {
+    // Validate size parameter
+    if (size < 0) {
+        qWarning() << "SecureByteArray: Constructor called with negative size:" << size << ". Using size 0.";
+        size = 0;
+    }
+    
     qDebug() << "SecureByteArray: Constructor with size called, size:" << size << "bytes";
     m_data.resize(size);
     tryLockMemory();
@@ -56,6 +63,13 @@ SecureByteArray& SecureByteArray::operator=(SecureByteArray&& other) noexcept {
 
 // Set data
 void SecureByteArray::setData(const QByteArray& data) {
+    // Validate input
+    if (data.isNull()) {
+        qWarning() << "SecureByteArray: setData() called with null QByteArray. Clearing data instead.";
+        clear();
+        return;
+    }
+    
     qDebug() << "SecureByteArray: Setting data, new size:" << data.size() << "bytes";
     
     // Clear old data securely
@@ -85,11 +99,18 @@ const QByteArray& SecureByteArray::constDataRef() const {
 
 // Get const pointer to data
 const char* SecureByteArray::constData() const {
+    if (m_data.isEmpty()) {
+        qDebug() << "SecureByteArray: constData() called on empty array";
+    }
     return m_data.constData();
 }
 
 // Get pointer to data
 char* SecureByteArray::data() {
+    if (m_data.isEmpty()) {
+        qWarning() << "SecureByteArray: data() called on empty array, returning nullptr";
+        return nullptr;
+    }
     return m_data.data();
 }
 
@@ -105,6 +126,12 @@ bool SecureByteArray::isEmpty() const {
 
 // Resize
 void SecureByteArray::resize(int size) {
+    // Validate size parameter
+    if (size < 0) {
+        qWarning() << "SecureByteArray: Invalid resize request with negative size:" << size << ". Ignoring.";
+        return;
+    }
+    
     qDebug() << "SecureByteArray: Resizing from" << m_data.size() << "to" << size << "bytes";
     
     // If reducing size, securely clear the removed portion
@@ -129,6 +156,12 @@ void SecureByteArray::resize(int size) {
 
 // Reserve capacity
 void SecureByteArray::reserve(int size) {
+    // Validate size parameter
+    if (size < 0) {
+        qWarning() << "SecureByteArray: Invalid reserve request with negative size:" << size << ". Ignoring.";
+        return;
+    }
+    
     qDebug() << "SecureByteArray: Reserving" << size << "bytes";
     m_data.reserve(size);
 }
@@ -170,18 +203,68 @@ SecureByteArray SecureByteArray::fromBase64(const QByteArray& base64) {
     return result;
 }
 
-// Array access operator (const)
+// Array access operator (const) - with bounds checking
 char SecureByteArray::operator[](int index) const {
+    // Check bounds
+    if (index < 0 || index >= m_data.size()) {
+        qWarning() << "SecureByteArray: Out-of-bounds access attempted at index" << index 
+                   << "(size:" << m_data.size() << "). Returning 0.";
+        return 0;  // Return safe default value
+    }
     return m_data[index];
 }
 
-// Array access operator
+// Array access operator - with bounds checking
 char& SecureByteArray::operator[](int index) {
+    // Check bounds
+    if (index < 0 || index >= m_data.size()) {
+        qWarning() << "SecureByteArray: Out-of-bounds access attempted at index" << index
+                   << "(size:" << m_data.size() << "). Returning reference to dummy char.";
+        s_dummyChar = 0;  // Reset dummy char to 0
+        return s_dummyChar;  // Return reference to safe static variable
+    }
+    return m_data[index];
+}
+
+// Safe access with exception throwing (const)
+char SecureByteArray::at(int index) const {
+    // Strict bounds checking
+    if (index < 0 || index >= m_data.size()) {
+        QString errorMsg = QString("SecureByteArray::at(): Index %1 out of range [0, %2)")
+                          .arg(index).arg(m_data.size());
+        qCritical() << "SecureByteArray: Exception thrown -" << errorMsg;
+        throw std::out_of_range(errorMsg.toStdString());
+    }
+    return m_data[index];
+}
+
+// Safe access with exception throwing (non-const)
+char& SecureByteArray::at(int index) {
+    // Strict bounds checking
+    if (index < 0 || index >= m_data.size()) {
+        QString errorMsg = QString("SecureByteArray::at(): Index %1 out of range [0, %2)")
+                          .arg(index).arg(m_data.size());
+        qCritical() << "SecureByteArray: Exception thrown -" << errorMsg;
+        throw std::out_of_range(errorMsg.toStdString());
+    }
     return m_data[index];
 }
 
 // Append data
 SecureByteArray& SecureByteArray::append(const QByteArray& data) {
+    // Validate input
+    if (data.isEmpty()) {
+        qDebug() << "SecureByteArray: Append called with empty data, no operation performed.";
+        return *this;
+    }
+    
+    // Check if append would exceed reasonable size limits
+    if (m_data.size() + data.size() < 0) {  // Integer overflow check
+        qWarning() << "SecureByteArray: Append would cause integer overflow. Current size:" 
+                   << m_data.size() << ", attempting to append:" << data.size() << "bytes. Operation aborted.";
+        return *this;
+    }
+    
     qDebug() << "SecureByteArray: Appending" << data.size() << "bytes";
     
     // Unlock before modifying
