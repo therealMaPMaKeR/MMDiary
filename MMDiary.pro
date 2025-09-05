@@ -460,6 +460,7 @@ HEADERS += \
     Operations-Global/encryption/SecureByteArray.h \
     Operations-Global/encryption/noncechecker.h \
     Operations-Global/encryption/QT_AESGCM256/aesgcm256.h \
+    Operations-Global/ThreadSafeContainers.h \
     constants.h \
     loginscreen.h \
     mainwindow.h
