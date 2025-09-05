@@ -19,6 +19,7 @@
 #include "encryptedfileitemwidget.h"
 #include "encrypteddata_fileiconprovider.h"
 #include "encrypteddata_encryptedfilemetadata.h"
+#include "ThreadSafeContainers.h"
 #include <QScrollBar>
 #include <QEvent>
 #include <QKeyEvent>
@@ -168,17 +169,17 @@ private:
     QString m_pendingAppToOpen;
     QTimer* m_tempFileCleanupTimer;
 
-    // File metadata and filtering
-    QMap<QString, EncryptedFileMetadata::FileMetadata> m_fileMetadataCache;
-    QStringList m_currentFilteredFiles;
+    // File metadata and filtering - Thread-safe containers
+    ThreadSafeMap<QString, EncryptedFileMetadata::FileMetadata> m_fileMetadataCache;
+    ThreadSafeStringList m_currentFilteredFiles;
     bool m_updatingFilters;
 
     // Tag filter optimization
     QTimer* m_tagFilterDebounceTimer;
     static const int TAG_FILTER_DEBOUNCE_DELAY = 150;
 
-    // Thumbnail cache
-    QMap<QString, QPixmap> m_thumbnailCache;
+    // Thumbnail cache - Thread-safe container
+    ThreadSafeMap<QString, QPixmap> m_thumbnailCache;
 
     // Case-insensitive display name caching
     QMap<QString, QString> m_categoryDisplayNames;

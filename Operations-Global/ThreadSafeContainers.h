@@ -27,6 +27,16 @@
  * safeList.append("item");
  * auto value = safeList.at(0);
  */
+// Helper traits to detect container types
+template<typename T>
+struct is_qt_map : std::false_type {};
+
+template<typename K, typename V>
+struct is_qt_map<QMap<K, V>> : std::true_type {};
+
+template<typename K, typename V>
+struct is_qt_map<QHash<K, V>> : std::true_type {};
+
 // Helper traits to extract the appropriate value type
 template<typename T, typename = void>
 struct container_value_type {
@@ -45,20 +55,11 @@ struct container_value_type<QHash<K, V>, void> {
 
 template<typename Container>
 class ThreadSafeContainer {
-public:
-    // Type trait to detect if Container is a QMap or QHash
-    template<typename T>
-    struct is_qt_map : std::false_type {};
-    
-    template<typename K, typename V>
-    struct is_qt_map<QMap<K, V>> : std::true_type {};
-    
-    template<typename K, typename V>
-    struct is_qt_map<QHash<K, V>> : std::true_type {};
-    
+public:    
     // Use the helper to get the right value type
     using value_type = typename container_value_type<Container>::type;
     using size_type = typename Container::size_type;
+    using container_type = Container;
     
 private:
     mutable QMutex m_mutex;
@@ -316,7 +317,7 @@ public:
      */
     template<typename T = Container>
     typename std::enable_if<is_qt_map<T>::value, void>::type
-    safeIterate(std::function<void(const typename T::key_type&, const typename T::mapped_type&)> operation) const {
+    safeIterate(std::function<void(const typename T::key_type&, const value_type&)> operation) const {
         Container localCopy;
         {
             QMutexLocker locker(&m_mutex);
@@ -615,18 +616,16 @@ public:
     }
     
     // ============================================================================
-    // Specialized for QMap/QHash
+    // Specialized for QMap/QHash  
     // ============================================================================
     
     /**
      * @brief Insert key-value pair (for QMap/QHash)
      * Enabled only for map-like containers
      */
-    template<typename K = typename Container::key_type, 
-             typename V = typename Container::mapped_type>
-    typename std::enable_if<std::is_same<Container, QMap<K,V>>::value || 
-                           std::is_same<Container, QHash<K,V>>::value, bool>::type
-    insert(const K& key, const V& value) {
+    template<typename T = Container>
+    typename std::enable_if<is_qt_map<T>::value, bool>::type
+    insert(const typename T::key_type& key, const value_type& value) {
         QMutexLocker locker(&m_mutex);
         
         if (m_container.size() >= m_maxSize && !m_container.contains(key)) {
@@ -642,11 +641,9 @@ public:
     /**
      * @brief Get value for key (for QMap/QHash)
      */
-    template<typename K = typename Container::key_type, 
-             typename V = typename Container::mapped_type>
-    typename std::enable_if<std::is_same<Container, QMap<K,V>>::value || 
-                           std::is_same<Container, QHash<K,V>>::value, std::optional<V>>::type
-    value(const K& key) const {
+    template<typename T = Container>
+    typename std::enable_if<is_qt_map<T>::value, std::optional<value_type>>::type
+    value(const typename T::key_type& key) const {
         QMutexLocker locker(&m_mutex);
         m_accessCount++;
         
@@ -659,10 +656,9 @@ public:
     /**
      * @brief Check if key exists (for QMap/QHash)
      */
-    template<typename K = typename Container::key_type>
-    typename std::enable_if<std::is_same<Container, QMap<K,typename Container::mapped_type>>::value || 
-                           std::is_same<Container, QHash<K,typename Container::mapped_type>>::value, bool>::type
-    contains(const K& key) const {
+    template<typename T = Container>
+    typename std::enable_if<is_qt_map<T>::value, bool>::type
+    contains(const typename T::key_type& key) const {
         QMutexLocker locker(&m_mutex);
         m_accessCount++;
         return m_container.contains(key);
@@ -671,10 +667,9 @@ public:
     /**
      * @brief Remove key (for QMap/QHash)
      */
-    template<typename K = typename Container::key_type>
-    typename std::enable_if<std::is_same<Container, QMap<K,typename Container::mapped_type>>::value || 
-                           std::is_same<Container, QHash<K,typename Container::mapped_type>>::value, bool>::type
-    remove(const K& key) {
+    template<typename T = Container>
+    typename std::enable_if<is_qt_map<T>::value, bool>::type
+    remove(const typename T::key_type& key) {
         QMutexLocker locker(&m_mutex);
         
         bool removed = (m_container.remove(key) > 0);

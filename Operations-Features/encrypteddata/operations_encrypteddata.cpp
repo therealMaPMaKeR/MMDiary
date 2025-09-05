@@ -77,6 +77,9 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     , m_secureDeletionWorker(nullptr)
     , m_secureDeletionWorkerThread(nullptr)
     , m_secureDeletionProgressDialog(nullptr)
+    , m_fileMetadataCache(100000, "Operations_EncryptedData::FileMetadataCache") // Thread-safe with max 100k files
+    , m_currentFilteredFiles(50000, "Operations_EncryptedData::CurrentFilteredFiles") // Thread-safe with max 50k filtered files
+    , m_thumbnailCache(10000, "Operations_EncryptedData::ThumbnailCache") // Thread-safe with max 10k cached thumbnails
 {
     qDebug() << "Operations_EncryptedData: Constructor started";
 
@@ -2167,13 +2170,14 @@ void Operations_EncryptedData::populateEncryptedFilesList()
         }
         m_updatingFilters = true;
 
-        // Clear current state
-        m_fileMetadataCache.clear();
-        m_currentFilteredFiles.clear();
         // Clear case-insensitive display name caches
         m_categoryDisplayNames.clear();
         m_tagDisplayNames.clear();
     }
+    
+    // Clear thread-safe containers (no mutex needed for these)
+    m_fileMetadataCache.clear();
+    m_currentFilteredFiles.clear();
 
     // Get current sort type from combo box
     QString currentSortType = m_mainWindow->ui->comboBox_DataENC_SortType->currentText();
@@ -2224,13 +2228,10 @@ void Operations_EncryptedData::populateEncryptedFilesList()
             // Try to read metadata for this file (now includes embedded thumbnail)
             EncryptedFileMetadata::FileMetadata metadata;
             if (m_metadataManager && m_metadataManager->readMetadataFromFile(encryptedFilePath, metadata)) {
-                // Valid metadata found
-                {
-                    QMutexLocker locker(&m_stateMutex);
-                    m_fileMetadataCache[encryptedFilePath] = metadata;
-                }
+                // Valid metadata found - use thread-safe insert
+                m_fileMetadataCache.insert(encryptedFilePath, metadata);
 
-                qDebug() << "Loaded metadata for:" << metadata.filename
+                qDebug() << "Operations_EncryptedData: Loaded metadata for:" << metadata.filename
                          << "category:" << metadata.category
                          << "tags:" << metadata.tags.join(", ")
                          << "has thumbnail:" << (!metadata.thumbnailData.isEmpty());
@@ -2240,10 +2241,8 @@ void Operations_EncryptedData::populateEncryptedFilesList()
                 if (!originalFilename.isEmpty()) {
                     // Create basic metadata with just filename
                     metadata = EncryptedFileMetadata::FileMetadata(originalFilename);
-                    {
-                        QMutexLocker locker(&m_stateMutex);
-                        m_fileMetadataCache[encryptedFilePath] = metadata;
-                    }
+                    // Use thread-safe insert
+                    m_fileMetadataCache.insert(encryptedFilePath, metadata);
 
                     qDebug() << "Using legacy filename for:" << originalFilename;
                 }
@@ -2251,7 +2250,7 @@ void Operations_EncryptedData::populateEncryptedFilesList()
         }
     }
 
-    qDebug() << "Loaded metadata for" << m_fileMetadataCache.size() << "files";
+    qDebug() << "Operations_EncryptedData: Loaded metadata for" << m_fileMetadataCache.size() << "files";
 
     // NEW: Analyze case-insensitive display names after loading all metadata
     analyzeCaseInsensitiveDisplayNames();
@@ -2303,13 +2302,23 @@ void Operations_EncryptedData::updateFileListDisplay()
     qDebug() << "Current search text:" << m_currentSearchText;
 
     // Filter files by checked tags (AND logic, case-insensitive) and tag hiding settings
-        QStringList tagFilteredFiles;
-        for (const QString& filePath : m_currentFilteredFiles) {
-            if (!m_fileMetadataCache.contains(filePath)) {
-                continue;
-            }
+    QStringList tagFilteredFiles;
+    
+    // Get a thread-safe copy of filtered files to iterate over
+    QStringList currentFilteredFilesCopy = m_currentFilteredFiles.getCopy();
+    
+    for (const QString& filePath : currentFilteredFilesCopy) {
+        // Check if file exists in cache using thread-safe contains
+        if (!m_fileMetadataCache.contains(filePath)) {
+            continue;
+        }
 
-            const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
+        // Get metadata using thread-safe value() method
+        auto metadataOpt = m_fileMetadataCache.value(filePath);
+        if (!metadataOpt.has_value()) {
+            continue; // Skip if metadata not found
+        }
+        const EncryptedFileMetadata::FileMetadata& metadata = metadataOpt.value();
 
             // Check if file should be hidden by tag settings (case-insensitive)
             if (shouldHideFileByTags(metadata)) {
@@ -2377,7 +2386,12 @@ void Operations_EncryptedData::updateFileListDisplay()
             continue;
         }
 
-        const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
+        // Get metadata using thread-safe value() method
+        auto metadataOpt = m_fileMetadataCache.value(filePath);
+        if (!metadataOpt.has_value()) {
+            continue;
+        }
+        const EncryptedFileMetadata::FileMetadata& metadata = metadataOpt.value();
 
         // Check if filename OR tags match search criteria
         if (matchesSearchCriteriaWithTags(metadata, m_currentSearchText)) {
@@ -2390,8 +2404,16 @@ void Operations_EncryptedData::updateFileListDisplay()
 
     // Sort files by encryption date (newest first), with files without date at bottom
     std::sort(finalFilteredFiles.begin(), finalFilteredFiles.end(), [this](const QString& a, const QString& b) {
-        const EncryptedFileMetadata::FileMetadata& metadataA = m_fileMetadataCache[a];
-        const EncryptedFileMetadata::FileMetadata& metadataB = m_fileMetadataCache[b];
+        // Get metadata using thread-safe value() method
+        auto metadataAOpt = m_fileMetadataCache.value(a);
+        auto metadataBOpt = m_fileMetadataCache.value(b);
+        
+        // If either metadata is missing, put it at the end
+        if (!metadataAOpt.has_value()) return false;
+        if (!metadataBOpt.has_value()) return true;
+        
+        const EncryptedFileMetadata::FileMetadata& metadataA = metadataAOpt.value();
+        const EncryptedFileMetadata::FileMetadata& metadataB = metadataBOpt.value();
 
         bool hasDateA = metadataA.hasEncryptionDateTime();
         bool hasDateB = metadataB.hasEncryptionDateTime();
@@ -2416,7 +2438,13 @@ void Operations_EncryptedData::updateFileListDisplay()
 
     // Create list items for filtered files with thumbnail caching and hiding logic
     for (const QString& encryptedFilePath : finalFilteredFiles) {
-        const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[encryptedFilePath];
+        // Get metadata using thread-safe value() method
+        auto metadataOpt = m_fileMetadataCache.value(encryptedFilePath);
+        if (!metadataOpt.has_value()) {
+            qWarning() << "Operations_EncryptedData: Metadata not found for file:" << encryptedFilePath;
+            continue; // Skip this file if metadata not found
+        }
+        const EncryptedFileMetadata::FileMetadata& metadata = metadataOpt.value();
 
         QFileInfo fileInfo(encryptedFilePath);
         QString fileTypeDir = fileInfo.dir().dirName();
@@ -2435,30 +2463,29 @@ void Operations_EncryptedData::updateFileListDisplay()
         }
 
         if (hasEmbeddedThumbnail) {
-            // Check cache first
-            {
-                QMutexLocker locker(&m_stateMutex);
-                if (m_thumbnailCache.contains(encryptedFilePath)) {
-                    icon = m_thumbnailCache[encryptedFilePath];
-                    qDebug() << "Using cached thumbnail for:" << metadata.filename;
-                } else {
-                    // Decompress and cache the thumbnail
-                    icon = EncryptedFileMetadata::decompressThumbnail(metadata.thumbnailData);
-                    if (!icon.isNull()) {
-                        int iconSize = EncryptedFileItemWidget::getIconSize();
-                        if (icon.width() != iconSize || icon.height() != iconSize) {
-                            icon = icon.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                        }
-                        // Cache the processed thumbnail
-                        m_thumbnailCache[encryptedFilePath] = icon;
-                        qDebug() << "Decompressed and cached thumbnail for:" << metadata.filename;
+            // Check cache first using thread-safe method
+            auto cachedIconOpt = m_thumbnailCache.value(encryptedFilePath);
+            if (cachedIconOpt.has_value()) {
+                icon = cachedIconOpt.value();
+                qDebug() << "Operations_EncryptedData: Using cached thumbnail for:" << metadata.filename;
+            } else {
+                // Decompress and cache the thumbnail
+                icon = EncryptedFileMetadata::decompressThumbnail(metadata.thumbnailData);
+                if (!icon.isNull()) {
+                    int iconSize = EncryptedFileItemWidget::getIconSize();
+                    if (icon.width() != iconSize || icon.height() != iconSize) {
+                        icon = icon.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                    }
+                    // Cache the processed thumbnail using thread-safe insert
+                    m_thumbnailCache.insert(encryptedFilePath, icon);
+                    qDebug() << "Operations_EncryptedData: Decompressed and cached thumbnail for:" << metadata.filename;
                     } else {
                         qWarning() << "Failed to decompress embedded thumbnail for:" << metadata.filename;
                         hasEmbeddedThumbnail = false;
                     }
                 }
-            }
         }
+
 
         // If no embedded thumbnail, thumbnail hiding is active, or decompression failed, use default icon
         if (!hasEmbeddedThumbnail) {
@@ -2621,15 +2648,15 @@ void Operations_EncryptedData::selectCategoryAndFile(const QString& categoryToSe
 
 void Operations_EncryptedData::removeFileFromCacheAndRefresh(const QString& encryptedFilePath)
 {
-    qDebug() << "Removing file from cache and refreshing display:" << encryptedFilePath;
+    qDebug() << "Operations_EncryptedData: Removing file from cache and refreshing display:" << encryptedFilePath;
 
-    // Remove from metadata cache
+    // Remove from metadata cache using thread-safe method
     if (m_fileMetadataCache.contains(encryptedFilePath)) {
         m_fileMetadataCache.remove(encryptedFilePath);
-        qDebug() << "Removed file from metadata cache";
+        qDebug() << "Operations_EncryptedData: Removed file from metadata cache";
     }
 
-    // Remove from current filtered files list
+    // Remove from current filtered files list using thread-safe method
     m_currentFilteredFiles.removeAll(encryptedFilePath);
 
     // Check if any categories now have no files and need to be removed
@@ -2698,9 +2725,12 @@ void Operations_EncryptedData::deleteSelectedFile()
     // Get the original filename for display in the confirmation dialog
     QString originalFilename;
 
-    // Try to get from cache first (faster)
+    // Try to get from cache first (faster) using thread-safe method
     if (m_fileMetadataCache.contains(encryptedFilePath)) {
-        originalFilename = m_fileMetadataCache[encryptedFilePath].filename;
+        auto metadataOpt = m_fileMetadataCache.value(encryptedFilePath);
+        if (metadataOpt.has_value()) {
+            originalFilename = metadataOpt.value().filename;
+        }
     } else {
         // Fallback to reading metadata
         originalFilename = getOriginalFilename(encryptedFilePath);
@@ -3839,7 +3869,10 @@ void Operations_EncryptedData::onContextMenuDebugCorruptMetadata()
     // Get original filename for display
     QString originalFilename;
     if (m_fileMetadataCache.contains(encryptedFilePath)) {
-        originalFilename = m_fileMetadataCache[encryptedFilePath].filename;
+        auto metadataOpt = m_fileMetadataCache.value(encryptedFilePath);
+        if (metadataOpt.has_value()) {
+            originalFilename = metadataOpt.value().filename;
+        }
     } else {
         originalFilename = getOriginalFilename(encryptedFilePath);
         if (originalFilename.isEmpty()) {
@@ -3931,13 +3964,12 @@ void Operations_EncryptedData::onCategorySelectionChanged()
     // Filter files by selected category (case-insensitive)
     m_currentFilteredFiles.clear();
 
-    for (auto it = m_fileMetadataCache.begin(); it != m_fileMetadataCache.end(); ++it) {
-        const QString& filePath = it.key();
-        const EncryptedFileMetadata::FileMetadata& metadata = it.value();
+    // Use thread-safe iteration over metadata cache
+    m_fileMetadataCache.safeIterate([this, selectedCategory](const QString& filePath, const EncryptedFileMetadata::FileMetadata& metadata) {
 
         // First, check if file should be hidden by category settings (case-insensitive)
         if (shouldHideFileByCategory(metadata)) {
-            continue; // Skip this file, it's in a hidden category
+            return; // Skip this file, it's in a hidden category (use return instead of continue in lambda)
         }
 
         bool includeFile = false;
@@ -3955,9 +3987,9 @@ void Operations_EncryptedData::onCategorySelectionChanged()
         if (includeFile) {
             m_currentFilteredFiles.append(filePath);
         }
-    }
+    });
 
-    qDebug() << "Filtered to" << m_currentFilteredFiles.size() << "files for category:" << selectedCategory
+    qDebug() << "Operations_EncryptedData: Filtered to" << m_currentFilteredFiles.size() << "files for category:" << selectedCategory
              << "(case-insensitive, after applying category hiding settings)";
 
     // Populate tags list based on filtered files (case-insensitive)
@@ -4072,9 +4104,17 @@ void Operations_EncryptedData::populateTagsList()
     QSet<QString> allTagsLowercase; // Track which lowercase tags we've seen
     QSet<QString> visibleTagsDisplay; // The actual display names to show
 
-    for (const QString& filePath : m_currentFilteredFiles) {
+    // Get a thread-safe copy of filtered files
+    QStringList currentFilteredFilesCopy = m_currentFilteredFiles.getCopy();
+    
+    for (const QString& filePath : currentFilteredFilesCopy) {
         if (m_fileMetadataCache.contains(filePath)) {
-            const EncryptedFileMetadata::FileMetadata& metadata = m_fileMetadataCache[filePath];
+            // Get metadata using thread-safe value() method
+            auto metadataOpt = m_fileMetadataCache.value(filePath);
+            if (!metadataOpt.has_value()) {
+                continue;
+            }
+            const EncryptedFileMetadata::FileMetadata& metadata = metadataOpt.value();
             for (const QString& tag : metadata.tags) {
                 if (!tag.isEmpty()) {
                     QString tagLower = tag.toLower();
@@ -4211,10 +4251,8 @@ void Operations_EncryptedData::analyzeCaseInsensitiveDisplayNames()
     QMap<QString, QMap<QString, int>> categoryVariants;
     QMap<QString, QMap<QString, int>> tagVariants;
 
-    // Analyze all files in metadata cache
-    for (auto it = m_fileMetadataCache.begin(); it != m_fileMetadataCache.end(); ++it) {
-        const EncryptedFileMetadata::FileMetadata& metadata = it.value();
-
+    // Analyze all files in metadata cache using thread-safe iteration
+    m_fileMetadataCache.safeIterate([&categoryVariants, &tagVariants](const QString& filePath, const EncryptedFileMetadata::FileMetadata& metadata) {
         // Analyze category
         QString category = metadata.category.isEmpty() ? "Uncategorized" : metadata.category;
         QString categoryLower = category.toLower();
@@ -4227,7 +4265,7 @@ void Operations_EncryptedData::analyzeCaseInsensitiveDisplayNames()
                 tagVariants[tagLower][tag]++;
             }
         }
-    }
+    });
 
     // Find most common casing for each category
     for (auto it = categoryVariants.begin(); it != categoryVariants.end(); ++it) {
@@ -4531,8 +4569,9 @@ QString Operations_EncryptedData::generateUniqueFilenameInDirectory(const QStrin
 // ============================================================================
 void Operations_EncryptedData::clearThumbnailCache()
 {
+    // Thread-safe clear operation - no manual mutex needed
     m_thumbnailCache.clear();
-    qDebug() << "Thumbnail cache cleared";
+    qDebug() << "Operations_EncryptedData: Thumbnail cache cleared";
 }
 
 // ============================================================================
