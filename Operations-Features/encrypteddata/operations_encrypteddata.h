@@ -7,6 +7,7 @@
 #include <QFileDialog>
 #include <QThread>
 #include <QMutex>
+#include <QMutexLocker>
 #include <QPushButton>
 #include <QAbstractButton>
 #include <QTimer>
@@ -187,6 +188,9 @@ private:
     QString m_currentSearchText;
     QTimer* m_searchDebounceTimer;
     static const int SEARCH_DEBOUNCE_DELAY = 200;
+
+    // Thread safety - mutex for protecting shared state
+    mutable QMutex m_stateMutex;
 
     // Helper functions - File operations
     QString determineFileType(const QString& filePath);

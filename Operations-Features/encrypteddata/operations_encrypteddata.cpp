@@ -863,8 +863,11 @@ void Operations_EncryptedData::openWithVRVideoPlayer(const QString& encryptedFil
     }
 
     // Store "vrvideoplayer" as the app to open
-    m_pendingAppToOpen = "vrvideoplayer";
-    qDebug() << "Operations_EncryptedData: Stored 'vrvideoplayer' in m_pendingAppToOpen";
+    {
+        QMutexLocker locker(&m_stateMutex);
+        m_pendingAppToOpen = "vrvideoplayer";
+        qDebug() << "Operations_EncryptedData: Stored 'vrvideoplayer' in m_pendingAppToOpen";
+    }
 
     qDebug() << "Operations_EncryptedData: Starting temporary decryption for VR VideoPlayer";
 
@@ -1103,8 +1106,11 @@ void Operations_EncryptedData::onFileListDoubleClicked(QListWidgetItem* item)
     }
 
     // Store the app to open for later use after decryption
-    m_pendingAppToOpen = appToUse;
-    qDebug() << "Operations_EncryptedData: Stored in m_pendingAppToOpen:" << m_pendingAppToOpen;
+    {
+        QMutexLocker locker(&m_stateMutex);
+        m_pendingAppToOpen = appToUse;
+        qDebug() << "Operations_EncryptedData: Stored in m_pendingAppToOpen:" << m_pendingAppToOpen;
+    }
 
     qDebug() << "Operations_EncryptedData: Starting temporary decryption with validated encryption key";
 
@@ -1149,11 +1155,15 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
 {
     qDebug() << "Operations_EncryptedData: === onTempDecryptionFinished called ===";
     qDebug() << "Operations_EncryptedData: Success:" << success;
-    qDebug() << "Operations_EncryptedData: m_pendingAppToOpen at start:" << m_pendingAppToOpen;
-
+    
     // Store the app choice in a local variable immediately to prevent it from being cleared
-    QString localAppToOpen = m_pendingAppToOpen;
-    qDebug() << "Operations_EncryptedData: Stored in localAppToOpen:" << localAppToOpen;
+    QString localAppToOpen;
+    {
+        QMutexLocker locker(&m_stateMutex);
+        qDebug() << "Operations_EncryptedData: m_pendingAppToOpen at start:" << m_pendingAppToOpen;
+        localAppToOpen = m_pendingAppToOpen;
+        qDebug() << "Operations_EncryptedData: Stored in localAppToOpen:" << localAppToOpen;
+    }
 
     if (m_progressDialog) {
         m_progressDialog->close();
@@ -1282,8 +1292,11 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
     }
 
     // Clear pending app only after we're done using it
-    qDebug() << "Operations_EncryptedData: Clearing m_pendingAppToOpen at end of function";
-    m_pendingAppToOpen.clear();
+    {
+        QMutexLocker locker(&m_stateMutex);
+        qDebug() << "Operations_EncryptedData: Clearing m_pendingAppToOpen at end of function";
+        m_pendingAppToOpen.clear();
+    }
 }
 
 void Operations_EncryptedData::onTempDecryptionCancelled()
@@ -1302,7 +1315,10 @@ void Operations_EncryptedData::onTempDecryptionCancelled()
     }
 
     // Clear pending app
-    m_pendingAppToOpen.clear();
+    {
+        QMutexLocker locker(&m_stateMutex);
+        m_pendingAppToOpen.clear();
+    }
 }
 
 // ============================================================================
@@ -2144,17 +2160,20 @@ void Operations_EncryptedData::populateEncryptedFilesList()
     clearThumbnailCache();
 
     // Prevent recursive updates
-    if (m_updatingFilters) {
-        return;
-    }
-    m_updatingFilters = true;
+    {
+        QMutexLocker locker(&m_stateMutex);
+        if (m_updatingFilters) {
+            return;
+        }
+        m_updatingFilters = true;
 
-    // Clear current state
-    m_fileMetadataCache.clear();
-    m_currentFilteredFiles.clear();
-    // Clear case-insensitive display name caches
-    m_categoryDisplayNames.clear();
-    m_tagDisplayNames.clear();
+        // Clear current state
+        m_fileMetadataCache.clear();
+        m_currentFilteredFiles.clear();
+        // Clear case-insensitive display name caches
+        m_categoryDisplayNames.clear();
+        m_tagDisplayNames.clear();
+    }
 
     // Get current sort type from combo box
     QString currentSortType = m_mainWindow->ui->comboBox_DataENC_SortType->currentText();
@@ -2170,7 +2189,10 @@ void Operations_EncryptedData::populateEncryptedFilesList()
     QDir encDataDir(encDataPath);
     if (!encDataDir.exists()) {
         qDebug() << "EncryptedData directory doesn't exist for user:" << username;
-        m_updatingFilters = false;
+        {
+            QMutexLocker locker(&m_stateMutex);
+            m_updatingFilters = false;
+        }
         return;
     }
 
@@ -2203,7 +2225,10 @@ void Operations_EncryptedData::populateEncryptedFilesList()
             EncryptedFileMetadata::FileMetadata metadata;
             if (m_metadataManager && m_metadataManager->readMetadataFromFile(encryptedFilePath, metadata)) {
                 // Valid metadata found
-                m_fileMetadataCache[encryptedFilePath] = metadata;
+                {
+                    QMutexLocker locker(&m_stateMutex);
+                    m_fileMetadataCache[encryptedFilePath] = metadata;
+                }
 
                 qDebug() << "Loaded metadata for:" << metadata.filename
                          << "category:" << metadata.category
@@ -2215,7 +2240,10 @@ void Operations_EncryptedData::populateEncryptedFilesList()
                 if (!originalFilename.isEmpty()) {
                     // Create basic metadata with just filename
                     metadata = EncryptedFileMetadata::FileMetadata(originalFilename);
-                    m_fileMetadataCache[encryptedFilePath] = metadata;
+                    {
+                        QMutexLocker locker(&m_stateMutex);
+                        m_fileMetadataCache[encryptedFilePath] = metadata;
+                    }
 
                     qDebug() << "Using legacy filename for:" << originalFilename;
                 }
@@ -2236,7 +2264,10 @@ void Operations_EncryptedData::populateEncryptedFilesList()
         m_mainWindow->ui->listWidget_DataENC_Categories->setCurrentRow(0); // "All" is always first
     }
 
-    m_updatingFilters = false;
+    {
+        QMutexLocker locker(&m_stateMutex);
+        m_updatingFilters = false;
+    }
 
     // This will trigger onCategorySelectionChanged which will handle the rest
     qDebug() << "Finished populateEncryptedFilesList with case-insensitive analysis, category selection will trigger rest of filtering";
@@ -2405,23 +2436,26 @@ void Operations_EncryptedData::updateFileListDisplay()
 
         if (hasEmbeddedThumbnail) {
             // Check cache first
-            if (m_thumbnailCache.contains(encryptedFilePath)) {
-                icon = m_thumbnailCache[encryptedFilePath];
-                qDebug() << "Using cached thumbnail for:" << metadata.filename;
-            } else {
-                // Decompress and cache the thumbnail
-                icon = EncryptedFileMetadata::decompressThumbnail(metadata.thumbnailData);
-                if (!icon.isNull()) {
-                    int iconSize = EncryptedFileItemWidget::getIconSize();
-                    if (icon.width() != iconSize || icon.height() != iconSize) {
-                        icon = icon.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                    }
-                    // Cache the processed thumbnail
-                    m_thumbnailCache[encryptedFilePath] = icon;
-                    qDebug() << "Decompressed and cached thumbnail for:" << metadata.filename;
+            {
+                QMutexLocker locker(&m_stateMutex);
+                if (m_thumbnailCache.contains(encryptedFilePath)) {
+                    icon = m_thumbnailCache[encryptedFilePath];
+                    qDebug() << "Using cached thumbnail for:" << metadata.filename;
                 } else {
-                    qWarning() << "Failed to decompress embedded thumbnail for:" << metadata.filename;
-                    hasEmbeddedThumbnail = false;
+                    // Decompress and cache the thumbnail
+                    icon = EncryptedFileMetadata::decompressThumbnail(metadata.thumbnailData);
+                    if (!icon.isNull()) {
+                        int iconSize = EncryptedFileItemWidget::getIconSize();
+                        if (icon.width() != iconSize || icon.height() != iconSize) {
+                            icon = icon.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                        }
+                        // Cache the processed thumbnail
+                        m_thumbnailCache[encryptedFilePath] = icon;
+                        qDebug() << "Decompressed and cached thumbnail for:" << metadata.filename;
+                    } else {
+                        qWarning() << "Failed to decompress embedded thumbnail for:" << metadata.filename;
+                        hasEmbeddedThumbnail = false;
+                    }
                 }
             }
         }
@@ -3578,8 +3612,11 @@ void Operations_EncryptedData::onContextMenuOpenWith()
     }
 
     // Store "openwith" as the app to open (special marker for Open With dialog)
-    m_pendingAppToOpen = "openwith";
-    qDebug() << "Stored 'openwith' in m_pendingAppToOpen for Open With dialog";
+    {
+        QMutexLocker locker(&m_stateMutex);
+        m_pendingAppToOpen = "openwith";
+        qDebug() << "Stored 'openwith' in m_pendingAppToOpen for Open With dialog";
+    }
 
     qDebug() << "Starting temporary decryption for Open With";
 
@@ -4255,9 +4292,11 @@ void Operations_EncryptedData::onSearchTextChanged()
     qDebug() << "Operations_EncryptedData: Search text changed";
 
     // Get the current search text
-    m_currentSearchText = m_mainWindow->ui->lineEdit_DataENC_SearchBar->text().trimmed();
-
-    qDebug() << "Operations_EncryptedData: New search text:" << m_currentSearchText;
+    {
+        QMutexLocker locker(&m_stateMutex);
+        m_currentSearchText = m_mainWindow->ui->lineEdit_DataENC_SearchBar->text().trimmed();
+        qDebug() << "Operations_EncryptedData: New search text:" << m_currentSearchText;
+    }
 
     // Reset and start the debounce timer
     m_searchDebounceTimer->stop();
@@ -4273,7 +4312,10 @@ void Operations_EncryptedData::clearSearch()
     m_mainWindow->ui->lineEdit_DataENC_SearchBar->clear();
 
     // Clear the stored search text
-    m_currentSearchText.clear();
+    {
+        QMutexLocker locker(&m_stateMutex);
+        m_currentSearchText.clear();
+    }
 
     // Stop any pending search timer
     m_searchDebounceTimer->stop();
@@ -4569,8 +4611,11 @@ void Operations_EncryptedData::openWithVideoPlayer(const QString& encryptedFileP
     }
 
     // Store "videoplayer" as the app to open
-    m_pendingAppToOpen = "videoplayer";
-    qDebug() << "Operations_EncryptedData: Stored 'videoplayer' in m_pendingAppToOpen";
+    {
+        QMutexLocker locker(&m_stateMutex);
+        m_pendingAppToOpen = "videoplayer";
+        qDebug() << "Operations_EncryptedData: Stored 'videoplayer' in m_pendingAppToOpen";
+    }
 
     qDebug() << "Operations_EncryptedData: Starting temporary decryption for VideoPlayer";
 
