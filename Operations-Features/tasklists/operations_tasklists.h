@@ -4,10 +4,12 @@
 #include <QObject>
 #include <QTime>
 #include <QPointer>
+#include <utility>  // For std::pair
 #include "../../mainwindow.h"
 #include "operations.h"
 #include "inputvalidation.h"
 #include <QMessageBox>
+#include "../../Operations-Global/ThreadSafeContainers.h"
 
 class MainWindow;
 class Operations_TaskLists : public QObject
@@ -17,6 +19,9 @@ class Operations_TaskLists : public QObject
 private:
     // SECURITY: Use QPointer for automatic null checking when MainWindow is destroyed
     QPointer<MainWindow> m_mainWindow;
+    
+    // Thread-safe container for managing task order during reordering
+    ThreadSafeList<std::pair<QListWidgetItem*, int>> m_taskOrderCache;
     
     // Task manipulation helper functions
     bool checkDuplicateTaskName(const QString& taskName, const QString& taskListFilePath, const QString& currentTaskId = QString());
@@ -52,6 +57,12 @@ private:
     bool SaveTasklistOrder();
     bool LoadTasklistOrder(QStringList& orderedTasklists);
     void EnforceTaskOrder();
+    
+    // Safe container operations helpers
+    QListWidgetItem* safeGetItem(QListWidget* widget, int index) const;
+    QListWidgetItem* safeTakeItem(QListWidget* widget, int index);
+    bool validateListWidget(QListWidget* widget) const;
+    int safeGetItemCount(QListWidget* widget) const;
     
 public:
     ~Operations_TaskLists();

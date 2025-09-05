@@ -17,6 +17,7 @@
 #include <QMap>
 #include <QPlainTextEdit>
 #include <QRandomGenerator>
+#include <utility>  // For std::pair and std::make_pair
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
@@ -179,6 +180,7 @@ namespace TaskDataSecurity {
 
 Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
+    , m_taskOrderCache(100, "TaskOrderCache")  // Initialize with max size and debug name
     , m_lastClickedWidget(nullptr)
     , m_lastClickedItem(nullptr)
 {
@@ -313,6 +315,67 @@ Operations_TaskLists::~Operations_TaskLists()
     TaskDataSecurity::secureStringClear(currentTaskListBeingRenamed);
 }
 
+//--------Safe Container Operations Helpers--------//
+QListWidgetItem* Operations_TaskLists::safeGetItem(QListWidget* widget, int index) const
+{
+    if (!validateListWidget(widget)) {
+        qWarning() << "Operations_TaskLists: Invalid widget in safeGetItem";
+        return nullptr;
+    }
+    
+    if (index < 0 || index >= widget->count()) {
+        qWarning() << "Operations_TaskLists: Index out of bounds in safeGetItem:" << index << "count:" << widget->count();
+        return nullptr;
+    }
+    
+    return widget->item(index);
+}
+
+QListWidgetItem* Operations_TaskLists::safeTakeItem(QListWidget* widget, int index)
+{
+    if (!validateListWidget(widget)) {
+        qWarning() << "Operations_TaskLists: Invalid widget in safeTakeItem";
+        return nullptr;
+    }
+    
+    if (index < 0 || index >= widget->count()) {
+        qWarning() << "Operations_TaskLists: Index out of bounds in safeTakeItem:" << index << "count:" << widget->count();
+        return nullptr;
+    }
+    
+    QListWidgetItem* item = widget->takeItem(index);
+    if (!item) {
+        qWarning() << "Operations_TaskLists: takeItem returned null at index:" << index;
+    }
+    
+    return item;
+}
+
+bool Operations_TaskLists::validateListWidget(QListWidget* widget) const
+{
+    if (!widget) {
+        qWarning() << "Operations_TaskLists: Null widget pointer";
+        return false;
+    }
+    
+    // Additional validation: check if widget is still valid (not deleted)
+    if (!m_mainWindow) {
+        qWarning() << "Operations_TaskLists: MainWindow is null";
+        return false;
+    }
+    
+    return true;
+}
+
+int Operations_TaskLists::safeGetItemCount(QListWidget* widget) const
+{
+    if (!validateListWidget(widget)) {
+        return 0;
+    }
+    
+    return widget->count();
+}
+
 //--------Event Filters and Helpers--------//
 bool Operations_TaskLists::eventFilter(QObject* watched, QEvent* event)
 {
@@ -376,13 +439,20 @@ void Operations_TaskLists::onTaskListItemDoubleClicked(QListWidgetItem* item)
 {
     if (!item) return;
     
+    if (!validateListWidget(m_mainWindow->ui->listWidget_TaskList_List)) {
+        qWarning() << "Operations_TaskLists: Invalid task list widget";
+        return;
+    }
+    
     QListWidget* listWidget = m_mainWindow->ui->listWidget_TaskList_List;
     
     // Validate item still exists in the list
     bool itemExists = false;
     int itemRow = -1;
-    for (int i = 0; i < listWidget->count(); ++i) {
-        if (listWidget->item(i) == item) {
+    int listCount = safeGetItemCount(listWidget);
+    for (int i = 0; i < listCount; ++i) {
+        QListWidgetItem* currentItem = safeGetItem(listWidget, i);
+        if (currentItem && currentItem == item) {
             itemExists = true;
             itemRow = i;
             break;
@@ -400,11 +470,14 @@ void Operations_TaskLists::onTaskListItemDoubleClicked(QListWidgetItem* item)
     *conn = connect(listWidget, &QListWidget::itemChanged, this,
             [this, listWidget, itemRow, conn](QListWidgetItem* changedItem) {
                 // Validate the item at the row is the one that changed
-                if (itemRow >= 0 && itemRow < listWidget->count() &&
-                    listWidget->item(itemRow) == changedItem) {
-                    disconnect(*conn);
-                    delete conn;
-                    RenameTasklist(changedItem);
+                int currentCount = safeGetItemCount(listWidget);
+                if (itemRow >= 0 && itemRow < currentCount) {
+                    QListWidgetItem* itemAtRow = safeGetItem(listWidget, itemRow);
+                    if (itemAtRow && itemAtRow == changedItem) {
+                        disconnect(*conn);
+                        delete conn;
+                        RenameTasklist(changedItem);
+                    }
                 }
             });
 }
@@ -434,8 +507,10 @@ void Operations_TaskLists::handleDeleteKeyPress()
     
     // Find the item in the widget to ensure it's still valid
     bool itemStillExists = false;
-    for (int i = 0; i < listWidget->count(); ++i) {
-        if (listWidget->item(i) == m_lastClickedItem) {
+    int listCount = safeGetItemCount(listWidget);
+    for (int i = 0; i < listCount; ++i) {
+        QListWidgetItem* currentItem = safeGetItem(listWidget, i);
+        if (currentItem && currentItem == m_lastClickedItem) {
             itemStillExists = true;
             break;
         }
@@ -594,11 +669,12 @@ void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, c
     
     // After loading all tasks, select the appropriate task
     int taskToSelectIndex = -1;
+    int displayCount = safeGetItemCount(taskDisplayWidget);
     
     if (!taskToSelect.isEmpty()) {
-        for (int i = 0; i < taskDisplayWidget->count(); ++i) {
-            QListWidgetItem* item = taskDisplayWidget->item(i);
-            if (item->text() == taskToSelect) {
+        for (int i = 0; i < displayCount; ++i) {
+            QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
+            if (item && item->text() == taskToSelect) {
                 taskToSelectIndex = i;
                 break;
             }
@@ -606,14 +682,14 @@ void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, c
     }
     
     // If we didn't find the specified task or none was specified, select the last item
-    if (taskToSelectIndex == -1 && taskDisplayWidget->count() > 0) {
-        taskToSelectIndex = taskDisplayWidget->count() - 1;
+    if (taskToSelectIndex == -1 && displayCount > 0) {
+        taskToSelectIndex = displayCount - 1;
     }
     
     // If we have a valid index, select that item
-    if (taskToSelectIndex >= 0 && taskToSelectIndex < taskDisplayWidget->count()) {
+    if (taskToSelectIndex >= 0 && taskToSelectIndex < displayCount) {
         taskDisplayWidget->setCurrentRow(taskToSelectIndex);
-        QListWidgetItem* selectedItem = taskDisplayWidget->item(taskToSelectIndex);
+        QListWidgetItem* selectedItem = safeGetItem(taskDisplayWidget, taskToSelectIndex);
         
         if (selectedItem && (selectedItem->flags() & Qt::ItemIsEnabled)) {
             m_currentTaskName = selectedItem->text();
@@ -641,13 +717,14 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
     
     // Get current task list
     QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
-    if (taskListWidget->currentItem() == nullptr) {
+    QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
+    if (!currentTaskListItem) {
         QMessageBox::warning(m_mainWindow, "No Task List Selected",
                             "Please select a task list first.");
         return;
     }
     
-    QString currentTaskList = taskListWidget->currentItem()->text();
+    QString currentTaskList = currentTaskListItem->text();
     
     // Security: Use centralized sanitization for file operations
     QString sanitizedName = TaskDataSecurity::sanitizeFileName(currentTaskList);
@@ -848,9 +925,10 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
     m_mainWindow->ui->plainTextEdit_TaskDesc->setTextCursor(cursor);
     
     // Select the current task in the list
-    for (int i = 0; i < m_mainWindow->ui->listWidget_TaskListDisplay->count(); ++i) {
-        QListWidgetItem* item = m_mainWindow->ui->listWidget_TaskListDisplay->item(i);
-        if (item->text() == taskName) {
+    int displayCount = safeGetItemCount(m_mainWindow->ui->listWidget_TaskListDisplay);
+    for (int i = 0; i < displayCount; ++i) {
+        QListWidgetItem* item = safeGetItem(m_mainWindow->ui->listWidget_TaskListDisplay, i);
+        if (item && item->text() == taskName) {
             m_mainWindow->ui->listWidget_TaskListDisplay->setCurrentItem(item);
             break;
         }
@@ -1000,20 +1078,25 @@ void Operations_TaskLists::LoadTasklists()
         taskListWidget->addItem(item);
     }
     
-    for (int i = 0; i < taskListWidget->count(); ++i) {
-        UpdateTasklistAppearance(taskListWidget->item(i)->text());
+    int taskListCount = safeGetItemCount(taskListWidget);
+    for (int i = 0; i < taskListCount; ++i) {
+        QListWidgetItem* item = safeGetItem(taskListWidget, i);
+        if (item) {
+            UpdateTasklistAppearance(item->text());
+        }
     }
     
     // Select the first task list if any exist
-    if (taskListWidget->count() > 0) {
+    if (taskListCount > 0) {
         taskListWidget->setCurrentRow(0);
     }
     
     taskListWidget->setSortingEnabled(false);
     
     // Load the selected tasklist if there is one
-    if (taskListWidget->currentItem()) {
-        LoadIndividualTasklist(taskListWidget->currentItem()->text(), m_currentTaskName);
+    QListWidgetItem* currentItem = taskListWidget->currentItem();
+    if (currentItem) {
+        LoadIndividualTasklist(currentItem->text(), m_currentTaskName);
     }
 }
 
@@ -1027,9 +1110,12 @@ void Operations_TaskLists::CreateNewTaskList()
     
     // Check for existing task lists with the name "New Task List"
     QStringList existingNames;
-    for (int i = 0; i < taskListWidget->count(); ++i) {
-        QListWidgetItem* item = taskListWidget->item(i);
-        existingNames.append(item->text());
+    int taskListCount = safeGetItemCount(taskListWidget);
+    for (int i = 0; i < taskListCount; ++i) {
+        QListWidgetItem* item = safeGetItem(taskListWidget, i);
+        if (item) {
+            existingNames.append(item->text());
+        }
     }
     
     // Get a unique name for the new task list
@@ -1072,9 +1158,10 @@ void Operations_TaskLists::CreateNewTaskList()
                             
                             // Get all existing task list names for uniqueness check
                             QStringList existingNames;
-                            for (int i = 0; i < taskListWidget->count(); ++i) {
-                                QListWidgetItem* item = taskListWidget->item(i);
-                                if (item != changedItem) {
+                            int taskListCount = this->safeGetItemCount(taskListWidget);
+                            for (int i = 0; i < taskListCount; ++i) {
+                                QListWidgetItem* item = this->safeGetItem(taskListWidget, i);
+                                if (item && item != changedItem) {
                                     existingNames.append(item->text());
                                 }
                             }
@@ -1225,7 +1312,18 @@ void Operations_TaskLists::DeleteTaskList()
     }
     
     int currentIndex = taskListWidget->row(currentItem);
-    delete taskListWidget->takeItem(taskListWidget->row(currentItem));
+    
+    // Safely take and delete the item
+    if (currentIndex >= 0 && currentIndex < taskListWidget->count()) {
+        QListWidgetItem* itemToDelete = safeTakeItem(taskListWidget, currentIndex);
+        if (itemToDelete) {
+            delete itemToDelete;
+        } else {
+            qWarning() << "Operations_TaskLists: Failed to take item for deletion at index" << currentIndex;
+        }
+    } else {
+        qWarning() << "Operations_TaskLists: Invalid index for deletion:" << currentIndex;
+    }
     
     // Clear UI elements
     m_mainWindow->ui->listWidget_TaskListDisplay->clear();
@@ -1239,12 +1337,13 @@ void Operations_TaskLists::DeleteTaskList()
     m_lastClickedWidget = nullptr;
     
     // Select another task list if available
-    if (taskListWidget->count() > 0) {
-        int newIndex = (currentIndex >= taskListWidget->count()) ?
-                           taskListWidget->count() - 1 : currentIndex;
+    int remainingCount = safeGetItemCount(taskListWidget);
+    if (remainingCount > 0) {
+        int newIndex = (currentIndex >= remainingCount) ?
+                           remainingCount - 1 : currentIndex;
         
         taskListWidget->setCurrentRow(newIndex);
-        QListWidgetItem* newCurrentItem = taskListWidget->item(newIndex);
+        QListWidgetItem* newCurrentItem = safeGetItem(taskListWidget, newIndex);
         if (newCurrentItem) {
             onTaskListItemClicked(newCurrentItem);
             emit taskListWidget->itemClicked(newCurrentItem);
@@ -1274,9 +1373,10 @@ void Operations_TaskLists::RenameTasklist(QListWidgetItem* item)
     // Check if the name already exists
     QStringList existingNames;
     QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
-    for (int i = 0; i < taskListWidget->count(); ++i) {
-        QListWidgetItem* existingItem = taskListWidget->item(i);
-        if (existingItem != item) {
+    int taskListCount = safeGetItemCount(taskListWidget);
+    for (int i = 0; i < taskListCount; ++i) {
+        QListWidgetItem* existingItem = safeGetItem(taskListWidget, i);
+        if (existingItem && existingItem != item) {
             existingNames.append(existingItem->text());
         }
     }
@@ -1399,13 +1499,14 @@ void Operations_TaskLists::ShowTaskMenu(bool editMode)
     
     // Get current task list
     QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
-    if (taskListWidget->currentItem() == nullptr) {
+    QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
+    if (!currentTaskListItem) {
         QMessageBox::warning(m_mainWindow, "No Task List Selected",
                             "Please select a task list first.");
         return;
     }
     
-    QString currentTaskList = taskListWidget->currentItem()->text();
+    QString currentTaskList = currentTaskListItem->text();
     
     // Create and configure the dialog
     QDialog dialog(m_mainWindow);
@@ -1740,6 +1841,11 @@ void Operations_TaskLists::SetTaskStatus(bool checked, QListWidgetItem* item)
     qDebug() << "Operations_TaskLists: Setting task status, checked:" << checked;
     
     if (!item) {
+        if (!validateListWidget(m_mainWindow->ui->listWidget_TaskListDisplay)) {
+            qWarning() << "Operations_TaskLists: Invalid task display widget";
+            return;
+        }
+        
         QListWidget* taskDisplayWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
         item = taskDisplayWidget->currentItem();
         
@@ -1959,9 +2065,15 @@ void Operations_TaskLists::EnforceTaskOrder()
 {
     qDebug() << "Operations_TaskLists: Enforcing task order";
     
+    if (!validateListWidget(m_mainWindow->ui->listWidget_TaskListDisplay)) {
+        qWarning() << "Operations_TaskLists: Invalid task display widget";
+        return;
+    }
+    
     QListWidget* taskDisplayWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
     
-    if (taskDisplayWidget->count() <= 1) return;
+    int itemCount = safeGetItemCount(taskDisplayWidget);
+    if (itemCount <= 1) return;
     
     taskDisplayWidget->blockSignals(true);
     
@@ -1972,35 +2084,56 @@ void Operations_TaskLists::EnforceTaskOrder()
     QListWidgetItem* currentItem = taskDisplayWidget->currentItem();
     QString currentItemText = currentItem ? currentItem->text() : "";
     
-    // Categorize items
-    for (int i = 0; i < taskDisplayWidget->count(); ++i) {
-        QListWidgetItem* item = taskDisplayWidget->takeItem(0);
-        if (!item) continue;
-        
-        if ((item->flags() & Qt::ItemIsEnabled) == 0) {
-            disabledItems.append(item);
-        } else if (item->checkState() == Qt::Checked) {
-            completedItems.append(item);
-        } else {
-            pendingItems.append(item);
+    // First, collect all items without removing them
+    QList<std::pair<QListWidgetItem*, int>> itemsToProcess;
+    for (int i = 0; i < itemCount; ++i) {
+        QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
+        if (item) {
+            // Store item with its original index
+            itemsToProcess.append(std::make_pair(item, i));
         }
     }
     
-    // Add items back in order
+    // Now safely take items in reverse order to avoid index shifting
+    for (int i = itemsToProcess.size() - 1; i >= 0; --i) {
+        QListWidgetItem* item = safeTakeItem(taskDisplayWidget, itemsToProcess[i].second);
+        if (!item) {
+            qWarning() << "Operations_TaskLists: Failed to take item at index" << itemsToProcess[i].second;
+            continue;
+        }
+        
+        // Categorize the item
+        if ((item->flags() & Qt::ItemIsEnabled) == 0) {
+            disabledItems.prepend(item);  // Prepend to maintain order
+        } else if (item->checkState() == Qt::Checked) {
+            completedItems.prepend(item);
+        } else {
+            pendingItems.prepend(item);
+        }
+    }
+    
+    // Add items back in the desired order
     for (QListWidgetItem* item : completedItems) {
-        taskDisplayWidget->addItem(item);
+        if (item) {
+            taskDisplayWidget->addItem(item);
+        }
     }
     for (QListWidgetItem* item : pendingItems) {
-        taskDisplayWidget->addItem(item);
+        if (item) {
+            taskDisplayWidget->addItem(item);
+        }
     }
     for (QListWidgetItem* item : disabledItems) {
-        taskDisplayWidget->addItem(item);
+        if (item) {
+            taskDisplayWidget->addItem(item);
+        }
     }
     
     // Restore selection
     if (!currentItemText.isEmpty()) {
-        for (int i = 0; i < taskDisplayWidget->count(); ++i) {
-            QListWidgetItem* item = taskDisplayWidget->item(i);
+        int newCount = safeGetItemCount(taskDisplayWidget);
+        for (int i = 0; i < newCount; ++i) {
+            QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
             if (item && item->text() == currentItemText) {
                 taskDisplayWidget->setCurrentItem(item);
                 break;
@@ -2015,17 +2148,23 @@ bool Operations_TaskLists::SaveTasklistOrder()
 {
     qDebug() << "Operations_TaskLists: Saving tasklist order";
     
+    if (!validateListWidget(m_mainWindow->ui->listWidget_TaskList_List)) {
+        qWarning() << "Operations_TaskLists: Invalid task list widget";
+        return false;
+    }
+    
     QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
     
-    if (taskListWidget->count() == 0) return true;
+    int taskListCount = safeGetItemCount(taskListWidget);
+    if (taskListCount == 0) return true;
     
     QString orderFilePath = "Data/" + m_mainWindow->user_Username + "/Tasklists/TasklistOrder.txt";
     
     QStringList content;
     content.append("# TasklistOrder");
     
-    for (int i = 0; i < taskListWidget->count(); ++i) {
-        QListWidgetItem* item = taskListWidget->item(i);
+    for (int i = 0; i < taskListCount; ++i) {
+        QListWidgetItem* item = safeGetItem(taskListWidget, i);
         if (item) {
             content.append(item->text());
         }
@@ -2171,8 +2310,9 @@ void Operations_TaskLists::showContextMenu_TaskListList(const QPoint &pos)
     
     // Capture row index instead of item pointer
     connect(renameTaskListAction, &QAction::triggered, this, [this, itemRow, itemText, taskListWidget]() {
-        if (itemRow >= 0 && itemRow < taskListWidget->count()) {
-            QListWidgetItem* currentItem = taskListWidget->item(itemRow);
+        int currentCount = safeGetItemCount(taskListWidget);
+        if (itemRow >= 0 && itemRow < currentCount) {
+            QListWidgetItem* currentItem = safeGetItem(taskListWidget, itemRow);
             if (currentItem && currentItem->text() == itemText) {
                 currentTaskListBeingRenamed = currentItem->text();
                 currentItem->setFlags(currentItem->flags() | Qt::ItemIsEditable);
@@ -2182,10 +2322,14 @@ void Operations_TaskLists::showContextMenu_TaskListList(const QPoint &pos)
                 QMetaObject::Connection* conn = new QMetaObject::Connection();
                 *conn = connect(taskListWidget, &QListWidget::itemChanged, this,
                         [this, taskListWidget, itemRow, conn](QListWidgetItem* changedItem) {
-                            if (taskListWidget->item(itemRow) == changedItem) {
-                                disconnect(*conn);
-                                delete conn;
-                                RenameTasklist(changedItem);
+                            int listCount = safeGetItemCount(taskListWidget);
+                            if (itemRow >= 0 && itemRow < listCount) {
+                                QListWidgetItem* itemAtRow = safeGetItem(taskListWidget, itemRow);
+                                if (itemAtRow && itemAtRow == changedItem) {
+                                    disconnect(*conn);
+                                    delete conn;
+                                    RenameTasklist(changedItem);
+                                }
                             }
                         });
             }
