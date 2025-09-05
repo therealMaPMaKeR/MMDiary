@@ -8,6 +8,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QDateTime>
+#include <algorithm>  // For std::fill
 
 ChangePassword::ChangePassword(QWidget *parent)
     : QDialog(parent)
@@ -26,7 +27,9 @@ ChangePassword::ChangePassword(QWidget *parent)
 
     // Prevent whitespaces in password fields
     QRegularExpression noWhitespace("[^\\s]*"); // Matches any non-whitespace characters
+    // SECURITY: Parent is set immediately, ensuring proper cleanup
     QRegularExpressionValidator* validator = new QRegularExpressionValidator(noWhitespace, this);
+    Q_ASSERT(validator->parent() == this); // Verify parent is set
     ui->lineEdit_CurPW->setValidator(validator);
     ui->lineEdit_NewPW->setValidator(validator);
     ui->lineEdit_ConfirmPW->setValidator(validator);
@@ -37,7 +40,14 @@ ChangePassword::ChangePassword(QWidget *parent)
 
 ChangePassword::~ChangePassword()
 {
-    delete ui;
+    // SECURITY: Secure cleanup of sensitive data before destruction
+    secureCleanup();
+    
+    // SECURITY: Null check before deletion
+    if (ui) {
+        delete ui;
+        ui = nullptr;
+    }
 }
 
 void ChangePassword::initialize(const QString& username, const QByteArray& encryptionKey)
@@ -48,6 +58,8 @@ void ChangePassword::initialize(const QString& username, const QByteArray& encry
 
 void ChangePassword::on_pushButton_Cancel_clicked()
 {
+    // SECURITY: Clean up sensitive data before closing
+    secureCleanup();
     reject(); // Close the dialog
 }
 
@@ -69,6 +81,8 @@ void ChangePassword::on_pushButton_ChangePW_clicked()
             
             if (changePassword(backupMode)) {
                 QMessageBox::information(this, "Success", "Password changed successfully.");
+                // SECURITY: Clean up sensitive data before closing
+                secureCleanup();
                 accept(); // Close dialog with success status
             } else {
                 ui->label_ErrorDisplay->setText("Failed to update password in database.");
@@ -257,5 +271,28 @@ bool ChangePassword::changePassword(BackupDeletionMode backupMode)
         qCritical() << "ChangePassword: Exception during password change:" << e.what();
         db.rollbackTransaction();
         return false;
+    }
+}
+
+void ChangePassword::secureCleanup()
+{
+    // SECURITY: Securely clear sensitive data from memory
+    if (!m_encryptionKey.isEmpty()) {
+        // Overwrite the memory with zeros before clearing
+        std::fill(m_encryptionKey.begin(), m_encryptionKey.end(), 0);
+        m_encryptionKey.clear();
+    }
+    
+    // Clear password fields
+    if (ui) {
+        if (ui->lineEdit_CurPW) {
+            ui->lineEdit_CurPW->setText(QString());
+        }
+        if (ui->lineEdit_NewPW) {
+            ui->lineEdit_NewPW->setText(QString());
+        }
+        if (ui->lineEdit_ConfirmPW) {
+            ui->lineEdit_ConfirmPW->setText(QString());
+        }
     }
 }

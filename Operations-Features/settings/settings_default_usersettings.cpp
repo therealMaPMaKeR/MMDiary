@@ -4,7 +4,7 @@
 #include "inputvalidation.h"
 
 namespace Default_UserSettings{
-bool SetDefault_GlobalSettings(QString username, const QByteArray& encryptionKey)
+bool SetDefault_GlobalSettings(const QString& username, const QByteArray& encryptionKey)
 {
     // SECURITY: Validate username before any operations
     if(username.isEmpty()){
@@ -58,7 +58,7 @@ bool SetDefault_GlobalSettings(QString username, const QByteArray& encryptionKey
     return true;
 }
 
-bool SetDefault_DiarySettings(QString username, const QByteArray& encryptionKey)
+bool SetDefault_DiarySettings(const QString& username, const QByteArray& encryptionKey)
 {
     // SECURITY: Validate username before any operations
     if(username.isEmpty()){
@@ -108,7 +108,7 @@ bool SetDefault_DiarySettings(QString username, const QByteArray& encryptionKey)
     return true;
 }
 
-bool SetDefault_TasklistsSettings(QString username, const QByteArray& encryptionKey)
+bool SetDefault_TasklistsSettings(const QString& username, const QByteArray& encryptionKey)
 {
     // SECURITY: Validate username before any operations
     if(username.isEmpty()){
@@ -142,7 +142,7 @@ bool SetDefault_TasklistsSettings(QString username, const QByteArray& encryption
     return true;
 }
 
-bool SetDefault_PWManagerSettings(QString username, const QByteArray& encryptionKey)
+bool SetDefault_PWManagerSettings(const QString& username, const QByteArray& encryptionKey)
 {
     // SECURITY: Validate username before any operations
     if(username.isEmpty()){
@@ -184,7 +184,7 @@ bool SetDefault_PWManagerSettings(QString username, const QByteArray& encryption
     return true;
 }
 
-bool SetDefault_EncryptedDataSettings(QString username, const QByteArray& encryptionKey)
+bool SetDefault_EncryptedDataSettings(const QString& username, const QByteArray& encryptionKey)
 {
     // SECURITY: Validate username before any operations
     if(username.isEmpty()){
@@ -237,7 +237,7 @@ bool SetDefault_EncryptedDataSettings(QString username, const QByteArray& encryp
     return success;
 }
 
-bool SetAllDefaults(QString username, const QByteArray& encryptionKey)
+bool SetAllDefaults(const QString& username, const QByteArray& encryptionKey)
 {
     if(SetDefault_GlobalSettings(username, encryptionKey) &&
         SetDefault_DiarySettings(username, encryptionKey) &&

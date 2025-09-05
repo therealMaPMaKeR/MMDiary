@@ -42,12 +42,13 @@ const QString DEFAULT_DATAENC_HIDDEN_TAGS = "";
 const QString DEFAULT_DATAENC_HIDE_CATEGORIES = "0";
 const QString DEFAULT_DATAENC_HIDE_TAGS = "0";
 
-bool SetDefault_GlobalSettings(QString username, const QByteArray& encryptionKey);
-bool SetDefault_DiarySettings(QString username, const QByteArray& encryptionKey);
-bool SetDefault_TasklistsSettings(QString username, const QByteArray& encryptionKey);
-bool SetDefault_PWManagerSettings(QString username, const QByteArray& encryptionKey);
-bool SetDefault_EncryptedDataSettings(QString username, const QByteArray& encryptionKey);
-bool SetAllDefaults(QString username, const QByteArray& encryptionKey);
+// SECURITY: Pass QString by const reference to avoid unnecessary copies
+bool SetDefault_GlobalSettings(const QString& username, const QByteArray& encryptionKey);
+bool SetDefault_DiarySettings(const QString& username, const QByteArray& encryptionKey);
+bool SetDefault_TasklistsSettings(const QString& username, const QByteArray& encryptionKey);
+bool SetDefault_PWManagerSettings(const QString& username, const QByteArray& encryptionKey);
+bool SetDefault_EncryptedDataSettings(const QString& username, const QByteArray& encryptionKey);
+bool SetAllDefaults(const QString& username, const QByteArray& encryptionKey);
 };
 
 #endif // DEFAULT_USERSETTINGS_H

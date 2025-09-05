@@ -8,6 +8,7 @@
 #include "constants.h"
 #include <QMessageBox>
 #include <QMap>
+#include <QPointer>
 #include "passwordvalidation.h"
 
 class MainWindow;
@@ -15,7 +16,8 @@ class Operations_Settings : public QObject
 {
     Q_OBJECT
 private:
-    MainWindow* m_mainWindow;
+    // SECURITY: Use QPointer for automatic null checking when MainWindow is destroyed
+    QPointer<MainWindow> m_mainWindow;
 
     // Maps to store setting names and descriptions
     QMap<QObject*, QString> m_settingNames;

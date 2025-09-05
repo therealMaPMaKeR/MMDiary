@@ -38,16 +38,25 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
     m_previousSettingsTabIndex = m_mainWindow->ui->tabWidget_Settings->currentIndex();
     m_previousMainTabIndex = m_mainWindow->ui->tabWidget_Main->currentIndex();
 
-    // Connect tab widget signals
-    connect(m_mainWindow->ui->tabWidget_Settings, &QTabWidget::currentChanged,
+    // SECURITY: Connect tab widget signals with verification
+    bool connected = connect(m_mainWindow->ui->tabWidget_Settings, &QTabWidget::currentChanged,
             this, &Operations_Settings::onSettingsTabChanged);
+    if (!connected) {
+        qWarning() << "Operations_Settings: Failed to connect tabWidget_Settings signal";
+    }
 
-    connect(m_mainWindow->ui->tabWidget_Main, &QTabWidget::currentChanged,
+    connected = connect(m_mainWindow->ui->tabWidget_Main, &QTabWidget::currentChanged,
             this, &Operations_Settings::onMainTabChanged);
+    if (!connected) {
+        qWarning() << "Operations_Settings: Failed to connect tabWidget_Main signal";
+    }
 
-    // Connect the Hide Thumbnail Buttons Signals
-    connect(m_mainWindow->ui->pushButton_DataENC_Hidden_Categories, &QPushButton::clicked,
+    // Connect the Hide Thumbnail Buttons Signals with verification
+    connected = connect(m_mainWindow->ui->pushButton_DataENC_Hidden_Categories, &QPushButton::clicked,
             this, &Operations_Settings::onHiddenCategoriesClicked);
+    if (!connected) {
+        qWarning() << "Operations_Settings: Failed to connect Hidden_Categories button signal";
+    }
 
     //Connect the Password Validation Delay spinbox signals
     connect(m_mainWindow->ui->spinBox_ReqPWDelay, QOverload<int>::of(&QSpinBox::valueChanged),
@@ -79,6 +88,12 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
 
 void Operations_Settings::LoadSettings(const QString& settingsType)
 {
+    // SECURITY: Check if MainWindow still exists
+    if (!m_mainWindow) {
+        qWarning() << "Operations_Settings: LoadSettings called with null MainWindow";
+        return;
+    }
+    
     // Get the username and encryption key from MainWindow
     QString username = m_mainWindow->user_Username;
     QByteArray encryptionKey = m_mainWindow->user_Key;
@@ -593,6 +608,12 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
 
 void Operations_Settings::SaveSettings(const QString& settingsType)
 {
+    // SECURITY: Check if MainWindow still exists
+    if (!m_mainWindow) {
+        qWarning() << "Operations_Settings: SaveSettings called with null MainWindow";
+        return;
+    }
+    
     // Validate input before saving
     if (!ValidateSettingsInput(settingsType)) {
         return; // Validation failed, don't save
@@ -1229,10 +1250,16 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
 
 void Operations_Settings::InitializeCustomCheckboxes()
 {
+    // SECURITY: Check if MainWindow still exists
+    if (!m_mainWindow) {
+        qWarning() << "Operations_Settings: InitializeCustomCheckboxes called with null MainWindow";
+        return;
+    }
+    
     QString username = m_mainWindow->user_Username;
     QByteArray encryptionKey = m_mainWindow->user_Key;
 
-    // Get the existing custom checkboxes
+    // SECURITY: Get custom checkboxes with null checks
     qcheckbox_PWValidation* hidePasswordsCheckbox =
         qobject_cast<qcheckbox_PWValidation*>(m_mainWindow->ui->checkBox_PWMan_HidePWS);
 
@@ -1265,17 +1292,22 @@ void Operations_Settings::InitializeCustomCheckboxes()
             "Disable 'Hide Passwords' in Password Manager", username);
         hidePasswordsCheckbox->setRequireValidation(true);
         hidePasswordsCheckbox->setValidationMode(qcheckbox_PWValidation::ValidateOnUncheck);
-        hidePasswordsCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
+        // SECURITY: Fetch fresh values in lambda to avoid storing copies of sensitive data
+        hidePasswordsCheckbox->setDatabaseValueGetter([this]() {
+            if (!m_mainWindow) return false;
             DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
-            if (!db.connect(username, encryptionKey)) {
+            if (!db.connect(m_mainWindow->user_Username, m_mainWindow->user_Key)) {
                 return false;
             }
             QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_PWMan_HidePasswords);
             return (dbValue == "1");
         });
         hidePasswordsCheckbox->setGracePeriodGetter([this]() {
-            return m_mainWindow->setting_ReqPWDelay;
+            // SECURITY: Check if MainWindow still exists
+            return m_mainWindow ? m_mainWindow->setting_ReqPWDelay : 30;
         });
+    } else {
+        qDebug() << "Operations_Settings: hidePasswordsCheckbox cast failed or widget not found";
     }
 
     // Set validation info for Require Password checkbox
@@ -1284,17 +1316,22 @@ void Operations_Settings::InitializeCustomCheckboxes()
             "Disable 'Require Password' in Password Manager", username);
         reqPasswordCheckbox->setRequireValidation(true);
         reqPasswordCheckbox->setValidationMode(qcheckbox_PWValidation::ValidateOnUncheck);
-        reqPasswordCheckbox->setDatabaseValueGetter([username, encryptionKey]() {
+        // SECURITY: Fetch fresh values in lambda to avoid storing copies of sensitive data
+        reqPasswordCheckbox->setDatabaseValueGetter([this]() {
+            if (!m_mainWindow) return false;
             DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
-            if (!db.connect(username, encryptionKey)) {
+            if (!db.connect(m_mainWindow->user_Username, m_mainWindow->user_Key)) {
                 return false;
             }
             QString dbValue = db.GetSettingsData_String(Constants::SettingsT_Index_PWMan_ReqPassword);
             return (dbValue == "1");
         });
         reqPasswordCheckbox->setGracePeriodGetter([this]() {
-            return m_mainWindow->setting_ReqPWDelay;
+            // SECURITY: Check if MainWindow still exists
+            return m_mainWindow ? m_mainWindow->setting_ReqPWDelay : 30;
         });
+    } else {
+        qDebug() << "Operations_Settings: reqPasswordCheckbox cast failed or widget not found";
     }
 
     // Set validation info for Ask Password on Close checkbox
@@ -1743,6 +1780,11 @@ void Operations_Settings::SetupSettingDescriptions()
 
 bool Operations_Settings::eventFilter(QObject* watched, QEvent* event)
 {
+    // SECURITY: Check if the watched object is valid
+    if (!watched || !event) {
+        return false;
+    }
+    
     // Check if the watched object is in our settings map
     if (m_settingNames.contains(watched)) {
         if (event->type() == QEvent::Enter) {
@@ -1762,6 +1804,11 @@ bool Operations_Settings::eventFilter(QObject* watched, QEvent* event)
 
 void Operations_Settings::DisplaySettingDescription(QObject* control)
 {
+    // SECURITY: Check if MainWindow and control are valid
+    if (!m_mainWindow || !control) {
+        return;
+    }
+    
     if (m_settingNames.contains(control)) {
         QString settingName = m_settingNames[control];
         m_mainWindow->ui->label_Settings_Desc_Name->setText(settingName);

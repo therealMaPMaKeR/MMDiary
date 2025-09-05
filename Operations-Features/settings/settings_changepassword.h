@@ -38,6 +38,9 @@ private:
     QString m_username;
     QByteArray m_encryptionKey;
 
+    // SECURITY: Secure cleanup of sensitive data
+    void secureCleanup();
+
     // Validates user input
     bool validateUserInput();
 
