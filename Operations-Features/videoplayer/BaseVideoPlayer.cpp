@@ -405,28 +405,35 @@ void BaseVideoPlayer::connectSignals()
 {
     qDebug() << "BaseVideoPlayer: Connecting signals";
     
-    // Button signals
-    connect(m_playButton, &QPushButton::clicked,
-            this, &BaseVideoPlayer::on_playButton_clicked);
+    // Button signals - check pointers before connecting
+    if (m_playButton) {
+        connect(m_playButton, &QPushButton::clicked,
+                this, &BaseVideoPlayer::on_playButton_clicked);
+    }
     
-    connect(m_stopButton, &QPushButton::clicked,
-            this, &BaseVideoPlayer::close);
+    if (m_stopButton) {
+        connect(m_stopButton, &QPushButton::clicked,
+                this, &BaseVideoPlayer::close);
+    }
     
-    connect(m_fullScreenButton, &QPushButton::clicked,
-            this, &BaseVideoPlayer::on_fullScreenButton_clicked);
+    if (m_fullScreenButton) {
+        connect(m_fullScreenButton, &QPushButton::clicked,
+                this, &BaseVideoPlayer::on_fullScreenButton_clicked);
+    }
     
-    // Slider signals
-    connect(m_positionSlider, &QSlider::sliderMoved,
-            this, &BaseVideoPlayer::on_positionSlider_sliderMoved);
-    
-    connect(m_positionSlider, &QSlider::sliderPressed,
-            this, &BaseVideoPlayer::on_positionSlider_sliderPressed);
-    
-    connect(m_positionSlider, &QSlider::sliderReleased,
-            this, &BaseVideoPlayer::on_positionSlider_sliderReleased);
-    
-    // Also connect valueChanged to catch direct clicks
-    connect(m_positionSlider, &QSlider::valueChanged, this, [this](int value) {
+    // Slider signals - check pointers before connecting
+    if (m_positionSlider) {
+        connect(m_positionSlider, &QSlider::sliderMoved,
+                this, &BaseVideoPlayer::on_positionSlider_sliderMoved);
+        
+        connect(m_positionSlider, &QSlider::sliderPressed,
+                this, &BaseVideoPlayer::on_positionSlider_sliderPressed);
+        
+        connect(m_positionSlider, &QSlider::sliderReleased,
+                this, &BaseVideoPlayer::on_positionSlider_sliderReleased);
+        
+        // Also connect valueChanged to catch direct clicks
+        connect(m_positionSlider, &QSlider::valueChanged, this, [this](int value) {
         if (!m_isSliderBeingMoved && 
             m_mediaPlayer && 
             m_mediaPlayer->hasMedia() && 
@@ -440,13 +447,18 @@ void BaseVideoPlayer::connectSignals()
                 setPosition(value);
             }
         }
-    });
+        });
+    }
     
-    connect(m_volumeSlider, &QSlider::sliderMoved,
-            this, &BaseVideoPlayer::on_volumeSlider_sliderMoved);
+    if (m_volumeSlider) {
+        connect(m_volumeSlider, &QSlider::sliderMoved,
+                this, &BaseVideoPlayer::on_volumeSlider_sliderMoved);
+    }
     
-    connect(m_speedComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &BaseVideoPlayer::on_speedComboBox_currentIndexChanged);
+    if (m_speedComboBox) {
+        connect(m_speedComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, &BaseVideoPlayer::on_speedComboBox_currentIndexChanged);
+    }
     
     // Media player signals
     connect(m_mediaPlayer.get(), &VP_VLCPlayer::positionChanged,
@@ -548,9 +560,15 @@ void BaseVideoPlayer::stop()
 {
     qDebug() << "BaseVideoPlayer: Stop requested";
     
-    m_mediaPlayer->stop();
-    m_positionSlider->setValue(0);
-    m_positionLabel->setText("00:00");
+    if (m_mediaPlayer) {
+        m_mediaPlayer->stop();
+    }
+    if (m_positionSlider) {
+        m_positionSlider->setValue(0);
+    }
+    if (m_positionLabel) {
+        m_positionLabel->setText("00:00");
+    }
 }
 
 void BaseVideoPlayer::unloadVideo()
@@ -558,20 +576,28 @@ void BaseVideoPlayer::unloadVideo()
     qDebug() << "BaseVideoPlayer: Unloading video";
     
     // Stop playback if active
-    if (m_mediaPlayer->isPlaying()) {
+    if (m_mediaPlayer && m_mediaPlayer->isPlaying()) {
         m_mediaPlayer->stop();
     }
     
     // Unload the media from VLC player
-    m_mediaPlayer->unloadMedia();
+    if (m_mediaPlayer) {
+        m_mediaPlayer->unloadMedia();
+    }
     
     // Clear the current video path
     m_currentVideoPath.clear();
     
     // Reset UI elements
-    m_positionSlider->setValue(0);
-    m_positionLabel->setText("00:00");
-    m_durationLabel->setText("00:00");
+    if (m_positionSlider) {
+        m_positionSlider->setValue(0);
+    }
+    if (m_positionLabel) {
+        m_positionLabel->setText("00:00");
+    }
+    if (m_durationLabel) {
+        m_durationLabel->setText("00:00");
+    }
     
     // Update window title
     setWindowTitle(tr("Video Player"));
@@ -586,11 +612,16 @@ void BaseVideoPlayer::setVolume(int volume)
     // Clamp volume to valid range
     volume = qBound(0, volume, 200);
     
-    m_mediaPlayer->setVolume(volume);
-    m_volumeLabel->setText(tr("Vol (%1%):").arg(volume));
+    if (m_mediaPlayer) {
+        m_mediaPlayer->setVolume(volume);
+    }
+    
+    if (m_volumeLabel) {
+        m_volumeLabel->setText(tr("Vol (%1%):").arg(volume));
+    }
     
     // Update slider position if not being moved by user
-    if (m_volumeSlider->value() != volume && !m_volumeSlider->isSliderDown()) {
+    if (m_volumeSlider && m_volumeSlider->value() != volume && !m_volumeSlider->isSliderDown()) {
         m_volumeSlider->setValue(volume);
     }
     
@@ -604,7 +635,7 @@ void BaseVideoPlayer::setPosition(qint64 position)
 {
     qDebug() << "BaseVideoPlayer: Setting position to" << position << "ms";
     
-    if (!m_mediaPlayer->hasMedia()) {
+    if (!m_mediaPlayer || !m_mediaPlayer->hasMedia()) {
         qDebug() << "BaseVideoPlayer: No media loaded, cannot set position";
         return;
     }
@@ -618,23 +649,29 @@ void BaseVideoPlayer::setPosition(qint64 position)
     m_mediaPlayer->setPosition(position);
     
     // Update display immediately
-    if (!m_isSliderBeingMoved) {
+    if (!m_isSliderBeingMoved && m_positionSlider) {
         m_positionSlider->setValue(static_cast<int>(position));
     }
-    m_positionLabel->setText(formatTime(position));
+    if (m_positionLabel) {
+        m_positionLabel->setText(formatTime(position));
+    }
 }
 
 void BaseVideoPlayer::setPlaybackSpeed(qreal speed)
 {
     qDebug() << "BaseVideoPlayer: Setting playback speed to" << speed;
     
-    m_mediaPlayer->setPlaybackRate(static_cast<float>(speed));
+    if (m_mediaPlayer) {
+        m_mediaPlayer->setPlaybackRate(static_cast<float>(speed));
+    }
     
     // Update combo box to reflect the speed
-    for (int i = 0; i < m_speedComboBox->count(); ++i) {
-        if (qFuzzyCompare(m_speedComboBox->itemData(i).toDouble(), speed)) {
-            m_speedComboBox->setCurrentIndex(i);
-            break;
+    if (m_speedComboBox) {
+        for (int i = 0; i < m_speedComboBox->count(); ++i) {
+            if (qFuzzyCompare(m_speedComboBox->itemData(i).toDouble(), speed)) {
+                m_speedComboBox->setCurrentIndex(i);
+                break;
+            }
         }
     }
     
@@ -693,8 +730,10 @@ void BaseVideoPlayer::enterFullScreen()
         m_mouseCheckTimer->start();
         
         // Update button icon
-        m_fullScreenButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarNormalButton));
-        m_fullScreenButton->setToolTip(tr("Exit Full Screen (F11/Esc)"));
+        if (m_fullScreenButton) {
+            m_fullScreenButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarNormalButton));
+            m_fullScreenButton->setToolTip(tr("Exit Full Screen (F11/Esc)"));
+        }
         
         emit fullScreenChanged(true);
     }
@@ -746,8 +785,10 @@ void BaseVideoPlayer::exitFullScreen()
         m_isFullScreen = false;
         
         // Update button icon
-        m_fullScreenButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarMaxButton));
-        m_fullScreenButton->setToolTip(tr("Full Screen (F11)"));
+        if (m_fullScreenButton) {
+            m_fullScreenButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarMaxButton));
+            m_fullScreenButton->setToolTip(tr("Full Screen (F11)"));
+        }
         
         emit fullScreenChanged(false);
     }
@@ -871,10 +912,12 @@ void BaseVideoPlayer::on_fullScreenButton_clicked()
 
 void BaseVideoPlayer::updatePosition(qint64 position)
 {
-    if (!m_isSliderBeingMoved) {
+    if (!m_isSliderBeingMoved && m_positionSlider) {
         m_positionSlider->setValue(static_cast<int>(position));
     }
-    m_positionLabel->setText(formatTime(position));
+    if (m_positionLabel) {
+        m_positionLabel->setText(formatTime(position));
+    }
     emit positionChanged(position);
 }
 
@@ -882,8 +925,12 @@ void BaseVideoPlayer::updateDuration(qint64 duration)
 {
     qDebug() << "BaseVideoPlayer: Duration updated to" << duration << "ms";
     
-    m_positionSlider->setMaximum(static_cast<int>(duration));
-    m_durationLabel->setText(formatTime(duration));
+    if (m_positionSlider) {
+        m_positionSlider->setMaximum(static_cast<int>(duration));
+    }
+    if (m_durationLabel) {
+        m_durationLabel->setText(formatTime(duration));
+    }
     
     emit durationChanged(duration);
 }
@@ -897,6 +944,11 @@ void BaseVideoPlayer::handleError(const QString &errorString)
 void BaseVideoPlayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state)
 {
     qDebug() << "BaseVideoPlayer: Playback state changed to" << static_cast<int>(state);
+    
+    if (!m_playButton) {
+        emit playbackStateChanged(state);
+        return;
+    }
     
     switch (state) {
         case VP_VLCPlayer::PlayerState::Playing:
@@ -1274,8 +1326,12 @@ void BaseVideoPlayer::forceUpdateSliderPosition(qint64 position)
     m_isSliderBeingMoved = false;
     
     // Update the slider
-    m_positionSlider->setValue(static_cast<int>(position));
-    m_positionLabel->setText(formatTime(position));
+    if (m_positionSlider) {
+        m_positionSlider->setValue(static_cast<int>(position));
+    }
+    if (m_positionLabel) {
+        m_positionLabel->setText(formatTime(position));
+    }
     
     // Restore the flag
     m_isSliderBeingMoved = wasBeingMoved;

@@ -240,11 +240,27 @@ Operations_VP_Shows::~Operations_VP_Shows()
     
     // Force release and cleanup any playing video
     if (m_episodePlayer) {
-        // Disconnect all signals from player first
+        // Disconnect all signals from player first to prevent callbacks during destruction
         disconnect(m_episodePlayer.get(), nullptr, this, nullptr);
+        
+        // Stop any active playback
+        if (m_episodePlayer->isPlaying()) {
+            qDebug() << "Operations_VP_Shows: Stopping active playback before destruction";
+            m_episodePlayer->stop();
+        }
+        
         forceReleaseVideoFile();
         // Reset the player to ensure it's properly closed
         m_episodePlayer.reset();
+    }
+    
+    // Similarly for test player
+    if (m_testVideoPlayer) {
+        disconnect(m_testVideoPlayer.get(), nullptr, this, nullptr);
+        if (m_testVideoPlayer->isPlaying()) {
+            m_testVideoPlayer->stop();
+        }
+        m_testVideoPlayer.reset();
     }
     
     // Clean up playback tracker after player is destroyed

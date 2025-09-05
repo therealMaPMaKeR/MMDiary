@@ -237,12 +237,15 @@ public:
     void performEpisodeExportWithWorker(const QStringList& episodePaths, const QString& exportPath, const QString& description);
     
     // Currently selected tree item for episode context menu
-    QTreeWidgetItem* m_contextMenuTreeItem;  // Raw pointer - QTreeWidgetItem doesn't inherit QObject
+    QTreeWidgetItem* m_contextMenuTreeItem = nullptr;  // Initialize to nullptr for safety
     QString m_contextMenuEpisodePath;
     QStringList m_contextMenuEpisodePaths;
     
     // Helper function to clear context menu data
     void clearContextMenuData();
+    
+    // Helper to safely check tree item validity
+    bool isTreeItemValid(QTreeWidgetItem* item) const;
     
     // Autoplay tracking
     QString m_currentPlayingEpisodePath;  // Path of currently playing episode

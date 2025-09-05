@@ -140,6 +140,7 @@ private:
     // OpenGL context
     QOpenGLWidget* m_glWidget;
     QOpenGLContext* m_glContext;
+    QMutex m_glContextMutex;  // Mutex for thread-safe context operations
     
     // UI components  
     QLabel* m_statusLabel;
@@ -288,6 +289,9 @@ private:
     
     // IPD adjustment
     float m_ipdScale;
+    
+    // Thread safety
+    mutable QMutex m_contextMutex;
 };
 
 #endif // VR_VIDEO_PLAYER_H

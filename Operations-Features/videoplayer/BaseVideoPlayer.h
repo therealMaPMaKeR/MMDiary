@@ -128,20 +128,21 @@ protected:
     
     // Core media components
     std::unique_ptr<VP_VLCPlayer> m_mediaPlayer;
-    QWidget* m_videoWidget;
+    QPointer<QWidget> m_videoWidget;
     
     // Control widgets - protected so children can access
-    QPushButton* m_playButton;
-    QPushButton* m_stopButton;
-    QPushButton* m_fullScreenButton;
-    QSlider* m_positionSlider;
-    QSlider* m_volumeSlider;
-    QComboBox* m_speedComboBox;
-    QLabel* m_positionLabel;
-    QLabel* m_durationLabel;
-    QLabel* m_volumeLabel;
-    QLabel* m_speedLabel;
-    QWidget* m_controlsWidget;
+    // Using QPointer for automatic null-setting on deletion
+    QPointer<QPushButton> m_playButton;
+    QPointer<QPushButton> m_stopButton;
+    QPointer<QPushButton> m_fullScreenButton;
+    QPointer<QSlider> m_positionSlider;
+    QPointer<QSlider> m_volumeSlider;
+    QPointer<QComboBox> m_speedComboBox;
+    QPointer<QLabel> m_positionLabel;
+    QPointer<QLabel> m_durationLabel;
+    QPointer<QLabel> m_volumeLabel;
+    QPointer<QLabel> m_speedLabel;
+    QPointer<QWidget> m_controlsWidget;
     
     // Layout containers
     QVBoxLayout* m_mainLayout;

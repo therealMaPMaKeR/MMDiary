@@ -92,8 +92,10 @@ public:
     // Error handling
     QString lastError() const { return m_lastError; }
     
-    // Get raw libvlc media player (for frame extraction)
-    libvlc_media_player_t* getMediaPlayer() const { return m_mediaPlayer; }
+    // Get raw libvlc media player (protected access with safety check)
+    libvlc_media_player_t* getMediaPlayer() const { 
+        return (m_isDestroying || !m_mediaPlayer) ? nullptr : m_mediaPlayer; 
+    }
 
 signals:
     // State changes

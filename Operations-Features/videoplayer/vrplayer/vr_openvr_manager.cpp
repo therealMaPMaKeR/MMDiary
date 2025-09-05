@@ -387,7 +387,14 @@ QMatrix4x4 VROpenVRManager::getProjectionMatrixWithZoom(bool leftEye, float near
 bool VROpenVRManager::submitFrame(uint32_t leftEyeTexture, uint32_t rightEyeTexture)
 {
 #ifdef USE_OPENVR
+    // Validate pointers and VR state
     if (!m_vrCompositor || !m_vrSystem) {
+        return false;
+    }
+    
+    // Additional safety check - ensure VR is still connected
+    if (!vr::VR_IsHmdPresent()) {
+        qDebug() << "VROpenVRManager: HMD disconnected during frame submission";
         return false;
     }
     
@@ -446,6 +453,7 @@ void VROpenVRManager::updateHMDPose()
 {
 #ifdef USE_OPENVR
     if (!m_vrSystem) {
+        m_hmdPoseValid = false;
         return;
     }
     
@@ -722,7 +730,18 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
     
     for (int i = 0; i < 2; ++i) {
         vr::TrackedDeviceIndex_t device = controllers[i];
-        if (device == vr::k_unTrackedDeviceIndexInvalid) {
+        if (device == vr::k_unTrackedDeviceIndexInvalid || device >= vr::k_unMaxTrackedDeviceCount) {
+            continue;
+        }
+        
+        // Validate controller is still connected
+        if (!m_vrSystem->IsTrackedDeviceConnected(device)) {
+            // Controller was disconnected - reset its index
+            if (i == 0) {
+                m_leftControllerIndex = vr::k_unTrackedDeviceIndexInvalid;
+            } else {
+                m_rightControllerIndex = vr::k_unTrackedDeviceIndexInvalid;
+            }
             continue;
         }
         
