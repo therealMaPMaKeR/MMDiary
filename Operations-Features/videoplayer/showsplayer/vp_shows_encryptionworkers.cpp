@@ -1,4 +1,5 @@
 #include "vp_shows_encryptionworkers.h"
+#include "qapplication.h"
 #include "vp_shows_config.h"
 #include "CryptoUtils.h"
 #include "operations_files.h"
@@ -115,6 +116,12 @@ void VP_ShowsEncryptionWorker::cancel()
 
 void VP_ShowsEncryptionWorker::doEncryption()
 {
+    // CRITICAL: Thread affinity check - abort if not in worker thread
+    if (QThread::currentThread() == QApplication::instance()->thread()) {
+        qCritical() << "VP_ShowsEncryptionWorker: FATAL - doEncryption called from main thread! Aborting.";
+        emit encryptionFinished(false, "Internal error: Worker executed in wrong thread", QStringList(), m_sourceFiles);
+        return;
+    }
     qDebug() << "VP_ShowsEncryptionWorker: Starting encryption of" << m_sourceFiles.size() << "files";
     
     if (m_sourceFiles.isEmpty() || m_targetFiles.isEmpty()) {
@@ -1139,6 +1146,12 @@ void VP_ShowsDecryptionWorker::cancel()
 
 void VP_ShowsDecryptionWorker::doDecryption()
 {
+    // CRITICAL: Thread affinity check - abort if not in worker thread
+    if (QThread::currentThread() == QApplication::instance()->thread()) {
+        qCritical() << "VP_ShowsDecryptionWorker: FATAL - doDecryption called from main thread! Aborting.";
+        emit decryptionFinished(false, "Internal error: Worker executed in wrong thread");
+        return;
+    }
     qDebug() << "VP_ShowsDecryptionWorker: Starting decryption of" << m_sourceFile;
     
     QFile source(m_sourceFile);
@@ -1298,6 +1311,16 @@ void VP_ShowsExportWorker::cancel()
 
 void VP_ShowsExportWorker::doExport()
 {
+    // CRITICAL: Thread affinity check - abort if not in worker thread
+    if (QThread::currentThread() == QApplication::instance()->thread()) {
+        qCritical() << "VP_ShowsExportWorker: FATAL - doExport called from main thread! Aborting.";
+        QStringList allFiles;
+        for (const auto& fileInfo : m_files) {
+            allFiles.append(fileInfo.sourceFile);
+        }
+        emit exportFinished(false, "Internal error: Worker executed in wrong thread", QStringList(), allFiles);
+        return;
+    }
     qDebug() << "VP_ShowsExportWorker: Starting export of" << m_files.size() << "files";
     
     if (m_files.isEmpty()) {

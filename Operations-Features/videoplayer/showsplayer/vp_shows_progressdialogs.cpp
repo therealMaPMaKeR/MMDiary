@@ -194,43 +194,12 @@ void VP_ShowsEncryptionProgressDialog::cleanup()
 {
     qDebug() << "VP_ShowsEncryptionProgressDialog: cleanup() called";
     
-    // First, check if we have a worker to cancel
-    if (m_worker) {
-        m_worker->cancel();
-    }
+    // Use the standardized cleanup helper
+    bool cleanShutdown = WorkerThreadCleanupHelper::cleanupWorkerThread(
+        m_worker, m_workerThread, "VP_ShowsEncryptionProgressDialog");
     
-    // Handle thread cleanup
-    if (m_workerThread) {
-        // Disconnect all signals to prevent any further processing
-        if (m_worker) {
-            m_worker->disconnect();
-        }
-        m_workerThread->disconnect();
-        
-        // Only try to stop the thread if it's still valid and running
-        if (m_workerThread->isRunning()) {
-            qDebug() << "VP_ShowsEncryptionProgressDialog: Requesting thread quit";
-            m_workerThread->quit();
-            
-            // Wait for thread to finish
-            if (!m_workerThread->wait(5000)) {
-                qDebug() << "VP_ShowsEncryptionProgressDialog: Thread didn't quit in time, terminating";
-                m_workerThread->terminate();
-                m_workerThread->wait();
-            }
-        }
-        
-        // Delete the worker using deleteLater to ensure it's deleted in the correct thread
-        if (m_worker) {
-            // Move the worker back to the main thread before deletion
-            // This ensures deleteLater works correctly
-            m_worker->moveToThread(QApplication::instance()->thread());
-            m_worker->deleteLater();
-            m_worker = nullptr;
-        }
-        
-        delete m_workerThread;
-        m_workerThread = nullptr;
+    if (!cleanShutdown) {
+        qWarning() << "VP_ShowsEncryptionProgressDialog: Had to force terminate thread during cleanup";
     }
     
     qDebug() << "VP_ShowsEncryptionProgressDialog: cleanup() completed";
@@ -376,43 +345,12 @@ void VP_ShowsDecryptionProgressDialog::cleanup()
 {
     qDebug() << "VP_ShowsDecryptionProgressDialog: cleanup() called";
     
-    // First, check if we have a worker to cancel
-    if (m_worker) {
-        m_worker->cancel();
-    }
+    // Use the standardized cleanup helper
+    bool cleanShutdown = WorkerThreadCleanupHelper::cleanupWorkerThread(
+        m_worker, m_workerThread, "VP_ShowsDecryptionProgressDialog");
     
-    // Handle thread cleanup
-    if (m_workerThread) {
-        // Disconnect all signals to prevent any further processing
-        if (m_worker) {
-            m_worker->disconnect();
-        }
-        m_workerThread->disconnect();
-        
-        // Only try to stop the thread if it's still valid and running
-        if (m_workerThread->isRunning()) {
-            qDebug() << "VP_ShowsDecryptionProgressDialog: Requesting thread quit";
-            m_workerThread->quit();
-            
-            // Wait for thread to finish
-            if (!m_workerThread->wait(5000)) {
-                qDebug() << "VP_ShowsDecryptionProgressDialog: Thread didn't quit in time, terminating";
-                m_workerThread->terminate();
-                m_workerThread->wait();
-            }
-        }
-        
-        // Delete the worker using deleteLater to ensure it's deleted in the correct thread
-        if (m_worker) {
-            // Move the worker back to the main thread before deletion
-            // This ensures deleteLater works correctly
-            m_worker->moveToThread(QApplication::instance()->thread());
-            m_worker->deleteLater();
-            m_worker = nullptr;
-        }
-        
-        delete m_workerThread;
-        m_workerThread = nullptr;
+    if (!cleanShutdown) {
+        qWarning() << "VP_ShowsDecryptionProgressDialog: Had to force terminate thread during cleanup";
     }
     
     qDebug() << "VP_ShowsDecryptionProgressDialog: cleanup() completed";
@@ -668,43 +606,12 @@ void VP_ShowsExportProgressDialog::cleanup()
 {
     qDebug() << "VP_ShowsExportProgressDialog: cleanup() called";
     
-    // First, check if we have a worker to cancel
-    if (m_worker) {
-        m_worker->cancel();
-    }
+    // Use the standardized cleanup helper
+    bool cleanShutdown = WorkerThreadCleanupHelper::cleanupWorkerThread(
+        m_worker, m_workerThread, "VP_ShowsExportProgressDialog");
     
-    // Handle thread cleanup
-    if (m_workerThread) {
-        // Disconnect all signals to prevent any further processing
-        if (m_worker) {
-            m_worker->disconnect();
-        }
-        m_workerThread->disconnect();
-        
-        // Only try to stop the thread if it's still valid and running
-        if (m_workerThread->isRunning()) {
-            qDebug() << "VP_ShowsExportProgressDialog: Requesting thread quit";
-            m_workerThread->quit();
-            
-            // Wait for thread to finish
-            if (!m_workerThread->wait(5000)) {
-                qDebug() << "VP_ShowsExportProgressDialog: Thread didn't quit in time, terminating";
-                m_workerThread->terminate();
-                m_workerThread->wait();
-            }
-        }
-        
-        // Delete the worker using deleteLater to ensure it's deleted in the correct thread
-        if (m_worker) {
-            // Move the worker back to the main thread before deletion
-            // This ensures deleteLater works correctly
-            m_worker->moveToThread(QApplication::instance()->thread());
-            m_worker->deleteLater();
-            m_worker = nullptr;
-        }
-        
-        delete m_workerThread;
-        m_workerThread = nullptr;
+    if (!cleanShutdown) {
+        qWarning() << "VP_ShowsExportProgressDialog: Had to force terminate thread during cleanup";
     }
     
     qDebug() << "VP_ShowsExportProgressDialog: cleanup() completed";

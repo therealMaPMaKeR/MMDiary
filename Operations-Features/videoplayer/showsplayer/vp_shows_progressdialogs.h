@@ -10,6 +10,16 @@
 #include "qtextedit.h"
 #include "vp_shows_encryptionworkers.h"
 
+// Thread cleanup utility class
+class WorkerThreadCleanupHelper
+{
+public:
+    // Standard cleanup pattern for worker threads
+    // Returns true if cleanup was successful, false if termination was required
+    template<typename WorkerType>
+    static bool cleanupWorkerThread(WorkerType*& worker, QThread*& thread, const QString& className);
+};
+
 // Forward declarations
 class VP_ShowsEncryptionWorker;
 class VP_ShowsDecryptionWorker;
@@ -185,5 +195,72 @@ protected:
     void closeEvent(QCloseEvent* event) override;
     void reject() override;
 };
+
+// Template implementation of cleanup helper
+template<typename WorkerType>
+bool WorkerThreadCleanupHelper::cleanupWorkerThread(WorkerType*& worker, QThread*& thread, const QString& className)
+{
+    bool cleanShutdown = true;
+    
+    // STEP 1: Disconnect all signals FIRST to prevent race conditions
+    if (worker) {
+        // Disconnect all signals from worker
+        QObject::disconnect(worker, nullptr, nullptr, nullptr);
+    }
+    
+    if (thread) {
+        // Disconnect all signals from thread
+        QObject::disconnect(thread, nullptr, nullptr, nullptr);
+    }
+    
+    // STEP 2: Cancel the worker operation
+    if (worker) {
+        qDebug() << className << ": Cancelling worker operation";
+        worker->cancel();
+    }
+    
+    // STEP 3: Stop and clean up the thread
+    if (thread) {
+        if (thread->isRunning()) {
+            qDebug() << className << ": Requesting thread quit";
+            thread->quit();
+            
+            // Wait up to 10 seconds for graceful shutdown
+            if (!thread->wait(10000)) {
+                qDebug() << className << ": Thread didn't quit gracefully, forcing termination";
+                thread->terminate();
+                cleanShutdown = false;
+                
+                // Wait 2 more seconds after termination
+                if (!thread->wait(2000)) {
+                    qCritical() << className << ": ERROR - Failed to terminate thread!";
+                }
+            } else {
+                qDebug() << className << ": Thread stopped gracefully";
+            }
+        }
+    }
+    
+    // STEP 4: Clean up worker object
+    if (worker) {
+        // Check thread affinity before moving
+        if (worker->thread() != QApplication::instance()->thread()) {
+            // Move worker back to main thread for safe deletion
+            worker->moveToThread(QApplication::instance()->thread());
+        }
+        
+        // Delete the worker
+        worker->deleteLater();
+        worker = nullptr;
+    }
+    
+    // STEP 5: Delete the thread object
+    if (thread) {
+        delete thread;
+        thread = nullptr;
+    }
+    
+    return cleanShutdown;
+}
 
 #endif // VP_SHOWS_PROGRESSDIALOGS_H
