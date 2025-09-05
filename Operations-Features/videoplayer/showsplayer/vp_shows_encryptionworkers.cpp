@@ -44,12 +44,7 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
                                                    const QPixmap& customPoster,
                                                    const QString& customDescription,
                                                    ParseMode parseMode)
-    : m_sourceFiles(sourceFiles)
-    , m_targetFiles(targetFiles)
-    , m_showName(showName)
-    , m_language(language)
-    , m_translation(translation)
-    , m_encryptionKey(encryptionKey)
+    : m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(0)  // 0 = false, 1 = true for atomic
     , m_useTMDB(useTMDB)
@@ -60,6 +55,15 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
     , m_metadataManager(nullptr)
     , m_tmdbManager(nullptr)
 {
+    // Thread-safe initialization of member variables
+    QMutexLocker pointerLock(&m_pointerMutex);
+    m_sourceFiles = sourceFiles;
+    m_targetFiles = targetFiles;
+    m_showName = showName;
+    m_language = language;
+    m_translation = translation;
+    pointerLock.unlock();
+    
     qDebug() << "VP_ShowsEncryptionWorker: Constructor called for" << sourceFiles.size() << "files";
     qDebug() << "VP_ShowsEncryptionWorker: Using TMDB:" << useTMDB;
     qDebug() << "VP_ShowsEncryptionWorker: Has custom poster:" << !customPoster.isNull();
@@ -67,9 +71,11 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
     qDebug() << "VP_ShowsEncryptionWorker: Parse mode:" << (parseMode == ParseFromFolder ? "Folder" : "File");
     
     // Initialize pointers with thread safety
-    QMutexLocker pointerLock(&m_pointerMutex);
-    m_metadataManager = new VP_ShowsMetadata(encryptionKey, username);
-    m_tmdbManager = new VP_ShowsTMDB(this);
+    {
+        QMutexLocker pointerLock2(&m_pointerMutex);
+        m_metadataManager = new VP_ShowsMetadata(encryptionKey, username);
+        m_tmdbManager = new VP_ShowsTMDB(this);
+    }
     
     // Only set TMDB API key if we're using TMDB
     if (useTMDB && VP_ShowsConfig::isTMDBEnabled()) {
@@ -116,6 +122,37 @@ VP_ShowsEncryptionWorker::~VP_ShowsEncryptionWorker()
     }
 }
 
+// Thread-safe getter methods implementation
+QStringList VP_ShowsEncryptionWorker::getSourceFiles() const
+{
+    QMutexLocker locker(&m_pointerMutex);
+    return m_sourceFiles;
+}
+
+QStringList VP_ShowsEncryptionWorker::getTargetFiles() const
+{
+    QMutexLocker locker(&m_pointerMutex);
+    return m_targetFiles;
+}
+
+QString VP_ShowsEncryptionWorker::getShowName() const
+{
+    QMutexLocker locker(&m_pointerMutex);
+    return m_showName;
+}
+
+QString VP_ShowsEncryptionWorker::getLanguage() const
+{
+    QMutexLocker locker(&m_pointerMutex);
+    return m_language;
+}
+
+QString VP_ShowsEncryptionWorker::getTranslation() const
+{
+    QMutexLocker locker(&m_pointerMutex);
+    return m_translation;
+}
+
 void VP_ShowsEncryptionWorker::cancel()
 {
     qDebug() << "VP_ShowsEncryptionWorker: Cancellation requested from thread" << QThread::currentThreadId();
@@ -136,14 +173,29 @@ void VP_ShowsEncryptionWorker::doEncryption()
         emit encryptionFinished(false, "Internal error: Worker executed in wrong thread", QStringList(), m_sourceFiles);
         return;
     }
-    qDebug() << "VP_ShowsEncryptionWorker: Starting encryption of" << m_sourceFiles.size() << "files";
+    // Thread-safe access to member variables
+    QStringList localSourceFiles;
+    QStringList localTargetFiles;
+    QString localShowName;
+    QString localLanguage;
+    QString localTranslation;
+    {
+        QMutexLocker locker(&m_pointerMutex);
+        localSourceFiles = m_sourceFiles;
+        localTargetFiles = m_targetFiles;
+        localShowName = m_showName;
+        localLanguage = m_language;
+        localTranslation = m_translation;
+    }
     
-    if (m_sourceFiles.isEmpty() || m_targetFiles.isEmpty()) {
+    qDebug() << "VP_ShowsEncryptionWorker: Starting encryption of" << localSourceFiles.size() << "files";
+    
+    if (localSourceFiles.isEmpty() || localTargetFiles.isEmpty()) {
         emit encryptionFinished(false, "No files to encrypt", QStringList(), QStringList());
         return;
     }
     
-    if (m_sourceFiles.size() != m_targetFiles.size()) {
+    if (localSourceFiles.size() != localTargetFiles.size()) {
         emit encryptionFinished(false, "Source and target file lists size mismatch", 
                                QStringList(), QStringList());
         return;
@@ -154,8 +206,8 @@ void VP_ShowsEncryptionWorker::doEncryption()
     
     // Get the target folder from the first target file
     QString targetFolder;
-    if (!m_targetFiles.isEmpty()) {
-        QFileInfo firstTargetInfo(m_targetFiles.first());
+    if (!localTargetFiles.isEmpty()) {
+        QFileInfo firstTargetInfo(localTargetFiles.first());
         targetFolder = firstTargetInfo.absolutePath();
     }
     
@@ -187,7 +239,7 @@ void VP_ShowsEncryptionWorker::doEncryption()
     
     // Calculate total size for progress tracking
     qint64 totalSize = 0;
-    for (const QString& sourceFile : m_sourceFiles) {
+    for (const QString& sourceFile : localSourceFiles) {
         QFileInfo fileInfo(sourceFile);
         if (fileInfo.exists()) {
             totalSize += fileInfo.size();
@@ -199,7 +251,7 @@ void VP_ShowsEncryptionWorker::doEncryption()
     qint64 totalProcessed = 0;
     
     // Process each file
-    for (int i = 0; i < m_sourceFiles.size(); ++i) {
+    for (int i = 0; i < localSourceFiles.size(); ++i) {
         // Check for cancellation using atomic operation
         if (m_cancelled.loadAcquire() != 0) {
             qDebug() << "VP_ShowsEncryptionWorker: Encryption cancelled by user";
@@ -208,14 +260,14 @@ void VP_ShowsEncryptionWorker::doEncryption()
             return;
         }
         
-        QString sourceFile = m_sourceFiles[i];
-        QString targetFile = m_targetFiles[i];
+        QString sourceFile = localSourceFiles[i];
+        QString targetFile = localTargetFiles[i];
         
         QFileInfo fileInfo(sourceFile);
         QString originalFilename = fileInfo.fileName();
         
         // Emit file progress update
-        emit fileProgressUpdate(i + 1, m_sourceFiles.size(), originalFilename);
+        emit fileProgressUpdate(i + 1, localSourceFiles.size(), originalFilename);
         
         // Encrypt the file
         bool success = encryptSingleFile(sourceFile, targetFile, totalProcessed, totalSize);
@@ -587,9 +639,14 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
 {
     VP_ShowsMetadata::ShowMetadata metadata;
     metadata.filename = filename;
-    metadata.showName = m_showName;
-    metadata.language = m_language;
-    metadata.translation = m_translation;
+    
+    // Thread-safe access to member variables
+    {
+        QMutexLocker locker(&m_pointerMutex);
+        metadata.showName = m_showName;
+        metadata.language = m_language;
+        metadata.translation = m_translation;
+    }
     
     // Initialize content type to Regular by default
     metadata.contentType = VP_ShowsMetadata::Regular;
@@ -707,9 +764,9 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                  << "-> Season:" << season << "Episode:" << episode;
         
         // Check if this episode is a duplicate
-        if (checkForDuplicateEpisode(season, episode, m_language, m_translation)) {
+        if (checkForDuplicateEpisode(season, episode, metadata.language, metadata.translation)) {
             qDebug() << "VP_ShowsEncryptionWorker: Duplicate episode detected - S" << season << "E" << episode
-                     << "for" << m_language << m_translation;
+                     << "for" << metadata.language << metadata.translation;
             qDebug() << "VP_ShowsEncryptionWorker: Marking as error:" << filename;
             
             // Mark this episode as an error
@@ -729,8 +786,8 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 episodeKey = QString("S%1E%2_%3_%4")
                     .arg(mapping.season, 2, 10, QChar('0'))
                     .arg(mapping.episode, 2, 10, QChar('0'))
-                    .arg(m_language)
-                    .arg(m_translation);
+                    .arg(metadata.language)
+                    .arg(metadata.translation);
             
             // Check if the mapped season determines content type
             if (mapping.season == 0) {
@@ -749,15 +806,15 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 episodeKey = QString("S%1E%2_%3_%4")
                     .arg(season, 2, 10, QChar('0'))
                     .arg(episode, 2, 10, QChar('0'))
-                    .arg(m_language)
-                    .arg(m_translation);
+                    .arg(metadata.language)
+                    .arg(metadata.translation);
             }
         } else {
             episodeKey = QString("S%1E%2_%3_%4")
                 .arg(season, 2, 10, QChar('0'))
                 .arg(episode, 2, 10, QChar('0'))
-                .arg(m_language)
-                .arg(m_translation);
+                .arg(metadata.language)
+                .arg(metadata.translation);
         }
         
         // Thread-safe insertion into processed episodes set
@@ -1125,15 +1182,15 @@ VP_ShowsDecryptionWorker::VP_ShowsDecryptionWorker(const QString& sourceFile,
                                                    const QString& targetFile,
                                                    const QByteArray& encryptionKey,
                                                    const QString& username)
-    : m_sourceFile(sourceFile)
-    , m_targetFile(targetFile)
-    , m_encryptionKey(encryptionKey)
+    : m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(0)  // 0 = false, 1 = true for atomic
     , m_metadataManager(nullptr)
 {
     qDebug() << "VP_ShowsDecryptionWorker: Constructor called";
     QMutexLocker pointerLock(&m_pointerMutex);
+    m_sourceFile = sourceFile;
+    m_targetFile = targetFile;
     m_metadataManager = new VP_ShowsMetadata(encryptionKey, username);
 }
 
@@ -1159,6 +1216,19 @@ VP_ShowsDecryptionWorker::~VP_ShowsDecryptionWorker()
     }
 }
 
+// Thread-safe getter methods implementation
+QString VP_ShowsDecryptionWorker::getSourceFile() const
+{
+    QMutexLocker locker(&m_pointerMutex);
+    return m_sourceFile;
+}
+
+QString VP_ShowsDecryptionWorker::getTargetFile() const
+{
+    QMutexLocker locker(&m_pointerMutex);
+    return m_targetFile;
+}
+
 void VP_ShowsDecryptionWorker::cancel()
 {
     qDebug() << "VP_ShowsDecryptionWorker: Cancellation requested from thread" << QThread::currentThreadId();
@@ -1179,16 +1249,25 @@ void VP_ShowsDecryptionWorker::doDecryption()
         emit decryptionFinished(false, "Internal error: Worker executed in wrong thread");
         return;
     }
-    qDebug() << "VP_ShowsDecryptionWorker: Starting decryption of" << m_sourceFile;
+    // Thread-safe access to member variables
+    QString localSourceFile;
+    QString localTargetFile;
+    {
+        QMutexLocker locker(&m_pointerMutex);
+        localSourceFile = m_sourceFile;
+        localTargetFile = m_targetFile;
+    }
     
-    QFile source(m_sourceFile);
+    qDebug() << "VP_ShowsDecryptionWorker: Starting decryption of" << localSourceFile;
+    
+    QFile source(localSourceFile);
     if (!source.open(QIODevice::ReadOnly)) {
         emit decryptionFinished(false, "Failed to open source file: " + source.errorString());
         return;
     }
     FileGuard sourceGuard(&source);  // RAII - ensures file closes on any exit path
     
-    QFile target(m_targetFile);
+    QFile target(localTargetFile);
     if (!target.open(QIODevice::WriteOnly)) {
         emit decryptionFinished(false, "Failed to open target file: " + target.errorString());
         return;

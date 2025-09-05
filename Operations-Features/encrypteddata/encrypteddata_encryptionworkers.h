@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QThread>
 #include <QMutex>
+#include <QMutexLocker>
 #include <QStringList>
 #include <QByteArray>
 #include <QPixmap>
@@ -59,9 +60,9 @@ public:
 
     ~EncryptionWorker();
 
-    // Thread-safe getter functions instead of public variables
-    QStringList getSourceFiles() const { return m_sourceFiles; }
-    QStringList getTargetFiles() const { return m_targetFiles; }
+    // Thread-safe getter functions with mutex protection
+    QStringList getSourceFiles() const;
+    QStringList getTargetFiles() const;
 
     void cancel();
 
@@ -85,10 +86,14 @@ signals:
     void currentFileProgressUpdated(int percentage);
 
 private:
-    // Member variables (moved from public)
+    // Thread safety mutex for container access
+    mutable QMutex m_containerMutex;
+    
+    // Member variables (protected by mutex)
     QStringList m_sourceFiles;
     QStringList m_targetFiles;
     
+    // Other member variables
     QByteArray m_encryptionKey;
     QString m_username;
     QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation
@@ -107,9 +112,9 @@ public:
 
     ~DecryptionWorker();
 
-    // Thread-safe getter functions instead of public variables
-    QString getSourceFile() const { return m_sourceFile; }
-    QString getTargetFile() const { return m_targetFile; }
+    // Thread-safe getter functions with mutex protection
+    QString getSourceFile() const;
+    QString getTargetFile() const;
 
     void cancel();
 
@@ -121,10 +126,14 @@ signals:
     void decryptionFinished(bool success, const QString& errorMessage = QString());
 
 private:
-    // Member variables (moved from public)
+    // Thread safety mutex for member access
+    mutable QMutex m_memberMutex;
+    
+    // Member variables (protected by mutex)
     QString m_sourceFile;
     QString m_targetFile;
     
+    // Other member variables
     QByteArray m_encryptionKey;
     QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation
     std::unique_ptr<EncryptedFileMetadata> m_metadataManager;  // Smart pointer for automatic cleanup
@@ -141,9 +150,9 @@ public:
 
     ~TempDecryptionWorker();
 
-    // Thread-safe getter functions instead of public variables
-    QString getSourceFile() const { return m_sourceFile; }
-    QString getTargetFile() const { return m_targetFile; }
+    // Thread-safe getter functions with mutex protection
+    QString getSourceFile() const;
+    QString getTargetFile() const;
 
     void cancel();
 
@@ -155,10 +164,14 @@ signals:
     void decryptionFinished(bool success, const QString& errorMessage = QString());
 
 private:
-    // Member variables (moved from public)
+    // Thread safety mutex for member access
+    mutable QMutex m_memberMutex;
+    
+    // Member variables (protected by mutex)
     QString m_sourceFile;
     QString m_targetFile;
     
+    // Other member variables
     QByteArray m_encryptionKey;
     QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation
     std::unique_ptr<EncryptedFileMetadata> m_metadataManager;  // Smart pointer for automatic cleanup
@@ -191,7 +204,13 @@ private:
     bool decryptSingleFile(const FileExportInfo& fileInfo,
                            qint64 currentTotalProcessed, qint64 totalSize);
 
+    // Thread safety mutex for container access
+    mutable QMutex m_containerMutex;
+    
+    // Member variables (protected by mutex)
     QList<FileExportInfo> m_fileInfos;
+    
+    // Other member variables
     QByteArray m_encryptionKey;
     QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation
     std::unique_ptr<EncryptedFileMetadata> m_metadataManager;  // Smart pointer for automatic cleanup
@@ -221,7 +240,13 @@ private:
     bool secureDeleteFolder(const QString& folderPath, int& processedFiles, int totalFiles);
     QStringList enumerateFilesInFolder(const QString& folderPath);
 
+    // Thread safety mutex for container access
+    mutable QMutex m_containerMutex;
+    
+    // Member variables (protected by mutex)
     QList<DeletionItem> m_items;
+    
+    // Other member variables
     QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation
 };
 

@@ -46,12 +46,12 @@ public:
     
     ~VP_ShowsEncryptionWorker();
     
-    // Public member variables
-    QStringList m_sourceFiles;
-    QStringList m_targetFiles;
-    QString m_showName;
-    QString m_language;
-    QString m_translation;
+    // Thread-safe getter methods
+    QStringList getSourceFiles() const;
+    QStringList getTargetFiles() const;
+    QString getShowName() const;
+    QString getLanguage() const;
+    QString getTranslation() const;
     
     void cancel();
 
@@ -73,6 +73,14 @@ signals:
                            const QStringList& failedFiles);
 
 private:
+    // Member variables that were previously public (now protected by mutex)
+    QStringList m_sourceFiles;
+    QStringList m_targetFiles;
+    QString m_showName;
+    QString m_language;
+    QString m_translation;
+    
+    // Other member variables
     QByteArray m_encryptionKey;
     QString m_username;
     QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation (0=false, 1=true)
@@ -131,8 +139,9 @@ public:
     
     ~VP_ShowsDecryptionWorker();
     
-    QString m_sourceFile;
-    QString m_targetFile;
+    // Thread-safe getter methods
+    QString getSourceFile() const;
+    QString getTargetFile() const;
     
     void cancel();
 
@@ -144,6 +153,11 @@ signals:
     void decryptionFinished(bool success, const QString& errorMessage = QString());
 
 private:
+    // Member variables that were previously public (now protected by mutex)
+    QString m_sourceFile;
+    QString m_targetFile;
+    
+    // Other member variables
     QByteArray m_encryptionKey;
     QString m_username;
     QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation (0=false, 1=true)

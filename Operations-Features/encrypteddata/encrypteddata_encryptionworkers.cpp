@@ -140,13 +140,15 @@ EncryptionWorker::EncryptionWorker(const QStringList& sourceFiles, const QString
                                    const QByteArray& encryptionKey, const QString& username,
                                    const QMap<QString, QPixmap>& videoThumbnails)
     : QObject(nullptr)  // No parent - will be moved to thread
-    , m_sourceFiles(sourceFiles)
-    , m_targetFiles(targetFiles)
     , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(0)  // 0 = false, 1 = true for atomic
     , m_metadataManager(std::make_unique<EncryptedFileMetadata>(encryptionKey, username))
 {
+    // Thread-safe initialization of containers
+    QMutexLocker locker(&m_containerMutex);
+    m_sourceFiles = sourceFiles;
+    m_targetFiles = targetFiles;
     qDebug() << "EncryptionWorker: Constructor - creating worker for" << sourceFiles.size() << "files";
     
     // SECURITY: Convert QPixmap to QImage for thread safety
@@ -167,6 +169,8 @@ EncryptionWorker::EncryptionWorker(const QString& sourceFile, const QString& tar
     , m_cancelled(0)  // Use consistent initialization: 0 = false, 1 = true for atomic
     , m_metadataManager(std::make_unique<EncryptedFileMetadata>(encryptionKey, username))
 {
+    // Thread-safe initialization of containers
+    QMutexLocker locker(&m_containerMutex);
     m_sourceFiles << sourceFile;
     m_targetFiles << targetFile;
     qDebug() << "EncryptionWorker: Constructor - creating worker for single file";
@@ -219,8 +223,17 @@ void EncryptionWorker::doEncryption()
     }
     
     try {
-        if (m_sourceFiles.size() != m_targetFiles.size()) {
-            if (m_sourceFiles.size() == 1) {
+        // Thread-safe access to containers
+        QStringList localSourceFiles;
+        QStringList localTargetFiles;
+        {
+            QMutexLocker locker(&m_containerMutex);
+            localSourceFiles = m_sourceFiles;
+            localTargetFiles = m_targetFiles;
+        }
+        
+        if (localSourceFiles.size() != localTargetFiles.size()) {
+            if (localSourceFiles.size() == 1) {
                 emit encryptionFinished(false, "Mismatch between source and target file counts");
             } else {
                 emit multiFileEncryptionFinished(false, "Mismatch between source and target file counts",
@@ -229,19 +242,19 @@ void EncryptionWorker::doEncryption()
             return;
         }
 
-        if (m_sourceFiles.isEmpty()) {
+        if (localSourceFiles.isEmpty()) {
             emit encryptionFinished(false, "No files to encrypt");
             return;
         }
 
         // Determine if this is single or multiple file operation
-        bool isMultipleFiles = (m_sourceFiles.size() > 1);
+        bool isMultipleFiles = (localSourceFiles.size() > 1);
 
         // Calculate total size of all files for progress tracking
         qint64 totalSize = 0;
         QList<qint64> fileSizes;
 
-        for (const QString& sourceFile : m_sourceFiles) {
+        for (const QString& sourceFile : localSourceFiles) {
             QFile file(sourceFile);
             if (!file.exists()) {
                 QString errorMsg = QString("Source file does not exist: %1").arg(sourceFile);
@@ -270,14 +283,14 @@ void EncryptionWorker::doEncryption()
                 qDebug() << "EncryptionWorker: Setting encryption datetime for new files:" << encryptionDateTime.toString();
 
         // Process each file
-        for (int fileIndex = 0; fileIndex < m_sourceFiles.size(); ++fileIndex) {
+        for (int fileIndex = 0; fileIndex < localSourceFiles.size(); ++fileIndex) {
             // Check for cancellation
             // THREAD SAFETY: No mutex needed for atomic check
             if (m_cancelled.loadAcquire() != 0) {
                 // Clean up any partial files created so far
                 for (int i = 0; i < fileIndex; ++i) {
-                    if (QFile::exists(m_targetFiles[i])) {
-                        QFile::remove(m_targetFiles[i]);
+                    if (QFile::exists(localTargetFiles[i])) {
+                        QFile::remove(localTargetFiles[i]);
                     }
                 }
                 if (isMultipleFiles) {
@@ -289,8 +302,8 @@ void EncryptionWorker::doEncryption()
                 return;
             }
 
-            const QString& sourceFile = m_sourceFiles[fileIndex];
-            const QString& targetFile = m_targetFiles[fileIndex];
+            const QString& sourceFile = localSourceFiles[fileIndex];
+            const QString& targetFile = localTargetFiles[fileIndex];
             qint64 currentFileSize = fileSizes[fileIndex];
             
             // SECURITY: Check if file can be processed with available memory
@@ -305,7 +318,7 @@ void EncryptionWorker::doEncryption()
 
             // Update progress to show which file we're working on (only for multiple files)
             if (isMultipleFiles) {
-                emit fileProgressUpdate(fileIndex + 1, m_sourceFiles.size(), QFileInfo(sourceFile).fileName());
+                emit fileProgressUpdate(fileIndex + 1, localSourceFiles.size(), QFileInfo(sourceFile).fileName());
             }
 
             QFile source(sourceFile);
@@ -461,8 +474,8 @@ void EncryptionWorker::doEncryption()
 
                     // Clean up any other partial files
                     for (int i = 0; i < fileIndex; ++i) {
-                        if (QFile::exists(m_targetFiles[i])) {
-                            QFile::remove(m_targetFiles[i]);
+                        if (QFile::exists(localTargetFiles[i])) {
+                            QFile::remove(localTargetFiles[i]);
                         }
                     }
                     if (isMultipleFiles) {
@@ -533,7 +546,7 @@ void EncryptionWorker::doEncryption()
             bool overallSuccess = !successfulFiles.isEmpty();
             QString resultMessage;
 
-            if (successfulFiles.size() == m_sourceFiles.size()) {
+            if (successfulFiles.size() == localSourceFiles.size()) {
                 resultMessage = QString("All %1 files encrypted successfully").arg(successfulFiles.size());
             } else if (successfulFiles.isEmpty()) {
                 resultMessage = "All files failed to encrypt:\n" + failedFiles.join("\n");
@@ -541,7 +554,7 @@ void EncryptionWorker::doEncryption()
             } else {
                 resultMessage = QString("Partial success: %1 of %2 files encrypted successfully\n\nFailed files:\n%3")
                 .arg(successfulFiles.size())
-                    .arg(m_sourceFiles.size())
+                    .arg(localSourceFiles.size())
                     .arg(failedFiles.join("\n"));
             }
 
@@ -558,6 +571,7 @@ void EncryptionWorker::doEncryption()
 
     } catch (const std::exception& e) {
         QString errorMsg = QString("Encryption error: %1").arg(e.what());
+        QMutexLocker locker(&m_containerMutex);
         if (m_sourceFiles.size() > 1) {
             emit multiFileEncryptionFinished(false, errorMsg, QStringList(), QStringList());
         } else {
@@ -565,6 +579,7 @@ void EncryptionWorker::doEncryption()
         }
     } catch (...) {
         QString errorMsg = "Unknown encryption error occurred";
+        QMutexLocker locker(&m_containerMutex);
         if (m_sourceFiles.size() > 1) {
             emit multiFileEncryptionFinished(false, errorMsg, QStringList(), QStringList());
         } else {
@@ -573,6 +588,19 @@ void EncryptionWorker::doEncryption()
     }
 }
 
+
+// Thread-safe getter methods implementation
+QStringList EncryptionWorker::getSourceFiles() const
+{
+    QMutexLocker locker(&m_containerMutex);
+    return m_sourceFiles;
+}
+
+QStringList EncryptionWorker::getTargetFiles() const
+{
+    QMutexLocker locker(&m_containerMutex);
+    return m_targetFiles;
+}
 
 void EncryptionWorker::cancel()
 {
@@ -593,12 +621,14 @@ void EncryptionWorker::cancel()
 DecryptionWorker::DecryptionWorker(const QString& sourceFile, const QString& targetFile,
                                    const QByteArray& encryptionKey)
     : QObject(nullptr)  // No parent - will be moved to thread
-    , m_sourceFile(sourceFile)
-    , m_targetFile(targetFile)
     , m_encryptionKey(encryptionKey)
     , m_cancelled(0)  // 0 = false, 1 = true for atomic
     , m_metadataManager(std::make_unique<EncryptedFileMetadata>(encryptionKey, QString()))
 {
+    // Thread-safe initialization
+    QMutexLocker locker(&m_memberMutex);
+    m_sourceFile = sourceFile;
+    m_targetFile = targetFile;
     qDebug() << "DecryptionWorker: Constructor - creating worker for decryption";
 }
 
@@ -632,7 +662,16 @@ void DecryptionWorker::doDecryption()
     }
     
     try {
-        QFile sourceFile(m_sourceFile);
+        // Thread-safe access to member variables
+        QString localSourceFile;
+        QString localTargetFile;
+        {
+            QMutexLocker locker(&m_memberMutex);
+            localSourceFile = m_sourceFile;
+            localTargetFile = m_targetFile;
+        }
+        
+        QFile sourceFile(localSourceFile);
         if (!sourceFile.open(QIODevice::ReadOnly)) {
             emit decryptionFinished(false, "Failed to open encrypted file for reading");
             return;
@@ -646,7 +685,7 @@ void DecryptionWorker::doDecryption()
         if (!canProcessFile(totalSize, memoryErrorMsg)) {
             sourceFile.close();
             emit decryptionFinished(false, memoryErrorMsg);
-            qWarning() << "DecryptionWorker: File too large for available memory:" << m_sourceFile;
+            qWarning() << "DecryptionWorker: File too large for available memory:" << localSourceFile;
             return;
         }
         qint64 processedSize = 0;
@@ -663,7 +702,7 @@ void DecryptionWorker::doDecryption()
         qDebug() << "DecryptionWorker: Skipped" << Constants::METADATA_RESERVED_SIZE << "bytes of metadata";
 
         // Create target directory if it doesn't exist
-        QFileInfo targetInfo(m_targetFile);
+        QFileInfo targetInfo(localTargetFile);
         QDir targetDir = targetInfo.dir();
         if (!targetDir.exists()) {
             if (!targetDir.mkpath(".")) {
@@ -672,7 +711,7 @@ void DecryptionWorker::doDecryption()
             }
         }
 
-        QFile targetFile(m_targetFile);
+        QFile targetFile(localTargetFile);
         if (!targetFile.open(QIODevice::WriteOnly)) {
             emit decryptionFinished(false, "Failed to create target file");
             return;
@@ -684,7 +723,7 @@ void DecryptionWorker::doDecryption()
             // THREAD SAFETY: No mutex needed for atomic check
             if (m_cancelled.loadAcquire() != 0) {
                 targetFile.close();
-                QFile::remove(m_targetFile); // Clean up partial file
+                QFile::remove(localTargetFile); // Clean up partial file
                 emit decryptionFinished(false, "Operation was cancelled");
                 return;
             }
@@ -756,16 +795,16 @@ void DecryptionWorker::doDecryption()
 // Set proper file permissions for reading
 #ifdef Q_OS_WIN
         // On Windows, ensure the file is not marked as read-only
-        QFile::setPermissions(m_targetFile, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadUser | QFile::WriteUser);
+        QFile::setPermissions(localTargetFile, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadUser | QFile::WriteUser);
 #endif
 
         // Verify the file was created successfully
-        if (!QFile::exists(m_targetFile)) {
+        if (!QFile::exists(localTargetFile)) {
             emit decryptionFinished(false, "Target file was not created successfully");
             return;
         }
 
-        qDebug() << "DecryptionWorker: Temp decryption completed successfully:" << m_targetFile;
+        qDebug() << "DecryptionWorker: Temp decryption completed successfully:" << localTargetFile;
         emit decryptionFinished(true);
 
     } catch (const std::exception& e) {
@@ -773,6 +812,19 @@ void DecryptionWorker::doDecryption()
     } catch (...) {
         emit decryptionFinished(false, "Unknown decryption error occurred");
     }
+}
+
+// Thread-safe getter methods implementation
+QString DecryptionWorker::getSourceFile() const
+{
+    QMutexLocker locker(&m_memberMutex);
+    return m_sourceFile;
+}
+
+QString DecryptionWorker::getTargetFile() const
+{
+    QMutexLocker locker(&m_memberMutex);
+    return m_targetFile;
 }
 
 void DecryptionWorker::cancel()
@@ -794,12 +846,14 @@ void DecryptionWorker::cancel()
 TempDecryptionWorker::TempDecryptionWorker(const QString& sourceFile, const QString& targetFile,
                                            const QByteArray& encryptionKey)
     : QObject(nullptr)  // No parent - will be moved to thread
-    , m_sourceFile(sourceFile)
-    , m_targetFile(targetFile)
     , m_encryptionKey(encryptionKey)
     , m_cancelled(0)  // 0 = false, 1 = true for atomic
     , m_metadataManager(std::make_unique<EncryptedFileMetadata>(encryptionKey, QString()))
 {
+    // Thread-safe initialization
+    QMutexLocker locker(&m_memberMutex);
+    m_sourceFile = sourceFile;
+    m_targetFile = targetFile;
     qDebug() << "TempDecryptionWorker: Constructor - creating worker for temp decryption";
 }
 
@@ -833,7 +887,16 @@ void TempDecryptionWorker::doDecryption()
     }
     
     try {
-        QFile sourceFile(m_sourceFile);
+        // Thread-safe access to member variables
+        QString localSourceFile;
+        QString localTargetFile;
+        {
+            QMutexLocker locker(&m_memberMutex);
+            localSourceFile = m_sourceFile;
+            localTargetFile = m_targetFile;
+        }
+        
+        QFile sourceFile(localSourceFile);
         if (!sourceFile.open(QIODevice::ReadOnly)) {
             emit decryptionFinished(false, "Failed to open encrypted file for reading");
             return;
@@ -847,7 +910,7 @@ void TempDecryptionWorker::doDecryption()
         if (!canProcessFile(totalSize, memoryErrorMsg)) {
             sourceFile.close();
             emit decryptionFinished(false, memoryErrorMsg);
-            qWarning() << "TempDecryptionWorker: File too large for available memory:" << m_sourceFile;
+            qWarning() << "TempDecryptionWorker: File too large for available memory:" << localSourceFile;
             return;
         }
         qint64 processedSize = 0;
@@ -864,7 +927,7 @@ void TempDecryptionWorker::doDecryption()
         qDebug() << "TempDecryptionWorker: Skipped" << Constants::METADATA_RESERVED_SIZE << "bytes of metadata";
 
         // Create target directory if it doesn't exist
-        QFileInfo targetInfo(m_targetFile);
+        QFileInfo targetInfo(localTargetFile);
         QDir targetDir = targetInfo.dir();
         if (!targetDir.exists()) {
             if (!targetDir.mkpath(".")) {
@@ -873,7 +936,7 @@ void TempDecryptionWorker::doDecryption()
             }
         }
 
-        QFile targetFile(m_targetFile);
+        QFile targetFile(localTargetFile);
         if (!targetFile.open(QIODevice::WriteOnly)) {
             emit decryptionFinished(false, "Failed to create target file");
             return;
@@ -885,7 +948,7 @@ void TempDecryptionWorker::doDecryption()
             // THREAD SAFETY: No mutex needed for atomic check
             if (m_cancelled.loadAcquire() != 0) {
                 targetFile.close();
-                QFile::remove(m_targetFile); // Clean up partial file
+                QFile::remove(localTargetFile); // Clean up partial file
                 emit decryptionFinished(false, "Operation was cancelled");
                 return;
             }
@@ -957,16 +1020,16 @@ void TempDecryptionWorker::doDecryption()
 // Set proper file permissions for reading
 #ifdef Q_OS_WIN
         // On Windows, ensure the file is not marked as read-only
-        QFile::setPermissions(m_targetFile, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadUser | QFile::WriteUser);
+        QFile::setPermissions(localTargetFile, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadUser | QFile::WriteUser);
 #endif
 
         // Verify the file was created successfully
-        if (!QFile::exists(m_targetFile)) {
+        if (!QFile::exists(localTargetFile)) {
             emit decryptionFinished(false, "Target file was not created successfully");
             return;
         }
 
-        qDebug() << "TempDecryptionWorker: Temp decryption completed successfully:" << m_targetFile;
+        qDebug() << "TempDecryptionWorker: Temp decryption completed successfully:" << localTargetFile;
         emit decryptionFinished(true);
 
     } catch (const std::exception& e) {
@@ -974,6 +1037,19 @@ void TempDecryptionWorker::doDecryption()
     } catch (...) {
         emit decryptionFinished(false, "Unknown decryption error occurred");
     }
+}
+
+// Thread-safe getter methods implementation
+QString TempDecryptionWorker::getSourceFile() const
+{
+    QMutexLocker locker(&m_memberMutex);
+    return m_sourceFile;
+}
+
+QString TempDecryptionWorker::getTargetFile() const
+{
+    QMutexLocker locker(&m_memberMutex);
+    return m_targetFile;
 }
 
 void TempDecryptionWorker::cancel()
@@ -995,11 +1071,13 @@ void TempDecryptionWorker::cancel()
 BatchDecryptionWorker::BatchDecryptionWorker(const QList<FileExportInfo>& fileInfos,
                                              const QByteArray& encryptionKey)
     : QObject(nullptr)  // No parent - will be moved to thread
-    , m_fileInfos(fileInfos)
     , m_encryptionKey(encryptionKey)
     , m_cancelled(0)  // 0 = false, 1 = true for atomic
     , m_metadataManager(std::make_unique<EncryptedFileMetadata>(encryptionKey, QString()))
 {
+    // Thread-safe initialization
+    QMutexLocker locker(&m_containerMutex);
+    m_fileInfos = fileInfos;
     qDebug() << "BatchDecryptionWorker: Constructor - creating worker for" << fileInfos.size() << "files";
 }
 
@@ -1018,7 +1096,10 @@ BatchDecryptionWorker::~BatchDecryptionWorker()
     }
     
     // Clear file info list (may contain sensitive paths)
-    m_fileInfos.clear();
+    {
+        QMutexLocker locker(&m_containerMutex);
+        m_fileInfos.clear();
+    }
     
     // Smart pointer will automatically clean up m_metadataManager
 }
@@ -1037,14 +1118,21 @@ void BatchDecryptionWorker::doDecryption()
     }
     
     try {
-        if (m_fileInfos.isEmpty()) {
+        // Thread-safe access to container
+        QList<FileExportInfo> localFileInfos;
+        {
+            QMutexLocker locker(&m_containerMutex);
+            localFileInfos = m_fileInfos;
+        }
+        
+        if (localFileInfos.isEmpty()) {
             emit batchDecryptionFinished(false, "No files to decrypt", QStringList(), QStringList());
             return;
         }
 
         // Calculate total size for progress tracking
         qint64 totalSize = 0;
-        for (const FileExportInfo& info : m_fileInfos) {
+        for (const FileExportInfo& info : localFileInfos) {
             totalSize += info.fileSize;
         }
 
@@ -1052,7 +1140,7 @@ void BatchDecryptionWorker::doDecryption()
         QStringList successfulFiles;
         QStringList failedFiles;
 
-        for (int i = 0; i < m_fileInfos.size(); ++i) {
+        for (int i = 0; i < localFileInfos.size(); ++i) {
             // Check for cancellation
             // THREAD SAFETY: No mutex needed for atomic check
             if (m_cancelled.loadAcquire() != 0) {
@@ -1061,10 +1149,10 @@ void BatchDecryptionWorker::doDecryption()
                 return;
             }
 
-            const FileExportInfo& fileInfo = m_fileInfos[i];
+            const FileExportInfo& fileInfo = localFileInfos[i];
 
             // Update progress
-            emit fileStarted(i + 1, m_fileInfos.size(), fileInfo.originalFilename);
+            emit fileStarted(i + 1, localFileInfos.size(), fileInfo.originalFilename);
 
             // Decrypt single file
             bool success = decryptSingleFile(fileInfo, currentTotalProcessed, totalSize);
@@ -1088,7 +1176,7 @@ void BatchDecryptionWorker::doDecryption()
         bool overallSuccess = !successfulFiles.isEmpty();
         QString resultMessage;
 
-        if (successfulFiles.size() == m_fileInfos.size()) {
+        if (successfulFiles.size() == localFileInfos.size()) {
             resultMessage = QString("All %1 files exported successfully").arg(successfulFiles.size());
         } else if (successfulFiles.isEmpty()) {
             resultMessage = "All files failed to export";
@@ -1096,7 +1184,7 @@ void BatchDecryptionWorker::doDecryption()
         } else {
             resultMessage = QString("Partial success: %1 of %2 files exported successfully")
                 .arg(successfulFiles.size())
-                .arg(m_fileInfos.size());
+                .arg(localFileInfos.size());
         }
 
         emit batchDecryptionFinished(overallSuccess, resultMessage, successfulFiles, failedFiles);
@@ -1272,9 +1360,11 @@ void BatchDecryptionWorker::cancel()
 
 SecureDeletionWorker::SecureDeletionWorker(const QList<DeletionItem>& items)
     : QObject(nullptr)  // No parent - will be moved to thread
-    , m_items(items)
     , m_cancelled(0)  // 0 = false, 1 = true for atomic
 {
+    // Thread-safe initialization
+    QMutexLocker locker(&m_containerMutex);
+    m_items = items;
     qDebug() << "SecureDeletionWorker: Constructor - creating worker for" << items.size() << "items";
 }
 
@@ -1286,7 +1376,10 @@ SecureDeletionWorker::~SecureDeletionWorker()
     cancel();
     
     // Clear items list (may contain sensitive paths)
-    m_items.clear();
+    {
+        QMutexLocker locker(&m_containerMutex);
+        m_items.clear();
+    }
 }
 
 void SecureDeletionWorker::doSecureDeletion()
@@ -1305,9 +1398,16 @@ void SecureDeletionWorker::doSecureDeletion()
     try {
         DeletionResult result;
 
+        // Thread-safe access to container
+        QList<DeletionItem> localItems;
+        {
+            QMutexLocker locker(&m_containerMutex);
+            localItems = m_items;
+        }
+        
         // Calculate total number of files for progress tracking
         int totalFiles = 0;
-        for (const DeletionItem& item : m_items) {
+        for (const DeletionItem& item : localItems) {
             if (item.isFolder) {
                 QStringList filesInFolder = enumerateFilesInFolder(item.path);
                 totalFiles += filesInFolder.size();
@@ -1318,7 +1418,7 @@ void SecureDeletionWorker::doSecureDeletion()
 
         int processedFiles = 0;
 
-        for (const DeletionItem& item : m_items) {
+        for (const DeletionItem& item : localItems) {
             // Check for cancellation
             // THREAD SAFETY: No mutex needed for atomic check
             if (m_cancelled.loadAcquire() != 0) {
