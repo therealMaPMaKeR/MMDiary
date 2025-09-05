@@ -91,9 +91,8 @@ private:
     
     QByteArray m_encryptionKey;
     QString m_username;
-    QAtomicInt m_cancelled;  // Using atomic for thread-safe access
-    mutable QMutex m_cancelMutex;  // mutable for const functions
-    QMap<QString, QPixmap> m_videoThumbnails; // Still used for pre-extracted video thumbnails
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation
+    QMap<QString, QImage> m_videoThumbnailImages; // Thread-safe QImage instead of QPixmap
 
     std::unique_ptr<EncryptedFileMetadata> m_metadataManager;  // Smart pointer for automatic cleanup
 };
@@ -127,8 +126,7 @@ private:
     QString m_targetFile;
     
     QByteArray m_encryptionKey;
-    QAtomicInt m_cancelled;  // Using atomic for thread-safe access
-    mutable QMutex m_cancelMutex;  // mutable for const functions
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation
     std::unique_ptr<EncryptedFileMetadata> m_metadataManager;  // Smart pointer for automatic cleanup
 };
 
@@ -162,8 +160,7 @@ private:
     QString m_targetFile;
     
     QByteArray m_encryptionKey;
-    QAtomicInt m_cancelled;  // Using atomic for thread-safe access
-    mutable QMutex m_cancelMutex;  // mutable for const functions
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation
     std::unique_ptr<EncryptedFileMetadata> m_metadataManager;  // Smart pointer for automatic cleanup
 };
 
@@ -196,8 +193,7 @@ private:
 
     QList<FileExportInfo> m_fileInfos;
     QByteArray m_encryptionKey;
-    QAtomicInt m_cancelled;  // Using atomic for thread-safe access
-    mutable QMutex m_cancelMutex;  // mutable for const functions
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation
     std::unique_ptr<EncryptedFileMetadata> m_metadataManager;  // Smart pointer for automatic cleanup
 };
 
@@ -226,8 +222,7 @@ private:
     QStringList enumerateFilesInFolder(const QString& folderPath);
 
     QList<DeletionItem> m_items;
-    QAtomicInt m_cancelled;  // Using atomic for thread-safe access
-    mutable QMutex m_cancelMutex;  // mutable for const functions
+    QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation
 };
 
 #endif // ENCRYPTEDDATA_ENCRYPTIONWORKERS_H

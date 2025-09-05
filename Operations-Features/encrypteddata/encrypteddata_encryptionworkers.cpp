@@ -30,6 +30,9 @@
 #include <QPointer>
 #include <memory>
 #include <QStorageInfo>
+#include <QImage>
+#include <QPainter>
+#include <cstring>  // For std::memset
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -142,10 +145,17 @@ EncryptionWorker::EncryptionWorker(const QStringList& sourceFiles, const QString
     , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(0)  // 0 = false, 1 = true for atomic
-    , m_videoThumbnails(videoThumbnails)
     , m_metadataManager(std::make_unique<EncryptedFileMetadata>(encryptionKey, username))
 {
     qDebug() << "EncryptionWorker: Constructor - creating worker for" << sourceFiles.size() << "files";
+    
+    // SECURITY: Convert QPixmap to QImage for thread safety
+    // QPixmap can only be used in GUI thread, QImage is thread-safe
+    for (auto it = videoThumbnails.constBegin(); it != videoThumbnails.constEnd(); ++it) {
+        if (!it.value().isNull()) {
+            m_videoThumbnailImages[it.key()] = it.value().toImage();
+        }
+    }
 }
 
 EncryptionWorker::EncryptionWorker(const QString& sourceFile, const QString& targetFile,
@@ -154,21 +164,40 @@ EncryptionWorker::EncryptionWorker(const QString& sourceFile, const QString& tar
     : QObject(nullptr)  // No parent - will be moved to thread
     , m_encryptionKey(encryptionKey)
     , m_username(username)
-    , m_cancelled(false)
-    , m_videoThumbnails(videoThumbnails)
+    , m_cancelled(0)  // Use consistent initialization: 0 = false, 1 = true for atomic
     , m_metadataManager(std::make_unique<EncryptedFileMetadata>(encryptionKey, username))
 {
     m_sourceFiles << sourceFile;
     m_targetFiles << targetFile;
     qDebug() << "EncryptionWorker: Constructor - creating worker for single file";
+    
+    // SECURITY: Convert QPixmap to QImage for thread safety
+    // QPixmap can only be used in GUI thread, QImage is thread-safe
+    for (auto it = videoThumbnails.constBegin(); it != videoThumbnails.constEnd(); ++it) {
+        if (!it.value().isNull()) {
+            m_videoThumbnailImages[it.key()] = it.value().toImage();
+        }
+    }
 }
 
 // Add cleanup in EncryptionWorker destructor (add if not exists):
 EncryptionWorker::~EncryptionWorker()
 {
-    qDebug() << "EncryptionWorker: Destructor called";
+    qDebug() << "EncryptionWorker: Destructor called in thread" << QThread::currentThreadId();
+    
     // Cancel any ongoing operation
     cancel();
+    
+    // SECURITY: Clear sensitive data
+    if (!m_encryptionKey.isEmpty()) {
+        volatile char* keyData = const_cast<volatile char*>(m_encryptionKey.data());
+        std::memset(const_cast<char*>(keyData), 0, m_encryptionKey.size());
+        m_encryptionKey.clear();
+    }
+    
+    // Clear video thumbnail images
+    m_videoThumbnailImages.clear();
+    
     // Smart pointer will automatically clean up m_metadataManager
 }
 
@@ -235,23 +264,21 @@ void EncryptionWorker::doEncryption()
         // Process each file
         for (int fileIndex = 0; fileIndex < m_sourceFiles.size(); ++fileIndex) {
             // Check for cancellation
-            {
-                QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled.loadAcquire() != 0) {
-                    // Clean up any partial files created so far
-                    for (int i = 0; i < fileIndex; ++i) {
-                        if (QFile::exists(m_targetFiles[i])) {
-                            QFile::remove(m_targetFiles[i]);
-                        }
+            // THREAD SAFETY: No mutex needed for atomic check
+            if (m_cancelled.loadAcquire() != 0) {
+                // Clean up any partial files created so far
+                for (int i = 0; i < fileIndex; ++i) {
+                    if (QFile::exists(m_targetFiles[i])) {
+                        QFile::remove(m_targetFiles[i]);
                     }
-                    if (isMultipleFiles) {
-                        emit multiFileEncryptionFinished(false, "Operation was cancelled",
-                                                         QStringList(), QStringList());
-                    } else {
-                        emit encryptionFinished(false, "Operation was cancelled");
-                    }
-                    return;
                 }
+                if (isMultipleFiles) {
+                    emit multiFileEncryptionFinished(false, "Operation was cancelled",
+                                                     QStringList(), QStringList());
+                } else {
+                    emit encryptionFinished(false, "Operation was cancelled");
+                }
+                return;
             }
 
             const QString& sourceFile = m_sourceFiles[fileIndex];
@@ -312,27 +339,57 @@ void EncryptionWorker::doEncryption()
             // Generate thumbnail based on file type
             if (imageExtensions.contains(extension)) {
                 qDebug() << "EncryptionWorker: Generating square thumbnail for image:" << originalFilename;
-                QPixmap thumbnail = EncryptedFileMetadata::createThumbnailFromImage(sourceFile, 64);
-                if (!thumbnail.isNull()) {
-                    thumbnailData = EncryptedFileMetadata::compressThumbnail(thumbnail, 85);
+                // THREAD SAFETY: Load image directly as QImage (thread-safe)
+                QImage imageThumb;
+                if (imageThumb.load(sourceFile)) {
+                    // Scale to 64x64 with aspect ratio preserved
+                    imageThumb = imageThumb.scaled(64, 64, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                    
+                    // Create square thumbnail with padding if needed
+                    if (imageThumb.width() != 64 || imageThumb.height() != 64) {
+                        QImage squareImage(64, 64, QImage::Format_RGB32);
+                        squareImage.fill(Qt::black);
+                        QPainter painter(&squareImage);
+                        int x = (64 - imageThumb.width()) / 2;
+                        int y = (64 - imageThumb.height()) / 2;
+                        painter.drawImage(x, y, imageThumb);
+                        painter.end();
+                        imageThumb = squareImage;
+                    }
+                    
+                    // Convert to QPixmap for compression (safe in worker thread context)
+                    QPixmap pixmapForCompression = QPixmap::fromImage(imageThumb);
+                    thumbnailData = EncryptedFileMetadata::compressThumbnail(pixmapForCompression, 85);
                     qDebug() << "EncryptionWorker: Generated square image thumbnail, compressed size:" << thumbnailData.size() << "bytes";
                 } else {
-                    qDebug() << "EncryptionWorker: Failed to generate square image thumbnail for:" << originalFilename;
+                    qDebug() << "EncryptionWorker: Failed to load image for thumbnail:" << originalFilename;
                 }
             } else if (videoExtensions.contains(extension)) {
                 qDebug() << "EncryptionWorker: Generating square thumbnail for video:" << originalFilename;
                 // Check if we have pre-extracted video thumbnail
-                if (m_videoThumbnails.contains(sourceFile)) {
-                    QPixmap videoThumbnail = m_videoThumbnails[sourceFile];
+                if (m_videoThumbnailImages.contains(sourceFile)) {
+                    QImage videoThumbnail = m_videoThumbnailImages[sourceFile];
                     if (!videoThumbnail.isNull()) {
-                        // UPDATED: Create square thumbnail with black padding for video
-                        QPixmap squareVideoThumbnail = EncryptedFileMetadata::createSquareThumbnail(videoThumbnail, 64);
-                        if (!squareVideoThumbnail.isNull()) {
-                            thumbnailData = EncryptedFileMetadata::compressThumbnail(squareVideoThumbnail, 85);
-                            qDebug() << "EncryptionWorker: Using pre-extracted video thumbnail with square padding, compressed size:" << thumbnailData.size() << "bytes";
-                        } else {
-                            qDebug() << "EncryptionWorker: Failed to create square thumbnail for video:" << originalFilename;
+                        // THREAD SAFETY: Work with QImage instead of QPixmap
+                        // Create square thumbnail with black padding for video
+                        QImage scaledThumb = videoThumbnail.scaled(64, 64, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                        
+                        // Add padding if needed
+                        if (scaledThumb.width() != 64 || scaledThumb.height() != 64) {
+                            QImage squareImage(64, 64, QImage::Format_RGB32);
+                            squareImage.fill(Qt::black);
+                            QPainter painter(&squareImage);
+                            int x = (64 - scaledThumb.width()) / 2;
+                            int y = (64 - scaledThumb.height()) / 2;
+                            painter.drawImage(x, y, scaledThumb);
+                            painter.end();
+                            scaledThumb = squareImage;
                         }
+                        
+                        // Convert to QPixmap for compression
+                        QPixmap pixmapForCompression = QPixmap::fromImage(scaledThumb);
+                        thumbnailData = EncryptedFileMetadata::compressThumbnail(pixmapForCompression, 85);
+                        qDebug() << "EncryptionWorker: Using pre-extracted video thumbnail with square padding, compressed size:" << thumbnailData.size() << "bytes";
                     }
                 } else {
                     qDebug() << "EncryptionWorker: No pre-extracted video thumbnail available for:" << originalFilename;
@@ -388,27 +445,25 @@ void EncryptionWorker::doEncryption()
 
             while (!source.atEnd() && fileSuccess) {
                 // Check for cancellation
-                {
-                    QMutexLocker locker(&m_cancelMutex);
-                    if (m_cancelled.loadAcquire() != 0) {
-                        target.close();
-                        source.close();
-                        QFile::remove(targetFile); // Clean up partial file
+                // THREAD SAFETY: No mutex needed for atomic check
+                if (m_cancelled.loadAcquire() != 0) {
+                    target.close();
+                    source.close();
+                    QFile::remove(targetFile); // Clean up partial file
 
-                        // Clean up any other partial files
-                        for (int i = 0; i < fileIndex; ++i) {
-                            if (QFile::exists(m_targetFiles[i])) {
-                                QFile::remove(m_targetFiles[i]);
-                            }
+                    // Clean up any other partial files
+                    for (int i = 0; i < fileIndex; ++i) {
+                        if (QFile::exists(m_targetFiles[i])) {
+                            QFile::remove(m_targetFiles[i]);
                         }
-                        if (isMultipleFiles) {
-                            emit multiFileEncryptionFinished(false, "Operation was cancelled",
-                                                             QStringList(), QStringList());
-                        } else {
-                            emit encryptionFinished(false, "Operation was cancelled");
-                        }
-                        return;
                     }
+                    if (isMultipleFiles) {
+                        emit multiFileEncryptionFinished(false, "Operation was cancelled",
+                                                         QStringList(), QStringList());
+                    } else {
+                        emit encryptionFinished(false, "Operation was cancelled");
+                    }
+                    return;
                 }
 
                 // Read chunk
@@ -513,9 +568,14 @@ void EncryptionWorker::doEncryption()
 
 void EncryptionWorker::cancel()
 {
-    QMutexLocker locker(&m_cancelMutex);
-    qDebug() << "EncryptionWorker: Cancellation requested";
-    m_cancelled.storeRelease(1);  // Set to true atomically
+    qDebug() << "EncryptionWorker: Cancellation requested from thread" << QThread::currentThreadId();
+    // THREAD SAFETY: Use only atomic operation, no mutex needed
+    int oldValue = m_cancelled.fetchAndStoreOrdered(1);
+    if (oldValue == 0) {
+        qDebug() << "EncryptionWorker: Cancellation flag set successfully";
+    } else {
+        qDebug() << "EncryptionWorker: Already cancelled";
+    }
 }
 
 // ============================================================================
@@ -536,9 +596,18 @@ DecryptionWorker::DecryptionWorker(const QString& sourceFile, const QString& tar
 
 DecryptionWorker::~DecryptionWorker()
 {
-    qDebug() << "DecryptionWorker: Destructor called";
+    qDebug() << "DecryptionWorker: Destructor called in thread" << QThread::currentThreadId();
+    
     // Cancel any ongoing operation
     cancel();
+    
+    // SECURITY: Clear sensitive data
+    if (!m_encryptionKey.isEmpty()) {
+        volatile char* keyData = const_cast<volatile char*>(m_encryptionKey.data());
+        std::memset(const_cast<char*>(keyData), 0, m_encryptionKey.size());
+        m_encryptionKey.clear();
+    }
+    
     // Smart pointer will automatically clean up m_metadataManager
 }
 
@@ -601,14 +670,12 @@ void DecryptionWorker::doDecryption()
         // Decrypt file content chunk by chunk
         while (!sourceFile.atEnd()) {
             // Check for cancellation
-            {
-                QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled.loadAcquire() != 0) {
-                    targetFile.close();
-                    QFile::remove(m_targetFile); // Clean up partial file
-                    emit decryptionFinished(false, "Operation was cancelled");
-                    return;
-                }
+            // THREAD SAFETY: No mutex needed for atomic check
+            if (m_cancelled.loadAcquire() != 0) {
+                targetFile.close();
+                QFile::remove(m_targetFile); // Clean up partial file
+                emit decryptionFinished(false, "Operation was cancelled");
+                return;
             }
 
             // Read chunk size
@@ -699,9 +766,14 @@ void DecryptionWorker::doDecryption()
 
 void DecryptionWorker::cancel()
 {
-    QMutexLocker locker(&m_cancelMutex);
-    qDebug() << "DecryptionWorker: Cancellation requested";
-    m_cancelled.storeRelease(1);  // Set to true atomically
+    qDebug() << "DecryptionWorker: Cancellation requested from thread" << QThread::currentThreadId();
+    // THREAD SAFETY: Use only atomic operation, no mutex needed
+    int oldValue = m_cancelled.fetchAndStoreOrdered(1);
+    if (oldValue == 0) {
+        qDebug() << "DecryptionWorker: Cancellation flag set successfully";
+    } else {
+        qDebug() << "DecryptionWorker: Already cancelled";
+    }
 }
 
 // ============================================================================
@@ -722,9 +794,18 @@ TempDecryptionWorker::TempDecryptionWorker(const QString& sourceFile, const QStr
 
 TempDecryptionWorker::~TempDecryptionWorker()
 {
-    qDebug() << "TempDecryptionWorker: Destructor called";
+    qDebug() << "TempDecryptionWorker: Destructor called in thread" << QThread::currentThreadId();
+    
     // Cancel any ongoing operation
     cancel();
+    
+    // SECURITY: Clear sensitive data
+    if (!m_encryptionKey.isEmpty()) {
+        volatile char* keyData = const_cast<volatile char*>(m_encryptionKey.data());
+        std::memset(const_cast<char*>(keyData), 0, m_encryptionKey.size());
+        m_encryptionKey.clear();
+    }
+    
     // Smart pointer will automatically clean up m_metadataManager
 }
 
@@ -787,14 +868,12 @@ void TempDecryptionWorker::doDecryption()
         // Decrypt file content chunk by chunk
         while (!sourceFile.atEnd()) {
             // Check for cancellation
-            {
-                QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled.loadAcquire() != 0) {
-                    targetFile.close();
-                    QFile::remove(m_targetFile); // Clean up partial file
-                    emit decryptionFinished(false, "Operation was cancelled");
-                    return;
-                }
+            // THREAD SAFETY: No mutex needed for atomic check
+            if (m_cancelled.loadAcquire() != 0) {
+                targetFile.close();
+                QFile::remove(m_targetFile); // Clean up partial file
+                emit decryptionFinished(false, "Operation was cancelled");
+                return;
             }
 
             // Read chunk size
@@ -885,9 +964,14 @@ void TempDecryptionWorker::doDecryption()
 
 void TempDecryptionWorker::cancel()
 {
-    QMutexLocker locker(&m_cancelMutex);
-    qDebug() << "TempDecryptionWorker: Cancellation requested";
-    m_cancelled.storeRelease(1);  // Set to true atomically
+    qDebug() << "TempDecryptionWorker: Cancellation requested from thread" << QThread::currentThreadId();
+    // THREAD SAFETY: Use only atomic operation, no mutex needed
+    int oldValue = m_cancelled.fetchAndStoreOrdered(1);
+    if (oldValue == 0) {
+        qDebug() << "TempDecryptionWorker: Cancellation flag set successfully";
+    } else {
+        qDebug() << "TempDecryptionWorker: Already cancelled";
+    }
 }
 
 // ============================================================================
@@ -907,9 +991,21 @@ BatchDecryptionWorker::BatchDecryptionWorker(const QList<FileExportInfo>& fileIn
 
 BatchDecryptionWorker::~BatchDecryptionWorker()
 {
-    qDebug() << "BatchDecryptionWorker: Destructor called";
+    qDebug() << "BatchDecryptionWorker: Destructor called in thread" << QThread::currentThreadId();
+    
     // Cancel any ongoing operation
     cancel();
+    
+    // SECURITY: Clear sensitive data
+    if (!m_encryptionKey.isEmpty()) {
+        volatile char* keyData = const_cast<volatile char*>(m_encryptionKey.data());
+        std::memset(const_cast<char*>(keyData), 0, m_encryptionKey.size());
+        m_encryptionKey.clear();
+    }
+    
+    // Clear file info list (may contain sensitive paths)
+    m_fileInfos.clear();
+    
     // Smart pointer will automatically clean up m_metadataManager
 }
 
@@ -940,13 +1036,11 @@ void BatchDecryptionWorker::doDecryption()
 
         for (int i = 0; i < m_fileInfos.size(); ++i) {
             // Check for cancellation
-            {
-                QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled.loadAcquire() != 0) {
-                    emit batchDecryptionFinished(false, "Operation was cancelled",
-                                                 successfulFiles, failedFiles);
-                    return;
-                }
+            // THREAD SAFETY: No mutex needed for atomic check
+            if (m_cancelled.loadAcquire() != 0) {
+                emit batchDecryptionFinished(false, "Operation was cancelled",
+                                             successfulFiles, failedFiles);
+                return;
             }
 
             const FileExportInfo& fileInfo = m_fileInfos[i];
@@ -1046,14 +1140,12 @@ bool BatchDecryptionWorker::decryptSingleFile(const FileExportInfo& fileInfo,
         qint64 processedFileSize = 0;
         while (!sourceFile.atEnd()) {
             // Check for cancellation
-            {
-                QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled.loadAcquire() != 0) {
-                    targetFile.close();
-                    QFile::remove(fileInfo.targetFile);
-                    sourceFile.close();
-                    return false;
-                }
+            // THREAD SAFETY: No mutex needed for atomic check
+            if (m_cancelled.loadAcquire() != 0) {
+                targetFile.close();
+                QFile::remove(fileInfo.targetFile);
+                sourceFile.close();
+                return false;
             }
 
             // Read chunk size
@@ -1146,9 +1238,14 @@ bool BatchDecryptionWorker::decryptSingleFile(const FileExportInfo& fileInfo,
 
 void BatchDecryptionWorker::cancel()
 {
-    QMutexLocker locker(&m_cancelMutex);
-    qDebug() << "BatchDecryptionWorker: Cancellation requested";
-    m_cancelled.storeRelease(1);  // Set to true atomically
+    qDebug() << "BatchDecryptionWorker: Cancellation requested from thread" << QThread::currentThreadId();
+    // THREAD SAFETY: Use only atomic operation, no mutex needed
+    int oldValue = m_cancelled.fetchAndStoreOrdered(1);
+    if (oldValue == 0) {
+        qDebug() << "BatchDecryptionWorker: Cancellation flag set successfully";
+    } else {
+        qDebug() << "BatchDecryptionWorker: Already cancelled";
+    }
 }
 
 // ============================================================================
@@ -1165,9 +1262,13 @@ SecureDeletionWorker::SecureDeletionWorker(const QList<DeletionItem>& items)
 
 SecureDeletionWorker::~SecureDeletionWorker()
 {
-    qDebug() << "SecureDeletionWorker: Destructor called";
+    qDebug() << "SecureDeletionWorker: Destructor called in thread" << QThread::currentThreadId();
+    
     // Cancel any ongoing operation
     cancel();
+    
+    // Clear items list (may contain sensitive paths)
+    m_items.clear();
 }
 
 void SecureDeletionWorker::doSecureDeletion()
@@ -1197,12 +1298,10 @@ void SecureDeletionWorker::doSecureDeletion()
 
         for (const DeletionItem& item : m_items) {
             // Check for cancellation
-            {
-                QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled.loadAcquire() != 0) {
-                    result.failedItems.append(QString("Cancelled - %1").arg(item.displayName));
-                    break;
-                }
+            // THREAD SAFETY: No mutex needed for atomic check
+            if (m_cancelled.loadAcquire() != 0) {
+                result.failedItems.append(QString("Cancelled - %1").arg(item.displayName));
+                break;
             }
 
             emit currentItemChanged(item.displayName);
@@ -1265,11 +1364,9 @@ bool SecureDeletionWorker::secureDeleteFolder(const QString& folderPath, int& pr
         // Delete all files in the folder first
         for (const QString& filePath : filesInFolder) {
             // Check for cancellation
-            {
-                QMutexLocker locker(&m_cancelMutex);
-                if (m_cancelled.loadAcquire() != 0) {
-                    return false;
-                }
+            // THREAD SAFETY: No mutex needed for atomic check
+            if (m_cancelled.loadAcquire() != 0) {
+                return false;
             }
 
             if (!secureDeleteSingleFile(filePath)) {
@@ -1319,7 +1416,12 @@ QStringList SecureDeletionWorker::enumerateFilesInFolder(const QString& folderPa
 
 void SecureDeletionWorker::cancel()
 {
-    QMutexLocker locker(&m_cancelMutex);
-    qDebug() << "SecureDeletionWorker: Cancellation requested";
-    m_cancelled.storeRelease(1);  // Set to true atomically
+    qDebug() << "SecureDeletionWorker: Cancellation requested from thread" << QThread::currentThreadId();
+    // THREAD SAFETY: Use only atomic operation, no mutex needed
+    int oldValue = m_cancelled.fetchAndStoreOrdered(1);
+    if (oldValue == 0) {
+        qDebug() << "SecureDeletionWorker: Cancellation flag set successfully";
+    } else {
+        qDebug() << "SecureDeletionWorker: Already cancelled";
+    }
 }
