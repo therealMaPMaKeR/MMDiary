@@ -167,72 +167,97 @@ Operations_EncryptedData::~Operations_EncryptedData()
     }
 
     // Handle encryption worker
+    if (m_worker) {
+        // CRITICAL: Disconnect signals BEFORE cancelling to prevent race conditions
+        disconnect(m_worker, nullptr, this, nullptr);  // Disconnect all signals to this object
+        disconnect(m_worker, nullptr, nullptr, nullptr);  // Disconnect all remaining signals
+        m_worker->cancel();
+    }
+    
     if (m_workerThread && m_workerThread->isRunning()) {
-        if (m_worker) {
-            m_worker->cancel();
-            disconnect(m_worker, nullptr, nullptr, nullptr);  // Disconnect all signals
-        }
         m_workerThread->quit();
         if (!m_workerThread->wait(10000)) {  // Wait 10 seconds
             qWarning() << "Operations_EncryptedData: Encryption worker thread failed to stop gracefully";
             m_workerThread->terminate();
-            m_workerThread->wait(2000);
+            if (!m_workerThread->wait(2000)) {
+                qCritical() << "Operations_EncryptedData: Failed to terminate encryption worker thread";
+            }
         }
     }
 
     // Handle decryption worker
+    if (m_decryptWorker) {
+        // CRITICAL: Disconnect signals BEFORE cancelling to prevent race conditions
+        disconnect(m_decryptWorker, nullptr, this, nullptr);  // Disconnect all signals to this object
+        disconnect(m_decryptWorker, nullptr, nullptr, nullptr);  // Disconnect all remaining signals
+        m_decryptWorker->cancel();
+    }
+    
     if (m_decryptWorkerThread && m_decryptWorkerThread->isRunning()) {
-        if (m_decryptWorker) {
-            m_decryptWorker->cancel();
-            disconnect(m_decryptWorker, nullptr, nullptr, nullptr);  // Disconnect all signals
-        }
         m_decryptWorkerThread->quit();
         if (!m_decryptWorkerThread->wait(10000)) {  // Wait 10 seconds
             qWarning() << "Operations_EncryptedData: Decryption worker thread failed to stop gracefully";
             m_decryptWorkerThread->terminate();
-            m_decryptWorkerThread->wait(2000);
+            if (!m_decryptWorkerThread->wait(2000)) {
+                qCritical() << "Operations_EncryptedData: Failed to terminate decryption worker thread";
+            }
         }
     }
 
     // Handle temp decryption worker
+    if (m_tempDecryptWorker) {
+        // CRITICAL: Disconnect signals BEFORE cancelling to prevent race conditions
+        disconnect(m_tempDecryptWorker, nullptr, this, nullptr);  // Disconnect all signals to this object
+        disconnect(m_tempDecryptWorker, nullptr, nullptr, nullptr);  // Disconnect all remaining signals
+        m_tempDecryptWorker->cancel();
+    }
+    
     if (m_tempDecryptWorkerThread && m_tempDecryptWorkerThread->isRunning()) {
-        if (m_tempDecryptWorker) {
-            m_tempDecryptWorker->cancel();
-            disconnect(m_tempDecryptWorker, nullptr, nullptr, nullptr);  // Disconnect all signals
-        }
         m_tempDecryptWorkerThread->quit();
         if (!m_tempDecryptWorkerThread->wait(10000)) {  // Wait 10 seconds
             qWarning() << "Operations_EncryptedData: Temp decryption worker thread failed to stop gracefully";
             m_tempDecryptWorkerThread->terminate();
-            m_tempDecryptWorkerThread->wait(2000);
+            if (!m_tempDecryptWorkerThread->wait(2000)) {
+                qCritical() << "Operations_EncryptedData: Failed to terminate temp decryption worker thread";
+            }
         }
     }
 
     // Handle batch decryption worker
+    if (m_batchDecryptWorker) {
+        // CRITICAL: Disconnect signals BEFORE cancelling to prevent race conditions
+        disconnect(m_batchDecryptWorker, nullptr, this, nullptr);  // Disconnect all signals to this object
+        disconnect(m_batchDecryptWorker, nullptr, nullptr, nullptr);  // Disconnect all remaining signals
+        m_batchDecryptWorker->cancel();
+    }
+    
     if (m_batchDecryptWorkerThread && m_batchDecryptWorkerThread->isRunning()) {
-        if (m_batchDecryptWorker) {
-            m_batchDecryptWorker->cancel();
-            disconnect(m_batchDecryptWorker, nullptr, nullptr, nullptr);  // Disconnect all signals
-        }
         m_batchDecryptWorkerThread->quit();
         if (!m_batchDecryptWorkerThread->wait(10000)) {  // Wait 10 seconds
             qWarning() << "Operations_EncryptedData: Batch decryption worker thread failed to stop gracefully";
             m_batchDecryptWorkerThread->terminate();
-            m_batchDecryptWorkerThread->wait(2000);
+            if (!m_batchDecryptWorkerThread->wait(2000)) {
+                qCritical() << "Operations_EncryptedData: Failed to terminate batch decryption worker thread";
+            }
         }
     }
 
     // Handle secure deletion worker
+    if (m_secureDeletionWorker) {
+        // CRITICAL: Disconnect signals BEFORE cancelling to prevent race conditions
+        disconnect(m_secureDeletionWorker, nullptr, this, nullptr);  // Disconnect all signals to this object
+        disconnect(m_secureDeletionWorker, nullptr, nullptr, nullptr);  // Disconnect all remaining signals
+        m_secureDeletionWorker->cancel();
+    }
+    
     if (m_secureDeletionWorkerThread && m_secureDeletionWorkerThread->isRunning()) {
-        if (m_secureDeletionWorker) {
-            m_secureDeletionWorker->cancel();
-            disconnect(m_secureDeletionWorker, nullptr, nullptr, nullptr);  // Disconnect all signals
-        }
         m_secureDeletionWorkerThread->quit();
         if (!m_secureDeletionWorkerThread->wait(10000)) {  // Wait 10 seconds
             qWarning() << "Operations_EncryptedData: Secure deletion worker thread failed to stop gracefully";
             m_secureDeletionWorkerThread->terminate();
-            m_secureDeletionWorkerThread->wait(2000);
+            if (!m_secureDeletionWorkerThread->wait(2000)) {
+                qCritical() << "Operations_EncryptedData: Failed to terminate secure deletion worker thread";
+            }
         }
     }
 
@@ -573,9 +598,18 @@ void Operations_EncryptedData::onEncryptionFinished(bool success, const QString&
         m_encryptionProgressDialog = nullptr;
     }
 
+    // Disconnect worker signals before thread cleanup
+    if (m_worker) {
+        disconnect(m_worker, nullptr, this, nullptr);
+    }
+
     if (m_workerThread) {
         m_workerThread->quit();
-        m_workerThread->wait();
+        if (!m_workerThread->wait(5000)) {  // Wait up to 5 seconds
+            qWarning() << "Operations_EncryptedData: Worker thread didn't finish cleanly in onEncryptionFinished";
+            m_workerThread->terminate();
+            m_workerThread->wait(1000);
+        }
         m_workerThread->deleteLater();
         m_workerThread = nullptr;
     }
@@ -610,9 +644,18 @@ void Operations_EncryptedData::onMultiFileEncryptionFinished(bool success, const
         m_encryptionProgressDialog = nullptr;
     }
 
+    // Disconnect worker signals before thread cleanup
+    if (m_worker) {
+        disconnect(m_worker, nullptr, this, nullptr);
+    }
+
     if (m_workerThread) {
         m_workerThread->quit();
-        m_workerThread->wait();
+        if (!m_workerThread->wait(5000)) {  // Wait up to 5 seconds
+            qWarning() << "Operations_EncryptedData: Worker thread didn't finish cleanly in onMultiFileEncryptionFinished";
+            m_workerThread->terminate();
+            m_workerThread->wait(1000);
+        }
         m_workerThread->deleteLater();
         m_workerThread = nullptr;
     }
@@ -653,12 +696,14 @@ void Operations_EncryptedData::onEncryptionCancelled()
 {
     qDebug() << "Operations_EncryptedData: Encryption cancelled by user";
 
-    if (m_worker) {
-        m_worker->cancel();
-    }
-
     if (m_encryptionProgressDialog) {
         m_encryptionProgressDialog->setStatusText("Cancelling...");
+    }
+
+    if (m_worker) {
+        // Disconnect signals first to prevent race conditions
+        disconnect(m_worker, nullptr, this, nullptr);
+        m_worker->cancel();
     }
 }
 
@@ -867,9 +912,18 @@ void Operations_EncryptedData::onDecryptionFinished(bool success, const QString&
         m_progressDialog = nullptr;
     }
 
+    // Disconnect worker signals before thread cleanup
+    if (m_decryptWorker) {
+        disconnect(m_decryptWorker, nullptr, this, nullptr);
+    }
+
     if (m_decryptWorkerThread) {
         m_decryptWorkerThread->quit();
-        m_decryptWorkerThread->wait();
+        if (!m_decryptWorkerThread->wait(5000)) {  // Wait up to 5 seconds
+            qWarning() << "Operations_EncryptedData: Worker thread didn't finish cleanly in onDecryptionFinished";
+            m_decryptWorkerThread->terminate();
+            m_decryptWorkerThread->wait(1000);
+        }
         m_decryptWorkerThread->deleteLater();
         m_decryptWorkerThread = nullptr;
     }
@@ -922,13 +976,15 @@ void Operations_EncryptedData::onDecryptionCancelled()
 {
     qDebug() << "Operations_EncryptedData: Decryption cancelled by user";
 
-    if (m_decryptWorker) {
-        m_decryptWorker->cancel();
-    }
-
     if (m_progressDialog) {
         m_progressDialog->setLabelText("Cancelling...");
         m_progressDialog->setCancelButton(nullptr); // Disable cancel button while cancelling
+    }
+
+    if (m_decryptWorker) {
+        // Disconnect signals first to prevent race conditions
+        disconnect(m_decryptWorker, nullptr, this, nullptr);
+        m_decryptWorker->cancel();
     }
 }
 
@@ -1105,9 +1161,18 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
         m_progressDialog = nullptr;
     }
 
+    // Disconnect worker signals before thread cleanup
+    if (m_tempDecryptWorker) {
+        disconnect(m_tempDecryptWorker, nullptr, this, nullptr);
+    }
+
     if (m_tempDecryptWorkerThread) {
         m_tempDecryptWorkerThread->quit();
-        m_tempDecryptWorkerThread->wait();
+        if (!m_tempDecryptWorkerThread->wait(5000)) {  // Wait up to 5 seconds
+            qWarning() << "Operations_EncryptedData: Worker thread didn't finish cleanly in onTempDecryptionFinished";
+            m_tempDecryptWorkerThread->terminate();
+            m_tempDecryptWorkerThread->wait(1000);
+        }
         m_tempDecryptWorkerThread->deleteLater();
         m_tempDecryptWorkerThread = nullptr;
     }
@@ -1225,13 +1290,15 @@ void Operations_EncryptedData::onTempDecryptionCancelled()
 {
     qDebug() << "Operations_EncryptedData: === onTempDecryptionCancelled called ===";
 
-    if (m_tempDecryptWorker) {
-        m_tempDecryptWorker->cancel();
-    }
-
     if (m_progressDialog) {
         m_progressDialog->setLabelText("Cancelling...");
         m_progressDialog->setCancelButton(nullptr); // Disable cancel button while cancelling
+    }
+
+    if (m_tempDecryptWorker) {
+        // Disconnect signals first to prevent race conditions
+        disconnect(m_tempDecryptWorker, nullptr, this, nullptr);
+        m_tempDecryptWorker->cancel();
     }
 
     // Clear pending app

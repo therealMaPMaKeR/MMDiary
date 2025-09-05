@@ -207,7 +207,15 @@ void EncryptionWorker::doEncryption()
     
     // Safety check - ensure we're not in the main thread
     if (QThread::currentThread() == QApplication::instance()->thread()) {
-        qWarning() << "EncryptionWorker: WARNING - Running in main thread!";
+        qCritical() << "EncryptionWorker: CRITICAL ERROR - Running in main thread! Aborting operation.";
+        // Abort execution to prevent UI freeze
+        if (m_sourceFiles.size() == 1) {
+            emit encryptionFinished(false, "Internal error: Worker running in main thread");
+        } else {
+            emit multiFileEncryptionFinished(false, "Internal error: Worker running in main thread",
+                                             QStringList(), QStringList());
+        }
+        return;
     }
     
     try {
@@ -617,7 +625,10 @@ void DecryptionWorker::doDecryption()
     
     // Safety check - ensure we're not in the main thread
     if (QThread::currentThread() == QApplication::instance()->thread()) {
-        qWarning() << "DecryptionWorker: WARNING - Running in main thread!";
+        qCritical() << "DecryptionWorker: CRITICAL ERROR - Running in main thread! Aborting operation.";
+        // Abort execution to prevent UI freeze
+        emit decryptionFinished(false, "Internal error: Worker running in main thread");
+        return;
     }
     
     try {
@@ -815,7 +826,10 @@ void TempDecryptionWorker::doDecryption()
     
     // Safety check - ensure we're not in the main thread
     if (QThread::currentThread() == QApplication::instance()->thread()) {
-        qWarning() << "TempDecryptionWorker: WARNING - Running in main thread!";
+        qCritical() << "TempDecryptionWorker: CRITICAL ERROR - Running in main thread! Aborting operation.";
+        // Abort execution to prevent UI freeze
+        emit decryptionFinished(false, "Internal error: Worker running in main thread");
+        return;
     }
     
     try {
@@ -1015,7 +1029,11 @@ void BatchDecryptionWorker::doDecryption()
     
     // Safety check - ensure we're not in the main thread
     if (QThread::currentThread() == QApplication::instance()->thread()) {
-        qWarning() << "BatchDecryptionWorker: WARNING - Running in main thread!";
+        qCritical() << "BatchDecryptionWorker: CRITICAL ERROR - Running in main thread! Aborting operation.";
+        // Abort execution to prevent UI freeze
+        emit batchDecryptionFinished(false, "Internal error: Worker running in main thread", 
+                                     QStringList(), QStringList());
+        return;
     }
     
     try {
@@ -1277,7 +1295,11 @@ void SecureDeletionWorker::doSecureDeletion()
     
     // Safety check - ensure we're not in the main thread
     if (QThread::currentThread() == QApplication::instance()->thread()) {
-        qWarning() << "SecureDeletionWorker: WARNING - Running in main thread!";
+        qCritical() << "SecureDeletionWorker: CRITICAL ERROR - Running in main thread! Aborting operation.";
+        // Abort execution to prevent UI freeze
+        DeletionResult emptyResult;
+        emit deletionFinished(false, emptyResult, "Internal error: Worker running in main thread");
+        return;
     }
     
     try {
