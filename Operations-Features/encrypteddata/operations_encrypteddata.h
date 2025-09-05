@@ -29,6 +29,7 @@
 #include <QCloseEvent>
 #include <QDirIterator>
 #include <QListWidgetItem>
+#include <memory>
 
 // Include the separated headers
 #include "encrypteddata_encryptionworkers.h"
@@ -135,7 +136,7 @@ protected:
 private:
     // Member variables
     MainWindow* m_mainWindow;
-    EncryptedFileMetadata* m_metadataManager;
+    std::unique_ptr<EncryptedFileMetadata> m_metadataManager;
     FileIconProvider* m_iconProvider;
 
     // Progress dialogs
@@ -217,6 +218,7 @@ private:
 
     // Helper functions - Icon management
     QPixmap getIconForFileType(const QString& originalFilename, const QString& fileType);
+    void cleanupImageViewerTracking();
 
     // Helper functions - File opening
     QString checkDefaultApp(const QString& extension);

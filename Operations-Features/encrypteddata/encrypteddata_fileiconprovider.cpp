@@ -490,12 +490,6 @@ QPixmap FileIconProvider::getDefaultImageIcon(int size)
     qDebug() << "getDefaultImageIcon called with size:" << size;
     qDebug() << "FileIconProvider object address:" << this;
 
-    // Safety check for this pointer
-    if (!this) {
-        qWarning() << "FileIconProvider: this pointer is null!";
-        return QPixmap();
-    }
-
     QString cacheKey = QString("default_image_%1").arg(size);
     qDebug() << "Generated cacheKey:" << cacheKey;
 

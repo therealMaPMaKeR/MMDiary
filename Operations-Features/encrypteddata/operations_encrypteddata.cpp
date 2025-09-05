@@ -3,6 +3,7 @@
 #include "../videoplayer/vrplayer/vr_video_player.h"
 #include "CryptoUtils.h"
 #include "operations_files.h"
+#include <memory>
 #include "constants.h"
 #include "encryptedfileitemwidget.h"
 #include "encrypteddata_fileiconprovider.h"
@@ -80,7 +81,7 @@ Operations_EncryptedData::Operations_EncryptedData(MainWindow* mainWindow)
     qDebug() << "Operations_EncryptedData: Constructor started";
 
     // Create MetaData Manager Instance
-    m_metadataManager = new EncryptedFileMetadata(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    m_metadataManager = std::make_unique<EncryptedFileMetadata>(m_mainWindow->user_Key, m_mainWindow->user_Username);
 
     // Scan for corrupted metadata and prompt user for repairs
     repairCorruptedMetadata();
@@ -160,6 +161,7 @@ Operations_EncryptedData::~Operations_EncryptedData()
     // Stop the cleanup timer
     if (m_tempFileCleanupTimer) {
         m_tempFileCleanupTimer->stop();
+        disconnect(m_tempFileCleanupTimer, nullptr, nullptr, nullptr);
         m_tempFileCleanupTimer->deleteLater();
         m_tempFileCleanupTimer = nullptr;
     }
@@ -168,12 +170,13 @@ Operations_EncryptedData::~Operations_EncryptedData()
     if (m_workerThread && m_workerThread->isRunning()) {
         if (m_worker) {
             m_worker->cancel();
+            disconnect(m_worker, nullptr, nullptr, nullptr);  // Disconnect all signals
         }
         m_workerThread->quit();
-        m_workerThread->wait(5000);
-        if (m_workerThread->isRunning()) {
+        if (!m_workerThread->wait(10000)) {  // Wait 10 seconds
+            qWarning() << "Operations_EncryptedData: Encryption worker thread failed to stop gracefully";
             m_workerThread->terminate();
-            m_workerThread->wait(1000);
+            m_workerThread->wait(2000);
         }
     }
 
@@ -181,12 +184,13 @@ Operations_EncryptedData::~Operations_EncryptedData()
     if (m_decryptWorkerThread && m_decryptWorkerThread->isRunning()) {
         if (m_decryptWorker) {
             m_decryptWorker->cancel();
+            disconnect(m_decryptWorker, nullptr, nullptr, nullptr);  // Disconnect all signals
         }
         m_decryptWorkerThread->quit();
-        m_decryptWorkerThread->wait(5000);
-        if (m_decryptWorkerThread->isRunning()) {
+        if (!m_decryptWorkerThread->wait(10000)) {  // Wait 10 seconds
+            qWarning() << "Operations_EncryptedData: Decryption worker thread failed to stop gracefully";
             m_decryptWorkerThread->terminate();
-            m_decryptWorkerThread->wait(1000);
+            m_decryptWorkerThread->wait(2000);
         }
     }
 
@@ -194,12 +198,13 @@ Operations_EncryptedData::~Operations_EncryptedData()
     if (m_tempDecryptWorkerThread && m_tempDecryptWorkerThread->isRunning()) {
         if (m_tempDecryptWorker) {
             m_tempDecryptWorker->cancel();
+            disconnect(m_tempDecryptWorker, nullptr, nullptr, nullptr);  // Disconnect all signals
         }
         m_tempDecryptWorkerThread->quit();
-        m_tempDecryptWorkerThread->wait(5000);
-        if (m_tempDecryptWorkerThread->isRunning()) {
+        if (!m_tempDecryptWorkerThread->wait(10000)) {  // Wait 10 seconds
+            qWarning() << "Operations_EncryptedData: Temp decryption worker thread failed to stop gracefully";
             m_tempDecryptWorkerThread->terminate();
-            m_tempDecryptWorkerThread->wait(1000);
+            m_tempDecryptWorkerThread->wait(2000);
         }
     }
 
@@ -207,12 +212,13 @@ Operations_EncryptedData::~Operations_EncryptedData()
     if (m_batchDecryptWorkerThread && m_batchDecryptWorkerThread->isRunning()) {
         if (m_batchDecryptWorker) {
             m_batchDecryptWorker->cancel();
+            disconnect(m_batchDecryptWorker, nullptr, nullptr, nullptr);  // Disconnect all signals
         }
         m_batchDecryptWorkerThread->quit();
-        m_batchDecryptWorkerThread->wait(5000);
-        if (m_batchDecryptWorkerThread->isRunning()) {
+        if (!m_batchDecryptWorkerThread->wait(10000)) {  // Wait 10 seconds
+            qWarning() << "Operations_EncryptedData: Batch decryption worker thread failed to stop gracefully";
             m_batchDecryptWorkerThread->terminate();
-            m_batchDecryptWorkerThread->wait(1000);
+            m_batchDecryptWorkerThread->wait(2000);
         }
     }
 
@@ -220,12 +226,13 @@ Operations_EncryptedData::~Operations_EncryptedData()
     if (m_secureDeletionWorkerThread && m_secureDeletionWorkerThread->isRunning()) {
         if (m_secureDeletionWorker) {
             m_secureDeletionWorker->cancel();
+            disconnect(m_secureDeletionWorker, nullptr, nullptr, nullptr);  // Disconnect all signals
         }
         m_secureDeletionWorkerThread->quit();
-        m_secureDeletionWorkerThread->wait(5000);
-        if (m_secureDeletionWorkerThread->isRunning()) {
+        if (!m_secureDeletionWorkerThread->wait(10000)) {  // Wait 10 seconds
+            qWarning() << "Operations_EncryptedData: Secure deletion worker thread failed to stop gracefully";
             m_secureDeletionWorkerThread->terminate();
-            m_secureDeletionWorkerThread->wait(1000);
+            m_secureDeletionWorkerThread->wait(2000);
         }
     }
 
@@ -293,20 +300,19 @@ Operations_EncryptedData::~Operations_EncryptedData()
         m_secureDeletionProgressDialog = nullptr;
     }
 
-    // Clean up metadata manager
-    if (m_metadataManager) {
-        delete m_metadataManager;
-        m_metadataManager = nullptr;
-    }
+    // Clean up metadata manager (handled automatically by unique_ptr)
+    m_metadataManager.reset();
 
     // Stop and clean up timers
     if (m_tagFilterDebounceTimer) {
         m_tagFilterDebounceTimer->stop();
+        disconnect(m_tagFilterDebounceTimer, nullptr, nullptr, nullptr);
         m_tagFilterDebounceTimer->deleteLater();
         m_tagFilterDebounceTimer = nullptr;
     }
     if (m_searchDebounceTimer) {
         m_searchDebounceTimer->stop();
+        disconnect(m_searchDebounceTimer, nullptr, nullptr, nullptr);
         m_searchDebounceTimer->deleteLater();
         m_searchDebounceTimer = nullptr;
     }
@@ -857,6 +863,8 @@ void Operations_EncryptedData::onDecryptionFinished(bool success, const QString&
 
     if (m_progressDialog) {
         m_progressDialog->close();
+        m_progressDialog->deleteLater();
+        m_progressDialog = nullptr;
     }
 
     if (m_decryptWorkerThread) {
@@ -1093,6 +1101,8 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
 
     if (m_progressDialog) {
         m_progressDialog->close();
+        m_progressDialog->deleteLater();
+        m_progressDialog = nullptr;
     }
 
     if (m_tempDecryptWorkerThread) {
@@ -1619,6 +1629,65 @@ QString Operations_EncryptedData::getTempDecryptDir()
     QString userPath = QDir(basePath).absoluteFilePath(m_mainWindow->user_Username);
     QString tempPath = QDir(userPath).absoluteFilePath("Temp");
     return QDir(tempPath).absoluteFilePath("tempdecrypt");
+}
+
+// ============================================================================
+// Icon and Thumbnail Management
+// ============================================================================
+QPixmap Operations_EncryptedData::getIconForFileType(const QString& originalFilename, const QString& fileType)
+{
+    if (!m_iconProvider) {
+        qWarning() << "Operations_EncryptedData: Icon provider not initialized";
+        // Return empty pixmap as fallback
+        return QPixmap();
+    }
+    
+    QPixmap icon;
+    int iconSize = EncryptedFileItemWidget::getIconSize();
+
+    if (fileType == "Video") {
+        icon = m_iconProvider->getDefaultVideoIcon(iconSize);
+    } else if (fileType == "Image") {
+        icon = m_iconProvider->getDefaultImageIcon(iconSize);
+    } else if (fileType == "Audio") {
+        icon = m_iconProvider->getDefaultAudioIcon(iconSize);
+    } else if (fileType == "Document") {
+        icon = m_iconProvider->getDefaultDocumentIcon(iconSize);
+    } else if (fileType == "Archive") {
+        icon = m_iconProvider->getDefaultArchiveIcon(iconSize);
+    } else {
+        // Default fallback
+        icon = m_iconProvider->getDefaultFileIcon(iconSize);
+    }
+
+    // If still null, create a basic pixmap as ultimate fallback
+    if (icon.isNull()) {
+        qWarning() << "Operations_EncryptedData: Failed to get icon for file type:" << fileType;
+        icon = QPixmap(iconSize, iconSize);
+        icon.fill(Qt::gray);
+    }
+
+    return icon;
+}
+
+void Operations_EncryptedData::cleanupImageViewerTracking()
+{
+    // This function would be called periodically to clean up null QPointers
+    // from m_openImageViewers map if such a map exists
+    // Note: Based on the code review, this appears to be in operations_diary.cpp
+    // not in operations_encrypteddata.cpp, but we add the stub here for completeness
+    
+    // If you have a m_openImageViewers member, uncomment and adapt:
+    /*
+    QMutableMapIterator<QString, QPointer<ImageViewer>> it(m_openImageViewers);
+    while (it.hasNext()) {
+        it.next();
+        if (it.value().isNull()) {
+            qDebug() << "Operations_EncryptedData: Removing null ImageViewer pointer for:" << it.key();
+            it.remove();
+        }
+    }
+    */
 }
 
 // ============================================================================
@@ -2254,7 +2323,7 @@ void Operations_EncryptedData::updateFileListDisplay()
         QFileInfo fileInfo(encryptedFilePath);
         QString fileTypeDir = fileInfo.dir().dirName();
 
-        EncryptedFileItemWidget* customWidget = new EncryptedFileItemWidget();
+        EncryptedFileItemWidget* customWidget = new EncryptedFileItemWidget(m_mainWindow->ui->listWidget_DataENC_FileList);
         customWidget->setFileInfo(metadata.filename, encryptedFilePath, fileTypeDir, metadata.tags);
 
         // Thumbnail logic with hiding settings
@@ -4351,30 +4420,6 @@ QString Operations_EncryptedData::generateUniqueFilenameInDirectory(const QStrin
 // ============================================================================
 // Icon and Thumbnail Management
 // ============================================================================
-QPixmap Operations_EncryptedData::getIconForFileType(const QString& originalFilename, const QString& fileType)
-{
-    QPixmap icon;
-
-    if (fileType == "Video") {
-        // For videos, check if we have a cached thumbnail first
-        // (This will be set during encryption process)
-        // For now, return default video icon - thumbnail will be loaded by lazy loading
-        icon = m_iconProvider->getDefaultVideoIcon(EncryptedFileItemWidget::getIconSize());
-    } else if (fileType == "Image") {
-        icon = m_iconProvider->getDefaultImageIcon(EncryptedFileItemWidget::getIconSize());
-    } else if (fileType == "Audio") {
-        icon = m_iconProvider->getDefaultAudioIcon(EncryptedFileItemWidget::getIconSize());
-    } else if (fileType == "Document") {
-        icon = m_iconProvider->getDefaultDocumentIcon(EncryptedFileItemWidget::getIconSize());
-    } else if (fileType == "Archive") {
-        icon = m_iconProvider->getDefaultArchiveIcon(EncryptedFileItemWidget::getIconSize());
-    } else {
-        icon = m_iconProvider->getDefaultFileIcon(EncryptedFileItemWidget::getIconSize());
-    }
-
-    return icon;
-}
-
 void Operations_EncryptedData::clearThumbnailCache()
 {
     m_thumbnailCache.clear();
