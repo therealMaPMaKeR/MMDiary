@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QTime>
+#include <QPointer>
 #include "../../mainwindow.h"
 #include "operations.h"
 #include "inputvalidation.h"
@@ -14,7 +15,8 @@ class Operations_TaskLists : public QObject
     Q_OBJECT
     
 private:
-    MainWindow* m_mainWindow;
+    // SECURITY: Use QPointer for automatic null checking when MainWindow is destroyed
+    QPointer<MainWindow> m_mainWindow;
     
     // Task manipulation helper functions
     bool checkDuplicateTaskName(const QString& taskName, const QString& taskListFilePath, const QString& currentTaskId = QString());

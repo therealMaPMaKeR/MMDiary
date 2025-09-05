@@ -11,6 +11,7 @@
 #include <QAbstractButton>
 #include <QTimer>
 #include <QProcess>
+#include <QPointer>
 #include "../../mainwindow.h"
 #include "operations.h"
 #include "inputvalidation.h"
@@ -135,7 +136,8 @@ protected:
 
 private:
     // Member variables
-    MainWindow* m_mainWindow;
+    // SECURITY: Use QPointer for automatic null checking when MainWindow is destroyed
+    QPointer<MainWindow> m_mainWindow;
     std::unique_ptr<EncryptedFileMetadata> m_metadataManager;
     FileIconProvider* m_iconProvider;
 
