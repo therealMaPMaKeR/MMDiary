@@ -271,8 +271,26 @@ Operations_TaskLists::~Operations_TaskLists()
 {
     qDebug() << "Operations_TaskLists: Destructor called";
     
-    // Remove event filters
+    // Clear pointer references first to prevent use during destruction
+    m_lastClickedWidget = nullptr;
+    m_lastClickedItem = nullptr;
+    
+    // Disconnect all signals to prevent callbacks during destruction
+    this->disconnect();
+    
+    // Stop and delete the timer first
+    if (m_descriptionSaveTimer) {
+        m_descriptionSaveTimer->stop();
+        m_descriptionSaveTimer->disconnect();
+        // Timer is parented to this, will be auto-deleted
+        m_descriptionSaveTimer = nullptr;
+    }
+    
+    // Remove event filters with proper null checks
+    // Since this object is parented to MainWindow, MainWindow and its UI
+    // should still be valid when this destructor runs
     if (m_mainWindow && m_mainWindow->ui) {
+        // Remove event filters from each widget if it exists
         if (m_mainWindow->ui->plainTextEdit_TaskDesc) {
             m_mainWindow->ui->plainTextEdit_TaskDesc->removeEventFilter(this);
         }
@@ -287,12 +305,12 @@ Operations_TaskLists::~Operations_TaskLists()
         }
     }
     
-    // Delete the timer
-    if (m_descriptionSaveTimer) {
-        m_descriptionSaveTimer->stop();
-        delete m_descriptionSaveTimer;
-        m_descriptionSaveTimer = nullptr;
-    }
+    // Clear any sensitive string data
+    TaskDataSecurity::secureStringClear(currentTaskToEdit);
+    TaskDataSecurity::secureStringClear(currentTaskData);
+    TaskDataSecurity::secureStringClear(m_currentTaskName);
+    TaskDataSecurity::secureStringClear(m_lastSavedDescription);
+    TaskDataSecurity::secureStringClear(currentTaskListBeingRenamed);
 }
 
 //--------Event Filters and Helpers--------//
@@ -358,15 +376,35 @@ void Operations_TaskLists::onTaskListItemDoubleClicked(QListWidgetItem* item)
 {
     if (!item) return;
     
+    QListWidget* listWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    
+    // Validate item still exists in the list
+    bool itemExists = false;
+    int itemRow = -1;
+    for (int i = 0; i < listWidget->count(); ++i) {
+        if (listWidget->item(i) == item) {
+            itemExists = true;
+            itemRow = i;
+            break;
+        }
+    }
+    
+    if (!itemExists) return;
+    
     currentTaskListBeingRenamed = item->text();
     item->setFlags(item->flags() | Qt::ItemIsEditable);
-    m_mainWindow->ui->listWidget_TaskList_List->editItem(item);
+    listWidget->editItem(item);
     
-    connect(m_mainWindow->ui->listWidget_TaskList_List, &QListWidget::itemChanged, this,
-            [this, item](QListWidgetItem* changedItem) {
-                if (changedItem == item) {
-                    disconnect(m_mainWindow->ui->listWidget_TaskList_List, &QListWidget::itemChanged, this, nullptr);
-                    RenameTasklist(item);
+    // Use a single-shot connection to avoid memory leaks
+    QMetaObject::Connection* conn = new QMetaObject::Connection();
+    *conn = connect(listWidget, &QListWidget::itemChanged, this,
+            [this, listWidget, itemRow, conn](QListWidgetItem* changedItem) {
+                // Validate the item at the row is the one that changed
+                if (itemRow >= 0 && itemRow < listWidget->count() &&
+                    listWidget->item(itemRow) == changedItem) {
+                    disconnect(*conn);
+                    delete conn;
+                    RenameTasklist(changedItem);
                 }
             });
 }
@@ -385,6 +423,31 @@ void Operations_TaskLists::onTaskDisplayItemDoubleClicked(QListWidgetItem* item)
 void Operations_TaskLists::handleDeleteKeyPress()
 {
     if (!m_lastClickedWidget || !m_lastClickedItem) return;
+    
+    // Validate that the widget still exists and contains the item
+    QListWidget* listWidget = qobject_cast<QListWidget*>(m_lastClickedWidget);
+    if (!listWidget) {
+        m_lastClickedWidget = nullptr;
+        m_lastClickedItem = nullptr;
+        return;
+    }
+    
+    // Find the item in the widget to ensure it's still valid
+    bool itemStillExists = false;
+    for (int i = 0; i < listWidget->count(); ++i) {
+        if (listWidget->item(i) == m_lastClickedItem) {
+            itemStillExists = true;
+            break;
+        }
+    }
+    
+    if (!itemStillExists) {
+        m_lastClickedWidget = nullptr;
+        m_lastClickedItem = nullptr;
+        return;
+    }
+    
+    // Now safe to check flags
     if ((m_lastClickedItem->flags() & Qt::ItemIsEnabled) == 0) return;
     
     if (m_lastClickedWidget == m_mainWindow->ui->listWidget_TaskList_List) {
@@ -2038,7 +2101,18 @@ void Operations_TaskLists::showContextMenu_TaskListDisplay(const QPoint &pos)
     QAction* editTaskAction = contextMenu.addAction("Edit Task");
     QAction* deleteTaskAction = contextMenu.addAction("Delete Task");
     
-    if (!item || (item->flags() & Qt::ItemIsEnabled) == 0) {
+    // Store task data safely before capturing
+    QString taskName;
+    QString taskData;
+    bool hasValidItem = false;
+    
+    if (item && (item->flags() & Qt::ItemIsEnabled)) {
+        taskName = item->text();
+        taskData = item->data(Qt::UserRole).toString();
+        hasValidItem = true;
+        editTaskAction->setEnabled(true);
+        deleteTaskAction->setEnabled(true);
+    } else {
         editTaskAction->setEnabled(false);
         deleteTaskAction->setEnabled(false);
     }
@@ -2047,18 +2121,19 @@ void Operations_TaskLists::showContextMenu_TaskListDisplay(const QPoint &pos)
         ShowTaskMenu(false);
     });
     
-    connect(editTaskAction, &QAction::triggered, this, [this, item]() {
-        if (item) {
-            currentTaskToEdit = item->text();
-            currentTaskData = item->data(Qt::UserRole).toString();
-            m_currentTaskName = item->text();
+    // Capture by value to avoid dangling pointer
+    connect(editTaskAction, &QAction::triggered, this, [this, taskName, taskData, hasValidItem]() {
+        if (hasValidItem) {
+            currentTaskToEdit = taskName;
+            currentTaskData = taskData;
+            m_currentTaskName = taskName;
             ShowTaskMenu(true);
         }
     });
     
-    connect(deleteTaskAction, &QAction::triggered, this, [this, item]() {
-        if (item) {
-            DeleteTask(item->text());
+    connect(deleteTaskAction, &QAction::triggered, this, [this, taskName, hasValidItem]() {
+        if (hasValidItem) {
+            DeleteTask(taskName);
         }
     });
     
@@ -2076,26 +2151,44 @@ void Operations_TaskLists::showContextMenu_TaskListList(const QPoint &pos)
     QAction* renameTaskListAction = contextMenu.addAction("Rename Tasklist");
     QAction* deleteTaskListAction = contextMenu.addAction("Delete Tasklist");
     
-    if (!item) {
+    // Store item index instead of pointer for safety
+    int itemRow = -1;
+    QString itemText;
+    bool hasValidItem = false;
+    
+    if (item) {
+        itemRow = taskListWidget->row(item);
+        itemText = item->text();
+        hasValidItem = true;
+        renameTaskListAction->setEnabled(true);
+        deleteTaskListAction->setEnabled(true);
+    } else {
         renameTaskListAction->setEnabled(false);
         deleteTaskListAction->setEnabled(false);
     }
     
     connect(newTaskListAction, &QAction::triggered, this, &Operations_TaskLists::CreateNewTaskList);
     
-    connect(renameTaskListAction, &QAction::triggered, this, [this, item, taskListWidget]() {
-        if (item) {
-            currentTaskListBeingRenamed = item->text();
-            item->setFlags(item->flags() | Qt::ItemIsEditable);
-            taskListWidget->editItem(item);
-            
-            connect(taskListWidget, &QListWidget::itemChanged, this,
-                    [this, taskListWidget, item](QListWidgetItem* changedItem) {
-                        if (changedItem == item) {
-                            disconnect(taskListWidget, &QListWidget::itemChanged, this, nullptr);
-                            RenameTasklist(item);
-                        }
-                    });
+    // Capture row index instead of item pointer
+    connect(renameTaskListAction, &QAction::triggered, this, [this, itemRow, itemText, taskListWidget]() {
+        if (itemRow >= 0 && itemRow < taskListWidget->count()) {
+            QListWidgetItem* currentItem = taskListWidget->item(itemRow);
+            if (currentItem && currentItem->text() == itemText) {
+                currentTaskListBeingRenamed = currentItem->text();
+                currentItem->setFlags(currentItem->flags() | Qt::ItemIsEditable);
+                taskListWidget->editItem(currentItem);
+                
+                // Create a single-shot connection for rename completion
+                QMetaObject::Connection* conn = new QMetaObject::Connection();
+                *conn = connect(taskListWidget, &QListWidget::itemChanged, this,
+                        [this, taskListWidget, itemRow, conn](QListWidgetItem* changedItem) {
+                            if (taskListWidget->item(itemRow) == changedItem) {
+                                disconnect(*conn);
+                                delete conn;
+                                RenameTasklist(changedItem);
+                            }
+                        });
+            }
         }
     });
     

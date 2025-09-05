@@ -9,6 +9,7 @@
 #include <QDragMoveEvent>
 #include <QDebug>
 #include <QPointer>
+#include <QUuid>
 
 class qlist_TasklistDisplay : public QListWidget
 {
@@ -18,7 +19,8 @@ public:
     explicit qlist_TasklistDisplay(QWidget *parent = nullptr) : QListWidget(parent),
         m_checkboxWidth(25),
         m_lastClickedItem(nullptr),
-        m_lastClickedRow(-1) {
+        m_lastClickedRow(-1),
+        m_lastClickedItemId() {
         qDebug() << "qlist_TasklistDisplay: Constructor called";
         // Enable drag and drop by default
         setDragEnabled(true);
@@ -33,9 +35,12 @@ public:
     
     ~qlist_TasklistDisplay() {
         qDebug() << "qlist_TasklistDisplay: Destructor called";
+        // Disconnect all signals to prevent callbacks during destruction
+        this->disconnect();
         // Clear tracked item pointer
         m_lastClickedItem = nullptr;
         m_lastClickedRow = -1;
+        m_lastClickedItemId.clear();
     }
 
     void setCheckboxWidth(int width) {
@@ -66,9 +71,12 @@ protected:
         if (clickedItem) {
             m_lastClickedItem = clickedItem;
             m_lastClickedRow = row(clickedItem);  // Store row index as backup
+            m_lastClickedItemId = QUuid::createUuid().toString();  // Generate unique ID
+            clickedItem->setData(Qt::UserRole + 100, m_lastClickedItemId);  // Store ID in item
         } else {
             m_lastClickedItem = nullptr;
             m_lastClickedRow = -1;
+            m_lastClickedItemId.clear();
         }
 
         // Pass the event to base class
@@ -88,13 +96,15 @@ protected:
 
         // Validate that the item still exists and matches what we clicked
         bool isSameItem = false;
-        if (item && m_lastClickedItem) {
-            // Check if it's the same item by comparing both pointer and row
-            if (item == m_lastClickedItem || 
-                (m_lastClickedRow >= 0 && m_lastClickedRow < count() && 
-                 this->item(m_lastClickedRow) == item)) {
-                isSameItem = true;
-            }
+        if (item && m_lastClickedItem && isItemValid(item)) {
+            // Check if it's the same item using multiple validation methods
+            bool pointerMatch = (item == m_lastClickedItem);
+            bool rowMatch = (m_lastClickedRow >= 0 && m_lastClickedRow < count() && 
+                            this->item(m_lastClickedRow) == item);
+            bool idMatch = (!m_lastClickedItemId.isEmpty() && 
+                           item->data(Qt::UserRole + 100).toString() == m_lastClickedItemId);
+            
+            isSameItem = (pointerMatch || rowMatch) && idMatch;
         }
         
         // If double-clicking on the same item as the first click
@@ -153,14 +163,27 @@ private slots:
             qDebug() << "qlist_TasklistDisplay: Tracked item is being removed, clearing reference";
             m_lastClickedItem = nullptr;
             m_lastClickedRow = -1;
+            m_lastClickedItemId.clear();
         }
     }
 
 private:
     int m_checkboxWidth;  // Width of the checkbox detection area
     QPoint m_lastClickPos;  // Position of the last click
-    QListWidgetItem* m_lastClickedItem;  // Item of the last click (raw pointer, validated before use)
+    QListWidgetItem* m_lastClickedItem;  // Pointer to last clicked item (validated before use)
     int m_lastClickedRow;  // Row index of last clicked item (for validation)
+    QString m_lastClickedItemId;  // Unique ID for additional validation
+    
+    // Helper method to validate item still exists
+    bool isItemValid(QListWidgetItem* item) const {
+        if (!item) return false;
+        for (int i = 0; i < count(); ++i) {
+            if (this->item(i) == item) {
+                return true;
+            }
+        }
+        return false;
+    }
 };
 
 #endif // QLIST_TASKLISTDISPLAY_H
