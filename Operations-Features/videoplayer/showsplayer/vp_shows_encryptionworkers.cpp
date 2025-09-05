@@ -12,6 +12,22 @@
 #include <QImage>
 #include <QBuffer>
 #include <QSet>
+#include <QReadLocker>
+#include <QWriteLocker>
+#include <memory>
+
+// RAII wrapper for file operations
+class FileGuard {
+public:
+    FileGuard(QFile* file) : m_file(file) {}
+    ~FileGuard() {
+        if (m_file && m_file->isOpen()) {
+            m_file->close();
+        }
+    }
+private:
+    QFile* m_file;
+};
 
 //---------------- VP_ShowsEncryptionWorker ----------------//
 
@@ -39,6 +55,8 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
     , m_customDescription(customDescription)
     , m_parseMode(parseMode)
     , m_tmdbDataAvailable(false)
+    , m_metadataManager(nullptr)
+    , m_tmdbManager(nullptr)
 {
     qDebug() << "VP_ShowsEncryptionWorker: Constructor called for" << sourceFiles.size() << "files";
     qDebug() << "VP_ShowsEncryptionWorker: Using TMDB:" << useTMDB;
@@ -46,6 +64,8 @@ VP_ShowsEncryptionWorker::VP_ShowsEncryptionWorker(const QStringList& sourceFile
     qDebug() << "VP_ShowsEncryptionWorker: Has custom description:" << !customDescription.isEmpty();
     qDebug() << "VP_ShowsEncryptionWorker: Parse mode:" << (parseMode == ParseFromFolder ? "Folder" : "File");
     
+    // Initialize pointers with thread safety
+    QMutexLocker pointerLock(&m_pointerMutex);
     m_metadataManager = new VP_ShowsMetadata(encryptionKey, username);
     m_tmdbManager = new VP_ShowsTMDB(this);
     
@@ -70,11 +90,17 @@ VP_ShowsEncryptionWorker::~VP_ShowsEncryptionWorker()
     // Clean up temp directory
     VP_ShowsConfig::cleanupTempDirectory(m_username);
     
+    // Thread-safe cleanup of pointers
+    QMutexLocker pointerLock(&m_pointerMutex);
     if (m_metadataManager) {
         delete m_metadataManager;
         m_metadataManager = nullptr;
     }
     if (m_tmdbManager) {
+        // Disconnect all signals before deletion
+        if (QThread::currentThread() != thread()) {
+            m_tmdbManager->disconnect();
+        }
         delete m_tmdbManager;
         m_tmdbManager = nullptr;
     }
@@ -220,26 +246,33 @@ bool VP_ShowsEncryptionWorker::encryptSingleFile(const QString& sourceFile,
         qDebug() << "VP_ShowsEncryptionWorker: Failed to open source file:" << source.errorString();
         return false;
     }
+    FileGuard sourceGuard(&source);  // RAII - ensures file closes on any exit path
     
     QFile target(targetFile);
     if (!target.open(QIODevice::WriteOnly)) {
         qDebug() << "VP_ShowsEncryptionWorker: Failed to open target file:" << target.errorString();
-        source.close();
         return false;
     }
+    FileGuard targetGuard(&target);  // RAII - ensures file closes on any exit path
     
     // Create metadata for this file with TMDB data if available
     QFileInfo fileInfo(sourceFile);
     QString folderName = fileInfo.dir().dirName();  // Get immediate parent folder name
     VP_ShowsMetadata::ShowMetadata metadata = createMetadataWithTMDB(fileInfo.fileName(), folderName);
     
-    // Write metadata header (fixed size)
-    if (!m_metadataManager->writeFixedSizeEncryptedMetadata(&target, metadata)) {
-        qDebug() << "VP_ShowsEncryptionWorker: Failed to write metadata";
-        source.close();
-        target.close();
-        target.remove();
-        return false;
+    // Write metadata header (fixed size) - check pointer validity
+    {
+        QMutexLocker pointerLock(&m_pointerMutex);
+        if (!m_metadataManager) {
+            qDebug() << "VP_ShowsEncryptionWorker: Metadata manager is null";
+            target.remove();
+            return false;
+        }
+        if (!m_metadataManager->writeFixedSizeEncryptedMetadata(&target, metadata)) {
+            qDebug() << "VP_ShowsEncryptionWorker: Failed to write metadata";
+            target.remove();
+            return false;
+        }
     }
     
     // Encrypt file content in chunks
@@ -331,42 +364,86 @@ bool VP_ShowsEncryptionWorker::fetchTMDBShowData()
         return false;
     }
     
-    // Search for the show on TMDB
-    bool success = m_tmdbManager->searchTVShow(m_showName, m_showInfo);
+    // Search for the show on TMDB with thread-safe pointer access
+    bool success = false;
+    {
+        QMutexLocker pointerLock(&m_pointerMutex);
+        if (!m_tmdbManager) {
+            qDebug() << "VP_ShowsEncryptionWorker: TMDB manager is null";
+            return false;
+        }
+        
+        // Get show info into a temporary variable first
+        VP_ShowsTMDB::ShowInfo tempShowInfo;
+        success = m_tmdbManager->searchTVShow(m_showName, tempShowInfo);
+        
+        if (success) {
+            // Write lock for updating shared data
+            QWriteLocker dataLock(&m_dataLock);
+            m_showInfo = tempShowInfo;
+        }
+    }
     
     if (success) {
+        // Read lock to access show info safely
+        QReadLocker dataLock(&m_dataLock);
         qDebug() << "VP_ShowsEncryptionWorker: Found TMDB data for show:" << m_showInfo.showName;
+        int tmdbId = m_showInfo.tmdbId;
+        dataLock.unlock();
         
         // Build the episode map for absolute numbering support
-        if (m_showInfo.tmdbId > 0) {
+        if (tmdbId > 0) {
             qDebug() << "VP_ShowsEncryptionWorker: Building episode map for absolute numbering...";
-            m_episodeMap = m_tmdbManager->buildEpisodeMap(m_showInfo.tmdbId);
-            qDebug() << "VP_ShowsEncryptionWorker: Episode map built with" << m_episodeMap.size() << "episodes";
             
-            // Fetch movie titles for content detection
-            m_movieTitles = m_tmdbManager->getShowMovieTitles(m_showInfo.tmdbId);
-            if (!m_movieTitles.isEmpty()) {
-                qDebug() << "VP_ShowsEncryptionWorker: Found" << m_movieTitles.size() << "related movies";
+            QMutexLocker pointerLock(&m_pointerMutex);
+            if (!m_tmdbManager) {
+                qDebug() << "VP_ShowsEncryptionWorker: TMDB manager became null";
+                return false;
+            }
+            
+            auto tempEpisodeMap = m_tmdbManager->buildEpisodeMap(tmdbId);
+            auto tempMovieTitles = m_tmdbManager->getShowMovieTitles(tmdbId);
+            pointerLock.unlock();
+            
+            // Write lock to update shared data
+            QWriteLocker writeDataLock(&m_dataLock);
+            m_episodeMap = tempEpisodeMap;
+            m_movieTitles = tempMovieTitles;
+            writeDataLock.unlock();
+            
+            qDebug() << "VP_ShowsEncryptionWorker: Episode map built with" << tempEpisodeMap.size() << "episodes";
+            if (!tempMovieTitles.isEmpty()) {
+                qDebug() << "VP_ShowsEncryptionWorker: Found" << tempMovieTitles.size() << "related movies";
             }
             
             // Fetch OVA/special titles from Season 0 that are likely actual OVAs
             // Only include titles with OVA/OAD keywords to avoid false matches
-            QList<VP_ShowsTMDB::EpisodeInfo> specials = m_tmdbManager->getShowSpecials(m_showInfo.tmdbId);
-            for (const auto& special : specials) {
-                if (!special.episodeName.isEmpty()) {
-                    QString lowerName = special.episodeName.toLower();
-                    // Only add if it has OVA/OAD indicators or is clearly a special
-                    if (lowerName.contains("ova") || lowerName.contains("oad") || 
-                        lowerName.contains("special") || lowerName.contains("short") ||
-                        lowerName.contains("bonus") || lowerName.contains("extra")) {
-                        m_ovaTitles.append(special.episodeName);
-                        qDebug() << "VP_ShowsEncryptionWorker: Added OVA/Special for matching:" << special.episodeName;
+            QMutexLocker pointerLock2(&m_pointerMutex);  // Different name to avoid redefinition
+            if (m_tmdbManager) {
+                QList<VP_ShowsTMDB::EpisodeInfo> specials = m_tmdbManager->getShowSpecials(tmdbId);
+                pointerLock2.unlock();
+                
+                QStringList tempOvaTitles;
+                for (const auto& special : specials) {
+                    if (!special.episodeName.isEmpty()) {
+                        QString lowerName = special.episodeName.toLower();
+                        // Only add if it has OVA/OAD indicators or is clearly a special
+                        if (lowerName.contains("ova") || lowerName.contains("oad") || 
+                            lowerName.contains("special") || lowerName.contains("short") ||
+                            lowerName.contains("bonus") || lowerName.contains("extra")) {
+                            tempOvaTitles.append(special.episodeName);
+                            qDebug() << "VP_ShowsEncryptionWorker: Added OVA/Special for matching:" << special.episodeName;
+                        }
                     }
                 }
-            }
-            
-            if (!m_ovaTitles.isEmpty()) {
-                qDebug() << "VP_ShowsEncryptionWorker: Found" << m_ovaTitles.size() << "special/OVA titles for matching";
+                
+                // Update shared data with write lock
+                if (!tempOvaTitles.isEmpty()) {
+                    QWriteLocker writeDataLock(&m_dataLock);
+                    m_ovaTitles.append(tempOvaTitles);
+                    writeDataLock.unlock();
+                    qDebug() << "VP_ShowsEncryptionWorker: Found" << tempOvaTitles.size() << "special/OVA titles for matching";
+                }
             }
         }
     } else {
@@ -383,8 +460,15 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
         return false;
     }
     
+    // Get show info safely
+    VP_ShowsTMDB::ShowInfo safeShowInfo;
+    {
+        QReadLocker dataLock(&m_dataLock);
+        safeShowInfo = m_showInfo;
+    }
+    
     // Save show description if available
-    if (!m_showInfo.overview.isEmpty()) {
+    if (!safeShowInfo.overview.isEmpty()) {
         // Generate the obfuscated folder name
         QDir showDir(targetFolder);
         QString obfuscatedName = showDir.dirName();
@@ -394,7 +478,7 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
         QString descFilePath = showDir.absoluteFilePath(descFileName);
         
         // Encrypt and save the description
-        bool descSaved = OperationsFiles::writeEncryptedFile(descFilePath, m_encryptionKey, m_showInfo.overview);
+        bool descSaved = OperationsFiles::writeEncryptedFile(descFilePath, m_encryptionKey, safeShowInfo.overview);
         
         if (descSaved) {
             qDebug() << "VP_ShowsEncryptionWorker: Successfully saved show description";
@@ -404,7 +488,7 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
     }
     
     // Save show image if available
-    if (m_showInfo.posterPath.isEmpty()) {
+    if (safeShowInfo.posterPath.isEmpty()) {
         qDebug() << "VP_ShowsEncryptionWorker: No show poster available";
         return true; // Not an error, description might have been saved
     }
@@ -419,8 +503,16 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
     // Use consistent naming pattern for cleanup
     QString tempImagePath = tempDir + "/temp_show_poster_" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".jpg";
     
-    // Download the poster
-    if (!m_tmdbManager->downloadImage(m_showInfo.posterPath, tempImagePath, true)) {
+    // Download the poster with thread-safe pointer access
+    bool downloadSuccess = false;
+    {
+        QMutexLocker pointerLock(&m_pointerMutex);
+        if (m_tmdbManager) {
+            downloadSuccess = m_tmdbManager->downloadImage(safeShowInfo.posterPath, tempImagePath, true);
+        }
+    }
+    
+    if (!downloadSuccess) {
         qDebug() << "VP_ShowsEncryptionWorker: Failed to download show poster";
         return false;
     }
@@ -466,7 +558,11 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
     // Securely delete the temp file (set allowExternalFiles to true for temp files)
     OperationsFiles::secureDelete(tempImagePath, 3, true);
     
-    m_showImagePath = encryptedImagePath;
+    // Thread-safe update of show image path
+    {
+        QWriteLocker dataLock(&m_dataLock);
+        m_showImagePath = encryptedImagePath;
+    }
     qDebug() << "VP_ShowsEncryptionWorker: Successfully encrypted show image to:" << encryptedImagePath;
     
     return true;
@@ -564,7 +660,15 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
             }
         } else {
             // Only detect content type for files without valid episode numbers
-            metadata.contentType = VP_ShowsMetadata::detectContentType(filename, m_movieTitles, m_ovaTitles);
+            // Need thread-safe access to movie/OVA titles
+            QStringList safeMovieTitles;
+            QStringList safeOvaTitles;
+            {
+                QReadLocker dataLock(&m_dataLock);
+                safeMovieTitles = m_movieTitles;
+                safeOvaTitles = m_ovaTitles;
+            }
+            metadata.contentType = VP_ShowsMetadata::detectContentType(filename, safeMovieTitles, safeOvaTitles);
             qDebug() << "VP_ShowsEncryptionWorker: No valid episode numbers - auto-detected content type:" 
                      << metadata.contentType << "(" << metadata.getContentTypeString() << ")";
         }
@@ -602,14 +706,16 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
         
         // Not a duplicate, add to processed set
         QString episodeKey;
-        if (season == 0 && m_episodeMap.contains(episode)) {
-            // For absolute numbering, use the actual season/episode from the map
-            const VP_ShowsTMDB::EpisodeMapping& mapping = m_episodeMap[episode];
-            episodeKey = QString("S%1E%2_%3_%4")
-                .arg(mapping.season, 2, 10, QChar('0'))
-                .arg(mapping.episode, 2, 10, QChar('0'))
-                .arg(m_language)
-                .arg(m_translation);
+        if (season == 0) {
+            QReadLocker dataLock(&m_dataLock);
+            if (m_episodeMap.contains(episode)) {
+                // For absolute numbering, use the actual season/episode from the map
+                const VP_ShowsTMDB::EpisodeMapping& mapping = m_episodeMap[episode];
+                episodeKey = QString("S%1E%2_%3_%4")
+                    .arg(mapping.season, 2, 10, QChar('0'))
+                    .arg(mapping.episode, 2, 10, QChar('0'))
+                    .arg(m_language)
+                    .arg(m_translation);
             
             // Check if the mapped season determines content type
             if (mapping.season == 0) {
@@ -623,6 +729,14 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                          << "mapped to S" << mapping.season << "E" << mapping.episode 
                          << "- confirming as Regular episode";
             }
+            } else {
+                dataLock.unlock();
+                episodeKey = QString("S%1E%2_%3_%4")
+                    .arg(season, 2, 10, QChar('0'))
+                    .arg(episode, 2, 10, QChar('0'))
+                    .arg(m_language)
+                    .arg(m_translation);
+            }
         } else {
             episodeKey = QString("S%1E%2_%3_%4")
                 .arg(season, 2, 10, QChar('0'))
@@ -630,7 +744,11 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 .arg(m_language)
                 .arg(m_translation);
         }
+        
+        // Thread-safe insertion into processed episodes set
+        QMutexLocker episodesLock(&m_episodesMutex);
         m_processedEpisodes.insert(episodeKey);
+        episodesLock.unlock();
         
         qDebug() << "VP_ShowsEncryptionWorker: Final content type before saving:" 
                  << metadata.contentType << "(" << metadata.getContentTypeString() << ")";
@@ -662,6 +780,7 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
             
             if (season == 0 && episode > 0) {
                 // This is absolute numbering - use our episode map to convert
+                QReadLocker dataLock(&m_dataLock);
                 if (m_episodeMap.contains(episode)) {
                     // We have a mapping for this episode!
                     const VP_ShowsTMDB::EpisodeMapping& mapping = m_episodeMap[episode];
@@ -681,9 +800,11 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                         qDebug() << "VP_ShowsEncryptionWorker: Got air date from map:" << metadata.airDate;
                     }
                 } else {
+                    int mapSize = m_episodeMap.size();
+                    dataLock.unlock();
                     // No mapping found - use a fallback calculation
                     qDebug() << "VP_ShowsEncryptionWorker: No mapping for absolute episode" << episode 
-                             << "in map of" << m_episodeMap.size() << "episodes";
+                             << "in map of" << mapSize << "episodes";
                     
                     // Fallback: estimate based on common patterns
                     const int episodesPerSeason = 26;
@@ -699,7 +820,22 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
             // If we already have both name and airDate from the map, skip the API call
             bool needToFetchEpisodeInfo = metadata.EPName.isEmpty() || metadata.airDate.isEmpty();
             
-            if (needToFetchEpisodeInfo && m_tmdbManager->getEpisodeInfo(m_showInfo.tmdbId, tmdbSeason, tmdbEpisode, episodeInfo)) {
+            // Get TMDB ID safely
+            int tmdbId = 0;
+            {
+                QReadLocker dataLock(&m_dataLock);
+                tmdbId = m_showInfo.tmdbId;
+            }
+            
+            bool episodeInfoFetched = false;
+            if (needToFetchEpisodeInfo) {
+                QMutexLocker pointerLock(&m_pointerMutex);
+                if (m_tmdbManager) {
+                    episodeInfoFetched = m_tmdbManager->getEpisodeInfo(tmdbId, tmdbSeason, tmdbEpisode, episodeInfo);
+                }
+            }
+            
+            if (episodeInfoFetched) {
                 metadata.EPName = episodeInfo.episodeName;
                 metadata.EPDescription = episodeInfo.overview;  // Store the episode description from TMDB
                 metadata.airDate = episodeInfo.airDate;  // Store the air date from TMDB
@@ -710,11 +846,20 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                     // Use consistent naming pattern with unique identifier for cleanup
                     QString tempThumbPath = tempDir + "/temp_episode_thumb_" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".jpg";
                     
-                    if (m_tmdbManager->downloadImage(episodeInfo.stillPath, tempThumbPath, false)) {
+                    // Thread-safe download
+                    bool thumbDownloaded = false;
+                    {
+                        QMutexLocker pointerLock3(&m_pointerMutex);  // Different name to avoid conflicts
+                        if (m_tmdbManager) {
+                            thumbDownloaded = m_tmdbManager->downloadImage(episodeInfo.stillPath, tempThumbPath, false);
+                        }
+                    }
+                    
+                    if (thumbDownloaded) {
                         QFile thumbFile(tempThumbPath);
                         if (thumbFile.open(QIODevice::ReadOnly)) {
+                            FileGuard thumbGuard(&thumbFile);  // RAII
                             QByteArray thumbData = thumbFile.readAll();
-                            thumbFile.close();
                             
                             // Scale to 128x128
                             QByteArray scaledThumb = VP_ShowsTMDB::scaleImageToSize(thumbData, 128, 128);
@@ -733,9 +878,9 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                 
                 qDebug() << "VP_ShowsEncryptionWorker: Added TMDB episode data:" << metadata.EPName 
                          << "Air date:" << metadata.airDate;
-            } else {
+            } else if (needToFetchEpisodeInfo) {
                 qDebug() << "VP_ShowsEncryptionWorker: Failed to get TMDB episode info for S" << tmdbSeason << "E" << tmdbEpisode;
-                qDebug() << "VP_ShowsEncryptionWorker: TMDB ID:" << m_showInfo.tmdbId << "Original absolute episode:" << episode;
+                qDebug() << "VP_ShowsEncryptionWorker: TMDB ID:" << tmdbId << "Original absolute episode:" << episode;
             }
         } else {
             qDebug() << "VP_ShowsEncryptionWorker: TMDB data not available or invalid show ID";
@@ -841,14 +986,25 @@ bool VP_ShowsEncryptionWorker::checkForDuplicateEpisode(int season, int episode,
     QString episodeKey;
     
     // For absolute numbering (season == 0), we need to check against the actual season/episode mapping
-    if (season == 0 && m_episodeMap.contains(episode)) {
-        // Use the actual season/episode from the map for the key
-        const VP_ShowsTMDB::EpisodeMapping& mapping = m_episodeMap[episode];
-        episodeKey = QString("S%1E%2_%3_%4")
-            .arg(mapping.season, 2, 10, QChar('0'))
-            .arg(mapping.episode, 2, 10, QChar('0'))
-            .arg(language)
-            .arg(translation);
+    if (season == 0) {
+        QReadLocker dataLock(&m_dataLock);
+        if (m_episodeMap.contains(episode)) {
+            // Use the actual season/episode from the map for the key
+            const VP_ShowsTMDB::EpisodeMapping& mapping = m_episodeMap[episode];
+            episodeKey = QString("S%1E%2_%3_%4")
+                .arg(mapping.season, 2, 10, QChar('0'))
+                .arg(mapping.episode, 2, 10, QChar('0'))
+                .arg(language)
+                .arg(translation);
+        } else {
+            dataLock.unlock();
+            // Create the episode key with language and translation
+            episodeKey = QString("S%1E%2_%3_%4")
+                .arg(season, 2, 10, QChar('0'))
+                .arg(episode, 2, 10, QChar('0'))
+                .arg(language)
+                .arg(translation);
+        }
     } else {
         // Create the episode key with language and translation
         episodeKey = QString("S%1E%2_%3_%4")
@@ -859,6 +1015,7 @@ bool VP_ShowsEncryptionWorker::checkForDuplicateEpisode(int season, int episode,
     }
     
     // Check if this episode already exists in the target folder or was already processed in this batch
+    QMutexLocker episodesLock(&m_episodesMutex);
     return m_existingEpisodes.contains(episodeKey) || m_processedEpisodes.contains(episodeKey);
 }
 
@@ -866,8 +1023,10 @@ void VP_ShowsEncryptionWorker::loadExistingEpisodes()
 {
     qDebug() << "VP_ShowsEncryptionWorker: Loading existing episodes to detect duplicates";
     
+    QMutexLocker episodesLock(&m_episodesMutex);
     m_existingEpisodes.clear();
     m_processedEpisodes.clear();
+    episodesLock.unlock();
     
     // Get the target folder from the first target file
     if (m_targetFiles.isEmpty()) {
@@ -899,7 +1058,16 @@ void VP_ShowsEncryptionWorker::loadExistingEpisodes()
         QString filePath = targetDir.absoluteFilePath(existingFile);
         VP_ShowsMetadata::ShowMetadata existingMetadata;
         
-        if (m_metadataManager->readMetadataFromFile(filePath, existingMetadata)) {
+        // Thread-safe metadata manager access
+        QMutexLocker pointerLock(&m_pointerMutex);
+        if (!m_metadataManager) {
+            qDebug() << "VP_ShowsEncryptionWorker: Metadata manager is null during load";
+            return;
+        }
+        bool readSuccess = m_metadataManager->readMetadataFromFile(filePath, existingMetadata);
+        pointerLock.unlock();
+        
+        if (readSuccess) {
             // Skip files marked as errors
             if (existingMetadata.season == "error" || existingMetadata.episode == "error") {
                 qDebug() << "VP_ShowsEncryptionWorker: Skipping error episode:" << existingFile;
@@ -922,7 +1090,10 @@ void VP_ShowsEncryptionWorker::loadExistingEpisodes()
                     .arg(existingMetadata.language)
                     .arg(existingMetadata.translation);
                     
+                // Thread-safe insertion
+                QMutexLocker episodesLock(&m_episodesMutex);
                 m_existingEpisodes.insert(episodeKey);
+                episodesLock.unlock();
                 qDebug() << "VP_ShowsEncryptionWorker: Found existing episode:" << episodeKey;
             }
         }
@@ -942,14 +1113,17 @@ VP_ShowsDecryptionWorker::VP_ShowsDecryptionWorker(const QString& sourceFile,
     , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(false)
+    , m_metadataManager(nullptr)
 {
     qDebug() << "VP_ShowsDecryptionWorker: Constructor called";
+    QMutexLocker pointerLock(&m_pointerMutex);
     m_metadataManager = new VP_ShowsMetadata(encryptionKey, username);
 }
 
 VP_ShowsDecryptionWorker::~VP_ShowsDecryptionWorker()
 {
     qDebug() << "VP_ShowsDecryptionWorker: Destructor called";
+    QMutexLocker pointerLock(&m_pointerMutex);
     if (m_metadataManager) {
         delete m_metadataManager;
         m_metadataManager = nullptr;
@@ -972,23 +1146,31 @@ void VP_ShowsDecryptionWorker::doDecryption()
         emit decryptionFinished(false, "Failed to open source file: " + source.errorString());
         return;
     }
+    FileGuard sourceGuard(&source);  // RAII - ensures file closes on any exit path
     
     QFile target(m_targetFile);
     if (!target.open(QIODevice::WriteOnly)) {
-        source.close();
         emit decryptionFinished(false, "Failed to open target file: " + target.errorString());
         return;
     }
+    FileGuard targetGuard(&target);  // RAII - ensures file closes on any exit path
     
     // Read and verify metadata (but don't write it to target)
     VP_ShowsMetadata::ShowMetadata metadata;
-    if (!m_metadataManager->readFixedSizeEncryptedMetadata(&source, metadata)) {
-        qDebug() << "VP_ShowsDecryptionWorker: Failed to read metadata";
-        source.close();
-        target.close();
-        target.remove();
-        emit decryptionFinished(false, "Failed to read file metadata");
-        return;
+    {
+        QMutexLocker pointerLock(&m_pointerMutex);
+        if (!m_metadataManager) {
+            qDebug() << "VP_ShowsDecryptionWorker: Metadata manager is null";
+            target.remove();
+            emit decryptionFinished(false, "Metadata manager unavailable");
+            return;
+        }
+        if (!m_metadataManager->readFixedSizeEncryptedMetadata(&source, metadata)) {
+            qDebug() << "VP_ShowsDecryptionWorker: Failed to read metadata";
+            target.remove();
+            emit decryptionFinished(false, "Failed to read file metadata");
+            return;
+        }
     }
     
     qDebug() << "VP_ShowsDecryptionWorker: Decrypting file:" << metadata.filename 
@@ -1090,14 +1272,17 @@ VP_ShowsExportWorker::VP_ShowsExportWorker(const QList<ExportFileInfo>& files,
     , m_encryptionKey(encryptionKey)
     , m_username(username)
     , m_cancelled(false)
+    , m_metadataManager(nullptr)
 {
     qDebug() << "VP_ShowsExportWorker: Constructor called for" << files.size() << "files";
+    QMutexLocker pointerLock(&m_pointerMutex);
     m_metadataManager = new VP_ShowsMetadata(encryptionKey, username);
 }
 
 VP_ShowsExportWorker::~VP_ShowsExportWorker()
 {
     qDebug() << "VP_ShowsExportWorker: Destructor called";
+    QMutexLocker pointerLock(&m_pointerMutex);
     if (m_metadataManager) {
         delete m_metadataManager;
         m_metadataManager = nullptr;
@@ -1275,22 +1460,29 @@ bool VP_ShowsExportWorker::exportSingleFile(const ExportFileInfo& fileInfo, int&
         qDebug() << "VP_ShowsExportWorker: Failed to open source file:" << source.errorString();
         return false;
     }
+    FileGuard sourceGuard(&source);  // RAII - ensures file closes on any exit path
     
     QFile target(fileInfo.targetFile);
     if (!target.open(QIODevice::WriteOnly)) {
         qDebug() << "VP_ShowsExportWorker: Failed to open target file:" << target.errorString();
-        source.close();
         return false;
     }
+    FileGuard targetGuard(&target);  // RAII - ensures file closes on any exit path
     
     // Read and verify metadata (but don't write it to target)
     VP_ShowsMetadata::ShowMetadata metadata;
-    if (!m_metadataManager->readFixedSizeEncryptedMetadata(&source, metadata)) {
-        qDebug() << "VP_ShowsExportWorker: Failed to read metadata";
-        source.close();
-        target.close();
-        target.remove();
-        return false;
+    {
+        QMutexLocker pointerLock(&m_pointerMutex);
+        if (!m_metadataManager) {
+            qDebug() << "VP_ShowsExportWorker: Metadata manager is null";
+            target.remove();
+            return false;
+        }
+        if (!m_metadataManager->readFixedSizeEncryptedMetadata(&source, metadata)) {
+            qDebug() << "VP_ShowsExportWorker: Failed to read metadata";
+            target.remove();
+            return false;
+        }
     }
     
     qDebug() << "VP_ShowsExportWorker: Exporting episode:" << metadata.EPName 

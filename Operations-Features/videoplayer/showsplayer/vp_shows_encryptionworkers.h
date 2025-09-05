@@ -4,10 +4,14 @@
 #include <QObject>
 #include <QThread>
 #include <QMutex>
+#include <QMutexLocker>
+#include <QReadWriteLock>
 #include <QStringList>
 #include <QByteArray>
 #include <QMap>
 #include <QPixmap>
+#include <QPointer>
+#include <memory>
 #include "vp_shows_metadata.h"
 #include "vp_shows_tmdb.h"
 
@@ -71,7 +75,7 @@ private:
     QByteArray m_encryptionKey;
     QString m_username;
     bool m_cancelled;
-    QMutex m_cancelMutex;
+    mutable QMutex m_cancelMutex;
     
     // Custom poster and description
     bool m_useTMDB;
@@ -80,10 +84,14 @@ private:
     
     // Parsing mode
     ParseMode m_parseMode;
+    
+    // Thread-safe pointer management
+    mutable QMutex m_pointerMutex;  // Protects pointer access
     VP_ShowsMetadata* m_metadataManager;
     VP_ShowsTMDB* m_tmdbManager;
     
-    // TMDB data cache
+    // TMDB data cache - protected by read-write lock for better performance
+    mutable QReadWriteLock m_dataLock;
     VP_ShowsTMDB::ShowInfo m_showInfo;
     bool m_tmdbDataAvailable;
     QString m_showImagePath;  // Path to encrypted show image
@@ -91,7 +99,8 @@ private:
     QStringList m_movieTitles;  // List of movie titles for content detection
     QStringList m_ovaTitles;    // List of OVA/special titles for content detection
     
-    // Track existing episodes to detect duplicates
+    // Track existing episodes to detect duplicates - protected by mutex
+    mutable QMutex m_episodesMutex;
     QSet<QString> m_existingEpisodes;  // Set of "S##E##" strings from existing files
     QSet<QString> m_processedEpisodes; // Episodes processed in current batch
     
@@ -138,7 +147,8 @@ private:
     QByteArray m_encryptionKey;
     QString m_username;
     bool m_cancelled;
-    QMutex m_cancelMutex;
+    mutable QMutex m_cancelMutex;
+    mutable QMutex m_pointerMutex;  // Protects pointer access
     VP_ShowsMetadata* m_metadataManager;
 };
 
@@ -189,7 +199,8 @@ private:
     QByteArray m_encryptionKey;
     QString m_username;
     bool m_cancelled;
-    QMutex m_cancelMutex;
+    mutable QMutex m_cancelMutex;
+    mutable QMutex m_pointerMutex;  // Protects pointer access
     VP_ShowsMetadata* m_metadataManager;
     
     bool exportSingleFile(const ExportFileInfo& fileInfo, int& currentFileProgress);
