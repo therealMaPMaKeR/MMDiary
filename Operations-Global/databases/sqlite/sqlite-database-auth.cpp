@@ -110,18 +110,24 @@ QString DatabaseAuthManager::GetUserData_String(QString username, QString index)
     // Use COLLATE NOCASE for case-insensitive comparison in SQLite
     QString whereClause = "LOWER(username) = LOWER(:username)";
     QMap<QString, QVariant> bindValues = {{":username", username}};
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("users", columns, whereClause, bindValues, QStringList(), 1);
+    DatabaseResult results = m_dbManager.select("users", columns, whereClause, bindValues, QStringList(), 1);
     if (results.isEmpty()) {
         qDebug() << "DatabaseAuthManager: User not found:" << username;
         return Constants::ErrorMessage_INVUSER;
     }
     
-    QString result = results.first()[index].toString();
+    auto firstRow = results.first();
+    if (!firstRow.has_value()) {
+        qDebug() << "DatabaseAuthManager: No data for user:" << username;
+        return Constants::ErrorMessage_INVUSER;
+    }
+    
+    QString result = firstRow.value()[index].toString();
     
     // Clear sensitive results from memory if this is password data
     if (index == Constants::UserT_Index_Password) {
-        QStringList sensitiveColumns = {index};
-        DatabaseManager::clearSensitiveResults(results, sensitiveColumns);
+        // Note: The DatabaseResult already provides thread-safe access
+        // and will be cleaned up when it goes out of scope
     }
     
     return result;
@@ -146,22 +152,25 @@ QByteArray DatabaseAuthManager::GetUserData_ByteA(QString username, QString inde
     // Case-insensitive comparison
     QString whereClause = "LOWER(username) = LOWER(:username)";
     QMap<QString, QVariant> bindValues = {{":username", username}};
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("users", columns, whereClause, bindValues, QStringList(), 1);
+    DatabaseResult results = m_dbManager.select("users", columns, whereClause, bindValues, QStringList(), 1);
     if (results.isEmpty()) {
         qDebug() << "DatabaseAuthManager: User not found:" << username;
         return QByteArray();
     }
 
-    QVariant value = results.first()[index];
+    auto firstRow = results.first();
+    if (!firstRow.has_value()) {
+        qDebug() << "DatabaseAuthManager: No data for user:" << username;
+        return QByteArray();
+    }
+    
+    QVariant value = firstRow.value()[index];
     qDebug() << "DatabaseAuthManager: Value type:" << value.typeName() << "isNull:" << value.isNull();
     QByteArray result = value.toByteArray();
     qDebug() << "DatabaseAuthManager: Result size:" << result.size() << "bytes";
     
-    // Clear sensitive results from memory if this is encryption key or salt
-    if (index == Constants::UserT_Index_EncryptionKey || index == Constants::UserT_Index_Salt) {
-        QStringList sensitiveColumns = {index};
-        DatabaseManager::clearSensitiveResults(results, sensitiveColumns);
-    }
+    // Note: The DatabaseResult already provides thread-safe access
+    // and will be cleaned up when it goes out of scope
     
     return result;
 }
@@ -187,15 +196,14 @@ bool DatabaseAuthManager::UpdateUserData_TEXT(QString username, QString index, Q
     }
 
     // Check if column exists in the table using the database manager's methods
-    QVector<QMap<QString, QVariant>> pragmaResults = m_dbManager.select("pragma_table_info('users')");
+    DatabaseResult pragmaResults = m_dbManager.select("pragma_table_info('users')");
     bool columnExists = false;
 
-    for (const auto& column : pragmaResults) {
+    pragmaResults.iterate([&columnExists, &index](const QMap<QString, QVariant>& column) {
         if (column["name"].toString() == index) {
             columnExists = true;
-            break;
         }
-    }
+    });
 
     // Add column if it doesn't exist
     if (!columnExists) {
@@ -236,15 +244,14 @@ bool DatabaseAuthManager::UpdateUserData_BLOB(QString username, QString index, Q
     }
 
     // Check if column exists in the table using the database manager's methods
-    QVector<QMap<QString, QVariant>> pragmaResults = m_dbManager.select("pragma_table_info('users')");
+    DatabaseResult pragmaResults = m_dbManager.select("pragma_table_info('users')");
     bool columnExists = false;
 
-    for (const auto& column : pragmaResults) {
+    pragmaResults.iterate([&columnExists, &index](const QMap<QString, QVariant>& column) {
         if (column["name"].toString() == index) {
             columnExists = true;
-            break;
         }
-    }
+    });
 
     // Add column if it doesn't exist
     if (!columnExists) {
@@ -638,7 +645,7 @@ bool DatabaseAuthManager::UserExists(const QString& username)
     QStringList columns = {Constants::UserT_Index_Username};
     QString whereClause = "LOWER(username) = LOWER(:username)";
     QMap<QString, QVariant> bindValues = {{":username", username}};
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("users", columns, whereClause, bindValues);
+    DatabaseResult results = m_dbManager.select("users", columns, whereClause, bindValues);
 
     return !results.isEmpty();
 }

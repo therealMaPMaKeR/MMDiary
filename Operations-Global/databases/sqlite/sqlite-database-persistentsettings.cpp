@@ -103,13 +103,18 @@ bool DatabasePersistentSettingsManager::validateEncryptionKey()
     }
 
     // Try to read some encrypted data to validate the key
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("persistentSettingsTable", QStringList(), "", QMap<QString, QVariant>(), QStringList(), 1);
+    DatabaseResult results = m_dbManager.select("persistentSettingsTable", QStringList(), "", QMap<QString, QVariant>(), QStringList(), 1);
     if (results.isEmpty()) {
         return true; // No data to validate
     }
 
     // Try to decrypt some text data to validate key
-    QString testData = results.first()[Constants::PSettingsT_Index_TLists_CurrentList].toString();
+    auto firstRow = results.first();
+    if (!firstRow.has_value()) {
+        return true; // No data to validate
+    }
+    
+    QString testData = firstRow.value()[Constants::PSettingsT_Index_TLists_CurrentList].toString();
     if (testData.isEmpty()) {
         return true; // No encrypted data to validate
     }
@@ -271,12 +276,17 @@ QString DatabasePersistentSettingsManager::GetPersistentSettingsData_String(QStr
     }
 
     QStringList columns = {index};
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("persistentSettingsTable", columns);
+    DatabaseResult results = m_dbManager.select("persistentSettingsTable", columns);
     if (results.isEmpty()) {
         return "";
     }
 
-    QString encryptedValue = results.first()[index].toString();
+    auto firstRow = results.first();
+    if (!firstRow.has_value()) {
+        return "";
+    }
+    
+    QString encryptedValue = firstRow.value()[index].toString();
     if (encryptedValue.isEmpty()) {
         return ""; // Empty value is valid
     }
@@ -307,12 +317,17 @@ QByteArray DatabasePersistentSettingsManager::GetPersistentSettingsData_ByteA(QS
     }
 
     QStringList columns = {index};
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("persistentSettingsTable", columns);
+    DatabaseResult results = m_dbManager.select("persistentSettingsTable", columns);
     if (results.isEmpty()) {
         return QByteArray();
     }
 
-    QByteArray encryptedValue = results.first()[index].toByteArray();
+    auto firstRow = results.first();
+    if (!firstRow.has_value()) {
+        return QByteArray();
+    }
+    
+    QByteArray encryptedValue = firstRow.value()[index].toByteArray();
     if (encryptedValue.isEmpty()) {
         return QByteArray(); // Empty value
     }
@@ -343,13 +358,18 @@ int DatabasePersistentSettingsManager::GetPersistentSettingsData_Int(QString ind
     }
 
     QStringList columns = {index};
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("persistentSettingsTable", columns);
+    DatabaseResult results = m_dbManager.select("persistentSettingsTable", columns);
     if (results.isEmpty()) {
         return -1;
     }
 
+    auto firstRow = results.first();
+    if (!firstRow.has_value()) {
+        return -1;
+    }
+    
     // INT values are stored directly (not encrypted for performance)
-    QVariant value = results.first()[index];
+    QVariant value = firstRow.value()[index];
     if (value.isNull()) {
         return -1;
     }
@@ -454,7 +474,7 @@ bool DatabasePersistentSettingsManager::UpdatePersistentSettingsData_INT(QString
 bool DatabasePersistentSettingsManager::ensurePersistentSettingsRecord()
 {
     // Check if persistent settings record exists
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("persistentSettingsTable");
+    DatabaseResult results = m_dbManager.select("persistentSettingsTable");
     if (results.isEmpty()) {
         // Create a persistent settings record
         QMap<QString, QVariant> persistentSettingsData;

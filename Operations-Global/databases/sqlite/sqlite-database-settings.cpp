@@ -89,14 +89,19 @@ bool DatabaseSettingsManager::validateEncryptionKey()
     }
 
     // Try to read some encrypted data to validate the key
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("settings", QStringList(), "", QMap<QString, QVariant>(), QStringList(), 1);
+    DatabaseResult results = m_dbManager.select("settings", QStringList(), "", QMap<QString, QVariant>(), QStringList(), 1);
     if (results.isEmpty()) {
         return true; // No data to validate
     }
 
+    auto firstRow = results.first();
+    if (!firstRow.has_value()) {
+        return true; // No data to validate
+    }
+    
     // Try to decrypt some data to validate key
     // We can use any text field for validation
-    QString testData = results.first()[Constants::SettingsT_Index_DisplaynameColor].toString();
+    QString testData = firstRow.value()[Constants::SettingsT_Index_DisplaynameColor].toString();
     if (testData.isEmpty()) {
         return true; // No encrypted data to validate
     }
@@ -254,13 +259,19 @@ QString DatabaseSettingsManager::GetSettingsData_String(QString index)
     }
 
     QStringList columns = {index};
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("settings", columns);
+    DatabaseResult results = m_dbManager.select("settings", columns);
     if (results.isEmpty()) {
         qDebug() << "No settings data found";
         return Constants::ErrorMessage_Default;
     }
 
-    QString encryptedValue = results.first()[index].toString();
+    auto firstRow = results.first();
+    if (!firstRow.has_value()) {
+        qDebug() << "No settings data found";
+        return Constants::ErrorMessage_Default;
+    }
+    
+    QString encryptedValue = firstRow.value()[index].toString();
     if (encryptedValue.isEmpty()) {
         return ""; // Empty value is valid
     }
@@ -294,13 +305,19 @@ QByteArray DatabaseSettingsManager::GetSettingsData_ByteA(QString index)
     }
 
     QStringList columns = {index};
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("settings", columns);
+    DatabaseResult results = m_dbManager.select("settings", columns);
     if (results.isEmpty()) {
         qDebug() << "No settings data found";
         return QByteArray();
     }
 
-    QByteArray encryptedValue = results.first()[index].toByteArray();
+    auto firstRow = results.first();
+    if (!firstRow.has_value()) {
+        qDebug() << "No settings data found";
+        return QByteArray();
+    }
+    
+    QByteArray encryptedValue = firstRow.value()[index].toByteArray();
     if (encryptedValue.isEmpty()) {
         return QByteArray(); // Empty value
     }
@@ -393,7 +410,7 @@ bool DatabaseSettingsManager::UpdateSettingsData_BLOB(QString index, QByteArray 
 bool DatabaseSettingsManager::ensureSettingsRecord()
 {
     // Check if settings record exists
-    QVector<QMap<QString, QVariant>> results = m_dbManager.select("settings");
+    DatabaseResult results = m_dbManager.select("settings");
     if (results.isEmpty()) {
         // Create a settings record
         QMap<QString, QVariant> settingsData;

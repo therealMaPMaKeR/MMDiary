@@ -6,22 +6,32 @@
 #include "../../constants.h"
 #include <cstring> // For secure memory clearing
 
+// ============================================================================
+// DatabaseManager Implementation
+// ============================================================================
+// Note: DatabaseResult methods are defined inline in the header file
+
 DatabaseManager::DatabaseManager()
 {
     // Ensure SQLite driver is available
     if (!QSqlDatabase::isDriverAvailable("QSQLITE")) {
-        qCritical() << "SQLite driver not available";
+        qCritical() << "DatabaseManager: SQLite driver not available";
     }
+    qDebug() << "DatabaseManager: Instance created";
 }
 
 DatabaseManager::~DatabaseManager()
 {
+    qDebug() << "DatabaseManager: Destroying instance";
     close();
 }
 
 
 bool DatabaseManager::connect(const QString& dbPath)
 {
+    QMutexLocker locker(&m_mutex);
+    qDebug() << "DatabaseManager: Connecting to database:" << dbPath;
+    
     // Close any existing connection
     if (m_db.isOpen()) {
         m_db.close();
@@ -42,8 +52,9 @@ bool DatabaseManager::connect(const QString& dbPath)
     bool success = m_db.open();
     if (!success) {
         m_lastError = m_db.lastError().text();
-        qWarning() << "Failed to connect to database:" << m_lastError;
+        qWarning() << "DatabaseManager: Failed to connect to database:" << m_lastError;
     } else {
+        qDebug() << "DatabaseManager: Successfully connected to database";
         // Enable security and integrity features
         enableIntegrityCheck();
         
@@ -59,11 +70,15 @@ bool DatabaseManager::connect(const QString& dbPath)
 
 bool DatabaseManager::isConnected() const
 {
+    QMutexLocker locker(&m_mutex);
     return m_db.isOpen();
 }
 
 void DatabaseManager::close()
 {
+    QMutexLocker locker(&m_mutex);
+    qDebug() << "DatabaseManager: Closing database connection";
+    
     QString connectionName;
     if (m_db.isOpen()) {
         connectionName = m_db.connectionName();
@@ -105,50 +120,71 @@ void DatabaseManager::clearSensitiveResults(QVector<QMap<QString, QVariant>>& re
 
 bool DatabaseManager::beginTransaction()
 {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot begin transaction - database not connected";
         return false;
     }
 
     bool success = m_db.transaction();
     if (!success) {
         m_lastError = m_db.lastError().text();
+        qWarning() << "DatabaseManager: Failed to begin transaction:" << m_lastError;
+    } else {
+        qDebug() << "DatabaseManager: Transaction started";
     }
     return success;
 }
 
 bool DatabaseManager::commitTransaction()
 {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot commit transaction - database not connected";
         return false;
     }
 
     bool success = m_db.commit();
     if (!success) {
         m_lastError = m_db.lastError().text();
+        qWarning() << "DatabaseManager: Failed to commit transaction:" << m_lastError;
+    } else {
+        qDebug() << "DatabaseManager: Transaction committed";
     }
     return success;
 }
 
 bool DatabaseManager::rollbackTransaction()
 {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot rollback transaction - database not connected";
         return false;
     }
 
     bool success = m_db.rollback();
     if (!success) {
         m_lastError = m_db.lastError().text();
+        qWarning() << "DatabaseManager: Failed to rollback transaction:" << m_lastError;
+    } else {
+        qDebug() << "DatabaseManager: Transaction rolled back";
     }
     return success;
 }
 
 bool DatabaseManager::executeQuery(const QString& query)
 {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot execute query - database not connected";
         return false;
     }
 
@@ -156,39 +192,71 @@ bool DatabaseManager::executeQuery(const QString& query)
     bool success = sqlQuery.exec(query);
     if (!success) {
         m_lastError = sqlQuery.lastError().text();
-        qWarning() << "Query failed:" << m_lastError;
-        qWarning() << "Query was:" << query;
+        qWarning() << "DatabaseManager: Query failed:" << m_lastError;
+        qWarning() << "DatabaseManager: Query was:" << query;
     }
     return success;
 }
 
 bool DatabaseManager::executeQuery(QSqlQuery& query)
 {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot execute query - database not connected";
         return false;
     }
 
     bool success = query.exec();
     if (!success) {
         m_lastError = query.lastError().text();
-        qWarning() << "Query failed:" << m_lastError;
-        qWarning() << "Query was:" << query.lastQuery();
+        qWarning() << "DatabaseManager: Query failed:" << m_lastError;
+        qWarning() << "DatabaseManager: Query was:" << query.lastQuery();
     }
     return success;
 }
 
-QVector<QMap<QString, QVariant>> DatabaseManager::select(const QString& tableName,
-                                                         const QStringList& columns,
-                                                         const QString& whereClause,
-                                                         const QMap<QString, QVariant>& whereBindValues,
-                                                         const QStringList& orderBy,
-                                                         int limit)
+DatabaseResult DatabaseManager::select(const QString& tableName,
+                                       const QStringList& columns,
+                                       const QString& whereClause,
+                                       const QMap<QString, QVariant>& whereBindValues,
+                                       const QStringList& orderBy,
+                                       int limit)
 {
+    QMutexLocker locker(&m_mutex);
+    qDebug() << "DatabaseManager: Executing SELECT on table:" << tableName;
+    
+    QVector<QMap<QString, QVariant>> results = selectInternal(tableName, columns, whereClause, whereBindValues, orderBy, limit);
+    return DatabaseResult(results);
+}
+
+QVector<QMap<QString, QVariant>> DatabaseManager::selectRaw(const QString& tableName,
+                                                            const QStringList& columns,
+                                                            const QString& whereClause,
+                                                            const QMap<QString, QVariant>& whereBindValues,
+                                                            const QStringList& orderBy,
+                                                            int limit)
+{
+    QMutexLocker locker(&m_mutex);
+    qWarning() << "DatabaseManager: Using deprecated selectRaw() method - consider using select() for thread-safe access";
+    
+    return selectInternal(tableName, columns, whereClause, whereBindValues, orderBy, limit);
+}
+
+QVector<QMap<QString, QVariant>> DatabaseManager::selectInternal(const QString& tableName,
+                                                                 const QStringList& columns,
+                                                                 const QString& whereClause,
+                                                                 const QMap<QString, QVariant>& whereBindValues,
+                                                                 const QStringList& orderBy,
+                                                                 int limit)
+{
+    // Note: This method assumes mutex is already locked by caller
     QVector<QMap<QString, QVariant>> results;
 
-    if (!isConnected()) {
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot execute select - database not connected";
         return results;
     }
 
@@ -232,10 +300,11 @@ QVector<QMap<QString, QVariant>> DatabaseManager::select(const QString& tableNam
         
         // Clear the query to release resources
         sqlQuery.finish();
+        qDebug() << "DatabaseManager: SELECT query returned" << rowCount << "rows";
     } else {
         m_lastError = sqlQuery.lastError().text();
-        qWarning() << "Select query failed:" << m_lastError;
-        qWarning() << "Query was:" << query;
+        qWarning() << "DatabaseManager: Select query failed:" << m_lastError;
+        qWarning() << "DatabaseManager: Query was:" << query;
     }
 
     return results;
@@ -243,10 +312,15 @@ QVector<QMap<QString, QVariant>> DatabaseManager::select(const QString& tableNam
 
 bool DatabaseManager::insert(const QString& tableName, const QMap<QString, QVariant>& data)
 {
-    if (!isConnected() || data.isEmpty()) {
-        m_lastError = !isConnected() ? "Database not connected" : "No data to insert";
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen() || data.isEmpty()) {
+        m_lastError = !m_db.isOpen() ? "Database not connected" : "No data to insert";
+        qWarning() << "DatabaseManager: Cannot insert -" << m_lastError;
         return false;
     }
+    
+    qDebug() << "DatabaseManager: Inserting into table:" << tableName;
 
     QStringList columns = data.keys();
     QStringList placeholders;
@@ -263,30 +337,70 @@ bool DatabaseManager::insert(const QString& tableName, const QMap<QString, QVari
         sqlQuery.bindValue(":" + it.key(), it.value());
     }
 
-    return executeQuery(sqlQuery);
+    bool success = sqlQuery.exec();
+    if (!success) {
+        m_lastError = sqlQuery.lastError().text();
+        qWarning() << "DatabaseManager: Insert failed:" << m_lastError;
+    } else {
+        qDebug() << "DatabaseManager: Insert successful";
+    }
+    return success;
 }
 
 bool DatabaseManager::insertMultiple(const QString& tableName, const QVector<QMap<QString, QVariant>>& dataList)
 {
-    if (!isConnected() || dataList.isEmpty()) {
-        m_lastError = !isConnected() ? "Database not connected" : "No data to insert";
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen() || dataList.isEmpty()) {
+        m_lastError = !m_db.isOpen() ? "Database not connected" : "No data to insert";
+        qWarning() << "DatabaseManager: Cannot insert multiple -" << m_lastError;
         return false;
     }
+    
+    qDebug() << "DatabaseManager: Inserting" << dataList.size() << "rows into table:" << tableName;
 
-    beginTransaction();
+    // Use internal transaction methods to avoid nested locking
+    bool transactionStarted = m_db.transaction();
+    if (!transactionStarted) {
+        qWarning() << "DatabaseManager: Failed to start transaction for batch insert";
+        return false;
+    }
+    
     bool success = true;
+    int insertedCount = 0;
 
     for (const auto& data : dataList) {
-        if (!insert(tableName, data)) {
+        // Prepare insert query without locking again
+        QStringList columns = data.keys();
+        QStringList placeholders;
+        for (const QString& col : columns) {
+            placeholders.append(":" + col);
+        }
+
+        QString query = QString("INSERT INTO %1 (%2) VALUES (%3)")
+                            .arg(tableName, columns.join(", "), placeholders.join(", "));
+
+        QSqlQuery sqlQuery(m_db);
+        sqlQuery.prepare(query);
+        for (auto it = data.constBegin(); it != data.constEnd(); ++it) {
+            sqlQuery.bindValue(":" + it.key(), it.value());
+        }
+
+        if (!sqlQuery.exec()) {
+            m_lastError = sqlQuery.lastError().text();
+            qWarning() << "DatabaseManager: Batch insert failed at row" << insertedCount << ":" << m_lastError;
             success = false;
             break;
         }
+        insertedCount++;
     }
 
     if (success) {
-        commitTransaction();
+        m_db.commit();
+        qDebug() << "DatabaseManager: Successfully inserted" << insertedCount << "rows";
     } else {
-        rollbackTransaction();
+        m_db.rollback();
+        qWarning() << "DatabaseManager: Rolled back batch insert after" << insertedCount << "rows";
     }
 
     return success;
@@ -297,10 +411,15 @@ bool DatabaseManager::update(const QString& tableName,
                              const QString& whereClause,
                              const QMap<QString, QVariant>& whereBindValues)
 {
-    if (!isConnected() || data.isEmpty()) {
-        m_lastError = !isConnected() ? "Database not connected" : "No data to update";
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen() || data.isEmpty()) {
+        m_lastError = !m_db.isOpen() ? "Database not connected" : "No data to update";
+        qWarning() << "DatabaseManager: Cannot update -" << m_lastError;
         return false;
     }
+    
+    qDebug() << "DatabaseManager: Updating table:" << tableName;
 
     QStringList setList;
     for (const QString& key : data.keys()) {
@@ -321,17 +440,30 @@ bool DatabaseManager::update(const QString& tableName,
         sqlQuery.bindValue(it.key(), it.value());
     }
 
-    return executeQuery(sqlQuery);
+    bool success = sqlQuery.exec();
+    if (!success) {
+        m_lastError = sqlQuery.lastError().text();
+        qWarning() << "DatabaseManager: Update failed:" << m_lastError;
+    } else {
+        int rowsAffected = sqlQuery.numRowsAffected();
+        qDebug() << "DatabaseManager: Update successful, rows affected:" << rowsAffected;
+    }
+    return success;
 }
 
 bool DatabaseManager::remove(const QString& tableName,
                              const QString& whereClause,
                              const QMap<QString, QVariant>& bindValues)
 {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot remove - database not connected";
         return false;
     }
+    
+    qDebug() << "DatabaseManager: Removing from table:" << tableName;
 
     QString query = "DELETE FROM " + tableName;
     if (!whereClause.isEmpty()) {
@@ -344,13 +476,24 @@ bool DatabaseManager::remove(const QString& tableName,
         sqlQuery.bindValue(it.key(), it.value());
     }
 
-    return executeQuery(sqlQuery);
+    bool success = sqlQuery.exec();
+    if (!success) {
+        m_lastError = sqlQuery.lastError().text();
+        qWarning() << "DatabaseManager: Remove failed:" << m_lastError;
+    } else {
+        int rowsAffected = sqlQuery.numRowsAffected();
+        qDebug() << "DatabaseManager: Remove successful, rows affected:" << rowsAffected;
+    }
+    return success;
 }
 
 bool DatabaseManager::tableExists(const QString& tableName)
 {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot check table existence - database not connected";
         return false;
     }
 
@@ -368,10 +511,15 @@ bool DatabaseManager::tableExists(const QString& tableName)
 
 bool DatabaseManager::createTable(const QString& tableName, const QMap<QString, QString>& columnsWithTypes)
 {
-    if (!isConnected() || columnsWithTypes.isEmpty()) {
-        m_lastError = !isConnected() ? "Database not connected" : "No columns specified";
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen() || columnsWithTypes.isEmpty()) {
+        m_lastError = !m_db.isOpen() ? "Database not connected" : "No columns specified";
+        qWarning() << "DatabaseManager: Cannot create table -" << m_lastError;
         return false;
     }
+    
+    qDebug() << "DatabaseManager: Creating table:" << tableName;
 
     QStringList columnDefs;
     for (auto it = columnsWithTypes.constBegin(); it != columnsWithTypes.constEnd(); ++it) {
@@ -381,28 +529,53 @@ bool DatabaseManager::createTable(const QString& tableName, const QMap<QString, 
     QString query = QString("CREATE TABLE IF NOT EXISTS %1 (%2)")
                         .arg(tableName, columnDefs.join(", "));
 
-    return executeQuery(query);
+    QSqlQuery sqlQuery(m_db);
+    bool success = sqlQuery.exec(query);
+    if (!success) {
+        m_lastError = sqlQuery.lastError().text();
+        qWarning() << "DatabaseManager: Create table failed:" << m_lastError;
+    } else {
+        qDebug() << "DatabaseManager: Table created successfully";
+    }
+    return success;
 }
 
 bool DatabaseManager::dropTable(const QString& tableName)
 {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot drop table - database not connected";
         return false;
     }
+    
+    qDebug() << "DatabaseManager: Dropping table:" << tableName;
 
     QString query = "DROP TABLE IF EXISTS " + tableName;
-    return executeQuery(query);
+    QSqlQuery sqlQuery(m_db);
+    bool success = sqlQuery.exec(query);
+    if (!success) {
+        m_lastError = sqlQuery.lastError().text();
+        qWarning() << "DatabaseManager: Drop table failed:" << m_lastError;
+    } else {
+        qDebug() << "DatabaseManager: Table dropped successfully";
+    }
+    return success;
 }
 
 QString DatabaseManager::lastError() const
 {
+    QMutexLocker locker(&m_mutex);
     return m_lastError;
 }
 
 int DatabaseManager::lastInsertId() const
 {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
+        qWarning() << "DatabaseManager: Cannot get last insert ID - database not connected";
         return -1;
     }
 
@@ -416,7 +589,10 @@ int DatabaseManager::lastInsertId() const
 
 int DatabaseManager::affectedRows() const
 {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
+        qWarning() << "DatabaseManager: Cannot get affected rows - database not connected";
         return -1;
     }
 
@@ -430,8 +606,11 @@ int DatabaseManager::affectedRows() const
 
 bool DatabaseManager::verifyDatabaseIntegrity()
 {
-    if (!isConnected()) {
+    // Note: This method assumes mutex is already locked by caller
+    // or is called during connection setup
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot verify integrity - database not connected";
         return false;
     }
 
@@ -459,8 +638,11 @@ bool DatabaseManager::verifyDatabaseIntegrity()
 
 bool DatabaseManager::enableIntegrityCheck()
 {
-    if (!isConnected()) {
+    // Note: This method assumes mutex is already locked by caller
+    // or is called during connection setup
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot enable integrity check - database not connected";
         return false;
     }
 
@@ -488,10 +670,15 @@ bool DatabaseManager::enableIntegrityCheck()
 // Generic migration system with callback support
 
 bool DatabaseManager::initializeVersioning() {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot initialize versioning - database not connected";
         return false;
     }
+    
+    qDebug() << "DatabaseManager: Initializing database versioning";
 
     // Create a version table if it doesn't exist
     QMap<QString, QString> versionTableColumns;
@@ -500,20 +687,48 @@ bool DatabaseManager::initializeVersioning() {
     versionTableColumns["applied_at"] = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP";
     versionTableColumns["description"] = "TEXT";
 
-    if (!createTable("db_version", versionTableColumns)) {
-        qWarning() << "Failed to create version table:" << lastError();
+    // Create table without recursive locking
+    QStringList columnDefs;
+    for (auto it = versionTableColumns.constBegin(); it != versionTableColumns.constEnd(); ++it) {
+        columnDefs.append(QString("%1 %2").arg(it.key(), it.value()));
+    }
+    
+    QString createQuery = QString("CREATE TABLE IF NOT EXISTS db_version (%1)")
+                              .arg(columnDefs.join(", "));
+    
+    QSqlQuery sqlQuery(m_db);
+    if (!sqlQuery.exec(createQuery)) {
+        m_lastError = sqlQuery.lastError().text();
+        qWarning() << "DatabaseManager: Failed to create version table:" << m_lastError;
         return false;
     }
 
     // Check if we need to insert initial version
-    QVector<QMap<QString, QVariant>> results = select("db_version");
+    QVector<QMap<QString, QVariant>> results = selectInternal("db_version", QStringList(), "", QMap<QString, QVariant>(), QStringList(), -1);
     if (results.isEmpty()) {
         // Insert initial version (1)
         QMap<QString, QVariant> versionData;
         versionData["version"] = 1;
         versionData["description"] = "Initial database schema";
-        if (!insert("db_version", versionData)) {
-            qWarning() << "Failed to insert initial version:" << lastError();
+        // Insert without recursive locking
+        QStringList columns = versionData.keys();
+        QStringList placeholders;
+        for (const QString& col : columns) {
+            placeholders.append(":" + col);
+        }
+        
+        QString insertQuery = QString("INSERT INTO db_version (%1) VALUES (%2)")
+                                  .arg(columns.join(", "), placeholders.join(", "));
+        
+        QSqlQuery insertSql(m_db);
+        insertSql.prepare(insertQuery);
+        for (auto it = versionData.constBegin(); it != versionData.constEnd(); ++it) {
+            insertSql.bindValue(":" + it.key(), it.value());
+        }
+        
+        if (!insertSql.exec()) {
+            m_lastError = insertSql.lastError().text();
+            qWarning() << "DatabaseManager: Failed to insert initial version:" << m_lastError;
             return false;
         }
     }
@@ -523,19 +738,28 @@ bool DatabaseManager::initializeVersioning() {
 
 int DatabaseManager::getCurrentVersion()
 {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot get current version - database not connected";
         return 0;
     }
 
-    // Create version table if it doesn't exist
-    if (!tableExists("db_version")) {
+    // Check if version table exists without recursive locking
+    QSqlQuery checkQuery(m_db);
+    checkQuery.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='db_version'");
+    
+    if (!checkQuery.exec() || !checkQuery.next()) {
+        // Table doesn't exist, need to initialize
+        locker.unlock();
         if (!initializeVersioning()) {
             return 0;
         }
+        locker.relock();
     }
 
-    QVector<QMap<QString, QVariant>> results = select("db_version", QStringList() << "version", "", QMap<QString, QVariant>(), QStringList() << "version DESC", 1);
+    QVector<QMap<QString, QVariant>> results = selectInternal("db_version", QStringList() << "version", "", QMap<QString, QVariant>(), QStringList() << "version DESC", 1);
     if (!results.isEmpty()) {
         return results.first()["version"].toInt();
     }
@@ -543,79 +767,132 @@ int DatabaseManager::getCurrentVersion()
 }
 
 bool DatabaseManager::updateVersion(int newVersion) {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot update version - database not connected";
         return false;
     }
+    
+    qDebug() << "DatabaseManager: Updating database version to" << newVersion;
 
     QMap<QString, QVariant> versionData;
     versionData["version"] = newVersion;
     versionData["description"] = QString("Migration to version %1").arg(newVersion);
-    return insert("db_version", versionData);
+    
+    // Insert without recursive locking
+    QStringList columns = versionData.keys();
+    QStringList placeholders;
+    for (const QString& col : columns) {
+        placeholders.append(":" + col);
+    }
+    
+    QString query = QString("INSERT INTO db_version (%1) VALUES (%2)")
+                        .arg(columns.join(", "), placeholders.join(", "));
+    
+    QSqlQuery sqlQuery(m_db);
+    sqlQuery.prepare(query);
+    for (auto it = versionData.constBegin(); it != versionData.constEnd(); ++it) {
+        sqlQuery.bindValue(":" + it.key(), it.value());
+    }
+    
+    bool success = sqlQuery.exec();
+    if (!success) {
+        m_lastError = sqlQuery.lastError().text();
+        qWarning() << "DatabaseManager: Failed to update version:" << m_lastError;
+    }
+    return success;
 }
 
 bool DatabaseManager::migrateDatabase(int latestVersion,
                                       std::function<bool(int)> migrationCallback,
                                       std::function<bool(int)> rollbackCallback) {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot migrate database - database not connected";
         return false;
     }
 
+    // Get current version without recursive locking
+    locker.unlock();
     int currentVersion = getCurrentVersion();
-    qInfo() << "Current database version:" << currentVersion;
+    locker.relock();
+    
+    qInfo() << "DatabaseManager: Current database version:" << currentVersion;
 
     // Initialize the versioning system if needed
     if (currentVersion == 0) {
+        locker.unlock();
         if (!initializeVersioning()) {
-            qWarning() << "Failed to initialize versioning system";
+            qWarning() << "DatabaseManager: Failed to initialize versioning system";
             return false;
         }
+        locker.relock();
         currentVersion = 1; // After initialization, we're at version 1
     }
 
     if (currentVersion >= latestVersion) {
-        qInfo() << "Database is already at the latest version:" << currentVersion;
+        qInfo() << "DatabaseManager: Database is already at the latest version:" << currentVersion;
         return true;
     }
 
     // Start a transaction for all migrations
-    beginTransaction();
+    bool transactionStarted = m_db.transaction();
+    if (!transactionStarted) {
+        qWarning() << "DatabaseManager: Failed to start transaction for migration";
+        return false;
+    }
+    
     bool success = true;
 
     // Apply migrations in order
     for (int version = currentVersion + 1; version <= latestVersion; ++version) {
-        qInfo() << "Migrating to version" << version;
+        qInfo() << "DatabaseManager: Migrating to version" << version;
 
-        if (!migrationCallback(version)) {
-            qWarning() << "Failed to migrate to version" << version;
+        // Unlock mutex for callback
+        locker.unlock();
+        bool migrationSuccess = migrationCallback(version);
+        locker.relock();
+        
+        if (!migrationSuccess) {
+            qWarning() << "DatabaseManager: Failed to migrate to version" << version;
             success = false;
             break;
         }
 
         // Update version number after successful migration
-        if (!updateVersion(version)) {
-            qWarning() << "Failed to update version to" << version;
+        locker.unlock();
+        bool updateSuccess = updateVersion(version);
+        locker.relock();
+        
+        if (!updateSuccess) {
+            qWarning() << "DatabaseManager: Failed to update version to" << version;
             success = false;
             break;
         }
     }
 
     if (success) {
-        commitTransaction();
-        qInfo() << "Database successfully migrated to version" << latestVersion;
+        m_db.commit();
+        qInfo() << "DatabaseManager: Database successfully migrated to version" << latestVersion;
         return true;
     } else {
-        rollbackTransaction();
-        qWarning() << "Database migration failed, rolled back to version" << currentVersion;
+        m_db.rollback();
+        qWarning() << "DatabaseManager: Database migration failed, rolled back to version" << currentVersion;
         return false;
     }
 }
 
 bool DatabaseManager::rollbackToVersion(int targetVersion,
                                         std::function<bool(int)> rollbackCallback) {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot rollback - database not connected";
         return false;
     }
 
@@ -772,16 +1049,21 @@ bool DatabaseManager::restoreFromBackup(const QString& backupPath) {
 
 bool DatabaseManager::removeColumn(const QString& tableName, const QString& columnToRemove)
 {
-    if (!isConnected()) {
+    QMutexLocker locker(&m_mutex);
+    
+    if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
+        qWarning() << "DatabaseManager: Cannot remove column - database not connected";
         return false;
     }
+    
+    qDebug() << "DatabaseManager: Removing column" << columnToRemove << "from table" << tableName;
 
     // Try to start a transaction - if it fails, we're already in one
-    bool weStartedTransaction = beginTransaction();
+    bool weStartedTransaction = m_db.transaction();
 
-    // Get all columns except the one we want to remove
-    QVector<QMap<QString, QVariant>> columns = select("pragma_table_info('" + tableName + "')");
+    // Get all columns except the one we want to remove  
+    QVector<QMap<QString, QVariant>> columns = selectInternal("pragma_table_info('" + tableName + "')", QStringList(), "", QMap<QString, QVariant>(), QStringList(), -1);
     QStringList columnNames;
     QMap<QString, QString> columnDefinitions;
     QString primaryKey;
@@ -815,51 +1097,81 @@ bool DatabaseManager::removeColumn(const QString& tableName, const QString& colu
 
     if (columnNames.isEmpty()) {
         m_lastError = "Failed to get column information or table would be empty after removing the column";
+        qWarning() << "DatabaseManager: Cannot remove column - invalid column information";
         if (weStartedTransaction) {
-            rollbackTransaction();
+            m_db.rollback();
         }
         return false;
     }
 
-    // Create temporary table
+    // Create temporary table without recursive locking
     QString tempTableName = tableName + "_temp";
-    if (!createTable(tempTableName, columnDefinitions)) {
+    QStringList columnDefs;
+    for (auto it = columnDefinitions.constBegin(); it != columnDefinitions.constEnd(); ++it) {
+        columnDefs.append(QString("%1 %2").arg(it.key(), it.value()));
+    }
+    
+    QString createQuery = QString("CREATE TABLE IF NOT EXISTS %1 (%2)")
+                              .arg(tempTableName, columnDefs.join(", "));
+    
+    QSqlQuery createSql(m_db);
+    if (!createSql.exec(createQuery)) {
+        m_lastError = createSql.lastError().text();
+        qWarning() << "DatabaseManager: Failed to create temporary table:" << m_lastError;
         if (weStartedTransaction) {
-            rollbackTransaction();
+            m_db.rollback();
         }
         return false;
     }
 
     // Copy data to the temporary table
     QString copyQuery = "INSERT INTO " + tempTableName + " SELECT " + columnNames.join(", ") + " FROM " + tableName;
-    if (!executeQuery(copyQuery)) {
+    QSqlQuery copySql(m_db);
+    if (!copySql.exec(copyQuery)) {
+        m_lastError = copySql.lastError().text();
+        qWarning() << "DatabaseManager: Failed to copy data to temporary table:" << m_lastError;
         if (weStartedTransaction) {
-            rollbackTransaction();
+            m_db.rollback();
         }
         return false;
     }
 
     // Drop original table
-    if (!dropTable(tableName)) {
+    QString dropQuery = "DROP TABLE IF EXISTS " + tableName;
+    QSqlQuery dropSql(m_db);
+    if (!dropSql.exec(dropQuery)) {
+        m_lastError = dropSql.lastError().text();
+        qWarning() << "DatabaseManager: Failed to drop original table:" << m_lastError;
         if (weStartedTransaction) {
-            rollbackTransaction();
+            m_db.rollback();
         }
         return false;
     }
 
     // Rename temporary table
     QString renameQuery = "ALTER TABLE " + tempTableName + " RENAME TO " + tableName;
-    if (!executeQuery(renameQuery)) {
+    QSqlQuery renameSql(m_db);
+    if (!renameSql.exec(renameQuery)) {
+        m_lastError = renameSql.lastError().text();
+        qWarning() << "DatabaseManager: Failed to rename temporary table:" << m_lastError;
         if (weStartedTransaction) {
-            rollbackTransaction();
+            m_db.rollback();
         }
         return false;
     }
 
     // Commit the transaction only if we started it
     if (weStartedTransaction) {
-        return commitTransaction();
+        bool success = m_db.commit();
+        if (success) {
+            qDebug() << "DatabaseManager: Successfully removed column" << columnToRemove;
+        } else {
+            m_lastError = m_db.lastError().text();
+            qWarning() << "DatabaseManager: Failed to commit column removal:" << m_lastError;
+        }
+        return success;
     }
-
+    
+    qDebug() << "DatabaseManager: Successfully removed column" << columnToRemove;
     return true;
 }
