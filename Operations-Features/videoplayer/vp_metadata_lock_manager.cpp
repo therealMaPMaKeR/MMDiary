@@ -78,7 +78,9 @@ VP_MetadataLockManager::LockGuard& VP_MetadataLockManager::LockGuard::operator=(
 // ============================================================================
 
 VP_MetadataLockManager::VP_MetadataLockManager()
-    : m_staleLockTimeoutMs(DEFAULT_STALE_TIMEOUT_MS)
+    : m_locks(10000, "VP_MetadataLockManager::m_locks")  // Allow up to 10000 concurrent locks
+    , m_lockTimers(10000, "VP_MetadataLockManager::m_lockTimers")
+    , m_staleLockTimeoutMs(DEFAULT_STALE_TIMEOUT_MS)
 {
     qDebug() << "VP_MetadataLockManager: Constructor called";
 }
@@ -111,8 +113,6 @@ VP_MetadataLockManager::LockResult VP_MetadataLockManager::acquireLock(const QSt
         return LockResult::Error;
     }
     
-    QMutexLocker locker(&m_mutex);
-    
     // Get or create lock file
     QSharedPointer<QLockFile> lockFile = getLockFile(filePath);
     if (!lockFile) {
@@ -126,7 +126,7 @@ VP_MetadataLockManager::LockResult VP_MetadataLockManager::acquireLock(const QSt
     // Start timer for timeout tracking
     QElapsedTimer timer;
     timer.start();
-    m_lockTimers[filePath] = timer;
+    m_lockTimers.insert(filePath, timer);
     
     // Try to acquire the lock with timeout
     int elapsed = 0;
@@ -182,10 +182,10 @@ bool VP_MetadataLockManager::releaseLock(const QString& filePath)
 {
     qDebug() << "VP_MetadataLockManager: Releasing lock for:" << filePath;
     
-    QMutexLocker locker(&m_mutex);
-    
-    if (m_locks.contains(filePath)) {
-        QSharedPointer<QLockFile> lockFile = m_locks[filePath];
+    // Try to get the lock file from the map
+    auto lockFileOpt = m_locks.value(filePath);
+    if (lockFileOpt.has_value()) {
+        QSharedPointer<QLockFile> lockFile = lockFileOpt.value();
         if (lockFile && lockFile->isLocked()) {
             lockFile->unlock();
             qDebug() << "VP_MetadataLockManager: Released lock for:" << filePath;
@@ -214,10 +214,10 @@ bool VP_MetadataLockManager::releaseLock(const QString& filePath)
 
 bool VP_MetadataLockManager::isLocked(const QString& filePath) const
 {
-    QMutexLocker locker(&m_mutex);
-    
-    if (m_locks.contains(filePath)) {
-        QSharedPointer<QLockFile> lockFile = m_locks[filePath];
+    // Check if we have the lock in our map
+    auto lockFileOpt = m_locks.value(filePath);
+    if (lockFileOpt.has_value()) {
+        QSharedPointer<QLockFile> lockFile = lockFileOpt.value();
         return lockFile && lockFile->isLocked();
     }
     
@@ -235,8 +235,6 @@ bool VP_MetadataLockManager::removeStaleLock(const QString& filePath)
 {
     qDebug() << "VP_MetadataLockManager: Attempting to remove stale lock for:" << filePath;
     
-    QMutexLocker locker(&m_mutex);
-    
     QString lockFilePath = getLockFilePath(filePath);
     
     // Create a temporary lock file to check
@@ -247,7 +245,7 @@ bool VP_MetadataLockManager::removeStaleLock(const QString& filePath)
         qDebug() << "VP_MetadataLockManager: Successfully removed stale lock for:" << filePath;
         emit staleLockRemoved(filePath);
         
-        // Remove from our map if it exists
+        // Remove from our maps if they exist
         m_locks.remove(filePath);
         m_lockTimers.remove(filePath);
         
@@ -259,14 +257,14 @@ bool VP_MetadataLockManager::removeStaleLock(const QString& filePath)
 
 int VP_MetadataLockManager::activeLocksCount() const
 {
-    QMutexLocker locker(&m_mutex);
     int count = 0;
     
-    for (auto it = m_locks.constBegin(); it != m_locks.constEnd(); ++it) {
-        if (it.value() && it.value()->isLocked()) {
+    // Use safe iteration to count active locks (QMap iteration with key-value pairs)
+    m_locks.safeIterate([&count](const QString& key, const QSharedPointer<QLockFile>& lockFile) {
+        if (lockFile && lockFile->isLocked()) {
             count++;
         }
-    }
+    });
     
     return count;
 }
@@ -275,10 +273,11 @@ void VP_MetadataLockManager::cleanup()
 {
     qDebug() << "VP_MetadataLockManager: Starting cleanup of all locks";
     
-    QMutexLocker locker(&m_mutex);
+    // Get a snapshot of all locks to avoid holding the lock during file operations
+    QMap<QString, QSharedPointer<QLockFile>> locksCopy = m_locks.getCopy();
     
     // Release all locks
-    for (auto it = m_locks.begin(); it != m_locks.end(); ++it) {
+    for (auto it = locksCopy.begin(); it != locksCopy.end(); ++it) {
         if (it.value() && it.value()->isLocked()) {
             it.value()->unlock();
             qDebug() << "VP_MetadataLockManager: Released lock for:" << it.key();
@@ -291,6 +290,7 @@ void VP_MetadataLockManager::cleanup()
         }
     }
     
+    // Clear the containers
     m_locks.clear();
     m_lockTimers.clear();
     
@@ -309,8 +309,9 @@ void VP_MetadataLockManager::setStaleLockTimeout(int seconds)
 QSharedPointer<QLockFile> VP_MetadataLockManager::getLockFile(const QString& filePath)
 {
     // Check if we already have a lock file for this path
-    if (m_locks.contains(filePath)) {
-        return m_locks[filePath];
+    auto existingLock = m_locks.value(filePath);
+    if (existingLock.has_value()) {
+        return existingLock.value();
     }
     
     // Create a new lock file
@@ -327,7 +328,7 @@ QSharedPointer<QLockFile> VP_MetadataLockManager::getLockFile(const QString& fil
     }
     
     QSharedPointer<QLockFile> lockFile = QSharedPointer<QLockFile>::create(lockFilePath);
-    m_locks[filePath] = lockFile;
+    m_locks.insert(filePath, lockFile);
     
     qDebug() << "VP_MetadataLockManager: Created lock file:" << lockFilePath;
     return lockFile;

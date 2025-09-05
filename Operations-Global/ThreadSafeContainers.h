@@ -27,10 +27,37 @@
  * safeList.append("item");
  * auto value = safeList.at(0);
  */
+// Helper traits to extract the appropriate value type
+template<typename T, typename = void>
+struct container_value_type {
+    using type = typename T::value_type;
+};
+
+template<typename K, typename V>
+struct container_value_type<QMap<K, V>, void> {
+    using type = V;  // For QMap, use the mapped type (V)
+};
+
+template<typename K, typename V>
+struct container_value_type<QHash<K, V>, void> {
+    using type = V;  // For QHash, use the mapped type (V)
+};
+
 template<typename Container>
 class ThreadSafeContainer {
 public:
-    using value_type = typename Container::value_type;
+    // Type trait to detect if Container is a QMap or QHash
+    template<typename T>
+    struct is_qt_map : std::false_type {};
+    
+    template<typename K, typename V>
+    struct is_qt_map<QMap<K, V>> : std::true_type {};
+    
+    template<typename K, typename V>
+    struct is_qt_map<QHash<K, V>> : std::true_type {};
+    
+    // Use the helper to get the right value type
+    using value_type = typename container_value_type<Container>::type;
     using size_type = typename Container::size_type;
     
 private:
@@ -69,11 +96,13 @@ public:
     // ============================================================================
     
     /**
-     * @brief Thread-safe append with size validation
+     * @brief Thread-safe append with size validation (for sequence containers only)
      * @param value Value to append
      * @return true if successful, false if would exceed max size
      */
-    bool append(const value_type& value) {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, bool>::type
+    append(const value_type& value) {
         QMutexLocker locker(&m_mutex);
         
         if (m_container.size() >= m_maxSize) {
@@ -87,9 +116,11 @@ public:
     }
     
     /**
-     * @brief Thread-safe prepend with size validation
+     * @brief Thread-safe prepend with size validation (for sequence containers only)
      */
-    bool prepend(const value_type& value) {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, bool>::type
+    prepend(const value_type& value) {
         QMutexLocker locker(&m_mutex);
         
         if (m_container.size() >= m_maxSize) {
@@ -103,10 +134,12 @@ public:
     }
     
     /**
-     * @brief Thread-safe remove first occurrence
+     * @brief Thread-safe remove first occurrence (for sequence containers only)
      * @return true if item was found and removed
      */
-    bool removeOne(const value_type& value) {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, bool>::type
+    removeOne(const value_type& value) {
         QMutexLocker locker(&m_mutex);
         bool result = m_container.removeOne(value);
         if (result) {
@@ -116,10 +149,12 @@ public:
     }
     
     /**
-     * @brief Thread-safe remove all occurrences
+     * @brief Thread-safe remove all occurrences (for sequence containers only)
      * @return Number of items removed
      */
-    int removeAll(const value_type& value) {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, int>::type
+    removeAll(const value_type& value) {
         QMutexLocker locker(&m_mutex);
         int count = m_container.removeAll(value);
         if (count > 0) {
@@ -143,11 +178,13 @@ public:
     // ============================================================================
     
     /**
-     * @brief Safe element access with bounds checking
+     * @brief Safe element access with bounds checking (for sequence containers only)
      * @param index Index to access
      * @return Optional containing value if valid index, empty optional otherwise
      */
-    std::optional<value_type> at(size_type index) const {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, std::optional<value_type>>::type
+    at(size_type index) const {
         QMutexLocker locker(&m_mutex);
         m_accessCount++;
         
@@ -161,10 +198,12 @@ public:
     }
     
     /**
-     * @brief Safe first element access
+     * @brief Safe first element access (for sequence containers only)
      * @return Optional containing first element if container not empty
      */
-    std::optional<value_type> first() const {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, std::optional<value_type>>::type
+    first() const {
         QMutexLocker locker(&m_mutex);
         m_accessCount++;
         
@@ -177,10 +216,12 @@ public:
     }
     
     /**
-     * @brief Safe last element access
+     * @brief Safe last element access (for sequence containers only)
      * @return Optional containing last element if container not empty
      */
-    std::optional<value_type> last() const {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, std::optional<value_type>>::type
+    last() const {
         QMutexLocker locker(&m_mutex);
         m_accessCount++;
         
@@ -193,9 +234,11 @@ public:
     }
     
     /**
-     * @brief Safe take first (remove and return first element)
+     * @brief Safe take first (remove and return first element) (for sequence containers only)
      */
-    std::optional<value_type> takeFirst() {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, std::optional<value_type>>::type
+    takeFirst() {
         QMutexLocker locker(&m_mutex);
         
         if (m_container.isEmpty()) {
@@ -208,9 +251,11 @@ public:
     }
     
     /**
-     * @brief Safe take last (remove and return last element)
+     * @brief Safe take last (remove and return last element) (for sequence containers only)
      */
-    std::optional<value_type> takeLast() {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, std::optional<value_type>>::type
+    takeLast() {
         QMutexLocker locker(&m_mutex);
         
         if (m_container.isEmpty()) {
@@ -223,9 +268,11 @@ public:
     }
     
     /**
-     * @brief Safe take at index
+     * @brief Safe take at index (for sequence containers only)
      */
-    std::optional<value_type> takeAt(size_type index) {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, std::optional<value_type>>::type
+    takeAt(size_type index) {
         QMutexLocker locker(&m_mutex);
         
         if (index < 0 || index >= m_container.size()) {
@@ -243,12 +290,14 @@ public:
     // ============================================================================
     
     /**
-     * @brief Safe iteration with read-only access
+     * @brief Safe iteration with read-only access (for sequence containers)
      * @param operation Function to apply to each element (const reference)
      * 
      * Creates a local copy for iteration to prevent iterator invalidation
      */
-    void safeIterate(std::function<void(const value_type&)> operation) const {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, void>::type
+    safeIterate(std::function<void(const value_type&)> operation) const {
         Container localCopy;
         {
             QMutexLocker locker(&m_mutex);
@@ -262,10 +311,31 @@ public:
     }
     
     /**
-     * @brief Safe iteration with index
+     * @brief Safe iteration for QMap/QHash with key-value pairs
+     * @param operation Function to apply to each key-value pair
+     */
+    template<typename T = Container>
+    typename std::enable_if<is_qt_map<T>::value, void>::type
+    safeIterate(std::function<void(const typename T::key_type&, const typename T::mapped_type&)> operation) const {
+        Container localCopy;
+        {
+            QMutexLocker locker(&m_mutex);
+            localCopy = m_container;  // Copy while locked
+            m_accessCount++;
+        }
+        // Iterate outside of lock to prevent deadlocks
+        for (auto it = localCopy.constBegin(); it != localCopy.constEnd(); ++it) {
+            operation(it.key(), it.value());
+        }
+    }
+    
+    /**
+     * @brief Safe iteration with index (for sequence containers only)
      * @param operation Function receiving index and value
      */
-    void safeIterateWithIndex(std::function<void(size_type, const value_type&)> operation) const {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, void>::type
+    safeIterateWithIndex(std::function<void(size_type, const value_type&)> operation) const {
         Container localCopy;
         {
             QMutexLocker locker(&m_mutex);
@@ -279,12 +349,14 @@ public:
     }
     
     /**
-     * @brief Safe modification during iteration
-     * @param predicate Function that returns true for items to keep
+     * @brief Safe modification during iteration (for sequence containers only)
+     * @param predicate Function that returns true for items to remove
      * 
-     * Removes all items for which predicate returns false
+     * Removes all items for which predicate returns true
      */
-    int removeIf(std::function<bool(const value_type&)> predicate) {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, int>::type
+    removeIf(std::function<bool(const value_type&)> predicate) {
         QMutexLocker locker(&m_mutex);
         
         int removedCount = 0;
@@ -307,10 +379,12 @@ public:
     }
     
     /**
-     * @brief Transform all elements safely
+     * @brief Transform all elements safely (for sequence containers only)
      * @param transformer Function that modifies each element
      */
-    void transform(std::function<void(value_type&)> transformer) {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, void>::type
+    transform(std::function<void(value_type&)> transformer) {
         QMutexLocker locker(&m_mutex);
         
         for (auto& item : m_container) {
@@ -324,18 +398,22 @@ public:
     // ============================================================================
     
     /**
-     * @brief Thread-safe contains check
+     * @brief Thread-safe contains check (for sequence containers)
      */
-    bool contains(const value_type& value) const {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, bool>::type
+    contains(const value_type& value) const {
         QMutexLocker locker(&m_mutex);
         m_accessCount++;
         return m_container.contains(value);
     }
     
     /**
-     * @brief Find first element matching predicate
+     * @brief Find first element matching predicate (for sequence containers only)
      */
-    std::optional<value_type> findFirst(std::function<bool(const value_type&)> predicate) const {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, std::optional<value_type>>::type
+    findFirst(std::function<bool(const value_type&)> predicate) const {
         QMutexLocker locker(&m_mutex);
         m_accessCount++;
         
@@ -348,9 +426,11 @@ public:
     }
     
     /**
-     * @brief Find all elements matching predicate
+     * @brief Find all elements matching predicate (for sequence containers only)
      */
-    Container findAll(std::function<bool(const value_type&)> predicate) const {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, Container>::type
+    findAll(std::function<bool(const value_type&)> predicate) const {
         QMutexLocker locker(&m_mutex);
         m_accessCount++;
         
@@ -364,10 +444,12 @@ public:
     }
     
     /**
-     * @brief Get index of value
+     * @brief Get index of value (for sequence containers only)
      * @return Index if found, -1 otherwise
      */
-    int indexOf(const value_type& value) const {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, int>::type
+    indexOf(const value_type& value) const {
         QMutexLocker locker(&m_mutex);
         m_accessCount++;
         return m_container.indexOf(value);
@@ -404,9 +486,11 @@ public:
     }
     
     /**
-     * @brief Append multiple items with size check
+     * @brief Append multiple items with size check (for sequence containers only)
      */
-    bool appendMultiple(const Container& items) {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, bool>::type
+    appendMultiple(const Container& items) {
         QMutexLocker locker(&m_mutex);
         
         if (m_container.size() + items.size() > m_maxSize) {
@@ -489,9 +573,11 @@ public:
     // ============================================================================
     
     /**
-     * @brief Atomic swap of two elements
+     * @brief Atomic swap of two elements (for sequence containers only)
      */
-    bool swapItemsAt(size_type index1, size_type index2) {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, bool>::type
+    swapItemsAt(size_type index1, size_type index2) {
         QMutexLocker locker(&m_mutex);
         
         if (index1 < 0 || index1 >= m_container.size() ||
@@ -508,9 +594,11 @@ public:
     }
     
     /**
-     * @brief Move item from one index to another
+     * @brief Move item from one index to another (for sequence containers only)
      */
-    bool moveItem(size_type from, size_type to) {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, bool>::type
+    moveItem(size_type from, size_type to) {
         QMutexLocker locker(&m_mutex);
         
         if (from < 0 || from >= m_container.size() ||
@@ -569,6 +657,18 @@ public:
     }
     
     /**
+     * @brief Check if key exists (for QMap/QHash)
+     */
+    template<typename K = typename Container::key_type>
+    typename std::enable_if<std::is_same<Container, QMap<K,typename Container::mapped_type>>::value || 
+                           std::is_same<Container, QHash<K,typename Container::mapped_type>>::value, bool>::type
+    contains(const K& key) const {
+        QMutexLocker locker(&m_mutex);
+        m_accessCount++;
+        return m_container.contains(key);
+    }
+    
+    /**
      * @brief Remove key (for QMap/QHash)
      */
     template<typename K = typename Container::key_type>
@@ -589,10 +689,12 @@ public:
     // ============================================================================
     
     /**
-     * @brief Array subscript operator with bounds checking
+     * @brief Array subscript operator with bounds checking (for sequence containers only)
      * Returns default-constructed value if out of bounds
      */
-    value_type operator[](size_type index) const {
+    template<typename T = Container>
+    typename std::enable_if<!is_qt_map<T>::value, value_type>::type
+    operator[](size_type index) const {
         auto result = at(index);
         if (result.has_value()) {
             return result.value();

@@ -9,6 +9,7 @@
 #include <QLockFile>
 #include <QElapsedTimer>
 #include <memory>
+#include "Operations-Global/ThreadSafeContainers.h"
 
 /**
  * @class VP_MetadataLockManager
@@ -164,9 +165,9 @@ private:
     static VP_MetadataLockManager* s_instance;
     static QMutex s_instanceMutex;
     
-    mutable QMutex m_mutex;
-    QMap<QString, QSharedPointer<QLockFile>> m_locks;
-    QMap<QString, QElapsedTimer> m_lockTimers;
+    // Using ThreadSafeMap to prevent race conditions
+    ThreadSafeMap<QString, QSharedPointer<QLockFile>> m_locks;
+    ThreadSafeMap<QString, QElapsedTimer> m_lockTimers;
     
     int m_staleLockTimeoutMs;
     
