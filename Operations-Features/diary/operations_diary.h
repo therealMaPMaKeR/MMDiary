@@ -5,6 +5,7 @@
 #include "mainwindow.h"
 #include "operations.h"
 #include "inputvalidation.h"
+#include "ThreadSafeContainers.h"
 #include <QMessageBox>
 #include <QMutex>
 #include <QPointer>
@@ -104,8 +105,8 @@ private:
     bool recreateThumbnail(const QString& thumbnailPath, const QString& diaryDir);
     QPixmap generateThumbnail_FromPixmap(const QPixmap& originalPixmap, int maxSize = 64);
 
-    // Image viewer tracking to prevent duplicate windows
-    QMap<QString, QPointer<ImageViewer>> m_openImageViewers;
+    // Image viewer tracking to prevent duplicate windows - THREAD SAFE
+    ThreadSafeMap<QString, QPointer<ImageViewer>> m_openImageViewers;
 
     // Helper method to clean up open viewers
     void cleanupOpenImageViewers();

@@ -284,14 +284,24 @@ QString Operations_Diary::FindLastTimeStampType(int index)
     {
         if (index < 0 || index >= items.size())
         {
-            qDebug() << "Invalid index:" << index;
+            qDebug() << "Operations_Diary: Invalid index:" << index;
             return "";
         }
         start_index = index;
     }
     for (int i = start_index; i >= 0; i--)
     {
-        QString itemText = items.at(i)->text();
+        // THREAD SAFETY: Use bounds checking for array access
+        if (i < 0 || i >= items.size()) {
+            qWarning() << "Operations_Diary: Index out of bounds in FindLastTimeStampType:" << i;
+            break;
+        }
+        QListWidgetItem* item = items.at(i);
+        if (!item) {
+            qWarning() << "Operations_Diary: Null item at index" << i;
+            continue;
+        }
+        QString itemText = item->text();
         if (itemText == Constants::Diary_TimeStampStart)
         {
             return Constants::Diary_TimeStampStart;
@@ -312,24 +322,25 @@ bool Operations_Diary::eventFilter(QObject* watched, QEvent* event)
 
         // Check if the click is on any diary ImageViewer window
         bool clickOnDiaryViewer = false;
+        QPoint globalClickPos = mouseEvent->globalPosition().toPoint();
 
-        for (auto it = m_openImageViewers.begin(); it != m_openImageViewers.end(); ++it) {
-            QPointer<ImageViewer> viewer = it.value();
+        // THREAD SAFETY: Use safeIterate to check viewers
+        m_openImageViewers.safeIterate([&clickOnDiaryViewer, globalClickPos](const QString& path, const QPointer<ImageViewer>& viewer) {
+            if (clickOnDiaryViewer) return; // Already found, skip rest
+            
             if (viewer && !viewer.isNull()) {
                 // Check if this is a diary viewer
                 bool isDiaryViewer = viewer->property("isDiaryViewer").toBool();
                 if (isDiaryViewer) {
                     // Check if the mouse click is within this viewer's window
-                    QPoint globalClickPos = mouseEvent->globalPosition().toPoint();
                     QRect viewerGeometry = viewer->frameGeometry();
 
                     if (viewerGeometry.contains(globalClickPos)) {
                         clickOnDiaryViewer = true;
-                        break;
                     }
                 }
             }
-        }
+        });
 
         // If click was not on a diary viewer, close all diary viewers
         if (!clickOnDiaryViewer && !m_openImageViewers.isEmpty()) {
@@ -431,16 +442,30 @@ void Operations_Diary::AddNewEntryToDisplay()
     if(diaryText.contains("\n")) // if the text we input contains more than one line.
     {
         m_mainWindow->ui->DiaryTextDisplay->addItem(Constants::Diary_TextBlockStart); // add text block start marker
-        m_mainWindow->ui->DiaryTextDisplay->item(getTextDisplayItems().length() - 1)->setHidden(true); // hide text block start marker
+        QList<QListWidgetItem*> items = getTextDisplayItems();
+        // THREAD SAFETY: Check if items list is valid before accessing
+        if (!items.isEmpty()) {
+            m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setHidden(true); // hide text block start marker
+        }
         m_mainWindow->ui->DiaryTextDisplay->addItem(diaryText); // add text
-        m_mainWindow->ui->DiaryTextDisplay->item(getTextDisplayItems().length() - 1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(getTextDisplayItems().length() - 1)->flags() | Qt::ItemIsEditable); // make our new entry editable
+        items = getTextDisplayItems();
+        if (!items.isEmpty()) {
+            m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->flags() | Qt::ItemIsEditable); // make our new entry editable
+        }
         m_mainWindow->ui->DiaryTextDisplay->addItem(Constants::Diary_TextBlockEnd); // add text block end marker
-        m_mainWindow->ui->DiaryTextDisplay->item(getTextDisplayItems().length() - 1)->setHidden(true); // hide text block end marker
+        items = getTextDisplayItems();
+        if (!items.isEmpty()) {
+            m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setHidden(true); // hide text block end marker
+        }
     }
     else
     {
         m_mainWindow->ui->DiaryTextDisplay->addItem(diaryText); // add text
-        m_mainWindow->ui->DiaryTextDisplay->item(getTextDisplayItems().length() - 1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(getTextDisplayItems().length() - 1)->flags() | Qt::ItemIsEditable); // make our new entry editable
+        QList<QListWidgetItem*> items = getTextDisplayItems();
+        // THREAD SAFETY: Check if items list is valid before accessing
+        if (!items.isEmpty()) {
+            m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->flags() | Qt::ItemIsEditable); // make our new entry editable
+        }
     }
 }
 
@@ -476,7 +501,11 @@ void Operations_Diary::InputNewEntry(QString DiaryFileName)
 
     prevent_onDiaryTextDisplay_itemChanged = true; // variable used to prevent on_DiaryTextDisplay_itemChanged() from executing. this function is only for editing text
     // REMOVES THE SPACER WIDGET USED IN DESELECTING THE LAST ENTRY. WE DONT WANT TO SAVE IT IN THE DIARY FILE
-    m_mainWindow->ui->DiaryTextDisplay->takeItem(getTextDisplayItems().length() - 1);
+    QList<QListWidgetItem*> items = getTextDisplayItems();
+    // THREAD SAFETY: Check if items list is valid before accessing
+    if (!items.isEmpty()) {
+        m_mainWindow->ui->DiaryTextDisplay->takeItem(items.length() - 1);
+    }
     //----------------------//
     QDateTime date = QDateTime::currentDateTime(); // Get date and time
     QString formattedTime = date.toString("hh:mm"); // Format approprietly
@@ -1270,7 +1299,15 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
     QList<QListWidgetItem*> templist = m_mainWindow->ui->DiaryTextDisplay->findItems(Constants::Diary_TimeStampStart, Qt::MatchStartsWith); // get a list of all timestamp locations
     if(!templist.isEmpty()) //if templist is not empty, otherwise the software would crash by returning an invalid index
     {
-        QListWidgetItem* lastTimestampMarker = templist.last();
+        // THREAD SAFETY: Use bounds checking when accessing last element
+        QListWidgetItem* lastTimestampMarker = nullptr;
+        if (!templist.isEmpty()) {
+            lastTimestampMarker = templist.last();
+        }
+        if (!lastTimestampMarker) {
+            qWarning() << "Operations_Diary: No valid timestamp marker found";
+            return;
+        }
         int markerRow = m_mainWindow->ui->DiaryTextDisplay->row(lastTimestampMarker);
         QString temptext = m_mainWindow->ui->DiaryTextDisplay->item(markerRow + 1)->text();
         QString temptime = temptext.section(" at ",1,1); // remove the username from the text and keep only the time
@@ -1356,8 +1393,17 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
         QList<QListWidgetItem*> allItems = getTextDisplayItems();
 
         // Check if diary is empty (only contains date stamp)
-        if (allItems.length() <= 1 ||
-            (allItems.length() > 0 && allItems.last()->text().contains(GetDiaryDateStamp(formattedTime)))) {
+        // THREAD SAFETY: Use bounds checking when accessing last element
+        bool isDiaryEmpty = false;
+            if (allItems.length() <= 1) {
+                isDiaryEmpty = true;
+            } else if (!allItems.isEmpty()) {
+                QListWidgetItem* lastItem = allItems.last();
+                if (lastItem && lastItem->text().contains(GetDiaryDateStamp(formattedTime))) {
+                    isDiaryEmpty = true;
+                }
+            }
+            if (isDiaryEmpty) {
             // Empty diary, guarantee a timestamp on next entry
             cur_entriesNoSpacer = 100000;
         } else {
@@ -1441,8 +1487,11 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
     //add a spacer that is used only for one reason, being able to deselect the last entry of the display. IT IS NOT SAVED INTO OUR DIARY FILE
     m_mainWindow->ui->DiaryTextDisplay->addItem(Constants::Diary_Spacer); //Add spacer
     items = getTextDisplayItems(); // Update the list of all the text in the listview diary text display. //Make a Widget List of all the text in the listview diary text display.
-    m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setData(Qt::UserRole, true);// uses hidetext delegate to hide the spacer
-    m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->flags() & ~Qt::ItemIsEnabled); // disable the spacer
+    // THREAD SAFETY: Check if items list is valid before accessing
+    if (!items.isEmpty()) {
+        m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setData(Qt::UserRole, true);// uses hidetext delegate to hide the spacer
+        m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->flags() & ~Qt::ItemIsEnabled); // disable the spacer
+    }
     //------------------------------//
 
     // Extract the date from the diary file path
@@ -1744,8 +1793,11 @@ void Operations_Diary::CreateNewDiary()
     //add a spacer that is used only for one reason, being able to deselect the last entry of the display
     m_mainWindow->ui->DiaryTextDisplay->addItem(Constants::Diary_Spacer); //Add spacer
     QList<QListWidgetItem *> items = getTextDisplayItems();
-    m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setData(Qt::UserRole, true);// uses hidetext delegate to hide the spacer
-    m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->flags() & ~Qt::ItemIsEnabled); // disable the spacer
+    // THREAD SAFETY: Check if items list is valid before accessing
+    if (!items.isEmpty()) {
+        m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setData(Qt::UserRole, true);// uses hidetext delegate to hide the spacer
+        m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->flags() & ~Qt::ItemIsEnabled); // disable the spacer
+    }
 
     m_mainWindow->ui->DiaryTextDisplay->scrollToBottom();
     DiaryLoader(); // Reload the diary to ensure everything is properly initialized
@@ -1867,8 +1919,12 @@ void Operations_Diary::UpdateDiarySorter(QString current_Year, QString current_M
     UpdateListMonths(current_Year); // update month list based on current year
     currentdiary_Month = current_Month; //
     QList templist = m_mainWindow->ui->DiaryListMonths->findItems(Operations::ConvertMonthtoText(current_Month), Qt::MatchContains); // Make a list of all items that match the name of the current month (will only return one item because each month has a unique name)
-    if (!templist.isEmpty()) {
-        m_mainWindow->ui->DiaryListMonths->setCurrentItem(templist.at(0)); // Set the currently selected item in the months list to the month of the loaded diary. Since it can only find one match, the result will always be at index 0 of our templist
+    // THREAD SAFETY: Check bounds before accessing
+    if (!templist.isEmpty() && templist.size() > 0) {
+        QListWidgetItem* item = templist.at(0);
+        if (item) {
+            m_mainWindow->ui->DiaryListMonths->setCurrentItem(item); // Set the currently selected item in the months list to the month of the loaded diary. Since it can only find one match, the result will always be at index 0 of our templist
+        }
     }
 
     UpdateListDays(Operations::ConvertMonthtoText(current_Month)); // update the list of days based on current month
@@ -2436,18 +2492,23 @@ void Operations_Diary::remove_EmptyTimestamps(bool previousDiary)
                     qDebug() << "items length: " << items.length()-2;
                     //qDebug() << "item at +2: " << items.at(items.indexOf(item)+2)->text();
                 }
-                if(items.indexOf(item)+2 <= items.length()-2 && items.at(items.indexOf(item)+2)->text() == Constants::Diary_Spacer && items.indexOf(item)-1 > 0) //if we find a timestamp && compare index of item to check with list length(prevents crashes)
+                // THREAD SAFETY: Enhanced bounds checking for array access
+                int itemIndex = items.indexOf(item);
+                if(itemIndex >= 0 && itemIndex+2 <= items.length()-2 && itemIndex-1 >= 0) //if we find a timestamp && compare index of item to check with list length(prevents crashes)
                 {
-                    if(item->text() == Constants::Diary_TimeStampStart || item->text() == Constants::Diary_TaskManagerStart)
+                    QListWidgetItem* itemAt = items.at(itemIndex+2);
+                    if(itemAt && itemAt->text() == Constants::Diary_Spacer && itemIndex-1 > 0)
                     {
-                        m_mainWindow->ui->DiaryTextDisplay->takeItem(items.indexOf(item)-1); // remove the spacer that comes before the timestamp
-                        items.removeAt(items.indexOf(item)-1); //update our itemlist
-                        m_mainWindow->ui->DiaryTextDisplay->takeItem(items.indexOf(item)+1); //remove the timestamp
-                        items.removeAt(items.indexOf(item)+1); //update our itemlist
-                        m_mainWindow->ui->DiaryTextDisplay->takeItem(items.indexOf(item)); //remove the timestamp marker
-                        items.removeAt(items.indexOf(item)); //update our itemlist
+                        if(item->text() == Constants::Diary_TimeStampStart || item->text() == Constants::Diary_TaskManagerStart)
+                        {
+                            m_mainWindow->ui->DiaryTextDisplay->takeItem(items.indexOf(item)-1); // remove the spacer that comes before the timestamp
+                            items.removeAt(items.indexOf(item)-1); //update our itemlist
+                            m_mainWindow->ui->DiaryTextDisplay->takeItem(items.indexOf(item)+1); //remove the timestamp
+                            items.removeAt(items.indexOf(item)+1); //update our itemlist
+                            m_mainWindow->ui->DiaryTextDisplay->takeItem(items.indexOf(item)); //remove the timestamp marker
+                            items.removeAt(items.indexOf(item)); //update our itemlist
+                        }
                     }
-
                 }
                 else if(items.indexOf(item) == items.length()-2) // if we find a timestamp that is at the very end of our diarydisplay
                 {
@@ -2465,17 +2526,23 @@ void Operations_Diary::remove_EmptyTimestamps(bool previousDiary)
             }
             else // if we are not editing todays diary but rather the previous one
             {
-                if(items.indexOf(item)+2 <= items.length()-2 && items.at(items.indexOf(item)+2)->text() == Constants::Diary_Spacer && items.indexOf(item)-1 > 0) //if we find a timestamp && compare index of item to check with list length(prevents crashes)
+                // THREAD SAFETY: Enhanced bounds checking for array access
+                int itemIndex = items.indexOf(item);
+                if(itemIndex >= 0 && itemIndex+2 <= items.length()-2 && itemIndex-1 >= 0) //if we find a timestamp && compare index of item to check with list length(prevents crashes)
                 {
-                    if(item->text() == Constants::Diary_TimeStampStart || item->text() == Constants::Diary_TaskManagerStart)
+                    QListWidgetItem* itemAt = items.at(itemIndex+2);
+                    if(itemAt && itemAt->text() == Constants::Diary_Spacer && itemIndex-1 > 0)
                     {
-                        m_mainWindow->ui->DiaryTextDisplay->takeItem(items.indexOf(item)-1); // remove the spacer that comes before the timestamp
-                        items.removeAt(items.indexOf(item)-1); //update our itemlist
-                        m_mainWindow->ui->DiaryTextDisplay->takeItem(items.indexOf(item)+1); //remove the timestamp
-                        items.removeAt(items.indexOf(item)+1); //update our itemlist
-                        m_mainWindow->ui->DiaryTextDisplay->takeItem(items.indexOf(item)); //remove the timestamp marker
-                        items.removeAt(items.indexOf(item)); //update our itemlist
-                        previousDiaryLineCounter = previousDiaryLineCounter -3; //update the previousDiaryLineCounter variable because we removed 3 lines from the previous diary
+                        if(item->text() == Constants::Diary_TimeStampStart || item->text() == Constants::Diary_TaskManagerStart)
+                        {
+                            m_mainWindow->ui->DiaryTextDisplay->takeItem(items.indexOf(item)-1); // remove the spacer that comes before the timestamp
+                            items.removeAt(items.indexOf(item)-1); //update our itemlist
+                            m_mainWindow->ui->DiaryTextDisplay->takeItem(items.indexOf(item)+1); //remove the timestamp
+                            items.removeAt(items.indexOf(item)+1); //update our itemlist
+                            m_mainWindow->ui->DiaryTextDisplay->takeItem(items.indexOf(item)); //remove the timestamp marker
+                            items.removeAt(items.indexOf(item)); //update our itemlist
+                            previousDiaryLineCounter = previousDiaryLineCounter -3; //update the previousDiaryLineCounter variable because we removed 3 lines from the previous diary
+                        }
                     }
                 }
                 else if(items.indexOf(item)+2 <= items.length()-2 && items.at(items.indexOf(item)+2)->text() == currentdiary_DateStamp) // if we find a spacer that is at the end of the previous diary display. uses datestamp detection
@@ -2976,13 +3043,14 @@ bool Operations_Diary::openImageWithViewer(const QString& imagePath)
         return false;
     }
 
-    // Check if this image is already open in a viewer
-    if (m_openImageViewers.contains(imagePath)) {
-        QPointer<ImageViewer> existingViewer = m_openImageViewers[imagePath];
+    // THREAD SAFETY: Check if this image is already open in a viewer
+    auto existingViewerOpt = m_openImageViewers.value(imagePath);
+    if (existingViewerOpt.has_value()) {
+        QPointer<ImageViewer> existingViewer = existingViewerOpt.value();
 
         // Check if the viewer still exists and is valid
         if (existingViewer && !existingViewer.isNull()) {
-            qDebug() << "Closing existing ImageViewer to reopen fresh for:" << imagePath;
+            qDebug() << "Operations_Diary: Closing existing ImageViewer to reopen fresh for:" << imagePath;
 
             // Close the existing viewer - this will trigger cleanup via destroyed signal
             existingViewer->close();
@@ -2992,7 +3060,7 @@ bool Operations_Diary::openImageWithViewer(const QString& imagePath)
             m_openImageViewers.remove(imagePath);
         } else {
             // Viewer was already destroyed, just remove it from tracking
-            qDebug() << "Removing destroyed viewer from tracking:" << imagePath;
+            qDebug() << "Operations_Diary: Removing destroyed viewer from tracking:" << imagePath;
             m_openImageViewers.remove(imagePath);
         }
     }
@@ -3057,16 +3125,17 @@ bool Operations_Diary::openImageWithViewer(const QString& imagePath)
             return false;
         }
 
-        // Add the viewer to our tracking map
-        m_openImageViewers[imagePath] = QPointer<ImageViewer>(viewer);
-        qDebug() << "Created new ImageViewer for:" << imagePath << "Total open viewers:" << m_openImageViewers.size();
+        // THREAD SAFETY: Add the viewer to our tracking map
+        m_openImageViewers.insert(imagePath, QPointer<ImageViewer>(viewer));
+        qDebug() << "Operations_Diary: Created new ImageViewer for:" << imagePath << "Total open viewers:" << m_openImageViewers.size();
 
         // Clean up temp file when viewer is destroyed using secure deletion
         connect(viewer, &QObject::destroyed, [this, tempFilePath, imagePath]() {
-            // Remove from tracking when viewer is destroyed
-            if (m_openImageViewers.contains(imagePath)) {
+            // THREAD SAFETY: Remove from tracking when viewer is destroyed
+            auto viewerOpt = m_openImageViewers.value(imagePath);
+            if (viewerOpt.has_value()) {
                 m_openImageViewers.remove(imagePath);
-                qDebug() << "Removed viewer from tracking on destruction:" << imagePath << "Remaining viewers:" << m_openImageViewers.size();
+                qDebug() << "Operations_Diary: Removed viewer from tracking on destruction:" << imagePath << "Remaining viewers:" << m_openImageViewers.size();
             }
 
             // Clean up temporary file
@@ -3830,41 +3899,45 @@ QPixmap Operations_Diary::generateThumbnail_FromPixmap(const QPixmap& originalPi
 
 void Operations_Diary::closeAllDiaryImageViewers()
 {
-    qDebug() << "Closing all diary image viewers";
+    qDebug() << "Operations_Diary: Closing all diary image viewers";
 
-    // Close only viewers that are marked as diary viewers
-    for (auto it = m_openImageViewers.begin(); it != m_openImageViewers.end();) {
-        QPointer<ImageViewer> viewer = it.value();
+    // THREAD SAFETY: Collect keys to remove first, then remove them
+    QStringList keysToRemove;
+    
+    // Use safeIterate to identify viewers to close
+    m_openImageViewers.safeIterate([&keysToRemove](const QString& path, const QPointer<ImageViewer>& viewer) {
         if (viewer && !viewer.isNull()) {
             // Check if this viewer is marked as a diary viewer
             bool isDiaryViewer = viewer->property("isDiaryViewer").toBool();
             if (isDiaryViewer) {
-                qDebug() << "Closing diary viewer for:" << it.key();
+                qDebug() << "Operations_Diary: Closing diary viewer for:" << path;
                 viewer->close();
                 viewer->deleteLater();
-                it = m_openImageViewers.erase(it); // Remove and get next iterator
-            } else {
-                ++it; // Keep non-diary viewers, move to next
+                keysToRemove.append(path);
             }
         } else {
             // Viewer was already destroyed, remove from tracking
-            it = m_openImageViewers.erase(it);
+            keysToRemove.append(path);
         }
+    });
+    
+    // Remove the identified keys
+    for (const QString& key : keysToRemove) {
+        m_openImageViewers.remove(key);
     }
 }
 
 void Operations_Diary::cleanupOpenImageViewers()
 {
-    qDebug() << "Cleaning up" << m_openImageViewers.size() << "open image viewers";
+    qDebug() << "Operations_Diary: Cleaning up" << m_openImageViewers.size() << "open image viewers";
 
-    // Close all open viewers
-    for (auto it = m_openImageViewers.begin(); it != m_openImageViewers.end(); ++it) {
-        QPointer<ImageViewer> viewer = it.value();
+    // THREAD SAFETY: Use safeIterate to close all viewers
+    m_openImageViewers.safeIterate([](const QString& path, const QPointer<ImageViewer>& viewer) {
         if (viewer && !viewer.isNull()) {
             viewer->close();
             viewer->deleteLater();
         }
-    }
+    });
 
     // Clear the tracking map
     m_openImageViewers.clear();
@@ -4438,14 +4511,20 @@ void Operations_Diary::on_DiaryTextDisplay_itemChanged()
                 prevent_onDiaryTextDisplay_itemChanged = true; // prevents infinite loop
                 // REMOVES THE SPACER WIDGET USED IN DESELECTING THE LAST ENTRY. WE DONT WANT TO SAVE IT IN THE DIARY FILE
                 QList<QListWidgetItem *> items = getTextDisplayItems(); // Update the list of all the text in the listview diary text display.
-                m_mainWindow->ui->DiaryTextDisplay->takeItem(items.length() - 1);
+                // THREAD SAFETY: Check if items list is valid before accessing
+                if (!items.isEmpty()) {
+                    m_mainWindow->ui->DiaryTextDisplay->takeItem(items.length() - 1);
+                }
                 //----------------------//
                 SaveDiary(current_DiaryFileName, false); // Save the current diary with the newly modified text. false means we are saving todays diary
                 //Add a spacer that is used only for one reason, being able to deselect the last entry of the display. IT IS NOT SAVED INTO OUR DIARY FILE
                 m_mainWindow->ui->DiaryTextDisplay->addItem(Constants::Diary_Spacer); //Add spacer
                 items = getTextDisplayItems(); // Update the list of all the text in the listview diary text display.
-                m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setData(Qt::UserRole, true);// uses hidetext delegate to hide the spacer
-                m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->flags() & ~Qt::ItemIsEnabled); // disable the spacer
+                // THREAD SAFETY: Check if items list is valid before accessing
+                if (!items.isEmpty()) {
+                    m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setData(Qt::UserRole, true);// uses hidetext delegate to hide the spacer
+                    m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->setFlags(m_mainWindow->ui->DiaryTextDisplay->item(items.length() - 1)->flags() & ~Qt::ItemIsEnabled); // disable the spacer
+                }
                 //------------------------------//
                 prevent_onDiaryTextDisplay_itemChanged = false; // prevents infinite loop
             }
