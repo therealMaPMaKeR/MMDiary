@@ -387,6 +387,7 @@ SOURCES += \
     Operations-Global/operations.cpp \
     Operations-Global/operations_files.cpp \
     Operations-Global/passwordvalidation.cpp \
+    Operations-Global/SafeTimer.cpp \
     Operations-Global/databases/custom-data-storage/datastorage_field_manager.cpp \
     Operations-Global/databases/custom-data-storage/datastorage_field_definitions.cpp \
     Operations-Global/databases/sqlite/sqlite-database-auth.cpp \
@@ -450,6 +451,7 @@ HEADERS += \
     Operations-Global/operations.h \
     Operations-Global/operations_files.h \
     Operations-Global/passwordvalidation.h \
+    Operations-Global/SafeTimer.h \
     Operations-Global/databases/custom-data-storage/datastorage_field_manager.h \
     Operations-Global/databases/custom-data-storage/datastorage_field_definitions.h \
     Operations-Global/databases/sqlite/sqlite-database-auth.h \
