@@ -4,6 +4,8 @@
 #include "qlist_DiaryTextDisplay.h"
 #include "CryptoUtils.h"
 #include "operations.h"
+#include <memory>  // SECURITY: For std::unique_ptr
+#include <algorithm>  // SECURITY: For std::fill
 #include "operations_diary.h"
 #include "operations_passwordmanager.h"
 #include "operations_tasklists.h"
@@ -72,10 +74,11 @@ MainWindow::MainWindow(QWidget *parent)
 
 
 
-    // Initialize the system tray icon
-    trayIcon = new QSystemTrayIcon(this);
+    // Initialize the system tray icon (don't show yet - wait for successful init)
+    // SECURITY: Don't use 'this' as parent to avoid double-deletion
+    trayIcon = new QSystemTrayIcon();
     trayIcon->setIcon(QIcon(":/icons/icon_tray.png")); // Path to your icon in the resource file
-    trayIcon->show();
+    // Don't show() yet - wait until initialization succeeds
 
     // Create the context menu for the tray icon
     trayMenu = new QMenu(this);
@@ -89,6 +92,12 @@ MainWindow::MainWindow(QWidget *parent)
     // Connect the "Quit" action to properly close the application with settings save
     connect(quitAction, &QAction::triggered, this, [this]() {
         qDebug() << "MainWindow: System tray quit action triggered";
+        
+        // SECURITY: Hide tray icon immediately to prevent zombie
+        if (trayIcon) {
+            trayIcon->hide();
+            QApplication::processEvents(); // Ensure it takes effect
+        }
         
         // Hide window immediately for responsive feel
         hide();
@@ -157,93 +166,214 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
-    qDebug() << "MainWindow: Destructor called - clearing sensitive data";
+    qDebug() << "MainWindow: Destructor called - beginning cleanup sequence";
     
-    // SecureByteArray will handle secure clearing automatically
-    user_Key.clear();
+    // SECURITY: Step 1 - Prevent any further operations from child objects
+    initFinished = false;
     
-    // Clear username and other sensitive strings
-    user_Username.clear();
-    user_Displayname.clear();
-    
-    // Perform centralized cleanup
-    cleanupPointers();
-    
-    // Delete UI last
-    delete ui;
-    ui = nullptr;
-    
-    qDebug() << "MainWindow: Destructor completed";
-}
-
-void MainWindow::cleanupPointers()
-{
-    qDebug() << "MainWindow: Starting pointer cleanup";
-    
-    // Clean up tray icon and menu
+    // SECURITY: Step 2 - IMMEDIATELY clean up tray icon to prevent zombies
     if (trayIcon) {
-        // Always hide the tray icon first to ensure it's removed from system tray
-        if (trayIcon->isVisible()) {
-            trayIcon->hide();
-            qDebug() << "MainWindow: Tray icon hidden during cleanup";
-        }
-        trayIcon->disconnect();
-        if (trayIcon->parent() != this) {
-            // Only delete if not parented to this
-            delete trayIcon;
-        }
+        qDebug() << "MainWindow: Emergency tray icon cleanup in destructor";
+        trayIcon->hide();
+        
+        // Process events to ensure hide takes effect
+        QApplication::processEvents();
+        
+        // Clear context menu
+        trayIcon->setContextMenu(nullptr);
+        
+        // Delete immediately (no parent, so safe)
+        delete trayIcon;
         trayIcon = nullptr;
     }
     
     if (trayMenu) {
-        trayMenu->disconnect();
-        if (trayMenu->parent() != this) {
-            // Only delete if not parented to this
-            delete trayMenu;
-        }
+        trayMenu->clear();
+        delete trayMenu;
         trayMenu = nullptr;
     }
     
-    // Clean up Operations pointers (they have 'this' as parent, so Qt will delete them)
-    // But we null them to prevent any use-after-free
-    if (Operations_Diary_ptr) {
-        Operations_Diary_ptr->disconnect();
-        Operations_Diary_ptr = nullptr;
+    // SECURITY: Step 3 - Disconnect all signals to prevent use-after-free
+    if (ui) {
+        ui->tabWidget_Main->disconnect();
+        ui->checkBox_OpenOnSettings->disconnect();
+    }
+    disconnect(); // Disconnect all signals from this object
+    
+    // SECURITY: Step 4 - Close and save persistent settings BEFORE clearing data
+    if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
+        qDebug() << "MainWindow: Saving persistent settings in destructor";
+        SavePersistentSettings();
+        m_persistentSettingsManager->close();
+        // Don't delete singleton - just null our pointer
+        m_persistentSettingsManager = nullptr;
     }
     
-    if (Operations_PasswordManager_ptr) {
-        Operations_PasswordManager_ptr->disconnect();
-        Operations_PasswordManager_ptr = nullptr;
-    }
-    
-    if (Operations_TaskLists_ptr) {
-        Operations_TaskLists_ptr->disconnect();
-        Operations_TaskLists_ptr = nullptr;
-    }
-    
-    if (Operations_Settings_ptr) {
-        Operations_Settings_ptr->disconnect();
-        Operations_Settings_ptr = nullptr;
-    }
-    
-    if (Operations_EncryptedData_ptr) {
-        Operations_EncryptedData_ptr->disconnect();
-        Operations_EncryptedData_ptr = nullptr;
-    }
-    
+    // SECURITY: Step 5 - Delete Operations objects explicitly (they may access user_Key)
+    // Delete in reverse order of creation to avoid dependencies
     if (Operations_VP_Shows_ptr) {
+        qDebug() << "MainWindow: Deleting VP_Shows operations";
         Operations_VP_Shows_ptr->disconnect();
+        delete Operations_VP_Shows_ptr;
         Operations_VP_Shows_ptr = nullptr;
     }
     
-    // Don't delete m_persistentSettingsManager as it's a singleton
-    // Just close connection if needed
+    if (Operations_EncryptedData_ptr) {
+        qDebug() << "MainWindow: Deleting EncryptedData operations";
+        Operations_EncryptedData_ptr->disconnect();
+        delete Operations_EncryptedData_ptr;
+        Operations_EncryptedData_ptr = nullptr;
+    }
+    
+    if (Operations_Settings_ptr) {
+        qDebug() << "MainWindow: Deleting Settings operations";
+        Operations_Settings_ptr->disconnect();
+        delete Operations_Settings_ptr;
+        Operations_Settings_ptr = nullptr;
+    }
+    
+    if (Operations_TaskLists_ptr) {
+        qDebug() << "MainWindow: Deleting TaskLists operations";
+        Operations_TaskLists_ptr->disconnect();
+        delete Operations_TaskLists_ptr;
+        Operations_TaskLists_ptr = nullptr;
+    }
+    
+    if (Operations_PasswordManager_ptr) {
+        qDebug() << "MainWindow: Deleting PasswordManager operations";
+        Operations_PasswordManager_ptr->disconnect();
+        delete Operations_PasswordManager_ptr;
+        Operations_PasswordManager_ptr = nullptr;
+    }
+    
+    if (Operations_Diary_ptr) {
+        qDebug() << "MainWindow: Deleting Diary operations";
+        Operations_Diary_ptr->disconnect();
+        delete Operations_Diary_ptr;
+        Operations_Diary_ptr = nullptr;
+    }
+    
+    // SECURITY: Step 6 - Clear sensitive data with explicit overwrite
+    qDebug() << "MainWindow: Clearing sensitive data";
+    user_Key.clear(); // SecureByteArray handles secure clearing
+    
+    // Overwrite QString data before clearing
+    if (!user_Username.isEmpty()) {
+        std::fill(user_Username.begin(), user_Username.end(), QChar('\0'));
+        user_Username.clear();
+    }
+    if (!user_Displayname.isEmpty()) {
+        std::fill(user_Displayname.begin(), user_Displayname.end(), QChar('\0'));
+        user_Displayname.clear();
+    }
+    
+    // SECURITY: Step 7 - Clean up any remaining pointers
+    // Note: Tray icon already cleaned up in Step 2
+    
+    // SECURITY: Step 8 - Delete UI last (it may be parent to some widgets)
+    delete ui;
+    ui = nullptr;
+    
+    qDebug() << "MainWindow: Destructor completed - all resources cleaned";
+}
+
+void MainWindow::cleanupPointers()
+{
+    qDebug() << "MainWindow: cleanupPointers called (tray cleanup handled in destructor)";
+    
+    // SECURITY: Tray icon and menu cleanup moved to destructor Step 2
+    // to ensure it happens immediately and prevents zombie icons.
+    // This function is kept for future non-tray cleanup needs.
+    
+    // Currently no other pointers to clean up here
+    // Operations pointers are handled in destructor Step 5
+}
+
+void MainWindow::performEmergencyCleanup()
+{
+    // SECURITY: Emergency cleanup function for critical failures
+    qDebug() << "MainWindow: EMERGENCY CLEANUP INITIATED";
+    
+    // FIRST: Clean up tray icon to prevent zombies
+    if (trayIcon) {
+        qDebug() << "MainWindow: Emergency tray icon cleanup";
+        trayIcon->hide();
+        QApplication::processEvents(); // Force immediate processing
+        trayIcon->setContextMenu(nullptr);
+        delete trayIcon;
+        trayIcon = nullptr;
+    }
+    
+    if (trayMenu) {
+        trayMenu->clear();
+        delete trayMenu;
+        trayMenu = nullptr;
+    }
+    
+    // Immediately clear all sensitive data
+    user_Key.clear();
+    
+    // Overwrite and clear usernames
+    if (!user_Username.isEmpty()) {
+        std::fill(user_Username.begin(), user_Username.end(), QChar('\0'));
+        user_Username.clear();
+    }
+    if (!user_Displayname.isEmpty()) {
+        std::fill(user_Displayname.begin(), user_Displayname.end(), QChar('\0'));
+        user_Displayname.clear();
+    }
+    
+    // Force close database connections (singleton pattern - don't delete)
     if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
         m_persistentSettingsManager->close();
+        m_persistentSettingsManager = nullptr;
     }
-    m_persistentSettingsManager = nullptr;
     
-    qDebug() << "MainWindow: Pointer cleanup completed";
+    // Clear grace periods
+    PasswordValidation::clearGracePeriod();
+    
+    // Clean temp files
+    OperationsFiles::cleanupAllUserTempFolders();
+    
+    qDebug() << "MainWindow: Emergency cleanup completed";
+}
+
+void MainWindow::validatePointersBeforeUse()
+{
+    // SECURITY: Validation helper to check pointer states
+    if (!this) {
+        qCritical() << "MainWindow: CRITICAL - 'this' pointer is invalid!";
+        return;
+    }
+    
+    if (!ui) {
+        qCritical() << "MainWindow: UI pointer is null";
+        initFinished = false;
+    }
+    
+    // Check all Operations pointers are valid if initFinished is true
+    if (initFinished) {
+        if (!Operations_Diary_ptr) {
+            qWarning() << "MainWindow: Operations_Diary_ptr is null when it should be initialized";
+        }
+        if (!Operations_PasswordManager_ptr) {
+            qWarning() << "MainWindow: Operations_PasswordManager_ptr is null when it should be initialized";
+        }
+        if (!Operations_TaskLists_ptr) {
+            qWarning() << "MainWindow: Operations_TaskLists_ptr is null when it should be initialized";
+        }
+        if (!Operations_Settings_ptr) {
+            qWarning() << "MainWindow: Operations_Settings_ptr is null when it should be initialized";
+        }
+        if (!Operations_EncryptedData_ptr) {
+            qWarning() << "MainWindow: Operations_EncryptedData_ptr is null when it should be initialized";
+        }
+        if (!Operations_VP_Shows_ptr) {
+            qWarning() << "MainWindow: Operations_VP_Shows_ptr is null when it should be initialized";
+        }
+    }
+    
+    qDebug() << "MainWindow: Pointer validation complete";
 }
 
 
@@ -455,6 +585,13 @@ void MainWindow::FinishInitialization()
         connect(ui->comboBox_DataENC_SortType, &QComboBox::currentTextChanged,
                 Operations_EncryptedData_ptr, &Operations_EncryptedData::onSortTypeChanged);
         //trayIcon->showMessage("Title", "This is a notification message.", QSystemTrayIcon::Information, 3000);
+        
+        // SECURITY: Only show tray icon after successful initialization
+        if (trayIcon && !trayIcon->isVisible()) {
+            trayIcon->show();
+            qDebug() << "MainWindow: Tray icon shown after successful initialization";
+        }
+        
         initFinished = true;
 
 }
@@ -475,25 +612,68 @@ void MainWindow::ApplySettings()
 }
 
 void MainWindow::showAndActivate() {
-    if (quitToLogin == true) return;
+    qDebug() << "MainWindow: showAndActivate called";
+    
+    // SECURITY: Validate state before proceeding
+    if (quitToLogin == true) {
+        qDebug() << "MainWindow: Ignoring showAndActivate during logout";
+        return;
+    }
+    
+    if (!initFinished) {
+        qWarning() << "MainWindow: showAndActivate called before initialization complete";
+        return;
+    }
+    
+    // SECURITY: Validate pointers before use
+    if (!ui) {
+        qCritical() << "MainWindow: UI pointer is null in showAndActivate";
+        return;
+    }
 
     // Check if password is required after minimize to tray
     if (setting_AskPWAfterMin && !isVisible()) {
-        // NEW: Respect grace period for minimize-to-tray unlock
+        qDebug() << "MainWindow: Password required after minimize, checking grace period";
+        
+        // SECURITY: Validate username before use
+        if (user_Username.isEmpty()) {
+            qCritical() << "MainWindow: Username is empty during restore";
+            performEmergencyCleanup();
+            QApplication::quit();
+            return;
+        }
+        
+        // Respect grace period for minimize-to-tray unlock
         int gracePeriodSeconds = PasswordValidation::getGracePeriodForUser(user_Username);
 
         if (!PasswordValidation::isWithinGracePeriod(user_Username, gracePeriodSeconds)) {
+            qDebug() << "MainWindow: Grace period expired, requesting password";
+            
             // Grace period expired, require password validation
-            bool validPassword = PasswordValidation::validatePasswordWithCustomCancel(
-                this, "Unlock Application", user_Username, "Quit App");
+            bool validPassword = false;
+            try {
+                validPassword = PasswordValidation::validatePasswordWithCustomCancel(
+                    this, "Unlock Application", user_Username, "Quit App");
+            } catch (const std::exception& e) {
+                qCritical() << "MainWindow: Exception during password validation:" << e.what();
+                validPassword = false;
+            }
 
             if (!validPassword) {
+                qDebug() << "MainWindow: Password validation failed or cancelled, quitting";
+                
+                // SECURITY: Clear sensitive data before quitting
+                performEmergencyCleanup();
+                
                 // If validation failed or was cancelled, quit the application
                 QApplication::quit();
                 return;
             }
+            
+            qDebug() << "MainWindow: Password validation successful";
+        } else {
+            qDebug() << "MainWindow: Within grace period, skipping password prompt";
         }
-        // If within grace period, continue without password prompt
     }
 
     // Check if we should open on settings tab OR if grace period expired for password-protected tab
@@ -1050,19 +1230,32 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     qDebug() << "MainWindow: closeEvent called, quitToLogin=" << quitToLogin << ", setting_MinToTray=" << setting_MinToTray;
     
+    // SECURITY: Validate state
+    if (!initFinished && !quitToLogin) {
+        qWarning() << "MainWindow: closeEvent called before initialization complete";
+        event->accept();
+        return;
+    }
+    
     if(quitToLogin == false && setting_MinToTray == true) // minimize to tray
     {
+        qDebug() << "MainWindow: Minimizing to system tray";
+        
         // Hide immediately for responsive feel
         hide();
         
-        // Save persistent settings after hiding
+        // SECURITY: Save persistent settings with error handling
         if (m_persistentSettingsManager && m_persistentSettingsManager->isConnected()) {
-            SavePersistentSettings();
-            qDebug() << "MainWindow: Saved persistent settings before minimizing to tray";
+            try {
+                SavePersistentSettings();
+                qDebug() << "MainWindow: Saved persistent settings before minimizing to tray";
+            } catch (const std::exception& e) {
+                qWarning() << "MainWindow: Failed to save settings:" << e.what();
+            }
         }
         
         // If current tab is password-protected, renew grace period
-        if (isCurrentTabPasswordProtected()) {
+        if (isCurrentTabPasswordProtected() && !user_Username.isEmpty()) {
             PasswordValidation::recordSuccessfulValidation(user_Username);
             qDebug() << "MainWindow: Renewed grace period for password-protected tab on minimize to tray";
         }
@@ -1071,10 +1264,22 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     else if(quitToLogin == false && setting_MinToTray == false) // close app entirely
     {
-        qDebug() << "MainWindow: Closing app entirely";
-        hide(); // first hide mainwindow so the user doesn't notice any delay
+        qDebug() << "MainWindow: Closing application entirely";
         
-        // Clear grace period
+        // SECURITY: Set flag to prevent any operations during shutdown
+        initFinished = false;
+        
+        // SECURITY: Hide tray icon immediately to prevent zombie
+        if (trayIcon && trayIcon->isVisible()) {
+            trayIcon->hide();
+            QApplication::processEvents();
+            qDebug() << "MainWindow: Tray icon hidden in closeEvent";
+        }
+        
+        // Hide window immediately for responsive feel
+        hide();
+        
+        // SECURITY: Clear grace period for all users
         PasswordValidation::clearGracePeriod(user_Username);
         
         // Clean up temp folders
@@ -1128,17 +1333,64 @@ void MainWindow::showEvent(QShowEvent *event)
 
 void MainWindow::ReceiveDataLogin_Slot(QString username, SecureByteArray* key) // receives the userName from the login window.
 {
-    qDebug() << "MainWindow: Receiving login data";
-    user_Username = username;
-    if (key) {
-        user_Key = std::move(*key);  // Move the SecureByteArray data
-        delete key;  // Clean up the pointer after moving its contents
-    }
-    FinishInitialization(); // This function also sets the diaries directory since it is based off of the username, it also executes the diaryloader function.
-    ApplySettings();
+    qDebug() << "MainWindow: Receiving login data from username:" << username;
     
-    if (Operations_Diary_ptr) {
-        Operations_Diary_ptr->UpdateDelegate();
+    // SECURITY: Validate input parameters
+    if (username.isEmpty()) {
+        qCritical() << "MainWindow: Empty username received in login slot";
+        delete key;
+        QMessageBox::critical(this, "Login Error", "Invalid username received");
+        close();
+        return;
+    }
+    
+    // SECURITY: Take ownership of key immediately with unique_ptr
+    std::unique_ptr<SecureByteArray> keyOwner(key);
+    
+    if (!keyOwner || keyOwner->isEmpty()) {
+        qCritical() << "MainWindow: Invalid or empty key received";
+        QMessageBox::critical(this, "Login Error", "Invalid encryption key received");
+        close();
+        return;
+    }
+    
+    // Store username first (needed for cleanup if initialization fails)
+    user_Username = username;
+    
+    // SECURITY: Move key data securely
+    user_Key = std::move(*keyOwner);
+    keyOwner.reset(); // Explicitly reset after move
+    
+    // SECURITY: Initialize with rollback on failure
+    bool initSuccess = false;
+    try {
+        FinishInitialization();
+        ApplySettings();
+        
+        if (Operations_Diary_ptr) {
+            Operations_Diary_ptr->UpdateDelegate();
+        }
+        initSuccess = true;
+    } catch (const std::exception& e) {
+        qCritical() << "MainWindow: Exception during initialization:" << e.what();
+    } catch (...) {
+        qCritical() << "MainWindow: Unknown exception during initialization";
+    }
+    
+    if (!initSuccess) {
+        qCritical() << "MainWindow: Initialization failed, performing cleanup";
+        // SECURITY: Clear sensitive data immediately
+        user_Key.clear();
+        user_Username.clear();
+        
+        // Clean up any partially initialized components
+        cleanupPointers();
+        
+        QMessageBox::critical(this, "Initialization Error", 
+                            "Failed to initialize the application. Please try logging in again.");
+        close();
+    } else {
+        qDebug() << "MainWindow: Login and initialization completed successfully";
     }
 }
 
@@ -1592,6 +1844,13 @@ void MainWindow::on_pushButton_MinToTray_clicked()
 void MainWindow::on_pushButton_CloseApp_clicked()
 {
     qDebug() << "MainWindow: Close App button clicked";
+    
+    // SECURITY: Always hide tray icon immediately when closing
+    if (trayIcon && trayIcon->isVisible()) {
+        trayIcon->hide();
+        QApplication::processEvents(); // Ensure hide takes effect
+        qDebug() << "MainWindow: Tray icon hidden before app close";
+    }
     
     // Check if minimize to tray is enabled
     if (setting_MinToTray == true) {

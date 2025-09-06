@@ -15,6 +15,8 @@
 #include <openssl/evp.h>
 #include <openssl/crypto.h>
 #include "operations_files.h"
+#include "passwordvalidation.h"  // SECURITY: For grace period cleanup
+#include <QSystemTrayIcon>  // SECURITY: For tray icon cleanup
 
 // for writing debug to text file
 /*
@@ -92,8 +94,13 @@ int main(int argc, char *argv[])
         qDebug() << "Data directory already exists at:" << appDir.absoluteFilePath("Data");
     }
 
-    // Cleanup any leftover temp files from previous runs
+    // SECURITY: Cleanup any leftover resources from previous runs
     OperationsFiles::cleanupAllUserTempFolders();
+    
+    // SECURITY: Clear any stale grace periods from previous app instances
+    // This prevents memory leaks and ensures fresh state
+    PasswordValidation::clearGracePeriod();
+    qDebug() << "main: Cleared stale grace periods from previous sessions";
 
     a.setQuitOnLastWindowClosed(false); // prevents closing the app on last window closed.
     a.setStyle("Fusion");
@@ -153,11 +160,17 @@ int main(int argc, char *argv[])
     });
     #endif
 
-    // Register cleanup handler for OpenSSL
-    auto cleanup_openssl = []() {
+    // Register cleanup handler for OpenSSL and tray icons
+    auto cleanup_handler = []() {
         #ifdef QT_DEBUG
-        qDebug() << "main: Cleaning up OpenSSL resources";
+        qDebug() << "main: Application cleanup handler triggered";
         #endif
+        
+        // SECURITY: Clean up any visible tray icons to prevent zombies
+        // Note: This is a best-effort cleanup for abnormal terminations
+        // The MainWindow destructor handles normal cleanup
+        // QSystemTrayIcon cleanup is handled per-window in MainWindow destructor
+        QApplication::processEvents(); // Force processing
         
         // Clean up OpenSSL resources
         EVP_cleanup();
@@ -167,7 +180,7 @@ int main(int argc, char *argv[])
     };
     
     // Connect cleanup to application aboutToQuit signal
-    QObject::connect(&a, &QApplication::aboutToQuit, cleanup_openssl);
+    QObject::connect(&a, &QApplication::aboutToQuit, cleanup_handler);
     
     loginscreen w;
 

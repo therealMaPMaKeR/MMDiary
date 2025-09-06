@@ -281,5 +281,10 @@ private:
     void LoadPersistentSettings();
     void SavePersistentSettings();
     void cleanupPointers();  // Centralized cleanup method
+    
+    // SECURITY: New helper methods for robust resource management
+    void performEmergencyCleanup();  // Emergency cleanup for critical failures
+    void validatePointersBeforeUse();  // Validate pointer states before operations
+    bool isShuttingDown() const { return !initFinished || quitToLogin; }  // Check if in shutdown state
 };
 #endif // MAINWINDOW_H
