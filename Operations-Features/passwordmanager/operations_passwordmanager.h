@@ -6,6 +6,7 @@
 #include "../../mainwindow.h"
 #include "operations.h"
 #include "inputvalidation.h"
+#include "encryption/SecureByteArray.h"
 #include <QMessageBox>
 
 class MainWindow;
@@ -26,10 +27,11 @@ private:
     //functions
     void SetupPWDisplay(QString sortingMethod);
     void SetupPWList(QString sortingMethod, bool applyMasking = true);
-    void AddPassword(QString account, QString password, QString service);
+    void AddPassword(QString account, const SecureByteArray& password, QString service);
     void UpdatePWDisplayForSelection(const QString &selectedValue);
-    bool DeletePassword(const QString &account, const QString &password, const QString &service);
-    bool ModifyPassword(const QString &oldAccount, const QString &oldPassword, const QString &oldService,const QString &newAccount, const QString &newPassword, const QString &newService);
+    bool DeletePassword(const QString &account, const SecureByteArray& password, const QString &service);
+    bool ModifyPassword(const QString &oldAccount, const SecureByteArray& oldPassword, const QString &oldService,
+                        const QString &newAccount, const SecureByteArray& newPassword, const QString &newService);
     bool DeleteAllAssociatedPasswords(const QString &value, const QString &field);
 
     // Search functionality
@@ -52,7 +54,7 @@ private:
     void showContextMenu_PWList(const QPoint &pos);
     
     // Password generation
-    QString generatePassword();
+    SecureByteArray generatePassword();
     
     // Password generation configuration (future menu settings)
     int m_passwordLength = 12;

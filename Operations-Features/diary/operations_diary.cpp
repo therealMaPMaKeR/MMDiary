@@ -24,6 +24,23 @@
 #include <QRegularExpression>
 #include <QImage>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
+// Helper function to get available system memory
+static qint64 getAvailableSystemMemory()
+{
+#ifdef Q_OS_WIN
+    MEMORYSTATUSEX memStatus;
+    memStatus.dwLength = sizeof(memStatus);
+    if (GlobalMemoryStatusEx(&memStatus)) {
+        return static_cast<qint64>(memStatus.ullAvailPhys);
+    }
+#endif
+    // Fallback: return conservative estimate
+    return 2LL * 1024 * 1024 * 1024; // 2GB default
+}
 
 Operations_Diary::Operations_Diary(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
@@ -2669,8 +2686,57 @@ bool Operations_Diary::saveEncryptedImage(const QString& sourcePath, const QStri
     }
 
     // Check if source file exists
-    if (!QFileInfo::exists(sourcePath)) {
+    QFileInfo sourceFileInfo(sourcePath);
+    if (!sourceFileInfo.exists()) {
         qWarning() << "Source image file does not exist:" << sourcePath;
+        return false;
+    }
+
+    // SECURITY FIX: Check file size before reading to prevent memory exhaustion
+    qint64 fileSize = sourceFileInfo.size();
+    qint64 availableMemory = getAvailableSystemMemory();
+    
+    // Calculate memory limit: 50% of available RAM, min 1GB, max 10GB
+    const qint64 MIN_LIMIT = 1LL * 1024 * 1024 * 1024;  // 1GB minimum
+    const qint64 MAX_LIMIT = 10LL * 1024 * 1024 * 1024; // 10GB maximum
+    qint64 memoryLimit = availableMemory / 2; // Use 50% of available RAM
+    
+    // Apply min/max constraints
+    if (memoryLimit < MIN_LIMIT) {
+        memoryLimit = MIN_LIMIT;
+    } else if (memoryLimit > MAX_LIMIT) {
+        memoryLimit = MAX_LIMIT;
+    }
+    
+    qDebug() << "Operations_Diary: Available memory:" << (availableMemory / (1024*1024)) << "MB"
+             << "Memory limit:" << (memoryLimit / (1024*1024)) << "MB"
+             << "File size:" << (fileSize / (1024*1024)) << "MB";
+    
+    if (fileSize > memoryLimit) {
+        // Format sizes for user-friendly message
+        auto formatSize = [](qint64 bytes) -> QString {
+            const qint64 kb = 1024;
+            const qint64 mb = kb * 1024;
+            const qint64 gb = mb * 1024;
+            
+            if (bytes >= gb) {
+                return QString("%1 GB").arg(bytes / double(gb), 0, 'f', 2);
+            } else if (bytes >= mb) {
+                return QString("%1 MB").arg(bytes / double(mb), 0, 'f', 2);
+            } else if (bytes >= kb) {
+                return QString("%1 KB").arg(bytes / double(kb), 0, 'f', 2);
+            } else {
+                return QString("%1 bytes").arg(bytes);
+            }
+        };
+        
+        QString errorMessage = QString("Image file size (%1) exceeds memory limit (%2). "
+                                     "Available RAM: %3. Please use a smaller image or free up memory.")
+                              .arg(formatSize(fileSize))
+                              .arg(formatSize(memoryLimit))
+                              .arg(formatSize(availableMemory));
+        qWarning() << "Operations_Diary:" << errorMessage;
+        QMessageBox::warning(m_mainWindow, "Image Too Large", errorMessage);
         return false;
     }
 

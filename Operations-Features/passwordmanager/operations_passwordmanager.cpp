@@ -20,33 +20,17 @@
 #include <windows.h>
 #endif
 
-// Secure string clearing helper function
-static void secureStringClear(QString& str) {
-    if (str.isEmpty()) return;
-    
-    // Get the internal data
-    QChar* data = str.data();
-    int len = str.length();
-    
-#ifdef Q_OS_WIN
-    // On Windows, use SecureZeroMemory to prevent compiler optimization
-    // This ensures the memory is actually cleared
-    SecureZeroMemory(data, len * sizeof(QChar));
-#else
-    // Fallback for non-Windows (though you specified Windows only)
-    // Overwrite with zeros multiple times
-    for (int pass = 0; pass < 3; ++pass) {
-        for (int i = 0; i < len; ++i) {
-            data[i] = QChar('\0');
-        }
-    }
-#endif
-    
-    // Clear the string
-    str.clear();
-    
-    // Force the string to release its memory
-    str.squeeze();
+// Helper function to convert SecureByteArray to QString for display/comparison
+static QString secureToQString(const SecureByteArray& secure) {
+    return QString::fromUtf8(secure.data(), secure.size());
+}
+
+// Helper function to convert QString to SecureByteArray
+static SecureByteArray qStringToSecure(const QString& str) {
+    QByteArray utf8 = str.toUtf8();
+    SecureByteArray result;
+    result.append(utf8);
+    return result;
 }
 
 Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
@@ -154,7 +138,7 @@ void Operations_PasswordManager::cleanupCachedPasswords()
 }
 
 //-----------------Password Generation-----------------//
-QString Operations_PasswordManager::generatePassword()
+SecureByteArray Operations_PasswordManager::generatePassword()
 {
     qDebug() << "Operations_PasswordManager: Generating password with length:" << m_passwordLength;
     
@@ -167,10 +151,10 @@ QString Operations_PasswordManager::generatePassword()
     // Ensure we have at least the minimum required characters
     if (m_passwordLength < 4) {
         qWarning() << "Operations_PasswordManager: Password length too short, minimum is 4";
-        return QString();
+        return SecureByteArray();
     }
     
-    QString password;
+    SecureByteArray password;
     password.reserve(m_passwordLength);
     
     // Track how many of each type we've added
@@ -183,24 +167,24 @@ QString Operations_PasswordManager::generatePassword()
     QRandomGenerator* rng = QRandomGenerator::system();
     if (!rng) {
         qCritical() << "Operations_PasswordManager: Failed to get system random generator";
-        return QString();
+        return SecureByteArray();
     }
     
     // First, ensure we meet minimum requirements
     // Add one uppercase
-    password.append(uppercase.at(rng->bounded(uppercase.length())));
+    password.append(uppercase.at(rng->bounded(uppercase.length())).toLatin1());
     uppercaseCount++;
     
     // Add one number
-    password.append(numbers.at(rng->bounded(numbers.length())));
+    password.append(numbers.at(rng->bounded(numbers.length())).toLatin1());
     numberCount++;
     
     // Add one symbol
-    password.append(symbols.at(rng->bounded(symbols.length())));
+    password.append(symbols.at(rng->bounded(symbols.length())).toLatin1());
     symbolCount++;
     
     // Add one lowercase to ensure we have all types
-    password.append(lowercase.at(rng->bounded(lowercase.length())));
+    password.append(lowercase.at(rng->bounded(lowercase.length())).toLatin1());
     lowercaseCount++;
     
     // Calculate how many more characters we need
@@ -214,34 +198,34 @@ QString Operations_PasswordManager::generatePassword()
     int remainingLowercase = remainingChars - remainingSymbols - remainingNumbers - remainingUppercase;
     
     // Add remaining characters based on distribution
-    for (int i = 0; i < remainingSymbols && password.length() < m_passwordLength; i++) {
-        password.append(symbols.at(rng->bounded(symbols.length())));
+    for (int i = 0; i < remainingSymbols && password.size() < m_passwordLength; i++) {
+        password.append(symbols.at(rng->bounded(symbols.length())).toLatin1());
         symbolCount++;
     }
     
-    for (int i = 0; i < remainingNumbers && password.length() < m_passwordLength; i++) {
-        password.append(numbers.at(rng->bounded(numbers.length())));
+    for (int i = 0; i < remainingNumbers && password.size() < m_passwordLength; i++) {
+        password.append(numbers.at(rng->bounded(numbers.length())).toLatin1());
         numberCount++;
     }
     
-    for (int i = 0; i < remainingUppercase && password.length() < m_passwordLength; i++) {
-        password.append(uppercase.at(rng->bounded(uppercase.length())));
+    for (int i = 0; i < remainingUppercase && password.size() < m_passwordLength; i++) {
+        password.append(uppercase.at(rng->bounded(uppercase.length())).toLatin1());
         uppercaseCount++;
     }
     
     // Fill the rest with lowercase
-    while (password.length() < m_passwordLength) {
-        password.append(lowercase.at(rng->bounded(lowercase.length())));
+    while (password.size() < m_passwordLength) {
+        password.append(lowercase.at(rng->bounded(lowercase.length())).toLatin1());
         lowercaseCount++;
     }
     
     // Shuffle the password to avoid predictable patterns
-    QString shuffledPassword;
+    SecureByteArray shuffledPassword;
     shuffledPassword.reserve(m_passwordLength);
     
-    QList<QChar> chars;
-    for (const QChar& c : password) {
-        chars.append(c);
+    QList<char> chars;
+    for (int i = 0; i < password.size(); i++) {
+        chars.append(password[i]);
     }
     
     // Fisher-Yates shuffle for true randomness
@@ -263,22 +247,24 @@ QString Operations_PasswordManager::generatePassword()
     while (hasConsecutive && attempts < maxAttempts) {
         hasConsecutive = false;
         
-        for (int i = 0; i < shuffledPassword.length() - 1; i++) {
+        for (int i = 0; i < shuffledPassword.size() - 1; i++) {
             if (shuffledPassword[i] == shuffledPassword[i + 1]) {
                 hasConsecutive = true;
                 
                 // Swap with a random position that's not adjacent
                 int swapPos;
                 do {
-                    swapPos = rng->bounded(shuffledPassword.length());
+                    swapPos = rng->bounded(shuffledPassword.size());
                 } while (swapPos == i || swapPos == i + 1 || 
                          (swapPos > 0 && shuffledPassword[swapPos - 1] == shuffledPassword[i]) ||
-                         (swapPos < shuffledPassword.length() - 1 && shuffledPassword[swapPos + 1] == shuffledPassword[i]));
+                         (swapPos < shuffledPassword.size() - 1 && shuffledPassword[swapPos + 1] == shuffledPassword[i]));
                 
                 // Perform the swap
-                QChar temp = shuffledPassword[i];
-                shuffledPassword[i] = shuffledPassword[swapPos];
-                shuffledPassword[swapPos] = temp;
+                char temp = shuffledPassword[i];
+                QByteArray newData = shuffledPassword.data();
+                newData[i] = newData[swapPos];
+                newData[swapPos] = temp;
+                shuffledPassword.setData(newData);
                 
                 break; // Check from beginning again
             }
@@ -292,7 +278,7 @@ QString Operations_PasswordManager::generatePassword()
     }
     
     // Clear intermediate buffers before returning
-    secureStringClear(password); // Clear the pre-shuffled password
+    password.clear(); // SecureByteArray clears securely
     chars.clear(); // Clear the character list
     
     qDebug() << "Operations_PasswordManager: Generated password with"
@@ -1376,6 +1362,35 @@ bool Operations_PasswordManager::DeleteAllAssociatedPasswords(const QString &val
                                                      }
                                                      );
     }
+}
+
+// Secure string clearing helper function - still needed for non-password strings
+static void secureStringClear(QString& str) {
+    if (str.isEmpty()) return;
+    
+    // Get the internal data
+    QChar* data = str.data();
+    int len = str.length();
+    
+#ifdef Q_OS_WIN
+    // On Windows, use SecureZeroMemory to prevent compiler optimization
+    // This ensures the memory is actually cleared
+    SecureZeroMemory(data, len * sizeof(QChar));
+#else
+    // Fallback for non-Windows (though you specified Windows only)
+    // Overwrite with zeros multiple times
+    for (int pass = 0; pass < 3; ++pass) {
+        for (int i = 0; i < len; ++i) {
+            data[i] = QChar('\0');
+        }
+    }
+#endif
+    
+    // Clear the string
+    str.clear();
+    
+    // Force the string to release its memory
+    str.squeeze();
 }
 
 //-------------Context Menu----------//

@@ -9,6 +9,8 @@
 #include <QRegularExpression>
 #include <functional>
 #include <memory>
+#include <QMutex>
+#include <QHash>
 
 namespace OperationsFiles {
 
@@ -29,6 +31,30 @@ extern const QFile::Permissions DEFAULT_DIR_PERMISSIONS;
 // For larger files (videos, bulk data), use dedicated encryption worker classes
 extern const qint64 MAX_ENCRYPTED_FILE_SIZE; // 50MB limit for encrypted files
 extern const qint64 MAX_CONTENT_SIZE; // 50MB limit for content to encrypt
+
+// RAII class for file locking to prevent concurrent access
+class FileLocker {
+public:
+    FileLocker(const QString& filePath);
+    ~FileLocker();
+    
+    bool isLocked() const { return m_locked; }
+    bool tryLock(int timeoutMs = 5000);
+    void unlock();
+    
+private:
+    QString m_filePath;
+    bool m_locked;
+#ifdef Q_OS_WIN
+    void* m_fileHandle;  // HANDLE type
+#else
+    int m_fd;
+#endif
+    
+    // Static map to track file locks across the application
+    static QMutex s_lockMapMutex;
+    static QHash<QString, FileLocker*> s_activeLocks;
+};
 
 // RAII class for temporary file management
 class TempFileCleaner {

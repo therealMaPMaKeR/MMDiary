@@ -35,9 +35,151 @@
 // For Windows-specific APIs
 #ifdef Q_OS_WIN
 #include <windows.h>
+#include <io.h>
+#include <fcntl.h>
 #endif
 
 namespace OperationsFiles {
+
+// Static member definitions for FileLocker
+QMutex FileLocker::s_lockMapMutex;
+QHash<QString, FileLocker*> FileLocker::s_activeLocks;
+
+// FileLocker implementation
+FileLocker::FileLocker(const QString& filePath)
+    : m_filePath(QFileInfo(filePath).absoluteFilePath())
+    , m_locked(false)
+#ifdef Q_OS_WIN
+    , m_fileHandle(INVALID_HANDLE_VALUE)
+#else
+    , m_fd(-1)
+#endif
+{
+    qDebug() << "FileLocker: Creating lock for" << m_filePath;
+}
+
+FileLocker::~FileLocker()
+{
+    if (m_locked) {
+        unlock();
+    }
+}
+
+bool FileLocker::tryLock(int timeoutMs)
+{
+    QMutexLocker locker(&s_lockMapMutex);
+    
+    // Check if file is already locked by another FileLocker instance
+    if (s_activeLocks.contains(m_filePath)) {
+        qDebug() << "FileLocker: File already locked by another instance:" << m_filePath;
+        return false;
+    }
+    
+#ifdef Q_OS_WIN
+    // Windows implementation using LockFileEx
+    QString nativePath = QDir::toNativeSeparators(m_filePath);
+    
+    // Open file for locking (don't create if doesn't exist)
+    m_fileHandle = CreateFileW(
+        reinterpret_cast<const wchar_t*>(nativePath.utf16()),
+        GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ, // Allow others to read but not write
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+    
+    if (m_fileHandle == INVALID_HANDLE_VALUE) {
+        // File doesn't exist or can't be opened - that's okay, no lock needed
+        qDebug() << "FileLocker: File doesn't exist or can't be opened:" << m_filePath;
+        return true; // Return true as there's nothing to lock
+    }
+    
+    // Try to lock the file
+    OVERLAPPED overlapped = {0};
+    BOOL result = LockFileEx(
+        m_fileHandle,
+        LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+        0,
+        MAXDWORD,
+        MAXDWORD,
+        &overlapped
+    );
+    
+    if (result) {
+        m_locked = true;
+        s_activeLocks[m_filePath] = this;
+        qDebug() << "FileLocker: Successfully locked file:" << m_filePath;
+        return true;
+    } else {
+        // Try with timeout if immediate lock failed
+        int elapsed = 0;
+        while (elapsed < timeoutMs) {
+            Sleep(100); // Wait 100ms
+            elapsed += 100;
+            
+            result = LockFileEx(
+                m_fileHandle,
+                LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+                0,
+                MAXDWORD,
+                MAXDWORD,
+                &overlapped
+            );
+            
+            if (result) {
+                m_locked = true;
+                s_activeLocks[m_filePath] = this;
+                qDebug() << "FileLocker: Successfully locked file after" << elapsed << "ms:" << m_filePath;
+                return true;
+            }
+        }
+        
+        // Failed to lock within timeout
+        CloseHandle(m_fileHandle);
+        m_fileHandle = INVALID_HANDLE_VALUE;
+        qDebug() << "FileLocker: Failed to lock file within timeout:" << m_filePath;
+        return false;
+    }
+#else
+    // Unix/Linux implementation would use flock or fcntl
+    // For now, just use mutex-based locking
+    m_locked = true;
+    s_activeLocks[m_filePath] = this;
+    return true;
+#endif
+}
+
+void FileLocker::unlock()
+{
+    if (!m_locked) {
+        return;
+    }
+    
+    QMutexLocker locker(&s_lockMapMutex);
+    
+#ifdef Q_OS_WIN
+    if (m_fileHandle != INVALID_HANDLE_VALUE) {
+        // Unlock the file
+        OVERLAPPED overlapped = {0};
+        UnlockFileEx(
+            m_fileHandle,
+            0,
+            MAXDWORD,
+            MAXDWORD,
+            &overlapped
+        );
+        
+        CloseHandle(m_fileHandle);
+        m_fileHandle = INVALID_HANDLE_VALUE;
+    }
+#endif
+    
+    s_activeLocks.remove(m_filePath);
+    m_locked = false;
+    qDebug() << "FileLocker: Unlocked file:" << m_filePath;
+}
 
 // Default secure permissions - owner read/write only
 const QFile::Permissions DEFAULT_FILE_PERMISSIONS = QFile::ReadOwner | QFile::WriteOwner;

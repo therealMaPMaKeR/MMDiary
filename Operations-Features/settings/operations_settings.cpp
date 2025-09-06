@@ -1304,7 +1304,8 @@ void Operations_Settings::InitializeCustomCheckboxes()
         });
         hidePasswordsCheckbox->setGracePeriodGetter([this]() {
             // SECURITY: Check if MainWindow still exists
-            return m_mainWindow ? m_mainWindow->setting_ReqPWDelay : 30;
+            if (!m_mainWindow) return 30; // Default value if main window is gone
+            return m_mainWindow->setting_ReqPWDelay;
         });
     } else {
         qDebug() << "Operations_Settings: hidePasswordsCheckbox cast failed or widget not found";
@@ -1328,7 +1329,8 @@ void Operations_Settings::InitializeCustomCheckboxes()
         });
         reqPasswordCheckbox->setGracePeriodGetter([this]() {
             // SECURITY: Check if MainWindow still exists
-            return m_mainWindow ? m_mainWindow->setting_ReqPWDelay : 30;
+            if (!m_mainWindow) return 30; // Default value if main window is gone
+            return m_mainWindow->setting_ReqPWDelay;
         });
     } else {
         qDebug() << "Operations_Settings: reqPasswordCheckbox cast failed or widget not found";
@@ -1349,6 +1351,8 @@ void Operations_Settings::InitializeCustomCheckboxes()
             return (dbValue == "1");
         });
         askPWOnCloseCheckbox->setGracePeriodGetter([this]() {
+            // SECURITY: Check if MainWindow still exists
+            if (!m_mainWindow) return 30; // Default value if main window is gone
             return m_mainWindow->setting_ReqPWDelay;
         });
     }
@@ -1368,6 +1372,8 @@ void Operations_Settings::InitializeCustomCheckboxes()
             return (dbValue == "1");
         });
         dataEncReqPWCheckbox->setGracePeriodGetter([this]() {
+            // SECURITY: Check if MainWindow still exists
+            if (!m_mainWindow) return 30; // Default value if main window is gone
             return m_mainWindow->setting_ReqPWDelay;
         });
     }
@@ -1387,6 +1393,8 @@ void Operations_Settings::InitializeCustomCheckboxes()
             return (dbValue == "1");
         });
         hideThumbnailsImageCheckbox->setGracePeriodGetter([this]() {
+            // SECURITY: Check if MainWindow still exists
+            if (!m_mainWindow) return 30; // Default value if main window is gone
             return m_mainWindow->setting_ReqPWDelay;
         });
     }
@@ -1406,6 +1414,8 @@ void Operations_Settings::InitializeCustomCheckboxes()
             return (dbValue == "1");
         });
         hideThumbnailsVideoCheckbox->setGracePeriodGetter([this]() {
+            // SECURITY: Check if MainWindow still exists
+            if (!m_mainWindow) return 30; // Default value if main window is gone
             return m_mainWindow->setting_ReqPWDelay;
         });
     }
@@ -1425,6 +1435,8 @@ void Operations_Settings::InitializeCustomCheckboxes()
             return (dbValue == "1");
         });
         hideCategoriesCheckbox->setGracePeriodGetter([this]() {
+            // SECURITY: Check if MainWindow still exists
+            if (!m_mainWindow) return 30; // Default value if main window is gone
             return m_mainWindow->setting_ReqPWDelay;
         });
     }
@@ -1444,6 +1456,8 @@ void Operations_Settings::InitializeCustomCheckboxes()
             return (dbValue == "1");
         });
         hideTagsCheckbox->setGracePeriodGetter([this]() {
+            // SECURITY: Check if MainWindow still exists
+            if (!m_mainWindow) return 30; // Default value if main window is gone
             return m_mainWindow->setting_ReqPWDelay;
         });
     }
