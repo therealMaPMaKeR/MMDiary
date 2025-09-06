@@ -6,6 +6,7 @@
 #include "qimagereader.h"
 #include "ui_mainwindow.h"
 #include "constants.h"
+#include "../../Operations-Global/SafeTimer.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -1536,22 +1537,22 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
     }
 
     // Defer these calls to avoid UI inconsistency issues
-    QTimer::singleShot(0, this, [this]() {
+    SafeTimer::singleShot(0, this, [this]() {
         UpdateDisplayName();
     });
 
-    QTimer::singleShot(10, this, [this]() {
+    SafeTimer::singleShot(10, this, [this]() {
         UpdateFontSize(m_mainWindow->setting_Diary_TextSize, true);
     });
 
-    QTimer::singleShot(30, this, &Operations_Diary::ScrollBottom);
+    SafeTimer::singleShot(30, this, &Operations_Diary::ScrollBottom);
 
 
     // If we found broken image references, clean them up AFTER the diary is fully loaded
     if (markDiaryForCleanup) {
         qDebug() << "Scheduling cleanup of broken image references in diary:" << DiaryFileName;
         // Use a timer to defer the cleanup until after the LoadDiary is complete
-        QTimer::singleShot(100, this, [this, DiaryFileName]() {
+        SafeTimer::singleShot(100, this, [this, DiaryFileName]() {
             cleanupBrokenImageReferences(DiaryFileName);
         });
         markDiaryForCleanup = false;

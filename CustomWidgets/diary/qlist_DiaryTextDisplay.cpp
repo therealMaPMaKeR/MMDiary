@@ -1,6 +1,7 @@
 #include "qlist_DiaryTextDisplay.h"
 #include "qtextedit_DiaryTextInput.h"
 #include "../../constants.h"
+#include "../../Operations-Global/SafeTimer.h"
 #include <QKeyEvent>
 #include <QWheelEvent>
 #include <QFont>
@@ -8,7 +9,6 @@
 #include <QTextDocument>
 #include <QListWidgetItem>
 #include <QDebug>
-#include <QTimer>
 #include "../../Operations-Global/inputvalidation.h" // Add this include
 
 qlist_DiaryTextDisplay::qlist_DiaryTextDisplay(QWidget *parent)
@@ -27,20 +27,20 @@ qlist_DiaryTextDisplay::qlist_DiaryTextDisplay(QWidget *parent)
 
     // Use a delay to re-enable drag & drop in case something else disables it
     // Store the timer pointer to ensure proper cleanup
-    m_dragDropTimer = new QTimer(this);
+    m_dragDropTimer = new SafeTimer(this, "qlist_DiaryTextDisplay::dragDropTimer");
     m_dragDropTimer->setSingleShot(true);
-    connect(m_dragDropTimer, &QTimer::timeout, this, [this]() {
+    m_dragDropTimer->setInterval(100);
+    m_dragDropTimer->start([this]() {
         if (this->isVisible()) {  // Only if widget still exists and is visible
             setAcceptDrops(true);
         }
     });
-    m_dragDropTimer->start(100);
     
     // Create resize timer for coalescing rapid resize events
-    m_resizeTimer = new QTimer(this);
+    m_resizeTimer = new SafeTimer(this, "qlist_DiaryTextDisplay::resizeTimer");
     m_resizeTimer->setSingleShot(true);
     m_resizeTimer->setInterval(100); // 100ms delay to coalesce resize events
-    connect(m_resizeTimer, &QTimer::timeout, this, &qlist_DiaryTextDisplay::performDeferredSizeUpdate);
+    connect(m_resizeTimer, &SafeTimer::timeout, this, &qlist_DiaryTextDisplay::performDeferredSizeUpdate);
 }
 
 qlist_DiaryTextDisplay::~qlist_DiaryTextDisplay()

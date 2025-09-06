@@ -12,7 +12,8 @@
 #include <QMimeData>
 #include <QUrl>
 #include <QFileInfo>
-#include <QTimer>
+
+class SafeTimer;
 
 class qtextedit_DiaryTextInput;
 
@@ -65,8 +66,8 @@ private:
     QPoint m_lastClickPos;
     
     // Resource management timers
-    QTimer* m_dragDropTimer = nullptr;     // Timer for drag&drop re-enable
-    QTimer* m_resizeTimer = nullptr;       // Timer for coalescing resize events
+    SafeTimer* m_dragDropTimer = nullptr;     // Timer for drag&drop re-enable
+    SafeTimer* m_resizeTimer = nullptr;       // Timer for coalescing resize events
 
     // Helper methods for drag & drop
     bool isImageFile(const QString& filePath);
