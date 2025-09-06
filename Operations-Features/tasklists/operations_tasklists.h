@@ -10,6 +10,7 @@
 #include "inputvalidation.h"
 #include <QMessageBox>
 #include "../../Operations-Global/ThreadSafeContainers.h"
+#include "../../Operations-Global/SafeTimer.h"
 
 class MainWindow;
 class Operations_TaskLists : public QObject
@@ -28,7 +29,7 @@ private:
     QString currentTaskToEdit;    // Stores the name of the task being edited
     QString currentTaskData;       // Stores the data of the task being edited
     
-    QTimer* m_descriptionSaveTimer;
+    SafeTimer* m_descriptionSaveTimer;
     QString m_currentTaskName;
     QString m_lastSavedDescription; // To track description changes
     

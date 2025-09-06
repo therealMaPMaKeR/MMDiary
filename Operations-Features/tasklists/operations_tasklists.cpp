@@ -9,7 +9,6 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
-#include <QTimer>
 #include <QMenu>
 #include <QClipboard>
 #include <QGuiApplication>
@@ -201,10 +200,10 @@ Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
     m_mainWindow->ui->listWidget_TaskListDisplay->setContextMenuPolicy(Qt::CustomContextMenu);
     
     // Set up description save timer
-    m_descriptionSaveTimer = new QTimer(this);
+    m_descriptionSaveTimer = new SafeTimer(this, "Operations_TaskLists::DescriptionSaveTimer");
     m_descriptionSaveTimer->setSingleShot(true);
     m_descriptionSaveTimer->setInterval(5000); // 5 seconds
-    connect(m_descriptionSaveTimer, &QTimer::timeout, this, &Operations_TaskLists::SaveTaskDescription);
+    connect(m_descriptionSaveTimer, &SafeTimer::timeout, this, &Operations_TaskLists::SaveTaskDescription);
     
     // Install event filters
     m_mainWindow->ui->plainTextEdit_TaskDesc->installEventFilter(this);
@@ -260,7 +259,7 @@ Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
     // Connect drag and drop signals
     connect(m_mainWindow->ui->listWidget_TaskListDisplay, &qlist_TasklistDisplay::itemsReordered,
             this, [this]() {
-                QTimer::singleShot(0, this, &Operations_TaskLists::EnforceTaskOrder);
+                SafeTimer::singleShot(0, this, &Operations_TaskLists::EnforceTaskOrder, "Operations_TaskLists::EnforceTaskOrder");
             });
     
     connect(m_mainWindow->ui->listWidget_TaskList_List, &qlist_TasklistDisplay::itemsReordered,
@@ -284,7 +283,7 @@ Operations_TaskLists::~Operations_TaskLists()
     if (m_descriptionSaveTimer) {
         m_descriptionSaveTimer->stop();
         m_descriptionSaveTimer->disconnect();
-        // Timer is parented to this, will be auto-deleted
+        delete m_descriptionSaveTimer;
         m_descriptionSaveTimer = nullptr;
     }
     
