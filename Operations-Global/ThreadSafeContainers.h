@@ -679,15 +679,7 @@ public:
         return removed;
     }
     
-    /**
-     * @brief Get a thread-safe copy of the entire container
-     * @return Copy of the container for safe iteration
-     */
-    Container getCopy() const {
-        QMutexLocker locker(&m_mutex);
-        m_accessCount++;
-        return m_container;
-    }
+
     
     /**
      * @brief Get all keys (for QMap/QHash only)
@@ -715,10 +707,10 @@ public:
      * @brief Safe foreach iteration (creates a copy for iteration)
      * @param operation Function to apply to each element
      * 
-     * This method provides a safe way to iterate when using Qt's foreach macro
+     * This method provides a safe way to iterate, avoiding Qt's foreach macro conflicts
      */
     template<typename Func>
-    void foreach(Func operation) const {
+    void safeForEach(Func operation) const {
         Container localCopy;
         {
             QMutexLocker locker(&m_mutex);
