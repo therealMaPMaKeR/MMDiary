@@ -1539,13 +1539,15 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
     // Defer these calls to avoid UI inconsistency issues
     SafeTimer::singleShot(0, this, [this]() {
         UpdateDisplayName();
-    });
+    }, "Operations_Diary::UpdateDisplayName");
 
     SafeTimer::singleShot(10, this, [this]() {
         UpdateFontSize(m_mainWindow->setting_Diary_TextSize, true);
-    });
+    }, "Operations_Diary::UpdateFontSize");
 
-    SafeTimer::singleShot(30, this, &Operations_Diary::ScrollBottom);
+    SafeTimer::singleShot(30, this, [this]() {
+        ScrollBottom();
+    }, "Operations_Diary::ScrollBottom");
 
 
     // If we found broken image references, clean them up AFTER the diary is fully loaded
@@ -1554,7 +1556,7 @@ void Operations_Diary::LoadDiary(QString DiaryFileName)
         // Use a timer to defer the cleanup until after the LoadDiary is complete
         SafeTimer::singleShot(100, this, [this, DiaryFileName]() {
             cleanupBrokenImageReferences(DiaryFileName);
-        });
+        }, "Operations_Diary::cleanupBrokenImageReferences");
         markDiaryForCleanup = false;
     }
 }

@@ -29,8 +29,7 @@ qlist_DiaryTextDisplay::qlist_DiaryTextDisplay(QWidget *parent)
     // Store the timer pointer to ensure proper cleanup
     m_dragDropTimer = new SafeTimer(this, "qlist_DiaryTextDisplay::dragDropTimer");
     m_dragDropTimer->setSingleShot(true);
-    m_dragDropTimer->setInterval(100);
-    m_dragDropTimer->start([this]() {
+    m_dragDropTimer->start(100, [this]() {
         if (this->isVisible()) {  // Only if widget still exists and is visible
             setAcceptDrops(true);
         }
