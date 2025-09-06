@@ -728,18 +728,26 @@ void MainWindow::LoadPersistentSettings()
     if (!currentList.isEmpty() && Operations_TaskLists_ptr) {
         // Find and select the tasklist if it exists
         QListWidget* taskListWidget = ui->listWidget_TaskList_List;
-        for (int i = 0; i < taskListWidget->count(); ++i) {
-            if (taskListWidget->item(i)->text() == currentList) {
-                taskListWidget->setCurrentRow(i);
+        if (taskListWidget) {
+            int listCount = taskListWidget->count();
+            for (int i = 0; i < listCount; ++i) {
+                QListWidgetItem* listItem = taskListWidget->item(i);
+                if (listItem && listItem->text() == currentList) {
+                    taskListWidget->setCurrentRow(i);
 
-                // Load the individual tasklist and try to select the task
-                if (!currentTask.isEmpty()) {
-                    Operations_TaskLists_ptr->LoadIndividualTasklist(currentList, currentTask);
-                } else {
-                    Operations_TaskLists_ptr->LoadIndividualTasklist(currentList, "NULL");
+                    // Load the individual tasklist and try to select the task
+                    if (!currentTask.isEmpty()) {
+                        Operations_TaskLists_ptr->LoadIndividualTasklist(currentList, currentTask);
+                    } else {
+                        Operations_TaskLists_ptr->LoadIndividualTasklist(currentList, "NULL");
+                    }
+                    break;
+                } else if (!listItem) {
+                    qDebug() << "MainWindow: Null item at index" << i << "in task list";
                 }
-                break;
             }
+        } else {
+            qDebug() << "MainWindow: Task list widget is null when applying settings";
         }
     }
 
@@ -785,14 +793,21 @@ void MainWindow::LoadPersistentSettings()
         QStringList savedTagsList = savedTags.split(";", Qt::SkipEmptyParts);
 
         // Iterate through all items in the tags list widget
-        for (int i = 0; i < ui->listWidget_DataENC_Tags->count(); ++i) {
-            QListWidgetItem* item = ui->listWidget_DataENC_Tags->item(i);
-            if (item) {
-                // Check if this tag text is in our saved tags list
-                QString tagText = item->text();
-                bool shouldBeChecked = savedTagsList.contains(tagText);
-                item->setCheckState(shouldBeChecked ? Qt::Checked : Qt::Unchecked);
+        if (ui->listWidget_DataENC_Tags) {
+            int tagCount = ui->listWidget_DataENC_Tags->count();
+            for (int i = 0; i < tagCount; ++i) {
+                QListWidgetItem* item = ui->listWidget_DataENC_Tags->item(i);
+                if (item) {
+                    // Check if this tag text is in our saved tags list
+                    QString tagText = item->text();
+                    bool shouldBeChecked = savedTagsList.contains(tagText);
+                    item->setCheckState(shouldBeChecked ? Qt::Checked : Qt::Unchecked);
+                } else {
+                    qDebug() << "MainWindow: Null item at index" << i << "when applying saved tags";
+                }
             }
+        } else {
+            qDebug() << "MainWindow: Tags list widget is null when applying saved tags";
         }
     }
 
@@ -859,14 +874,28 @@ void MainWindow::SavePersistentSettings()
 
     // Get current selected tasklist
     QListWidget* taskListWidget = ui->listWidget_TaskList_List;
-    if (taskListWidget->currentItem()) {
-        currentList = taskListWidget->currentItem()->text();
+    if (taskListWidget) {
+        QListWidgetItem* currentTaskListItem = taskListWidget->currentItem();
+        if (currentTaskListItem) {
+            currentList = currentTaskListItem->text();
+        } else {
+            qDebug() << "MainWindow: No current task list item selected";
+        }
+    } else {
+        qDebug() << "MainWindow: Task list widget is null";
     }
 
     // Get current selected task
     QListWidget* taskDisplayWidget = ui->listWidget_TaskListDisplay;
-    if (taskDisplayWidget->currentItem() && taskDisplayWidget->currentItem()->text() != "No tasks in this list") {
-        currentTask = taskDisplayWidget->currentItem()->text();
+    if (taskDisplayWidget) {
+        QListWidgetItem* currentTaskItem = taskDisplayWidget->currentItem();
+        if (currentTaskItem && currentTaskItem->text() != "No tasks in this list") {
+            currentTask = currentTaskItem->text();
+        } else {
+            qDebug() << "MainWindow: No current task item selected";
+        }
+    } else {
+        qDebug() << "MainWindow: Task display widget is null";
     }
 
     // Save tasklist settings (encrypted since they might be sensitive)
@@ -885,18 +914,32 @@ void MainWindow::SavePersistentSettings()
     }
 
     // Get current category selection
-    if (ui->listWidget_DataENC_Categories->currentItem()) {
-        currentCategory = ui->listWidget_DataENC_Categories->currentItem()->text();
+    if (ui->listWidget_DataENC_Categories) {
+        QListWidgetItem* categoryItem = ui->listWidget_DataENC_Categories->currentItem();
+        if (categoryItem) {
+            currentCategory = categoryItem->text();
+        } else {
+            qDebug() << "MainWindow: No category selected for persistent settings";
+        }
+    } else {
+        qDebug() << "MainWindow: Categories list widget is null";
     }
 
     // Get current tags selection (checked items)
     QStringList checkedTags;
-    for (int i = 0; i < ui->listWidget_DataENC_Tags->count(); ++i) {
-        QListWidgetItem* item = ui->listWidget_DataENC_Tags->item(i);
-        if (item && item->checkState() == Qt::Checked) {
-            QString tagText = item->text();
-            checkedTags.append(tagText);
+    if (ui->listWidget_DataENC_Tags) {
+        int tagCount = ui->listWidget_DataENC_Tags->count();
+        for (int i = 0; i < tagCount; ++i) {
+            QListWidgetItem* item = ui->listWidget_DataENC_Tags->item(i);
+            if (item && item->checkState() == Qt::Checked) {
+                QString tagText = item->text();
+                checkedTags.append(tagText);
+            } else if (!item) {
+                qDebug() << "MainWindow: Null tag item at index" << i;
+            }
         }
+    } else {
+        qDebug() << "MainWindow: Tags list widget is null";
     }
 
     // Get current tag selection mode from combobox
@@ -1176,32 +1219,70 @@ void MainWindow::on_pushButton_NewTaskList_clicked()
 
 void MainWindow::on_listWidget_TaskList_List_currentItemChanged(QListWidgetItem *current, QListWidgetItem *previous)
 {
+    Q_UNUSED(previous);
     if (current && Operations_TaskLists_ptr != nullptr) {
         //Operations_TaskLists_ptr->LoadIndividualTasklist(current->text());
+        qDebug() << "MainWindow: Task list selection changed to:" << current->text();
+    } else if (!current) {
+        qDebug() << "MainWindow: Task list selection cleared";
     }
 }
 
 
 void MainWindow::on_listWidget_TaskList_List_itemClicked(QListWidgetItem *item)
 {
-    if (!item || !Operations_TaskLists_ptr) return;
+    if (!item) {
+        qDebug() << "MainWindow: Null item clicked in task list";
+        return;
+    }
     
-    if(ui->listWidget_TaskListDisplay->count()-1 > -1) // if the listdisplay is populated.
+    if (!Operations_TaskLists_ptr) {
+        qDebug() << "MainWindow: Operations_TaskLists_ptr is null";
+        return;
+    }
+    
+    if (!ui->listWidget_TaskListDisplay) {
+        qDebug() << "MainWindow: Task display widget is null";
+        return;
+    }
+    
+    int displayCount = ui->listWidget_TaskListDisplay->count();
+    if (displayCount > 0) // if the listdisplay is populated.
     {
-        Operations_TaskLists_ptr->LoadIndividualTasklist(item->text(), ui->listWidget_TaskListDisplay->item(ui->listWidget_TaskListDisplay->count()-1)->text());
+        // Safely get the last item
+        int lastIndex = displayCount - 1;
+        QListWidgetItem* lastItem = ui->listWidget_TaskListDisplay->item(lastIndex);
+        if (lastItem) {
+            Operations_TaskLists_ptr->LoadIndividualTasklist(item->text(), lastItem->text());
+        } else {
+            qDebug() << "MainWindow: Last item in task display is null at index" << lastIndex;
+            Operations_TaskLists_ptr->LoadIndividualTasklist(item->text(), "NULL");
+        }
     }
     else
     {
+        qDebug() << "MainWindow: Task display is empty";
         Operations_TaskLists_ptr->LoadIndividualTasklist(item->text(), "NULL"); // if there is no item in the tasklistdisplay. used to fix bug that happens when deleting a task list.
     }
 }
 
 void MainWindow::on_listWidget_TaskListDisplay_itemClicked(QListWidgetItem *item)
 {
-    if(!item || !Operations_TaskLists_ptr){return;}
-    if(item->text() != "No tasks in this list")
+    if (!item) {
+        qDebug() << "MainWindow: Null item clicked in task display";
+        return;
+    }
+    
+    if (!Operations_TaskLists_ptr) {
+        qDebug() << "MainWindow: Operations_TaskLists_ptr is null";
+        return;
+    }
+    
+    if (item->text() != "No tasks in this list")
     {
         Operations_TaskLists_ptr->LoadTaskDetails(item->text());
+    } else {
+        qDebug() << "MainWindow: 'No tasks in this list' item clicked";
     }
 }
 
