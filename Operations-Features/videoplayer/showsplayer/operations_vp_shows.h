@@ -17,6 +17,7 @@
 #include <QTimer>
 #include "vp_shows_settings.h"
 #include "vp_shows_metadata.h"
+#include "../../../Operations-Global/ThreadSafeContainers.h"
 
 // Forward declarations
 class MainWindow;
@@ -41,12 +42,12 @@ private:
     std::unique_ptr<VP_ShowsPlaybackTracker> m_playbackTracker; // Playback tracking and integration
     std::unique_ptr<VP_ShowsFavourites> m_showFavourites;     // Favourites management for current show
     
-    // Store mapping between show names and their folder paths
-    QMap<QString, QString> m_showFolderMapping;
+    // Store mapping between show names and their folder paths - Thread-safe
+    ThreadSafeMap<QString, QString> m_showFolderMapping;
     
-    // Store mapping between episode display names and their file paths
+    // Store mapping between episode display names and their file paths - Thread-safe
     // Key format: "ShowName_Season_Episode" -> filepath
-    QMap<QString, QString> m_episodeFileMapping;
+    ThreadSafeMap<QString, QString> m_episodeFileMapping;
     
     // Current displayed show folder path
     QString m_currentShowFolder;
@@ -64,7 +65,7 @@ private:
     
     // View mode tracking
     bool m_isIconViewMode = false;
-    QMap<QString, QPixmap> m_posterCache;  // Cache for loaded posters to improve performance
+    ThreadSafeMap<QString, QPixmap> m_posterCache;  // Thread-safe cache for loaded posters
     
     // Search functionality
     QString m_currentSearchText;
@@ -254,10 +255,19 @@ public:
     bool m_forceStartFromBeginning = false;  // Flag to force starting from beginning when near end on direct play
     bool m_isRandomAutoplay = false;  // Flag to indicate this is random autoplay (for position reset)
     
-    // Playback speed management (session-based)
-    QMap<QString, qreal> m_sessionPlaybackSpeeds;  // Map of show folder path to playback speed
+    // Playback speed management (session-based) - Thread-safe
+    ThreadSafeMap<QString, qreal> m_sessionPlaybackSpeeds;  // Thread-safe map of show folder path to playback speed
     qreal getSessionPlaybackSpeed(const QString& showFolder) const;
     void setSessionPlaybackSpeed(const QString& showFolder, qreal speed);
+    
+    // Safe list/tree widget access helpers
+    QListWidgetItem* safeGetListItem(QListWidget* widget, int index) const;
+    QTreeWidgetItem* safeGetTreeItem(QTreeWidget* widget, int index) const;
+    QListWidgetItem* safeTakeListItem(QListWidget* widget, int index);
+    bool validateListWidget(QListWidget* widget) const;
+    bool validateTreeWidget(QTreeWidget* widget) const;
+    int safeGetListItemCount(QListWidget* widget) const;
+    int safeGetTreeItemCount(QTreeWidget* widget) const;
     
     // Settings handling
     // Load settings for the current show (checkboxes)

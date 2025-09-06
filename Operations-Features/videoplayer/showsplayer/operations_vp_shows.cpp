@@ -294,6 +294,91 @@ Operations_VP_Shows::~Operations_VP_Shows()
     qDebug() << "Operations_VP_Shows: Session playback speeds cleared";
 }
 
+// ============================================================================
+// Safe Widget Access Helper Functions
+// ============================================================================
+
+QListWidgetItem* Operations_VP_Shows::safeGetListItem(QListWidget* widget, int index) const
+{
+    if (!widget) {
+        qDebug() << "Operations_VP_Shows: Widget is null in safeGetListItem";
+        return nullptr;
+    }
+    
+    if (index < 0 || index >= widget->count()) {
+        qDebug() << "Operations_VP_Shows: Index out of bounds in safeGetListItem:" << index << "count:" << widget->count();
+        return nullptr;
+    }
+    
+    return widget->item(index);
+}
+
+QTreeWidgetItem* Operations_VP_Shows::safeGetTreeItem(QTreeWidget* widget, int index) const
+{
+    if (!widget) {
+        qDebug() << "Operations_VP_Shows: Widget is null in safeGetTreeItem";
+        return nullptr;
+    }
+    
+    if (index < 0 || index >= widget->topLevelItemCount()) {
+        qDebug() << "Operations_VP_Shows: Index out of bounds in safeGetTreeItem:" << index << "count:" << widget->topLevelItemCount();
+        return nullptr;
+    }
+    
+    return widget->topLevelItem(index);
+}
+
+QListWidgetItem* Operations_VP_Shows::safeTakeListItem(QListWidget* widget, int index)
+{
+    if (!widget) {
+        qDebug() << "Operations_VP_Shows: Widget is null in safeTakeListItem";
+        return nullptr;
+    }
+    
+    if (index < 0 || index >= widget->count()) {
+        qDebug() << "Operations_VP_Shows: Index out of bounds in safeTakeListItem:" << index << "count:" << widget->count();
+        return nullptr;
+    }
+    
+    return widget->takeItem(index);
+}
+
+bool Operations_VP_Shows::validateListWidget(QListWidget* widget) const
+{
+    if (!widget) {
+        qDebug() << "Operations_VP_Shows: List widget is null";
+        return false;
+    }
+    return true;
+}
+
+bool Operations_VP_Shows::validateTreeWidget(QTreeWidget* widget) const
+{
+    if (!widget) {
+        qDebug() << "Operations_VP_Shows: Tree widget is null";
+        return false;
+    }
+    return true;
+}
+
+int Operations_VP_Shows::safeGetListItemCount(QListWidget* widget) const
+{
+    if (!widget) {
+        qDebug() << "Operations_VP_Shows: Widget is null in safeGetListItemCount";
+        return 0;
+    }
+    return widget->count();
+}
+
+int Operations_VP_Shows::safeGetTreeItemCount(QTreeWidget* widget) const
+{
+    if (!widget) {
+        qDebug() << "Operations_VP_Shows: Widget is null in safeGetTreeItemCount";
+        return 0;
+    }
+    return widget->topLevelItemCount();
+}
+
 QString Operations_VP_Shows::selectVideoFile()
 {
     qDebug() << "Operations_VP_Shows: Opening file dialog for video selection";
@@ -1455,8 +1540,9 @@ qreal Operations_VP_Shows::getSessionPlaybackSpeed(const QString& showFolder) co
     qDebug() << "Operations_VP_Shows: Getting session playback speed for show:" << showFolder;
     
     // Check if we have a saved speed for this show in the current session
-    if (m_sessionPlaybackSpeeds.contains(showFolder)) {
-        qreal speed = m_sessionPlaybackSpeeds.value(showFolder);
+    auto speedOpt = m_sessionPlaybackSpeeds.value(showFolder);
+    if (speedOpt.has_value()) {
+        qreal speed = speedOpt.value();
         qDebug() << "Operations_VP_Shows: Found session speed:" << speed;
         return speed;
     }
@@ -1474,8 +1560,8 @@ void Operations_VP_Shows::setSessionPlaybackSpeed(const QString& showFolder, qre
     if (speed < 0.25) speed = 0.25;
     if (speed > 4.0) speed = 4.0;
     
-    // Store the speed for this show in the session
-    m_sessionPlaybackSpeeds[showFolder] = speed;
+    // Store the speed for this show in the session (thread-safe)
+    m_sessionPlaybackSpeeds.insert(showFolder, speed);
     
     qDebug() << "Operations_VP_Shows: Session speed saved. Current session speeds count:" << m_sessionPlaybackSpeeds.size();
 }
@@ -1603,8 +1689,8 @@ void Operations_VP_Shows::loadTVShowsList()
             // Store the folder path as user data for later use (when playing videos)
             item->setData(Qt::UserRole, folderPath);
             
-            // Store the mapping in RAM for quick access
-            m_showFolderMapping[showName] = folderPath;
+            // Store the mapping in RAM for quick access (thread-safe)
+            m_showFolderMapping.insert(showName, folderPath);
             
             // Set up the item based on current view mode
             refreshShowListItem(item, showName, folderPath);
@@ -1614,10 +1700,12 @@ void Operations_VP_Shows::loadTVShowsList()
     }
     
     // Sort the list alphabetically
-    m_mainWindow->ui->listWidget_VP_List_List->sortItems(Qt::AscendingOrder);
+    if (validateListWidget(m_mainWindow->ui->listWidget_VP_List_List)) {
+        m_mainWindow->ui->listWidget_VP_List_List->sortItems(Qt::AscendingOrder);
+    }
     
     qDebug() << "Operations_VP_Shows: Finished loading shows. Total shows:" 
-             << m_mainWindow->ui->listWidget_VP_List_List->count();
+             << safeGetListItemCount(m_mainWindow->ui->listWidget_VP_List_List);
 }
 
 void Operations_VP_Shows::refreshTVShowsList()
@@ -1649,19 +1737,19 @@ void Operations_VP_Shows::onViewModeChanged(int index)
     }
     
     // Refresh all items with the new view mode
-    for (int i = 0; i < m_mainWindow->ui->listWidget_VP_List_List->count(); ++i) {
-        QListWidgetItem* item = m_mainWindow->ui->listWidget_VP_List_List->item(i);
+    int itemCount = safeGetListItemCount(m_mainWindow->ui->listWidget_VP_List_List);
+    for (int i = 0; i < itemCount; ++i) {
+        QListWidgetItem* item = safeGetListItem(m_mainWindow->ui->listWidget_VP_List_List, i);
         if (item) {
             QString folderPath = item->data(Qt::UserRole).toString();
             QString showName = item->text();
             
-            // Find the actual show name if we have it in the mapping
-            for (auto it = m_showFolderMapping.begin(); it != m_showFolderMapping.end(); ++it) {
-                if (it.value() == folderPath) {
-                    showName = it.key();
-                    break;
+            // Find the actual show name if we have it in the mapping (thread-safe)
+            m_showFolderMapping.safeIterate([&showName, &folderPath](const QString& key, const QString& value) {
+                if (value == folderPath) {
+                    showName = key;
                 }
-            }
+            });
             
             refreshShowListItem(item, showName, folderPath);
         }
@@ -1821,10 +1909,11 @@ QPixmap Operations_VP_Shows::loadShowPoster(const QString& showFolderPath, const
 {
     qDebug() << "Operations_VP_Shows: Loading poster for show folder:" << showFolderPath;
     
-    // Check cache first
-    if (m_posterCache.contains(showFolderPath)) {
+    // Check cache first (thread-safe)
+    auto cachedPoster = m_posterCache.value(showFolderPath);
+    if (cachedPoster.has_value()) {
         qDebug() << "Operations_VP_Shows: Found poster in cache";
-        return m_posterCache[showFolderPath];
+        return cachedPoster.value();
     }
     
     // Get the obfuscated folder name
@@ -1871,8 +1960,8 @@ QPixmap Operations_VP_Shows::loadShowPoster(const QString& showFolderPath, const
     // Scale to target size
     QPixmap scaledPoster = poster.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     
-    // Cache the scaled poster
-    m_posterCache[showFolderPath] = scaledPoster;
+    // Cache the scaled poster (thread-safe)
+    m_posterCache.insert(showFolderPath, scaledPoster);
     
     qDebug() << "Operations_VP_Shows: Successfully loaded and cached poster, size:" << scaledPoster.size();
     return scaledPoster;
@@ -2138,15 +2227,16 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName)
         return;
     }
     
-    // Get the folder path for this show
-    if (!m_showFolderMapping.contains(showName)) {
+    // Get the folder path for this show (thread-safe)
+    auto folderPathOpt = m_showFolderMapping.value(showName);
+    if (!folderPathOpt.has_value()) {
         qDebug() << "Operations_VP_Shows: Show not found in mapping:" << showName;
         QMessageBox::warning(m_mainWindow, tr("Show Not Found"), 
                            tr("Could not find the folder for this show. Please refresh the list."));
         return;
     }
     
-    QString showFolderPath = m_showFolderMapping[showName];
+    QString showFolderPath = folderPathOpt.value();
     qDebug() << "Operations_VP_Shows: Show folder path:" << showFolderPath;
     
     // Initialize watch history for direct access (needed for context menu)
@@ -2305,9 +2395,11 @@ void Operations_VP_Shows::updatePlayButtonText()
             if (tree) {
                 bool hasResumePosition = false;
                 
-                // Iterate through all episodes to check for resume positions
-                for (int i = 0; i < tree->topLevelItemCount() && !hasResumePosition; ++i) {
-                    QTreeWidgetItem* seasonItem = tree->topLevelItem(i);
+                // Iterate through all episodes to check for resume positions with bounds checking
+                int topLevelCount = safeGetTreeItemCount(tree);
+                for (int i = 0; i < topLevelCount && !hasResumePosition; ++i) {
+                    QTreeWidgetItem* seasonItem = safeGetTreeItem(tree, i);
+                    if (!seasonItem) continue;
                     for (int j = 0; j < seasonItem->childCount(); ++j) {
                         QTreeWidgetItem* episodeItem = seasonItem->child(j);
                         QString episodePath = episodeItem->data(0, Qt::UserRole).toString();
@@ -2362,7 +2454,7 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
         return;
     }
     
-    // Clear the tree widget and episode mapping
+    // Clear the tree widget and episode mapping (thread-safe)
     m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList->clear();
     m_episodeFileMapping.clear();
     
@@ -2681,13 +2773,13 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
             }
         }
         
-        // Create mapping key and store the mapping
+        // Create mapping key and store the mapping (thread-safe)
         QString mappingKey = QString("%1_%2_S%3E%4")
             .arg(metadata.showName)
             .arg(languageKey)
             .arg(seasonNum, 2, 10, QChar('0'))
             .arg(episodeNum, 2, 10, QChar('0'));
-        m_episodeFileMapping[mappingKey] = videoPath;
+        m_episodeFileMapping.insert(mappingKey, videoPath);
         
         // Add to language/season map
         // For absolute numbering, we'll use season 0 as a marker
@@ -6933,9 +7025,11 @@ QStringList Operations_VP_Shows::getAllAvailableEpisodes() const
     
     QTreeWidget* treeWidget = m_mainWindow->ui->treeWidget_VP_Shows_Display_EpisodeList;
     
-    // Iterate through all language versions (top-level items)
-    for (int langIndex = 0; langIndex < treeWidget->topLevelItemCount(); ++langIndex) {
-        QTreeWidgetItem* languageItem = treeWidget->topLevelItem(langIndex);
+    // Iterate through all language versions (top-level items) with bounds checking
+    int topLevelCount = safeGetTreeItemCount(treeWidget);
+    for (int langIndex = 0; langIndex < topLevelCount; ++langIndex) {
+        QTreeWidgetItem* languageItem = safeGetTreeItem(treeWidget, langIndex);
+        if (!languageItem) continue;
         
         // Skip if this is an error category
         if (languageItem->text(0).contains("Error - Duplicate Episodes")) {
