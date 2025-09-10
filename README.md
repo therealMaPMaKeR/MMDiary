@@ -9,28 +9,47 @@ MMDiary is a secure personal information management application written in C++ u
 Features
 
 Encrypted diary entries: Keep your thoughts private with AES-256-GCM encryption
+
 Task management: Organize your tasks with customizable lists and notifications
+
 Password manager: Securely store and manage your passwords
+
 Data Encryptor: Allows you to encrypt any file you want and features a secure delete option with 3 passes.
+
 Encrypted Video Player: Currently only supports tv shows, will implement movies and more later on. 
 
+
 Architecture
+
 MMDiary is built with the following technologies:
 
+
 Qt 6.5.3: UI framework and core functionality
+
 C++17: Modern C++ features for robust implementation
+
 OpenSSL 3.5.0: Cryptography library for secure encryption
+
 SQLite: Local database for user data storage
+
 
 Build Requirements
 
+
 Qt 6.5.3 or newer
+
 MSVC 2019 64-bit compiler
+
 Windows operating system (Windows-only application)
+
 CMake 3.16+ (optional, if not using Qt Creator)
+
 OpenSSL 3.5.0 (static libraries required)
+
 libVLC 3.0+ (for video playback)
+
 OpenVR 1.16+ (for VR support, optional)
+
 
 Project Setup for Developers
 
@@ -173,31 +192,51 @@ This project supports TMDB (The Movie Database) for automatic TV show metadata.
 4. Recompile the application - the key will be embedded in your binary
 
 Note: The `tmdb_api_key.h` file is gitignored. Never commit your actual API key.
+
 Each developer needs their own TMDB API key.
 
 
 Security Architecture
+
 MMDiary employs several security measures to protect user data:
 
-AES-256-GCM encryption: All sensitive data is encrypted using industry-standard encryption
-PBKDF2 key derivation: Password-based keys are derived using 1,000,000 iterations for enhanced security
-In-memory protection: Encryption keys are securely wiped from memory when the application exits
-Input validation: Comprehensive validation prevents injection attacks and other security issues
-Path traversal protection: Strict file path validation prevents directory traversal attacks
+
+AES-256-GCM encryption: All sensitive data is encrypted using industry-standard encryption.
+
+PBKDF2 key derivation: Password-based keys are derived using 1,000,000 iterations for enhanced security.
+
+In-memory protection: Encryption keys are securely wiped from memory when the application exits.
+
+Input validation: Comprehensive validation prevents injection attacks and other security issues.
+
+Path traversal protection: Strict file path validation prevents directory traversal attacks.
+
 Temp files are stored in the app's folder, making it easy to have peace of mind that no decrypted file remains on disk.
+
 Uses secure delete when deleting temporarily decrypted files.
 
+
 Data Storage
+
 User data is stored in the following locations:
 
+
 Database: ./Data/MMDiary.db - Contains user accounts.
+
 Database: ./Data/[username]/settings.db - Contains user settings.
+
 Database: ./Data/[username]/persistent.db - Contains persistent settings (window location, size, etc)
+
 Diary entries: ./Data/[username]/Diaries/[year]/[month]/[day]/*.txt - Encrypted diary files
+
 Task lists: ./Data/[username]/TaskLists/*.txt - Encrypted task list files
+
 Passwords: ./Data/[username]/Passwords/passwords.txt - Encrypted password storage
+
 Encrypted Data: ./Data/[username]/EncryptedData/(Archives/Document/Image/Video) - Stores data encrypted by the user.
+
 Videoplayer: ./Data/[username]/Videoplayer/Shows - Stores imported tv shows. (encrypted)
+
 Temp files: ./Data/[username]/Temp and ./Data/[username]/Temp/tempdecrypt - stores temp files.
 
 
@@ -205,8 +244,11 @@ All files are encrypted using AES-256-GCM with user-specific keys.
 
 
 Contributing
+
 I am not accepting contributions right now since the project is personal and I want to retain full control over it.
+
 I will revisit this once this software is more complete.
+
 
 ## Third-Party Licenses and Legal Information
 
