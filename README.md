@@ -9,7 +9,7 @@
 - 🔑 **Password Manager** - Securely store and manage your passwords
 - 📁 **Data Encryptor** - Encrypt any file with secure deletion (3-pass overwrite)
 - 🎬 **Video Player** - Built-in media player (currently supports TV shows, movies coming soon)
-- 🥽 **VR Support** - Special VR video player for encrypted content
+- 🥽 **VR Support** - VR video player for encrypted content
 
 ## 🏗️ Architecture
 
@@ -267,6 +267,3 @@ This project is licensed under the **GNU General Public License v3.0 (GPLv3)** -
 - **Valve Software** for OpenVR and SteamVR support
 - **TMDB** for their API used to retrieve TV show and movie metadata
 - My brother **H1nj0** for his interest in this personal app of mine
-
-
-For end users interested in simply using the application, please refer to the User Guide.
