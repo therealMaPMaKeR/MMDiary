@@ -2,8 +2,7 @@
 MMDiary Project
 
 
-MMDiary is a secure personal information management application written in C++ using the Qt framework. It provides encrypted diary entries, task management, and password storage capabilities with a focus on privacy and security.
-
+MMDiary is a secure personal information management application written in C++ using the Qt framework.
 
 
 Features
@@ -16,7 +15,9 @@ Password manager: Securely store and manage your passwords
 
 Data Encryptor: Allows you to encrypt any file you want and features a secure delete option with 3 passes.
 
-Encrypted Video Player: Currently only supports tv shows, will implement movies and more later on. 
+Video Player: Currently only supports tv shows, will implement movies and more later on. 
+
+Special: Built-in video player and vr video player for files in the encrypted data tab.
 
 
 Architecture
@@ -239,6 +240,7 @@ Videoplayer: ./Data/[username]/Videoplayer/Shows - Stores imported tv shows. (en
 
 Temp files: ./Data/[username]/Temp and ./Data/[username]/Temp/tempdecrypt - stores temp files.
 
+Temp locks: ./Data/[username]/temp_metadata_locks - used to store temp locks for the tv show player.
 
 All files are encrypted using AES-256-GCM with user-specific keys.
 
