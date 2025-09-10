@@ -1,0 +1,60 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+#QT Specific
+*.user
+*.89cd72f
+
+
+*.Debug
+*.Release
+*.db
+*.stash
+*.moc
+
+
+# Ignore everything in folders
+3rdparty/*
+
+
+# rest of ignored files
+RCa13632
+RCa47628
+RCa50376
+MMDiary.pro.user.XYaEmT
+*.autosave
+SavePersistentSettings_improved.txt
+*.bak
+tmdb_api_key.txt
+tmdb_api_key.h
+Operations-Features/videoplayer/vrplayer/VR_INTEGRATION_GUIDE.md

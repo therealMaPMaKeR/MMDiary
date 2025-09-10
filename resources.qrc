@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icons/icon_tray.png</file>
+        <file>icons/AppImage.png</file>
+
+    </qresource>
+</RCC>

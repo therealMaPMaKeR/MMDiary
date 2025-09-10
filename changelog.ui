@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>changelog</class>
+ <widget class="QDialog" name="changelog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>560</width>
+    <height>536</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>560</width>
+    <height>300</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>Dialog</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QLabel" name="label">
+     <property name="font">
+      <font>
+       <pointsize>20</pointsize>
+       <italic>true</italic>
+       <bold>true</bold>
+       <underline>false</underline>
+      </font>
+     </property>
+     <property name="text">
+      <string>Change Log</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="Line" name="line">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QTextBrowser" name="textBrowser">
+     <property name="html">
+      <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
+&lt;html&gt;&lt;head&gt;&lt;meta name=&quot;qrichtext&quot; content=&quot;1&quot; /&gt;&lt;meta charset=&quot;utf-8&quot; /&gt;&lt;style type=&quot;text/css&quot;&gt;
+p, li { white-space: pre-wrap; }
+hr { height: 1px; border-width: 0; }
+li.unchecked::marker { content: &quot;\2610&quot;; }
+li.checked::marker { content: &quot;\2612&quot;; }
+&lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'Segoe UI'; font-size:9pt; font-weight:400; font-style:normal;&quot;&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.4.7&lt;br /&gt;-Added Show in File Explorer context menu options.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed task checkbox rapid toggling.&lt;br /&gt;-Added proper handling for windows shutdown.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Improved select file/folder dialog appearance for tv show import.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed a race condition issue between async cleanup and video loading.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Improved the checking/unchecking of tags in encrypted data.&lt;br /&gt;-Switched from combo box to spinbox for playback speed in video player.&lt;br /&gt;&lt;br /&gt;Version: 4.4.6&lt;br /&gt;-Fixed a bug with re-acquire tmdb metadata for multiple episodes through context menu.&lt;br /&gt;-Reworked task list feature a 2nd time, to improve security.&lt;br /&gt;-Added persistent settings for video player tab.&lt;br /&gt;-Added new keyboard shortcuts to BaseVideoPlayer.&lt;br /&gt;-Added context menu option in encrypted data to show a file in file explorer.&lt;br /&gt;&lt;br /&gt;Version: 4.4.5&lt;br /&gt;-Fixed a rare bug with async temp file cleanup during video loading.&lt;br /&gt;-Added escape keybind to return to list when viewing the display page of a tv show.&lt;br /&gt;-Added re-acquire tmdb metadata context menu option to episode list.&lt;br /&gt;&lt;br /&gt;Version: 4.4.4&lt;br /&gt;-Improved filename parsing for tv shows.&lt;br /&gt;-Modified login window title in debug mode to ensure no one uses it in debug mode by mistake.&lt;br /&gt;-Fixed issue with tv show episode exporting.&lt;br /&gt;-Fixed issue with tv show name changing in the settings not updating the tmdb show id in the show's settings file.&lt;br /&gt;-Removed unnecessary message when trying to acquire metadata for non-episodic video files, in the tv show player.&lt;br /&gt;-Fixed bug with single metadata edit updating the tree widget too early and not showing the changes when tmdb data re-acquiring is activated.&lt;br /&gt;&lt;br /&gt;Version: 4.4.3&lt;br /&gt;-Reworked the Add Episode/Add Show Implementation.&lt;br /&gt;-Updated tmdb implementation to use show id instead of show name.&lt;br /&gt;-Users can now add shows with identical names.&lt;br /&gt;-Fixed a display bug when changing the name of a show.&lt;br /&gt;-Fixed a bug with bulk metadata edit.&lt;br /&gt;-Fixed a bug with episodes containing invalid episode number in metadata.&lt;br /&gt;&lt;br /&gt;Version: 4.4.2&lt;br /&gt;-Fixed empty diary cleanup bug.&lt;br /&gt;-Added check to prevent app execution on non-windows os.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Improved the season/episode parsing logic.&lt;br /&gt;&lt;br /&gt;Version: 4.4.1&lt;br /&gt;-Fixed task ordering issue introduced in task list refactoring in 4.3.2&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed text size setting issues introduced in 4.3.2&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Removed the now redundant task type column for the task details table&lt;br /&gt;&lt;br /&gt;Version: 4.4.0&lt;br /&gt;-Performed a comprehensive security and stability audit.&lt;br /&gt;-The code has been overhauled in several places to improve stability and all the critical security concerns have been addressed. A few minor security concerns have been ignored because they are actually irrelevant.&lt;br /&gt;&lt;br /&gt;Version: 4.3.3&lt;br /&gt;-Fixed critical issue with pasting images in the diary.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;Version: 4.3.2&lt;br /&gt;-Memory Management and Pointer Safety Audit (2/8)&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-I decided to refactor tasklist before proceeding any further with the security audit since I knew that there were many features in tasklists that could cause issues and these features were not even used in the first place.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Refactored tasklists and removed time limit tasks.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Removed recurrent tasks from the code, was previously just disabled.&lt;br /&gt;-Removed unused and barely used settings for tasklists.&lt;br /&gt;-The tasklist implementation is much simpler now and ready to be reworked.&lt;br /&gt;-Now ready to continue with the security audit.&lt;br /&gt;&lt;br /&gt;Version: 4.3.1&lt;br /&gt;-Expanded the keyboard keybinds for playback controls in vr player.&lt;br /&gt;-Added vr controller keybinds to vr player.&lt;br /&gt;-Fixed minor display bug when cancelling import for a new show.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed mouse/control bar hiding bug caused by refactored video player.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed issue with play random episode setting.&lt;br /&gt;&lt;br /&gt;Version: 4.3.0&lt;br /&gt;-Refactored the video player code to avoid technical debt.&lt;br /&gt;-Videos in encrypteddata tab can now be played with our new basevideoplayer class.&lt;br /&gt;-Implemented a basic VR Video Player.&lt;br /&gt;&lt;br /&gt;Version: 4.2.7&lt;br /&gt;-Fixed parsing issue for non episodic content in tv shows.&lt;br /&gt;-Fixed issue with mouse wheel scrolling speed in shows list in icon view.&lt;br /&gt;-Fixed issue causing autoplay to randomly fail.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed a minor issue with temp file deletion for the tv show player.&lt;br /&gt;&lt;br /&gt;Version: 4.2.6&lt;br /&gt;-Fixed minor issue with re-acquiring tmdb data in tv show settings.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added option to show filenames instead of episode names.&lt;br /&gt;-Fixed styling issue for watched episodes.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added content type detection from folder name.&lt;br /&gt;-Added checkbox to edit meta data dialogs to retrieve tmdb data.&lt;br /&gt;-Fixed issue with autoplay sometimes not opening on the correct monitor.&lt;br /&gt;&lt;br /&gt;Version: 4.2.5&lt;br /&gt;-Fixed an issue with the metadata lock temp file being stored at the wrong location.&lt;br /&gt;-Fixed many dangling pointer potential issues.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Improved the parsing logic for episode/season/content type.&lt;br /&gt;-Added option to parse season/content type from folder name instead of filename.&lt;br /&gt;-Fixed issue with button styling in add episode dialog.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed issues with tv show list display.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed issue with stop button for tv shows player.&lt;br /&gt;-Implemented Functionality to the Re-acquire show data from tmdb button.&lt;br /&gt;-Added Episode Description field to metadata for tv shows video files.&lt;br /&gt;-Added ability to edit the metadata for multiple files at once.&lt;br /&gt;-Added autoplay random episode setting.&lt;br /&gt;-Added ability to mark episodes as favourites.&lt;br /&gt;&lt;br /&gt;Version: 4.2.4&lt;br /&gt;-Added playback speed control to tv shows player.&lt;br /&gt;-Fixed a bug with mouse cursor hiding on mainwindow when player is in  fullscreen.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Switched from qmediaplayer to libvlc.&lt;br /&gt;-Added persistent settings for autoplay for tv shows video player.&lt;br /&gt;-Fixed input validation issue for tvshow and episode names.&lt;br /&gt;-Future proofed the implementation for show settings file.&lt;br /&gt;-Fixed bugs with resume position handling near the end of episodes.&lt;br /&gt;-Implemented volume amplification up to 200%.&lt;br /&gt;-Added escape keybind to close player when not fullscreened.&lt;br /&gt;&lt;br /&gt;Version: 4.2.3&lt;br /&gt;-Improved the add episode dialog significantly.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Implemented ResetHistory/UseCustomPoster/UseCustomDescription in show settings.&lt;br /&gt;-Fixed a few minor bugs with the video player.&lt;br /&gt;-Added Icons mode to tv shows list.&lt;br /&gt;-Added a search bar to tv shows list.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added deletion dialog on episode import.&lt;br /&gt;-Added cleanup logic on import cancel/applaunch for tv show import.&lt;br /&gt;-Split the Skip Intro/Outro setting in two.&lt;br /&gt;-Added support for broken files and a repair option.&lt;br /&gt;-Added auto full screen setting.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed two crashes in the tv show player feature.&lt;br /&gt;&lt;br /&gt;Version: 4.2.2&lt;br /&gt;-Added support for extra content for tv shows.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Organized the categories in the tree widget that displays episodes&lt;br /&gt;-Added logic to the play button to skip extra/movies/ova and start at the first episode.&lt;br /&gt;-The play button text updates depending on watchhistory.&lt;br /&gt;-Fixed a bug with marking episodes as unwatched.&lt;br /&gt;-Improved the tree widget expansion logic for tv shows.&lt;br /&gt;-Ensured only one player can exist at a time for the tv shows player.&lt;br /&gt;-Fixed temp file cleanup for tv shows to use secure delete instead of regular delete.&lt;br /&gt;-Added Logic to detect which screen the mainwindow is in and open the player in that screen.&lt;br /&gt;-Added multi-selection to the episodes tree widget for context menu operations.&lt;br /&gt;-Added context menu option to edit an individual episode/movie/ova metadata&lt;br /&gt;&lt;br /&gt;Version: 4.2.1&lt;br /&gt;-Fixed various playback slider bugs.&lt;br /&gt;-Fixed mouse cursor hiding in fullscreen.&lt;br /&gt;-Fixed a bug with tv show export for shows that use absolute numbering.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Removed unnecessary success confirmation dialogs.&lt;br /&gt;&lt;br /&gt;Version: 4.2.0&lt;br /&gt;-Added a new Feature: Video Player.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Removed a fix that was not working for windows screen events.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.1.17&lt;br /&gt;-Reorganized the project structure to make future implementations easier.&lt;br /&gt;&lt;br /&gt;Version: 4.1.16&lt;br /&gt;-Fixed a bug related to windows screen events and QT.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.1.15&lt;br /&gt;-Added function to verify nonce integrity.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Refactored operations_encrypteddata.cpp to make the code more readable.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Search bar for encrypted data now show items with a tag that matches the search.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.1.14&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed account/service/password alphabetical sorting for capital letters.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed backup deletion when changing password.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.1.13&lt;br /&gt;-Added a search bar to password manager.&lt;br /&gt;-Added a generate password function to add/modify password dialog.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Now automatically select first password in the list when the list is updated.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed bug with persistent setting database path resolution.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed bug with persistent setting database saving.&lt;br /&gt;&lt;br /&gt;Version: 4.1.12&lt;br /&gt;-Improved the display of images in the diary.&lt;br /&gt;-Removed Image group functionality. Will be reworked eventually.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed previous diary editing for yesterday's diary.&lt;br /&gt;-Fixed image drop on first diary entry bug.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Text Input is now preserved when adding images.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Remove the useless setting, Can Edit Recent. Might re-add later with password protection for enabling the option.&lt;br /&gt;&lt;br /&gt;Version: 4.1.11&lt;br /&gt;-Fixed various critical bugs with images in the diary.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Entry deletion now updates the timestamp counter variable.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Optimized image clicking behavior.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Diary entry counter is now recalculated on diary load.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed bug with open on settings when minimizing to tray.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed a crash that occured when adding an image by dropping on the diary text display.&lt;br /&gt;&lt;br /&gt;Version: 4.1.10&lt;br /&gt;-Fixed various security issues with moveable tabs and password protected tabs.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added an option to always show Settings tab when reopening the app.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Changed default value for time stamp counter from 5 to 4.&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.1.9&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added ability to add images in diary.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Created an image viewer class to view images.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Moved the option to hide categories/tags for encrypted files from the hidden items list dialog to the main settings page.&lt;br /&gt;-Added Tag Filtering Mode option so tags can be sorted by OR and AND logic.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;Version: 4.1.8&lt;br /&gt;-Improved the Hide/Show tabs context menu.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added Grace Period setting for password validation.&lt;br /&gt;-Added Setting to Hide Thumbnails&lt;br /&gt;-Added Setting to Hide specific Categories/Tags from the list of encrypted files.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added Search Function for encrypted files.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added automatic sorting by encryption date for encrypted files.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.1.7&lt;br /&gt;-Modified Database Implementation to support multiple databases.&lt;br /&gt;-Seperated the old database in 2. Users Database and Settings database.&lt;br /&gt;-Renamed MMDiary.db to users.db&lt;br /&gt;-Added automatic backup for users.db&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Created a persistentsettings.db database that is used to restore the app to &lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;how it was when it was closed. Eg. Tab Reordered, last used tab, etc.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added ability to hide/show specific tabs.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.1.6&lt;br /&gt;-Added regular delete option to encryption success dialog.&lt;br /&gt;-Modified Open file behavior to use default app by default.&lt;br /&gt;-Added open with context menu option that uses windows api.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Optimized the Tag Filtering system for encrypted files.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Main Tabs are now moveable.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added Fallback method to securely delete leftover temp files on app launch in case some didn't get deleted (appcrash/power loss).&lt;br /&gt;-Function to erase all temp data is now called right before app close as a fallback measure.&lt;br /&gt;&lt;br /&gt;Version: 4.1.5&lt;br /&gt;-Modified Metadata for encrypted files to be a fixed size (40KB)&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Thumbnails are now stored in the file's metadata.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added padding to thumbnails to preserve aspect ratio&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Modified encryption dialog to be similar to decryption dialog.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added fully tested recovery option in case metadata is corrupted.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added suffix to filenames for duplicates when exporting.&lt;br /&gt;-Modified Export All Files to Export All Listed Files, users can still export all files by selecting All for type and category.&lt;br /&gt;-Hid the Button for Export All and instead use a context menu option.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.1.4&lt;br /&gt;-Fix a bug with thumbnail dissappearance for video files after metadata edit.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Reworked secure delete function to handle deleting a folder or multiple files.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.1.3&lt;br /&gt;-Reworked encrypted file format to include encrypted metadata.&lt;br /&gt;-Added a file filtering system with Category and Tags.&lt;br /&gt;-Added ability to edit file name, category and tags.&lt;br /&gt;-Added settings page for Encrypted Data tab.&lt;br /&gt;-Added option to require password to view the encrypted data page.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added option to decrypt and export entire database.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.1.2&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added multiple file support for encryption&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added Thumbnail system for encrypted files list.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.1.1&lt;br /&gt;-Fixed an issue with encrypted file opening.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed an issue with secure file deletion.&lt;br /&gt;-Added option to securely delete files.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added key validation for file decryption&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.1.0&lt;br /&gt;-Added a new feature that allows user to encrypt/decrypt various file types.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.0.9&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Setting up .pro file to use local open ssl files on deployment.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Modified About MMDiary to use github repo as download location.&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.0.8&lt;br /&gt;-Fixed Diary Corruption Bug. It was caused by the encryption key verification system.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed a bug with pasting text to diary.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.0.7&lt;br /&gt;-Moved the database file to the data directory to simplify data migration from one version to another.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added automatic creation of data folder on launch since we now place the users database inside of it.&lt;br /&gt;-Added check to prevent users from using the name MMDiary.db , since it could create issues with our database file that is now inside of the data folder.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Fixed a bug that prevented tasklist folder deletion when tasklists were deleted.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added Safety Checks to ensure we do not try to encrypt a file that is too large.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.0.6&lt;br /&gt;-Fixed the Reset To Defaults button bypassing password validation for sensitive settings.&lt;br /&gt;-Fixed a bug that automatically unselected items from the password list.&lt;br /&gt;-Improved the behavior of item selection for the diary display.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.0.5&lt;br /&gt;-Attempted to fix a critical bug with Diaries becoming corrupted. I don't know if I succeeded but it's very hard to troubleshoot and so time will tell.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.0.4&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Removed Log To Diary from the task details.&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added an information dialog to warn users that you cannot edit or delete passwords when the option 'Hide Passwords' is activated.&lt;br /&gt;-Fixed a bug when removing all passwords from the password manager.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.0.3&lt;br /&gt;-Removed the option to log tasks to diary. The tasklist system will have to be reworked from scratch and I don't want to do that just yet, I would prefer to work on other more important features and the tasklist system is good enough for me right now anyways.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.0.2&lt;br /&gt;-Fixed month transition bug for diaries.&lt;br /&gt;-Fixed tasklist reordering not saving.&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.0.1&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Added Changelog display&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Attempted to setup recurrent task reset.&lt;br /&gt;-Disabled Recurrent Tasks until I rework the task system entirely. Specifically, the way tasks are saved&lt;/p&gt;
+&lt;p style=&quot;-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Version: 4.0.0&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;-Beta Release&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,0 +1,3180 @@
+#include "operations_tasklists.h"
+#include "CombinedDelegate.h"
+#include "encryption/CryptoUtils.h"
+#include "operations.h"
+#include "inputvalidation.h"
+#include "ui_mainwindow.h"
+#include "../../constants.h"
+#include "ui_tasklists_addtask.h"
+#include "../../CustomWidgets/tasklists/qlist_TasklistDisplay.h"
+#include <QApplication>
+#include <QDateTime>
+#include <QDir>
+#include <QFileInfo>
+#include <QMenu>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QMessageBox>
+#include <QMap>
+#include <QPlainTextEdit>
+#include <QRandomGenerator>
+#include <QHeaderView>
+#include <QFontMetrics>
+#include <QUuid>
+#include <utility>  // For std::pair and std::make_pair
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+#include "operations_files.h"
+
+// Security: Centralized escaping functions for task data
+namespace TaskDataSecurity {
+    QString escapeTaskField(const QString& input) {
+        QString escaped = input;
+        // Escape in specific order to prevent double-escaping
+        escaped.replace("\\", "\\\\");  // Backslash first
+        escaped.replace("|", "\\|");      // Then pipe
+        escaped.replace("\n", "\\n");    // Newline
+        escaped.replace("\r", "\\r");    // Carriage return
+        escaped.replace("\t", "\\t");    // Tab
+        escaped.replace("\0", "");        // Remove null bytes
+        return escaped;
+    }
+
+    QString unescapeTaskField(const QString& input) {
+        QString unescaped = input;
+        // Unescape in reverse order
+        unescaped.replace("\\t", "\t");
+        unescaped.replace("\\r", "\r");
+        unescaped.replace("\\n", "\n");
+        unescaped.replace("\\|", "|");
+        unescaped.replace("\\\\", "\\");
+        return unescaped;
+    }
+
+    QString sanitizeFileName(const QString& input) {
+        QString sanitized = input;
+        // Remove null bytes first
+        sanitized.remove(QChar('\0'));
+        // Remove control characters (0x00-0x1F, 0x7F)
+        sanitized.remove(QRegularExpression("[\\x00-\\x1F\\x7F]"));
+        // Replace dangerous path characters
+        sanitized.replace(QRegularExpression("[\\\\/:*?\"<>|\\.\\.]"), "_");
+        // Remove leading/trailing dots and spaces (Windows specific)
+        sanitized = sanitized.trimmed();
+        sanitized.remove(QRegularExpression("^\\.+|\\s+$|\\.$"));
+        // Limit length to prevent path overflow
+        if (sanitized.length() > 200) {
+            sanitized = sanitized.left(200);
+        }
+        // If empty after sanitization, use default
+        if (sanitized.isEmpty()) {
+            sanitized = "unnamed_list";
+        }
+        return sanitized;
+    }
+
+    QString generateSecureTempFileName(const QString& baseName, const QString& tempDir) {
+        // Generate unique temporary file name with random component
+        QDateTime now = QDateTime::currentDateTime();
+        qint64 timestamp = now.toMSecsSinceEpoch();
+        quint32 randomValue = QRandomGenerator::global()->generate();
+
+        QString sanitizedBase = sanitizeFileName(baseName);
+        QString tempFileName = QString("%1_%2_%3_temp.txt")
+            .arg(sanitizedBase)
+            .arg(timestamp)
+            .arg(randomValue, 8, 16, QChar('0')); // 8-digit hex
+
+        return QDir(tempDir).absoluteFilePath(tempFileName);
+    }
+
+    // Security: Clear sensitive string data from memory
+    void secureStringClear(QString& str) {
+        if (str.isEmpty()) return;
+
+        // Get the internal data
+        // Note: This works for non-shared QString instances
+        QChar* data = str.data();
+        int len = str.length();
+
+#ifdef Q_OS_WIN
+        // On Windows, use SecureZeroMemory to prevent compiler optimization
+        // This ensures the memory is actually cleared
+        SecureZeroMemory(data, len * sizeof(QChar));
+#else
+        // Fallback for non-Windows (though you specified Windows only)
+        // Overwrite with zeros
+        for (int i = 0; i < len; ++i) {
+            data[i] = QChar('\0');
+        }
+
+        // Force multiple overwrites to prevent compiler optimization
+        for (int i = 0; i < len; ++i) {
+            data[i] = QChar(0x00);
+        }
+#endif
+
+        // Clear the string
+        str.clear();
+
+        // Force the string to release its memory
+        str.squeeze();
+    }
+
+    // Security: Clear QStringList data from memory
+    void secureStringListClear(QStringList& list) {
+        for (QString& str : list) {
+            secureStringClear(str);
+        }
+        list.clear();
+    }
+}
+
+Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
+    : m_mainWindow(mainWindow)
+    , m_tasklistNameToFile(100, "TasklistNameToFile")  // Initialize thread-safe map
+    , m_taskOrderCache(100, "TaskOrderCache")  // Initialize with max size and debug name
+    , m_lastClickedWidget(nullptr)
+    , m_lastClickedItem(nullptr)
+{
+    qDebug() << "Operations_TaskLists: Initializing";
+
+    m_mainWindow->ui->listWidget_TaskList_List->setSortingEnabled(false);
+
+    // Clear the table
+    m_mainWindow->ui->tableWidget_TaskDetails->clear();
+    m_mainWindow->ui->tableWidget_TaskDetails->setRowCount(0);
+    m_mainWindow->ui->tableWidget_TaskDetails->setColumnCount(0);
+
+    // Connect the context menu signal for the task list display
+    connect(m_mainWindow->ui->listWidget_TaskListDisplay, &QWidget::customContextMenuRequested,
+            this, &Operations_TaskLists::showContextMenu_TaskListDisplay);
+
+    // Enable context menu policy
+    m_mainWindow->ui->listWidget_TaskListDisplay->setContextMenuPolicy(Qt::CustomContextMenu);
+
+    // Set up description save timer
+    m_descriptionSaveTimer = new SafeTimer(this, "Operations_TaskLists::DescriptionSaveTimer");
+    m_descriptionSaveTimer->setSingleShot(true);
+    m_descriptionSaveTimer->setInterval(5000); // 5 seconds
+    connect(m_descriptionSaveTimer, &SafeTimer::timeout, this, &Operations_TaskLists::SaveTaskDescription);
+
+    // Install event filters
+    m_mainWindow->ui->plainTextEdit_TaskDesc->installEventFilter(this);
+    m_mainWindow->ui->listWidget_TaskListDisplay->installEventFilter(this);
+    m_mainWindow->ui->tableWidget_TaskDetails->installEventFilter(this);
+
+    // Connect the context menu signal for the task list list widget
+    connect(m_mainWindow->ui->listWidget_TaskList_List, &QWidget::customContextMenuRequested,
+            this, &Operations_TaskLists::showContextMenu_TaskListList);
+
+    // Enable context menu policy for the task list list widget
+    m_mainWindow->ui->listWidget_TaskList_List->setContextMenuPolicy(Qt::CustomContextMenu);
+
+    // Install event filters for key press events
+    m_mainWindow->ui->listWidget_TaskList_List->installEventFilter(this);
+    m_mainWindow->ui->listWidget_TaskListDisplay->installEventFilter(this);
+
+    // Connect item clicked signals to track the last clicked item
+    connect(m_mainWindow->ui->listWidget_TaskList_List, &QListWidget::itemClicked,
+            this, &Operations_TaskLists::onTaskListItemClicked);
+    connect(m_mainWindow->ui->listWidget_TaskListDisplay, &QListWidget::itemClicked,
+            this, &Operations_TaskLists::onTaskDisplayItemClicked);
+
+    // Connect double-click signals
+    connect(m_mainWindow->ui->listWidget_TaskList_List, &QListWidget::itemDoubleClicked,
+            this, &Operations_TaskLists::onTaskListItemDoubleClicked);
+    connect(m_mainWindow->ui->listWidget_TaskListDisplay, &QListWidget::itemDoubleClicked,
+            this, &Operations_TaskLists::onTaskDisplayItemDoubleClicked);
+
+    // Connect item changed signal for checkbox handling
+    connect(m_mainWindow->ui->listWidget_TaskListDisplay, &QListWidget::itemChanged,
+            this, [this](QListWidgetItem* item) {
+                if (item) {
+                    bool checked = (item->checkState() == Qt::Checked);
+                    m_mainWindow->ui->listWidget_TaskListDisplay->blockSignals(true);
+                    SetTaskStatus(checked, item);
+                    m_mainWindow->ui->listWidget_TaskListDisplay->blockSignals(false);
+                }
+            });
+
+    // Enable drag and drop for task display list widget
+    m_mainWindow->ui->listWidget_TaskListDisplay->setDragEnabled(true);
+    m_mainWindow->ui->listWidget_TaskListDisplay->setAcceptDrops(true);
+    m_mainWindow->ui->listWidget_TaskListDisplay->setDropIndicatorShown(true);
+    m_mainWindow->ui->listWidget_TaskListDisplay->setDragDropMode(QAbstractItemView::InternalMove);
+
+    // Enable drag and drop for task list widget
+    m_mainWindow->ui->listWidget_TaskList_List->setDragEnabled(true);
+    m_mainWindow->ui->listWidget_TaskList_List->setAcceptDrops(true);
+    m_mainWindow->ui->listWidget_TaskList_List->setDropIndicatorShown(true);
+    m_mainWindow->ui->listWidget_TaskList_List->setDragDropMode(QAbstractItemView::InternalMove);
+
+    // Connect drag and drop signals
+    connect(m_mainWindow->ui->listWidget_TaskListDisplay, &qlist_TasklistDisplay::itemsReordered,
+            this, [this]() {
+                // Handle task reordering with smart group detection
+                HandleTaskReorder();
+            });
+
+    connect(m_mainWindow->ui->listWidget_TaskList_List, &qlist_TasklistDisplay::itemsReordered,
+            this, &Operations_TaskLists::SaveTasklistOrder);
+
+    LoadTasklists();
+}
+
+// Helper function to generate unique tasklist filename
+QString Operations_TaskLists::generateTasklistFilename()
+{
+    // Generate UUID-based filename
+    QString uuid = QUuid::createUuid().toString();
+    // Remove braces from UUID
+    uuid = uuid.mid(1, uuid.length() - 2);
+    return QString("tasklist_%1.txt").arg(uuid);
+}
+
+// Write encrypted metadata header and content to a tasklist file
+bool Operations_TaskLists::writeTasklistMetadata(const QString& filePath, const QString& tasklistName, const QByteArray& key)
+{
+    qDebug() << "Operations_TaskLists: Writing metadata for tasklist:" << tasklistName;
+    
+    // Create metadata structure
+    TasklistMetadata metadata;
+    memset(&metadata, 0, sizeof(metadata));  // Clear all to zero
+    
+    // Set magic and version
+    strncpy(metadata.magic, TASKLIST_MAGIC, 8);
+    strncpy(metadata.version, TASKLIST_VERSION, 4);
+    
+    // Set tasklist name (truncate if necessary)
+    QByteArray nameBytes = tasklistName.toUtf8();
+    int nameToCopy = qMin(nameBytes.size(), 255);  // Leave room for null terminator
+    memcpy(metadata.name, nameBytes.constData(), nameToCopy);
+    
+    // Set creation date
+    QString creationDate = QDateTime::currentDateTime().toString(Qt::ISODate);
+    QByteArray dateBytes = creationDate.toUtf8();
+    int dateToCopy = qMin(dateBytes.size(), 31);  // Leave room for null terminator
+    memcpy(metadata.creationDate, dateBytes.constData(), dateToCopy);
+    
+    // lastSelectedTask is left empty (all zeros) for new tasklists
+    
+    // Convert metadata to byte array
+    QByteArray metadataBytes(reinterpret_cast<const char*>(&metadata), METADATA_SIZE);
+    
+    // Create temporary file for writing
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        qWarning() << "Operations_TaskLists: Failed to create temp directory";
+        return false;
+    }
+    
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("metadata", tempDir);
+    QFile tempFile(tempPath);
+    
+    if (!tempFile.open(QIODevice::WriteOnly)) {
+        qWarning() << "Operations_TaskLists: Failed to open temp file for metadata";
+        return false;
+    }
+    
+    // Write metadata (will be encrypted as part of the file)
+    tempFile.write(metadataBytes);
+    tempFile.close();
+    
+    // Encrypt the temp file to the target location
+    bool success = CryptoUtils::Encryption_EncryptFile(key, tempPath, filePath);
+    
+    // Clean up temp file
+    QFile::remove(tempPath);
+    
+    if (success) {
+        // Update the name-to-file mapping
+        m_tasklistNameToFile.insert(tasklistName, filePath);
+    }
+    
+    return success;
+}
+
+// Read and decrypt metadata header from a tasklist file  
+bool Operations_TaskLists::readTasklistMetadata(const QString& filePath, QString& tasklistName, const QByteArray& key)
+{
+    qDebug() << "Operations_TaskLists: Reading metadata from:" << filePath;
+    
+    // Create temporary file for decryption
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        qWarning() << "Operations_TaskLists: Failed to create temp directory";
+        return false;
+    }
+    
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("metadata_read", tempDir);
+    
+    // Decrypt the file to temp location
+    if (!CryptoUtils::Encryption_DecryptFile(key, filePath, tempPath)) {
+        qWarning() << "Operations_TaskLists: Failed to decrypt tasklist file for metadata";
+        return false;
+    }
+    
+    // Read the metadata from decrypted file
+    QFile tempFile(tempPath);
+    if (!tempFile.open(QIODevice::ReadOnly)) {
+        QFile::remove(tempPath);
+        qWarning() << "Operations_TaskLists: Failed to open decrypted file for metadata";
+        return false;
+    }
+    
+    // Read metadata bytes
+    QByteArray metadataBytes = tempFile.read(METADATA_SIZE);
+    tempFile.close();
+    QFile::remove(tempPath);
+    
+    if (metadataBytes.size() != METADATA_SIZE) {
+        qWarning() << "Operations_TaskLists: Invalid metadata size:" << metadataBytes.size();
+        return false;
+    }
+    
+    // Parse metadata
+    const TasklistMetadata* metadata = reinterpret_cast<const TasklistMetadata*>(metadataBytes.constData());
+    
+    // Verify magic
+    if (strncmp(metadata->magic, TASKLIST_MAGIC, 8) != 0) {
+        qWarning() << "Operations_TaskLists: Invalid magic in metadata";
+        return false;
+    }
+    
+    // Verify version
+    if (strncmp(metadata->version, TASKLIST_VERSION, 4) != 0) {
+        qWarning() << "Operations_TaskLists: Unsupported version in metadata";
+        return false;
+    }
+    
+    // Extract name (ensure null-terminated)
+    char nameBuffer[257];
+    memcpy(nameBuffer, metadata->name, 256);
+    nameBuffer[256] = '\0';
+    tasklistName = QString::fromUtf8(nameBuffer);
+    
+    // Update the name-to-file mapping
+    m_tasklistNameToFile.insert(tasklistName, filePath);
+    
+    return true;
+}
+
+// Find tasklist file by name
+QString Operations_TaskLists::findTasklistFileByName(const QString& tasklistName)
+{
+    // Check cache first
+    if (m_tasklistNameToFile.contains(tasklistName)) {
+        auto cachedPath = m_tasklistNameToFile.value(tasklistName);
+        if (cachedPath.has_value()) {
+            return cachedPath.value();
+        }
+    }
+    
+    // If not in cache, scan all tasklist files
+    QString tasksListsPath = "Data/" + m_mainWindow->user_Username + "/Tasklists/";
+    QDir dir(tasksListsPath);
+    QStringList filters;
+    filters << "tasklist_*.txt";
+    QStringList tasklistFiles = dir.entryList(filters, QDir::Files);
+    
+    for (const QString& filename : tasklistFiles) {
+        QString filePath = tasksListsPath + filename;
+        QString name;
+        if (readTasklistMetadata(filePath, name, m_mainWindow->user_Key)) {
+            if (name == tasklistName) {
+                return filePath;
+            }
+        }
+    }
+    
+    return QString();  // Not found
+}
+
+Operations_TaskLists::~Operations_TaskLists()
+{
+    qDebug() << "Operations_TaskLists: Destructor called";
+
+    // Clear pointer references first to prevent use during destruction
+    m_lastClickedWidget = nullptr;
+    m_lastClickedItem = nullptr;
+
+    // Disconnect all signals to prevent callbacks during destruction
+    this->disconnect();
+
+    // Stop and delete the timer first
+    if (m_descriptionSaveTimer) {
+        m_descriptionSaveTimer->stop();
+        m_descriptionSaveTimer->disconnect();
+        delete m_descriptionSaveTimer;
+        m_descriptionSaveTimer = nullptr;
+    }
+
+    // Remove event filters with proper null checks
+    // Since this object is parented to MainWindow, MainWindow and its UI
+    // should still be valid when this destructor runs
+    if (m_mainWindow && m_mainWindow->ui) {
+        // Remove event filters from each widget if it exists
+        if (m_mainWindow->ui->plainTextEdit_TaskDesc) {
+            m_mainWindow->ui->plainTextEdit_TaskDesc->removeEventFilter(this);
+        }
+        if (m_mainWindow->ui->listWidget_TaskListDisplay) {
+            m_mainWindow->ui->listWidget_TaskListDisplay->removeEventFilter(this);
+        }
+        if (m_mainWindow->ui->tableWidget_TaskDetails) {
+            m_mainWindow->ui->tableWidget_TaskDetails->removeEventFilter(this);
+        }
+        if (m_mainWindow->ui->listWidget_TaskList_List) {
+            m_mainWindow->ui->listWidget_TaskList_List->removeEventFilter(this);
+        }
+    }
+
+    // Clear any sensitive string data
+    TaskDataSecurity::secureStringClear(currentTaskToEdit);
+    TaskDataSecurity::secureStringClear(currentTaskData);
+    TaskDataSecurity::secureStringClear(m_currentTaskName);
+    TaskDataSecurity::secureStringClear(m_lastSavedDescription);
+    TaskDataSecurity::secureStringClear(currentTaskListBeingRenamed);
+}
+
+//--------Safe Container Operations Helpers--------//
+QListWidgetItem* Operations_TaskLists::safeGetItem(QListWidget* widget, int index) const
+{
+    if (!validateListWidget(widget)) {
+        qWarning() << "Operations_TaskLists: Invalid widget in safeGetItem";
+        return nullptr;
+    }
+
+    if (index < 0 || index >= widget->count()) {
+        qWarning() << "Operations_TaskLists: Index out of bounds in safeGetItem:" << index << "count:" << widget->count();
+        return nullptr;
+    }
+
+    return widget->item(index);
+}
+
+QListWidgetItem* Operations_TaskLists::safeTakeItem(QListWidget* widget, int index)
+{
+    if (!validateListWidget(widget)) {
+        qWarning() << "Operations_TaskLists: Invalid widget in safeTakeItem";
+        return nullptr;
+    }
+
+    if (index < 0 || index >= widget->count()) {
+        qWarning() << "Operations_TaskLists: Index out of bounds in safeTakeItem:" << index << "count:" << widget->count();
+        return nullptr;
+    }
+
+    QListWidgetItem* item = widget->takeItem(index);
+    if (!item) {
+        qWarning() << "Operations_TaskLists: takeItem returned null at index:" << index;
+    }
+
+    return item;
+}
+
+bool Operations_TaskLists::validateListWidget(QListWidget* widget) const
+{
+    if (!widget) {
+        qWarning() << "Operations_TaskLists: Null widget pointer";
+        return false;
+    }
+
+    // Additional validation: check if widget is still valid (not deleted)
+    if (!m_mainWindow) {
+        qWarning() << "Operations_TaskLists: MainWindow is null";
+        return false;
+    }
+
+    return true;
+}
+
+int Operations_TaskLists::safeGetItemCount(QListWidget* widget) const
+{
+    if (!validateListWidget(widget)) {
+        return 0;
+    }
+
+    return widget->count();
+}
+
+// Custom file I/O that properly handles the 512-byte metadata header
+bool Operations_TaskLists::readTasklistFileWithMetadata(const QString& filePath, QStringList& taskLines)
+{
+    qDebug() << "Operations_TaskLists: Reading tasklist file with metadata:" << filePath;
+    taskLines.clear();
+    
+    // Decrypt the file to a temporary location
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        qWarning() << "Operations_TaskLists: Failed to create temp directory";
+        return false;
+    }
+    
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("read_tasks", tempDir);
+    
+    if (!CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, filePath, tempPath)) {
+        qWarning() << "Operations_TaskLists: Failed to decrypt tasklist file";
+        return false;
+    }
+    
+    // Read the decrypted file
+    QFile tempFile(tempPath);
+    if (!tempFile.open(QIODevice::ReadOnly)) {
+        QFile::remove(tempPath);
+        qWarning() << "Operations_TaskLists: Failed to open decrypted file";
+        return false;
+    }
+    
+    // Skip the metadata header (512 bytes)
+    tempFile.seek(METADATA_SIZE);
+    
+    // Read all task lines
+    QTextStream stream(&tempFile);
+    while (!stream.atEnd()) {
+        QString line = stream.readLine();
+        if (!line.isEmpty()) {
+            taskLines.append(line);
+        }
+    }
+    
+    tempFile.close();
+    QFile::remove(tempPath);
+    
+    return true;
+}
+
+// Update the last selected task in the metadata
+bool Operations_TaskLists::updateLastSelectedTask(const QString& tasklistName, const QString& taskName)
+{
+    qDebug() << "Operations_TaskLists: Updating last selected task for" << tasklistName << "to" << taskName;
+    
+    // Find the tasklist file
+    QString filePath = findTasklistFileByName(tasklistName);
+    if (filePath.isEmpty()) {
+        qWarning() << "Operations_TaskLists: Could not find tasklist file for" << tasklistName;
+        return false;
+    }
+    
+    // Create temporary directory
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        qWarning() << "Operations_TaskLists: Failed to create temp directory";
+        return false;
+    }
+    
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("update_selection", tempDir);
+    
+    // Decrypt the file
+    if (!CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, filePath, tempPath)) {
+        qWarning() << "Operations_TaskLists: Failed to decrypt tasklist file";
+        return false;
+    }
+    
+    // Open the decrypted file
+    QFile tempFile(tempPath);
+    if (!tempFile.open(QIODevice::ReadWrite)) {
+        QFile::remove(tempPath);
+        qWarning() << "Operations_TaskLists: Failed to open temp file";
+        return false;
+    }
+    
+    // Read the entire file
+    QByteArray allContent = tempFile.readAll();
+    
+    // Check if file has metadata
+    if (allContent.size() < METADATA_SIZE) {
+        tempFile.close();
+        QFile::remove(tempPath);
+        qWarning() << "Operations_TaskLists: File too small for metadata";
+        return false;
+    }
+    
+    // Parse metadata
+    TasklistMetadata metadata;
+    memcpy(&metadata, allContent.constData(), METADATA_SIZE);
+    
+    // Verify magic and version
+    if (strncmp(metadata.magic, TASKLIST_MAGIC, 8) != 0) {
+        tempFile.close();
+        QFile::remove(tempPath);
+        qWarning() << "Operations_TaskLists: Invalid magic number";
+        return false;
+    }
+    
+    // Update the lastSelectedTask field
+    memset(metadata.lastSelectedTask, 0, 128);  // Clear existing
+    QByteArray taskBytes = taskName.toUtf8();
+    int taskToCopy = qMin(taskBytes.size(), 127);  // Leave room for null terminator
+    memcpy(metadata.lastSelectedTask, taskBytes.constData(), taskToCopy);
+    
+    // Write back the updated metadata and the rest of the content
+    tempFile.seek(0);
+    tempFile.write(reinterpret_cast<const char*>(&metadata), METADATA_SIZE);
+    tempFile.write(allContent.mid(METADATA_SIZE));  // Write the rest unchanged
+    tempFile.close();
+    
+    // Re-encrypt the file
+    bool success = CryptoUtils::Encryption_EncryptFile(m_mainWindow->user_Key, tempPath, filePath);
+    
+    // Clean up temp file
+    QFile::remove(tempPath);
+    
+    if (!success) {
+        qWarning() << "Operations_TaskLists: Failed to re-encrypt tasklist file";
+    }
+    
+    return success;
+}
+
+bool Operations_TaskLists::writeTasklistFileWithMetadata(const QString& filePath, const QStringList& taskLines)
+{
+    qDebug() << "Operations_TaskLists: Writing tasklist file with metadata:" << filePath;
+    
+    // First read the existing metadata to preserve it
+    QString tasklistName;
+    QString lastSelectedTask;
+    
+    // Read existing metadata to preserve fields
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        qWarning() << "Operations_TaskLists: Failed to create temp directory";
+        return false;
+    }
+    
+    QString readTempPath = TaskDataSecurity::generateSecureTempFileName("read_metadata_for_write", tempDir);
+    
+    // Decrypt file to read metadata
+    if (CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, filePath, readTempPath)) {
+        QFile readFile(readTempPath);
+        if (readFile.open(QIODevice::ReadOnly)) {
+            QByteArray metadataBytes = readFile.read(METADATA_SIZE);
+            if (metadataBytes.size() == METADATA_SIZE) {
+                const TasklistMetadata* oldMetadata = reinterpret_cast<const TasklistMetadata*>(metadataBytes.constData());
+                
+                // Extract tasklist name
+                char nameBuffer[257];
+                memcpy(nameBuffer, oldMetadata->name, 256);
+                nameBuffer[256] = '\0';
+                tasklistName = QString::fromUtf8(nameBuffer);
+                
+                // Extract lastSelectedTask
+                char taskBuffer[129];
+                memcpy(taskBuffer, oldMetadata->lastSelectedTask, 128);
+                taskBuffer[128] = '\0';
+                lastSelectedTask = QString::fromUtf8(taskBuffer);
+            }
+            readFile.close();
+        }
+        QFile::remove(readTempPath);
+    }
+    
+    if (tasklistName.isEmpty()) {
+        qWarning() << "Operations_TaskLists: Failed to read existing metadata";
+        return false;
+    }
+    
+    // Create temporary file for writing
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("write_tasks", tempDir);
+    QFile tempFile(tempPath);
+    
+    if (!tempFile.open(QIODevice::WriteOnly)) {
+        qWarning() << "Operations_TaskLists: Failed to open temp file for writing";
+        return false;
+    }
+    
+    // Write metadata header
+    TasklistMetadata metadata;
+    memset(&metadata, 0, sizeof(metadata));
+    
+    // Set magic and version
+    strncpy(metadata.magic, TASKLIST_MAGIC, 8);
+    strncpy(metadata.version, TASKLIST_VERSION, 4);
+    
+    // Set tasklist name
+    QByteArray nameBytes = tasklistName.toUtf8();
+    int nameToCopy = qMin(nameBytes.size(), 255);
+    memcpy(metadata.name, nameBytes.constData(), nameToCopy);
+    
+    // Set creation date (we could preserve the original, but for now use current)
+    QString creationDate = QDateTime::currentDateTime().toString(Qt::ISODate);
+    QByteArray dateBytes = creationDate.toUtf8();
+    int dateToCopy = qMin(dateBytes.size(), 31);
+    memcpy(metadata.creationDate, dateBytes.constData(), dateToCopy);
+    
+    // Preserve lastSelectedTask
+    if (!lastSelectedTask.isEmpty()) {
+        QByteArray taskBytes = lastSelectedTask.toUtf8();
+        int taskToCopy = qMin(taskBytes.size(), 127);
+        memcpy(metadata.lastSelectedTask, taskBytes.constData(), taskToCopy);
+    }
+    
+    // Write metadata to temp file
+    tempFile.write(reinterpret_cast<const char*>(&metadata), METADATA_SIZE);
+    
+    // Write task lines
+    for (const QString& line : taskLines) {
+        if (!line.isEmpty()) {
+            tempFile.write(line.toUtf8());
+            tempFile.write("\n");
+        }
+    }
+    
+    tempFile.close();
+    
+    // Encrypt the temp file to the final location
+    bool success = CryptoUtils::Encryption_EncryptFile(m_mainWindow->user_Key, tempPath, filePath);
+    
+    // Clean up temp file
+    QFile::remove(tempPath);
+    
+    if (!success) {
+        qWarning() << "Operations_TaskLists: Failed to encrypt tasklist file";
+    }
+    
+    return success;
+}
+
+//--------Event Filters and Helpers--------//
+bool Operations_TaskLists::eventFilter(QObject* watched, QEvent* event)
+{
+    // Check for focus out event on the description text edit
+    if (watched == m_mainWindow->ui->plainTextEdit_TaskDesc && event->type() == QEvent::FocusOut) {
+        SaveTaskDescription();
+        return false;
+    }
+
+    // Check for key press events
+    if (event->type() == QEvent::KeyPress) {
+        QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
+
+        // Handle Enter/Shift+Enter for task description text edit
+        if (watched == m_mainWindow->ui->plainTextEdit_TaskDesc && keyEvent->key() == Qt::Key_Return) {
+            if (keyEvent->modifiers() & Qt::ShiftModifier) {
+                // Shift+Enter: Insert newline
+                return false;
+            } else {
+                // Enter without Shift: Save description and set focus to task list display
+                SaveTaskDescription();
+                m_mainWindow->ui->listWidget_TaskListDisplay->setFocus();
+                return true;
+            }
+        }
+
+        // Check if the key is Delete
+        if (keyEvent->key() == Qt::Key_Delete) {
+            if (watched == m_mainWindow->ui->listWidget_TaskList_List ||
+                watched == m_mainWindow->ui->listWidget_TaskListDisplay) {
+                handleDeleteKeyPress();
+                return true;
+            }
+        }
+    }
+
+    // Mouse press events on other widgets to save when clicking elsewhere
+    if (event->type() == QEvent::MouseButtonPress &&
+        watched != m_mainWindow->ui->plainTextEdit_TaskDesc &&
+        m_mainWindow->ui->plainTextEdit_TaskDesc->hasFocus()) {
+        SaveTaskDescription();
+        return false;
+    }
+
+    return QObject::eventFilter(watched, event);
+}
+
+void Operations_TaskLists::onTaskListItemClicked(QListWidgetItem* item)
+{
+    m_lastClickedWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    m_lastClickedItem = item;
+}
+
+void Operations_TaskLists::onTaskDisplayItemClicked(QListWidgetItem* item)
+{
+    m_lastClickedWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
+    m_lastClickedItem = item;
+    
+    // Update the last selected task in metadata if it's a valid task
+    if (item && (item->flags() & Qt::ItemIsEnabled) && item->text() != "No tasks in this list") {
+        // Get current tasklist name
+        QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+        QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
+        if (currentTaskListItem) {
+            QString tasklistName = currentTaskListItem->text();
+            QString taskName = item->text();
+            updateLastSelectedTask(tasklistName, taskName);
+        }
+    }
+}
+
+void Operations_TaskLists::onTaskListItemDoubleClicked(QListWidgetItem* item)
+{
+    if (!item) return;
+
+    if (!validateListWidget(m_mainWindow->ui->listWidget_TaskList_List)) {
+        qWarning() << "Operations_TaskLists: Invalid task list widget";
+        return;
+    }
+
+    QListWidget* listWidget = m_mainWindow->ui->listWidget_TaskList_List;
+
+    // Validate item still exists in the list
+    bool itemExists = false;
+    int itemRow = -1;
+    int listCount = safeGetItemCount(listWidget);
+    for (int i = 0; i < listCount; ++i) {
+        QListWidgetItem* currentItem = safeGetItem(listWidget, i);
+        if (currentItem && currentItem == item) {
+            itemExists = true;
+            itemRow = i;
+            break;
+        }
+    }
+
+    if (!itemExists) return;
+
+    currentTaskListBeingRenamed = item->text();
+    item->setFlags(item->flags() | Qt::ItemIsEditable);
+    listWidget->editItem(item);
+
+    // Use a single-shot connection to avoid memory leaks
+    QMetaObject::Connection* conn = new QMetaObject::Connection();
+    *conn = connect(listWidget, &QListWidget::itemChanged, this,
+            [this, listWidget, itemRow, conn](QListWidgetItem* changedItem) {
+                // Validate the item at the row is the one that changed
+                int currentCount = safeGetItemCount(listWidget);
+                if (itemRow >= 0 && itemRow < currentCount) {
+                    QListWidgetItem* itemAtRow = safeGetItem(listWidget, itemRow);
+                    if (itemAtRow && itemAtRow == changedItem) {
+                        disconnect(*conn);
+                        delete conn;
+                        RenameTasklist(changedItem);
+                    }
+                }
+            });
+}
+
+void Operations_TaskLists::onTaskDisplayItemDoubleClicked(QListWidgetItem* item)
+{
+    if (!item || (item->flags() & Qt::ItemIsEnabled) == 0) return;
+
+    currentTaskToEdit = item->text();
+    currentTaskData = item->data(Qt::UserRole).toString();
+    m_currentTaskName = item->text();
+
+    ShowTaskMenu(true);
+}
+
+void Operations_TaskLists::handleDeleteKeyPress()
+{
+    if (!m_lastClickedWidget || !m_lastClickedItem) return;
+
+    // Validate that the widget still exists and contains the item
+    QListWidget* listWidget = qobject_cast<QListWidget*>(m_lastClickedWidget);
+    if (!listWidget) {
+        m_lastClickedWidget = nullptr;
+        m_lastClickedItem = nullptr;
+        return;
+    }
+
+    // Find the item in the widget to ensure it's still valid
+    bool itemStillExists = false;
+    int listCount = safeGetItemCount(listWidget);
+    for (int i = 0; i < listCount; ++i) {
+        QListWidgetItem* currentItem = safeGetItem(listWidget, i);
+        if (currentItem && currentItem == m_lastClickedItem) {
+            itemStillExists = true;
+            break;
+        }
+    }
+
+    if (!itemStillExists) {
+        m_lastClickedWidget = nullptr;
+        m_lastClickedItem = nullptr;
+        return;
+    }
+
+    // Now safe to check flags
+    if ((m_lastClickedItem->flags() & Qt::ItemIsEnabled) == 0) return;
+
+    if (m_lastClickedWidget == m_mainWindow->ui->listWidget_TaskList_List) {
+        DeleteTaskList();
+    } else if (m_lastClickedWidget == m_mainWindow->ui->listWidget_TaskListDisplay) {
+        DeleteTask(m_lastClickedItem->text());
+    }
+}
+
+void Operations_TaskLists::EditSelectedTask()
+{
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
+    QListWidgetItem* selectedItem = taskListWidget->currentItem();
+
+    if (!selectedItem || (selectedItem->flags() & Qt::ItemIsEnabled) == 0) return;
+
+    currentTaskToEdit = selectedItem->text();
+    currentTaskData = selectedItem->data(Qt::UserRole).toString();
+    m_currentTaskName = selectedItem->text();
+
+    ShowTaskMenu(true);
+}
+
+//--------Task List Display Functions--------//
+void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, const QString& taskToSelect)
+{
+    qDebug() << "Operations_TaskLists: Loading tasklist:" << tasklistName << "with task to select:" << taskToSelect;
+    
+    QString actualTaskToSelect = taskToSelect;  // Will be modified if we read from metadata
+
+    m_mainWindow->ui->plainTextEdit_TaskDesc->clear();
+    QListWidget* taskDisplayWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
+    taskDisplayWidget->clear();
+
+    // Validate the task list name
+    InputValidation::ValidationResult nameResult =
+        InputValidation::validateInput(tasklistName, InputValidation::InputType::TaskListName);
+    if (!nameResult.isValid) {
+        QMessageBox::warning(m_mainWindow, "Invalid Task List Name", nameResult.errorMessage);
+        return;
+    }
+    
+    // IMPORTANT: Ensure the task list is selected in the UI widget
+    // This is crucial for LoadTaskDetails to work properly, especially during app startup
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    if (taskListWidget) {
+        bool taskListFound = false;
+        int listCount = taskListWidget->count();
+        for (int i = 0; i < listCount; ++i) {
+            QListWidgetItem* item = taskListWidget->item(i);
+            if (item && item->text() == tasklistName) {
+                taskListWidget->setCurrentRow(i);
+                taskListFound = true;
+                qDebug() << "Operations_TaskLists: Set current task list in UI to:" << tasklistName;
+                // Process events to ensure the UI is updated before we continue
+                // This is important during app startup when LoadTaskDetails needs currentItem()
+                QApplication::processEvents();
+                break;
+            }
+        }
+        if (!taskListFound) {
+            qWarning() << "Operations_TaskLists: Task list not found in UI widget:" << tasklistName;
+        }
+    }
+
+    // Find the tasklist file by name
+    QString taskListFilePath = findTasklistFileByName(tasklistName);
+    if (taskListFilePath.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "Task List Not Found",
+                            "Could not find task list: " + tasklistName);
+        return;
+    }
+    
+    // If taskToSelect is empty or "NULL", try to read lastSelectedTask from metadata
+    if (actualTaskToSelect.isEmpty() || actualTaskToSelect == "NULL") {
+        // Read metadata to get lastSelectedTask
+        QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+        if (OperationsFiles::ensureDirectoryExists(tempDir)) {
+            QString tempPath = TaskDataSecurity::generateSecureTempFileName("read_last_selected", tempDir);
+            
+            if (CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, taskListFilePath, tempPath)) {
+                QFile tempFile(tempPath);
+                if (tempFile.open(QIODevice::ReadOnly)) {
+                    // Read metadata
+                    QByteArray metadataBytes = tempFile.read(METADATA_SIZE);
+                    if (metadataBytes.size() == METADATA_SIZE) {
+                        const TasklistMetadata* metadata = reinterpret_cast<const TasklistMetadata*>(metadataBytes.constData());
+                        
+                        // Extract lastSelectedTask (ensure null-terminated)
+                        char taskBuffer[129];
+                        memcpy(taskBuffer, metadata->lastSelectedTask, 128);
+                        taskBuffer[128] = '\0';
+                        QString lastSelectedTask = QString::fromUtf8(taskBuffer);
+                        
+                        if (!lastSelectedTask.isEmpty()) {
+                            actualTaskToSelect = lastSelectedTask;
+                            qDebug() << "Operations_TaskLists: Using lastSelectedTask from metadata:" << actualTaskToSelect;
+                        }
+                    }
+                    tempFile.close();
+                }
+                QFile::remove(tempPath);
+            }
+        }
+    }
+
+    // Validate the file path
+    if (!OperationsFiles::validateFilePath(taskListFilePath, OperationsFiles::FileType::TaskList, m_mainWindow->user_Key)) {
+        QMessageBox::warning(m_mainWindow, "Invalid File Path",
+                            "Could not access task list file: Invalid path or file format");
+        return;
+    }
+
+    // Check if the file exists
+    QFileInfo fileInfo(taskListFilePath);
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        QMessageBox::warning(m_mainWindow, "File Not Found",
+                            "Task list file does not exist: " + taskListFilePath);
+        return;
+    }
+
+    // Decrypt the file to read tasks
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        QMessageBox::warning(m_mainWindow, "Directory Error",
+                            "Could not create temporary directory.");
+        return;
+    }
+    
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("load_tasklist", tempDir);
+    
+    if (!CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, taskListFilePath, tempPath)) {
+        QMessageBox::warning(m_mainWindow, "Read Error",
+                            "Could not decrypt the task list file.");
+        return;
+    }
+    
+    // Read the decrypted file
+    QFile tempFile(tempPath);
+    if (!tempFile.open(QIODevice::ReadOnly)) {
+        QFile::remove(tempPath);
+        QMessageBox::warning(m_mainWindow, "Read Error",
+                            "Could not open decrypted task list file.");
+        return;
+    }
+    
+    // Skip the metadata header (512 bytes)
+    tempFile.seek(METADATA_SIZE);
+    
+    // Read all task lines
+    QTextStream stream(&tempFile);
+    QStringList taskLines;
+    while (!stream.atEnd()) {
+        QString line = stream.readLine();
+        if (!line.isEmpty()) {
+            taskLines.append(line);
+        }
+    }
+    
+    tempFile.close();
+    QFile::remove(tempPath);
+
+    // Set the task list label with the name
+    m_mainWindow->ui->label_TaskListName->setText(tasklistName);
+
+    // Process each task line (new format: TaskName|CompletionStatus|CompletionDate|CreationDate|DESC:Description)
+    for (const QString& line : taskLines) {
+        if (line.isEmpty()) continue;
+
+        // Parse the task data (pipe-separated values)
+        QStringList parts = line.split('|');
+
+        // Validate minimum required fields for new format
+        if (parts.size() < 4) {
+            qWarning() << "Operations_TaskLists: Skipping invalid task entry - insufficient fields";
+            continue;
+        }
+
+        QString taskName = parts[0];
+        QString completionStatus = parts[1];
+        // parts[2] is completion date
+        // parts[3] is creation date
+        // parts[4] is description (if present)
+
+        // Security: Use centralized unescaping for task name
+        taskName = TaskDataSecurity::unescapeTaskField(taskName);
+        
+        // Validate task name
+        if (taskName.trimmed().isEmpty()) {
+            qWarning() << "Operations_TaskLists: Skipping task with empty name";
+            continue;
+        }
+
+        // Check if the task is completed
+        bool isCompleted = (completionStatus == "1");
+
+        // Create a list widget item for the task
+        QListWidgetItem* item = new QListWidgetItem(taskName);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(isCompleted ? Qt::Checked : Qt::Unchecked);
+
+        // Apply visual formatting based on completion status
+        if (isCompleted) {
+            QFont font = item->font();
+            font.setStrikeOut(true);
+            item->setFont(font);
+            item->setForeground(QColor(100, 100, 100)); // Grey color
+        } else {
+            QFont font = item->font();
+            font.setStrikeOut(false);
+            item->setFont(font);
+            item->setForeground(QColor(255, 255, 255)); // White color
+        }
+
+        // Store the task line for reference (already in new format)
+        item->setData(Qt::UserRole, line);
+
+        // Add the item to the list widget
+        taskDisplayWidget->addItem(item);
+    }
+
+    // If the list is empty, display a message
+    if (taskDisplayWidget->count() == 0) {
+        QListWidgetItem* item = new QListWidgetItem("No tasks in this list");
+        item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+        taskDisplayWidget->addItem(item);
+
+        // Clear the table
+        m_mainWindow->ui->tableWidget_TaskDetails->clear();
+        m_mainWindow->ui->tableWidget_TaskDetails->setRowCount(0);
+        m_mainWindow->ui->tableWidget_TaskDetails->setColumnCount(0);
+    } else {
+        // Enforce task order to put checked tasks at the top
+        EnforceTaskOrder();
+    }
+
+    // After loading all tasks, select the appropriate task
+    int taskToSelectIndex = -1;
+    int displayCount = safeGetItemCount(taskDisplayWidget);
+
+    if (!actualTaskToSelect.isEmpty() && actualTaskToSelect != "NULL") {
+        for (int i = 0; i < displayCount; ++i) {
+            QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
+            if (item && item->text() == actualTaskToSelect) {
+                taskToSelectIndex = i;
+                break;
+            }
+        }
+    }
+
+    // If we didn't find the specified task or none was specified, select the last item
+    if (taskToSelectIndex == -1 && displayCount > 0) {
+        taskToSelectIndex = displayCount - 1;
+    }
+
+    // If we have a valid index, select that item
+    if (taskToSelectIndex >= 0 && taskToSelectIndex < displayCount) {
+        taskDisplayWidget->setCurrentRow(taskToSelectIndex);
+        QListWidgetItem* selectedItem = safeGetItem(taskDisplayWidget, taskToSelectIndex);
+
+        if (selectedItem && (selectedItem->flags() & Qt::ItemIsEnabled)) {
+            m_currentTaskName = selectedItem->text();
+            qDebug() << "Operations_TaskLists: Selected task from metadata/parameter:" << m_currentTaskName;
+            qDebug() << "Operations_TaskLists: Calling LoadTaskDetails for task:" << m_currentTaskName;
+            LoadTaskDetails(selectedItem->text());
+
+            // Scroll to the selected item (typically the last item) when loading a tasklist
+            // Cast to our custom widget type to use explicit scrolling
+            if (auto* customWidget = qobject_cast<qlist_TasklistDisplay*>(taskDisplayWidget)) {
+                customWidget->scrollToItemExplicitly(selectedItem);
+            }
+        } else {
+            qDebug() << "Operations_TaskLists: WARNING - Selected item is null or disabled, not loading task details";
+        }
+    }
+
+    // Update the appearance of the tasklist in the list
+    UpdateTasklistAppearance(tasklistName);
+}
+
+void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
+{
+    qDebug() << "Operations_TaskLists: Loading task details for:" << taskName;
+
+    m_currentTaskName = taskName;
+
+    // Validate task name
+    InputValidation::ValidationResult nameResult =
+        InputValidation::validateInput(taskName, InputValidation::InputType::PlainText);
+    if (!nameResult.isValid) {
+        qDebug() << "Operations_TaskLists: ERROR - Invalid task name:" << nameResult.errorMessage;
+        QMessageBox::warning(m_mainWindow, "Invalid Task Name", nameResult.errorMessage);
+        return;
+    }
+
+    // Get current task list
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
+    if (!currentTaskListItem) {
+        qDebug() << "Operations_TaskLists: ERROR - No task list selected in UI, cannot load task details";
+        // During startup, suppress the warning dialog
+        if (m_mainWindow->initFinished) {
+            QMessageBox::warning(m_mainWindow, "No Task List Selected",
+                                "Please select a task list first.");
+        }
+        return;
+    }
+    qDebug() << "Operations_TaskLists: Current task list in UI:" << currentTaskListItem->text();
+
+    QString currentTaskList = currentTaskListItem->text();
+
+    // Find the tasklist file by name using the cache
+    QString taskListFilePath = findTasklistFileByName(currentTaskList);
+    if (taskListFilePath.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "Task List Not Found",
+                            "Could not find task list: " + currentTaskList);
+        return;
+    }
+
+    // Validate file path
+    InputValidation::ValidationResult pathResult =
+        InputValidation::validateInput(taskListFilePath, InputValidation::InputType::FilePath);
+    if (!pathResult.isValid) {
+        QMessageBox::warning(m_mainWindow, "Invalid File Path",
+                            "Could not access task list file: " + pathResult.errorMessage);
+        return;
+    }
+
+    // Check if the file exists
+    QFileInfo fileInfo(taskListFilePath);
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        QMessageBox::warning(m_mainWindow, "File Not Found",
+                            "Task list file does not exist.");
+        return;
+    }
+
+    // Validate the tasklist file for security
+    if (!InputValidation::validateTasklistFile(taskListFilePath, m_mainWindow->user_Key)) {
+        QMessageBox::warning(m_mainWindow, "Invalid Task List File",
+                            "Could not validate the task list file. It may be corrupted or tampered with.");
+        return;
+    }
+
+    // Security: Use secure temporary file generation
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        QMessageBox::warning(m_mainWindow, "Directory Error",
+                            "Could not create temporary directory.");
+        return;
+    }
+
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("load_task_details", tempDir);
+
+    // Create a scope guard for temp file cleanup
+    class TempFileGuard {
+    public:
+        TempFileGuard(const QString& path) : m_path(path) {}
+        ~TempFileGuard() { QFile::remove(m_path); }
+    private:
+        QString m_path;
+    };
+
+    // Decrypt the file to a temporary location
+    bool decrypted = CryptoUtils::Encryption_DecryptFile(
+        m_mainWindow->user_Key, taskListFilePath, tempPath);
+
+    if (!decrypted) {
+        QFile::remove(tempPath); // Immediate cleanup on failure
+        QMessageBox::warning(m_mainWindow, "Decryption Failed",
+                            "Could not decrypt task list file.");
+        return;
+    }
+
+    TempFileGuard tempGuard(tempPath); // Ensures cleanup on scope exit
+
+    // Set up the table widget
+    QTableWidget* taskDetailsTable = m_mainWindow->ui->tableWidget_TaskDetails;
+    taskDetailsTable->clear();
+    taskDetailsTable->setRowCount(0);
+    taskDetailsTable->setColumnCount(0);
+    taskDetailsTable->verticalHeader()->setVisible(false);
+    taskDetailsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    taskDetailsTable->setFocusPolicy(Qt::NoFocus);
+    taskDetailsTable->setSelectionMode(QAbstractItemView::NoSelection);
+
+
+    // Ensure table height is appropriate for current font size
+    QFont currentFont = taskDetailsTable->font();
+    QFontMetrics fm(currentFont);
+    int rowHeight = fm.height() + ROW_PADDING;
+    int headerHeight = fm.height() + HEADER_PADDING;
+    int totalHeight = headerHeight + rowHeight + EXTRA_PADDING;
+
+    if (totalHeight < MIN_TABLE_HEIGHT) {
+        totalHeight = MIN_TABLE_HEIGHT;
+    }
+    if (totalHeight > MAX_TABLE_HEIGHT) {
+        totalHeight = MAX_TABLE_HEIGHT;
+    }
+
+    taskDetailsTable->setMinimumHeight(totalHeight);
+    taskDetailsTable->setMaximumHeight(totalHeight);
+
+    // Open the decrypted file
+    QFile file(tempPath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QFile::remove(tempPath);
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not open task list file for reading.");
+        return;
+    }
+
+    // Skip the 512-byte metadata header
+    file.seek(METADATA_SIZE);
+    
+    // Read the file content
+    QTextStream in(&file);
+    // No header line to skip in new format - tasks start immediately after metadata
+
+    QString taskDescription = "";
+    bool taskFound = false;
+
+    // Process each line in the file to find the task
+    while (!in.atEnd() && !taskFound) {
+        QString line = in.readLine();
+        if (line.isEmpty()) continue;
+
+        // Parse the task data (pipe-separated values)
+        // New format: TaskName|CompletionStatus|CompletionDate|CreationDate|DESC:Description
+        QStringList parts = line.split('|');
+
+        // Basic sanity check
+        if (parts.size() < 4) continue;
+
+        QString currentTaskName = parts[0];
+
+        // Unescape any escaped pipe characters in the task name
+        currentTaskName.replace("\\|", "|");
+
+        // Check if this is the task we're looking for
+        if (currentTaskName == taskName) {
+            taskFound = true;
+            currentTaskData = line;
+
+            // Check for task description (should be at index 4)
+            if (parts.size() > 4 && parts[4].startsWith("DESC:")) {
+                taskDescription = parts[4].mid(5); // Remove "DESC:" prefix
+                // Security: Use centralized unescaping
+                taskDescription = TaskDataSecurity::unescapeTaskField(taskDescription);
+            }
+
+            // Get completion status
+            bool isCompleted = (parts[1] == "1");
+            QString completionStatus = isCompleted ? "Completed" : "Pending";
+
+            // Get creation date
+            QString creationDate = (parts.size() > 3) ? parts[3] : "Unknown";
+            QDateTime creationDateTime = QDateTime::fromString(creationDate, Qt::ISODate);
+            QString formattedCreationDate = FormatDateTime(creationDateTime);
+
+            // Configure table (no Task Type column in new format)
+            int columnCount = isCompleted ? 3 : 2;
+
+            taskDetailsTable->setColumnCount(columnCount);
+
+            QStringList headers;
+            headers << "Status";
+
+            if (isCompleted) {
+                headers << "Completion Date" << "Creation Date";
+            } else {
+                headers << "Creation Date";
+            }
+
+            taskDetailsTable->setHorizontalHeaderLabels(headers);
+            taskDetailsTable->insertRow(0);
+
+            // Completion Status
+            QTableWidgetItem* statusItem = new QTableWidgetItem(completionStatus);
+            if (isCompleted) {
+                statusItem->setForeground(Qt::green);
+            }
+            taskDetailsTable->setItem(0, 0, statusItem);
+
+            // If task is completed, add completion date
+            if (isCompleted) {
+                QString completionDateStr = (parts.size() > 2) ? parts[2] : "";
+                QDateTime completionDateTime = QDateTime::fromString(completionDateStr, Qt::ISODate);
+                QString formattedCompletionDate = FormatDateTime(completionDateTime);
+                taskDetailsTable->setItem(0, 1, new QTableWidgetItem(formattedCompletionDate));
+
+                // Creation Date
+                taskDetailsTable->setItem(0, 2, new QTableWidgetItem(formattedCreationDate));
+            } else {
+                // Creation Date
+                taskDetailsTable->setItem(0, 1, new QTableWidgetItem(formattedCreationDate));
+            }
+
+            // Resize columns to content
+            taskDetailsTable->resizeColumnsToContents();
+
+            // Resize rows to content for proper height
+            taskDetailsTable->resizeRowsToContents();
+
+            // Make the last column stretch
+            int lastColumn = taskDetailsTable->columnCount() - 1;
+            taskDetailsTable->horizontalHeader()->setSectionResizeMode(lastColumn, QHeaderView::Stretch);
+
+            break;
+        }
+    }
+
+    file.close();
+    // tempPath cleanup is handled by TempFileGuard
+
+    if (!taskFound) {
+        qWarning() << "Operations_TaskLists: Could not find the specified task in the task list.";
+        return;
+    }
+
+    // Set the task description
+    if (m_mainWindow->ui->plainTextEdit_TaskDesc) {
+        m_mainWindow->ui->plainTextEdit_TaskDesc->setPlainText(taskDescription);
+        m_lastSavedDescription = m_mainWindow->ui->plainTextEdit_TaskDesc->toPlainText();
+    }
+
+    QTextCursor cursor = m_mainWindow->ui->plainTextEdit_TaskDesc->textCursor();
+    cursor.movePosition(QTextCursor::End);
+    m_mainWindow->ui->plainTextEdit_TaskDesc->setTextCursor(cursor);
+}
+
+QString Operations_TaskLists::FormatDateTime(const QDateTime& dateTime)
+{
+    if (!dateTime.isValid()) {
+        return "Unknown";
+    }
+
+    QDate date = dateTime.date();
+    QTime time = dateTime.time();
+
+    QString dayOfWeek = Operations::GetDayOfWeek(date);
+    int day = date.day();
+    QString ordinalSuffix = Operations::GetOrdinalSuffix(day);
+    QString month = date.toString("MMMM");
+    int year = date.year();
+    QString timeString = time.toString("HH:mm");
+
+    return QString("%1 the %2%3 %4 %5 at %6")
+        .arg(dayOfWeek)
+        .arg(day)
+        .arg(ordinalSuffix)
+        .arg(month)
+        .arg(year)
+        .arg(timeString);
+}
+
+//--------Task List Management Functions--------//
+void Operations_TaskLists::LoadTasklists()
+{
+    qDebug() << "Operations_TaskLists: Loading tasklists";
+
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    taskListWidget->clear();
+    taskListWidget->setSortingEnabled(false);
+    
+    // Clear the cache
+    m_tasklistNameToFile.clear();
+
+    QString tasksListsPath = "Data/" + m_mainWindow->user_Username + "/Tasklists/";
+
+    // Validate the path
+    InputValidation::ValidationResult pathResult =
+        InputValidation::validateInput(tasksListsPath, InputValidation::InputType::FilePath);
+    if (!pathResult.isValid) {
+        qWarning() << "Operations_TaskLists: Invalid tasklists path:" << pathResult.errorMessage;
+        return;
+    }
+
+    // Check if the directory exists, create it if not
+    if (!OperationsFiles::ensureDirectoryExists(tasksListsPath)) {
+        qWarning() << "Operations_TaskLists: Failed to create Tasklists directory";
+        return;
+    }
+
+    // Try to load the saved task list order
+    QStringList orderedTasklists;
+    bool hasOrderFile = LoadTasklistOrder(orderedTasklists);
+
+    // Get all tasklist files (new format: tasklist_*.txt)
+    QDir tasksListsDir(tasksListsPath);
+    QStringList filters;
+    filters << "tasklist_*.txt";
+    QStringList tasklistFiles = tasksListsDir.entryList(filters, QDir::Files);
+
+    struct TaskListInfo {
+        QString name;
+        QString filePath;
+        QDateTime creationDate;
+        QString displayName;
+        int order;
+    };
+
+    QList<TaskListInfo> taskLists;
+    QSet<QString> orderedNames;
+
+    // Read metadata from each file to get tasklist names
+    for (const QString& filename : tasklistFiles) {
+        QString filePath = tasksListsPath + filename;
+        QString tasklistName;
+        
+        // Skip TasklistOrder.txt if it exists
+        if (filename.toLower() == "tasklistorder.txt") {
+            continue;
+        }
+        
+        // Read metadata to get the actual tasklist name
+        if (!readTasklistMetadata(filePath, tasklistName, m_mainWindow->user_Key)) {
+            qWarning() << "Operations_TaskLists: Failed to read metadata from" << filename;
+            continue;
+        }
+        
+        QFileInfo fileInfo(filePath);
+        QDateTime creationDate = fileInfo.birthTime();
+        if (!creationDate.isValid()) {
+            creationDate = fileInfo.lastModified();
+        }
+        
+        TaskListInfo taskListInfo;
+        taskListInfo.name = tasklistName;
+        taskListInfo.filePath = filePath;
+        taskListInfo.creationDate = creationDate;
+        taskListInfo.displayName = tasklistName;
+        
+        // Check if this tasklist is in the order file
+        int orderIndex = orderedTasklists.indexOf(tasklistName);
+        if (orderIndex >= 0) {
+            taskListInfo.order = orderIndex;
+            orderedNames.insert(tasklistName);
+        } else {
+            taskListInfo.order = orderedTasklists.size() + 1000;
+        }
+        
+        taskLists.append(taskListInfo);
+    }
+
+    // Sort task lists
+    std::sort(taskLists.begin(), taskLists.end(),
+              [](const TaskListInfo& a, const TaskListInfo& b) {
+                  if (a.order != b.order) {
+                      return a.order < b.order;
+                  }
+                  return a.creationDate < b.creationDate;
+              });
+
+    // Add the sorted task lists to the list widget
+    for (const TaskListInfo& taskList : taskLists) {
+        QListWidgetItem* item = new QListWidgetItem(taskList.displayName);
+        item->setData(Qt::UserRole, taskList.filePath);  // Store file path instead of name
+        taskListWidget->addItem(item);
+    }
+
+    int taskListCount = safeGetItemCount(taskListWidget);
+    for (int i = 0; i < taskListCount; ++i) {
+        QListWidgetItem* item = safeGetItem(taskListWidget, i);
+        if (item) {
+            UpdateTasklistAppearance(item->text());
+        }
+    }
+
+    // Select the first task list if any exist
+    if (taskListCount > 0) {
+        taskListWidget->setCurrentRow(0);
+    }
+
+    taskListWidget->setSortingEnabled(false);
+
+    // Don't automatically load a task list here - let LoadPersistentSettings handle it
+    // This prevents the issue where task details aren't shown on app startup
+    // because the task list gets loaded twice with different parameters
+}
+
+void Operations_TaskLists::CreateNewTaskList()
+{
+    qDebug() << "Operations_TaskLists: Creating new task list";
+
+    m_mainWindow->ui->listWidget_TaskList_List->setSortingEnabled(false);
+
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+
+    // Check for existing task lists with the name "New Task List"
+    QStringList existingNames;
+    int taskListCount = safeGetItemCount(taskListWidget);
+    for (int i = 0; i < taskListCount; ++i) {
+        QListWidgetItem* item = safeGetItem(taskListWidget, i);
+        if (item) {
+            existingNames.append(item->text());
+        }
+    }
+
+    // Get a unique name for the new task list
+    QString initialName = "New Task List";
+    QString uniqueName = Operations::GetUniqueItemName(initialName, existingNames);
+
+    // Add a new item to the list widget with the unique name
+    QListWidgetItem* newItem = new QListWidgetItem(uniqueName);
+    taskListWidget->addItem(newItem);
+
+    // Create the task list directory and file
+    CreateTaskListFile(uniqueName);
+
+    // Make the item editable and select it
+    taskListWidget->setCurrentItem(newItem);
+    newItem->setFlags(newItem->flags() | Qt::ItemIsEditable);
+    taskListWidget->editItem(newItem);
+
+    // Connect to itemChanged signal once to handle the edit completion
+    QObject::connect(taskListWidget, &QListWidget::itemChanged, this,
+                    [this, taskListWidget, newItem, uniqueName](QListWidgetItem* changedItem) {
+                        if (changedItem == newItem) {
+                            QObject::disconnect(taskListWidget, &QListWidget::itemChanged, this, nullptr);
+
+                            if (changedItem->text() == uniqueName) {
+                                return;
+                            }
+
+                            // Validate the task list name
+                            QString listName = changedItem->text().trimmed();
+                            InputValidation::ValidationResult result =
+                                InputValidation::validateInput(listName, InputValidation::InputType::TaskListName);
+
+                            if (!result.isValid) {
+                                QMessageBox::warning(m_mainWindow, "Invalid Task List Name",
+                                                    result.errorMessage);
+                                changedItem->setText(uniqueName);
+                                return;
+                            }
+
+                            // Get all existing task list names for uniqueness check
+                            QStringList existingNames;
+                            int taskListCount = this->safeGetItemCount(taskListWidget);
+                            for (int i = 0; i < taskListCount; ++i) {
+                                QListWidgetItem* item = this->safeGetItem(taskListWidget, i);
+                                if (item && item != changedItem) {
+                                    existingNames.append(item->text());
+                                }
+                            }
+
+                            // Ensure unique name
+                            QString newUniqueName = Operations::GetUniqueItemName(listName, existingNames);
+                            if (newUniqueName != listName) {
+                                changedItem->setText(newUniqueName);
+                                listName = newUniqueName;
+                            }
+
+                            // Create a new task list file with the new name
+                            CreateTaskListFile(listName);
+
+                            // Delete the old task list file
+                            QString oldTaskListFilePath = findTasklistFileByName(uniqueName);
+                            if (!oldTaskListFilePath.isEmpty()) {
+                                QFileInfo fileInfo(oldTaskListFilePath);
+                                if (fileInfo.exists() && fileInfo.isFile()) {
+                                    QFile::remove(oldTaskListFilePath);
+                                    // Remove from cache
+                                    m_tasklistNameToFile.remove(uniqueName);
+                                }
+                            }
+
+                            emit taskListWidget->itemClicked(newItem);
+                        }
+                    });
+}
+
+void Operations_TaskLists::CreateTaskListFile(const QString& listName)
+{
+    qDebug() << "Operations_TaskLists: Creating task list file for:" << listName;
+
+    QString tasksListsPath = "Data/" + m_mainWindow->user_Username + "/Tasklists/";
+    
+    // Generate UUID-based filename
+    QString filename = generateTasklistFilename();
+    QString taskListFilePath = tasksListsPath + filename;
+
+    // Validate the file path
+    if (!OperationsFiles::validateFilePath(taskListFilePath, OperationsFiles::FileType::TaskList, m_mainWindow->user_Key)) {
+        QMessageBox::warning(m_mainWindow, "Invalid Path",
+                            "Cannot create task list file: Invalid path");
+        return;
+    }
+
+    // Ensure the Tasklists directory exists
+    if (!OperationsFiles::ensureDirectoryExists(tasksListsPath)) {
+        QMessageBox::warning(m_mainWindow, "Directory Creation Failed",
+                            "Failed to create directory for task lists.");
+        return;
+    }
+
+    // Create temporary file for writing metadata and initial content
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        QMessageBox::warning(m_mainWindow, "Directory Error",
+                            "Could not create temporary directory.");
+        return;
+    }
+    
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("new_tasklist", tempDir);
+    QFile tempFile(tempPath);
+    
+    if (!tempFile.open(QIODevice::WriteOnly)) {
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not create temporary file.");
+        return;
+    }
+    
+    // Create and write metadata
+    TasklistMetadata metadata;
+    memset(&metadata, 0, sizeof(metadata));
+    
+    // Set magic and version
+    strncpy(metadata.magic, TASKLIST_MAGIC, 8);
+    strncpy(metadata.version, TASKLIST_VERSION, 4);
+    
+    // Set tasklist name
+    QByteArray nameBytes = listName.toUtf8();
+    int nameToCopy = qMin(nameBytes.size(), 255);
+    memcpy(metadata.name, nameBytes.constData(), nameToCopy);
+    
+    // Set creation date
+    QString creationDate = QDateTime::currentDateTime().toString(Qt::ISODate);
+    QByteArray dateBytes = creationDate.toUtf8();
+    int dateToCopy = qMin(dateBytes.size(), 31);
+    memcpy(metadata.creationDate, dateBytes.constData(), dateToCopy);
+    
+    // Write metadata to temp file
+    tempFile.write(reinterpret_cast<const char*>(&metadata), METADATA_SIZE);
+    
+    // Write a newline after metadata to separate it from tasks
+    // (No tasks initially, so file will just have metadata)
+    tempFile.write("\n");
+    
+    tempFile.close();
+    
+    // Encrypt the temp file to the final location
+    if (!CryptoUtils::Encryption_EncryptFile(m_mainWindow->user_Key, tempPath, taskListFilePath)) {
+        QFile::remove(tempPath);
+        QMessageBox::warning(m_mainWindow, "File Creation Failed",
+                            "Failed to create encrypted task list file.");
+        return;
+    }
+    
+    // Clean up temp file
+    QFile::remove(tempPath);
+    
+    // Update the cache
+    m_tasklistNameToFile.insert(listName, taskListFilePath);
+    
+    // Load the newly created tasklist
+    LoadIndividualTasklist(listName, "NULL");
+}
+
+void Operations_TaskLists::DeleteTaskList()
+{
+    qDebug() << "Operations_TaskLists: Deleting task list";
+
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidgetItem* currentItem = taskListWidget->currentItem();
+
+    if (!currentItem) {
+        QMessageBox::warning(m_mainWindow, "No Task List Selected",
+                            "Please select a task list to delete.");
+        return;
+    }
+
+    QString taskListName = currentItem->text();
+
+    // Confirm deletion
+    QMessageBox::StandardButton reply;
+    reply = QMessageBox::question(m_mainWindow, "Confirm Deletion",
+                                  "Are you sure you want to delete the task list \"" + taskListName + "\"?",
+                                  QMessageBox::Yes | QMessageBox::No);
+
+    if (reply != QMessageBox::Yes) {
+        return;
+    }
+
+    // Find the tasklist file
+    QString taskListFilePath = findTasklistFileByName(taskListName);
+    if (taskListFilePath.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "Task List Not Found",
+                            "Could not find the task list file.");
+        return;
+    }
+
+    QFileInfo fileInfo(taskListFilePath);
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        QMessageBox::warning(m_mainWindow, "Invalid File",
+                            "Task list file does not exist.");
+        return;
+    }
+
+    // Delete the file
+    if (!QFile::remove(taskListFilePath)) {
+        QMessageBox::warning(m_mainWindow, "Delete Failed",
+                            "Could not delete the task list file.");
+        return;
+    }
+    
+    // Remove from cache
+    m_tasklistNameToFile.remove(taskListName);
+
+    int currentIndex = taskListWidget->row(currentItem);
+
+    // Safely take and delete the item
+    if (currentIndex >= 0 && currentIndex < taskListWidget->count()) {
+        QListWidgetItem* itemToDelete = safeTakeItem(taskListWidget, currentIndex);
+        if (itemToDelete) {
+            delete itemToDelete;
+        } else {
+            qWarning() << "Operations_TaskLists: Failed to take item for deletion at index" << currentIndex;
+        }
+    } else {
+        qWarning() << "Operations_TaskLists: Invalid index for deletion:" << currentIndex;
+    }
+
+    // Clear UI elements
+    m_mainWindow->ui->listWidget_TaskListDisplay->clear();
+    m_mainWindow->ui->tableWidget_TaskDetails->clear();
+    m_mainWindow->ui->tableWidget_TaskDetails->setRowCount(0);
+    m_mainWindow->ui->tableWidget_TaskDetails->setColumnCount(0);
+    m_mainWindow->ui->plainTextEdit_TaskDesc->clear();
+    m_mainWindow->ui->label_TaskListName->clear();
+
+    m_lastClickedItem = nullptr;
+    m_lastClickedWidget = nullptr;
+
+    // Select another task list if available
+    int remainingCount = safeGetItemCount(taskListWidget);
+    if (remainingCount > 0) {
+        int newIndex = (currentIndex >= remainingCount) ?
+                           remainingCount - 1 : currentIndex;
+
+        taskListWidget->setCurrentRow(newIndex);
+        QListWidgetItem* newCurrentItem = safeGetItem(taskListWidget, newIndex);
+        if (newCurrentItem) {
+            onTaskListItemClicked(newCurrentItem);
+            emit taskListWidget->itemClicked(newCurrentItem);
+        }
+    }
+}
+
+void Operations_TaskLists::RenameTasklist(QListWidgetItem* item)
+{
+    qDebug() << "Operations_TaskLists: Renaming tasklist";
+
+    Qt::ItemFlags originalFlags = item->flags();
+
+    QString originalName = currentTaskListBeingRenamed;
+    QString newName = item->text().trimmed();
+
+    // Validate the new task list name
+    InputValidation::ValidationResult result =
+        InputValidation::validateInput(newName, InputValidation::InputType::TaskListName);
+
+    if (!result.isValid) {
+        QMessageBox::warning(m_mainWindow, "Invalid Task List Name", result.errorMessage);
+        item->setText(originalName);
+        return;
+    }
+
+    // Check if the name already exists
+    QStringList existingNames;
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    int taskListCount = safeGetItemCount(taskListWidget);
+    for (int i = 0; i < taskListCount; ++i) {
+        QListWidgetItem* existingItem = safeGetItem(taskListWidget, i);
+        if (existingItem && existingItem != item) {
+            existingNames.append(existingItem->text());
+        }
+    }
+
+    if (existingNames.contains(newName)) {
+        QString uniqueName = Operations::GetUniqueItemName(newName, existingNames);
+        newName = uniqueName;
+        item->setText(uniqueName);
+    }
+
+    if (newName == originalName) {
+        return;
+    }
+
+    // Find the tasklist file
+    QString taskListFilePath = findTasklistFileByName(originalName);
+    if (taskListFilePath.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "Task List Not Found",
+                            "Could not find the task list file.");
+        item->setText(originalName);
+        return;
+    }
+
+    // Decrypt the file to update metadata
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        QMessageBox::warning(m_mainWindow, "Directory Error",
+                            "Could not create temporary directory.");
+        item->setText(originalName);
+        return;
+    }
+
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("rename", tempDir);
+
+    // Decrypt the file
+    if (!CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, taskListFilePath, tempPath)) {
+        QMessageBox::warning(m_mainWindow, "Decryption Failed",
+                            "Could not decrypt task list file.");
+        item->setText(originalName);
+        return;
+    }
+
+    // Read the file
+    QFile tempFile(tempPath);
+    if (!tempFile.open(QIODevice::ReadWrite)) {
+        QFile::remove(tempPath);
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not open task list file.");
+        item->setText(originalName);
+        return;
+    }
+
+    // Read all content
+    QByteArray allContent = tempFile.readAll();
+    
+    // Update metadata header with new name
+    TasklistMetadata metadata;
+    if (allContent.size() >= METADATA_SIZE) {
+        memcpy(&metadata, allContent.constData(), METADATA_SIZE);
+        
+        // Update the name field
+        memset(metadata.name, 0, 256);
+        QByteArray nameBytes = newName.toUtf8();
+        int nameToCopy = qMin(nameBytes.size(), 255);
+        memcpy(metadata.name, nameBytes.constData(), nameToCopy);
+        
+        // Write back the updated metadata
+        tempFile.seek(0);
+        tempFile.write(reinterpret_cast<const char*>(&metadata), METADATA_SIZE);
+        tempFile.write(allContent.mid(METADATA_SIZE));  // Write the rest of the content
+    }
+    
+    tempFile.close();
+
+    // Re-encrypt the file
+    if (!CryptoUtils::Encryption_EncryptFile(m_mainWindow->user_Key, tempPath, taskListFilePath)) {
+        QFile::remove(tempPath);
+        QMessageBox::warning(m_mainWindow, "Encryption Failed",
+                            "Could not save the renamed task list.");
+        item->setText(originalName);
+        return;
+    }
+
+    QFile::remove(tempPath);
+    
+    // Update cache
+    m_tasklistNameToFile.remove(originalName);
+    m_tasklistNameToFile.insert(newName, taskListFilePath);
+
+    taskListWidget->setCurrentItem(item);
+    LoadIndividualTasklist(newName, m_currentTaskName);
+    item->setFlags(originalFlags);
+}
+
+//--------Task Operations--------//
+void Operations_TaskLists::ShowTaskMenu(bool editMode)
+{
+    qDebug() << "Operations_TaskLists: Showing task menu, editMode:" << editMode;
+
+    // Get current task list
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
+    if (!currentTaskListItem) {
+        QMessageBox::warning(m_mainWindow, "No Task List Selected",
+                            "Please select a task list first.");
+        return;
+    }
+
+    QString currentTaskList = currentTaskListItem->text();
+
+    // Create and configure the dialog
+    QDialog dialog(m_mainWindow);
+    Ui::Tasklists_AddTask ui;
+    ui.setupUi(&dialog);
+
+    // Set window title based on mode
+    dialog.setWindowTitle(editMode ? "Edit Task" : "New Task");
+
+    // If editing, populate the fields
+    if (editMode) {
+        // Parse the current task data
+        // New format: TaskName|CompletionStatus|CompletionDate|CreationDate|DESC:Description
+        QStringList parts = currentTaskData.split('|');
+        if (parts.size() >= 1) {
+            QString taskName = parts[0];  // TaskName is now at index 0
+            taskName.replace("\\|", "|");
+            ui.lineEdit_TaskName->setText(taskName);
+
+            // Load description if available (now at index 4)
+            if (parts.size() > 4 && parts[4].startsWith("DESC:")) {
+                QString description = parts[4].mid(5);
+                description.replace("\\|", "|");
+                description.replace("\\n", "\n");
+                description.replace("\\r", "\r");
+                ui.plainTextEdit_Simple_Desc->setPlainText(description);
+            }
+        }
+    }
+
+    // Show the dialog
+    if (dialog.exec() == QDialog::Accepted) {
+        QString taskName = ui.lineEdit_TaskName->text().trimmed();
+
+        // Validate task name
+        InputValidation::ValidationResult result =
+            InputValidation::validateInput(taskName, InputValidation::InputType::PlainText);
+
+        if (!result.isValid) {
+            QMessageBox::warning(m_mainWindow, "Invalid Task Name", result.errorMessage);
+            return;
+        }
+
+        if (taskName.isEmpty()) {
+            QMessageBox::warning(m_mainWindow, "Empty Task Name",
+                                "Please enter a task name.");
+            return;
+        }
+
+        QString description = ui.plainTextEdit_Simple_Desc->toPlainText();
+
+        if (editMode) {
+            ModifyTaskSimple(currentTaskToEdit, taskName, description);
+        } else {
+            AddTaskSimple(taskName, description);
+        }
+    }
+}
+
+void Operations_TaskLists::AddTaskSimple(QString taskName, QString description)
+{
+    qDebug() << "Operations_TaskLists: Adding task:" << taskName;
+
+    // Validate inputs
+    InputValidation::ValidationResult nameResult =
+        InputValidation::validateInput(taskName, InputValidation::InputType::PlainText);
+    if (!nameResult.isValid) {
+        QMessageBox::warning(m_mainWindow, "Invalid Task Name", nameResult.errorMessage);
+        return;
+    }
+
+    // Security: Enforce length limits
+    if (taskName.length() > 255) {
+        QMessageBox::warning(m_mainWindow, "Task Name Too Long",
+                            "Task name must be less than 255 characters.");
+        return;
+    }
+
+    if (description.length() > 10000) {
+        QMessageBox::warning(m_mainWindow, "Description Too Long",
+                            "Task description must be less than 10,000 characters.");
+        return;
+    }
+
+    // Get current task list
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    if (taskListWidget->currentItem() == nullptr) {
+        QMessageBox::warning(m_mainWindow, "No Task List Selected",
+                            "Please select a task list first.");
+        return;
+    }
+
+    QString currentTaskList = taskListWidget->currentItem()->text();
+
+    // Find the tasklist file
+    QString taskListFilePath = findTasklistFileByName(currentTaskList);
+    if (taskListFilePath.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "Task List Not Found",
+                            "Could not find the selected task list.");
+        return;
+    }
+
+    // Check for duplicate task names
+    if (checkDuplicateTaskName(taskName, taskListFilePath)) {
+        QMessageBox::warning(m_mainWindow, "Duplicate Task Name",
+                            "A task with this name already exists in the current task list.");
+        return;
+    }
+
+    // Security: Use centralized escaping for task data
+    QString escapedTaskName = TaskDataSecurity::escapeTaskField(taskName);
+    QString escapedDescription = TaskDataSecurity::escapeTaskField(description);
+
+    // Create the task data line with new format: TaskName|CompletionStatus|CompletionDate|CreationDate|DESC:Description
+    QString taskData = QString("%1|0||%2|DESC:%3")
+        .arg(escapedTaskName)
+        .arg(QDateTime::currentDateTime().toString(Qt::ISODate))
+        .arg(escapedDescription);
+
+    // Read existing tasks from file
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        QMessageBox::warning(m_mainWindow, "Directory Error",
+                            "Could not create temporary directory.");
+        return;
+    }
+    
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("add_task", tempDir);
+    
+    // Decrypt the existing file
+    if (!CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, taskListFilePath, tempPath)) {
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not decrypt the task list file.");
+        return;
+    }
+    
+    // Read the decrypted file
+    QFile tempFile(tempPath);
+    if (!tempFile.open(QIODevice::ReadWrite)) {
+        QFile::remove(tempPath);
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not open task list file.");
+        return;
+    }
+    
+    // Read all content
+    QByteArray allContent = tempFile.readAll();
+    
+    // Append the new task (after metadata)
+    tempFile.seek(tempFile.size());
+    tempFile.write(taskData.toUtf8());
+    tempFile.write("\n");
+    tempFile.close();
+    
+    // Re-encrypt the file
+    if (!CryptoUtils::Encryption_EncryptFile(m_mainWindow->user_Key, tempPath, taskListFilePath)) {
+        QFile::remove(tempPath);
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not save the updated task list.");
+        return;
+    }
+    
+    // Clean up temp file
+    QFile::remove(tempPath);
+
+    // Unescape task name for display
+    taskName.replace("\\|", "|");
+
+    // Reload the task list to show the new task
+    LoadIndividualTasklist(currentTaskList, taskName);
+}
+
+void Operations_TaskLists::ModifyTaskSimple(const QString& originalTaskName, QString taskName, QString description)
+{
+    qDebug() << "Operations_TaskLists: Modifying simple task:" << originalTaskName << "to" << taskName;
+
+    // Validate inputs
+    InputValidation::ValidationResult nameResult =
+        InputValidation::validateInput(taskName, InputValidation::InputType::PlainText);
+    if (!nameResult.isValid) {
+        QMessageBox::warning(m_mainWindow, "Invalid Task Name", nameResult.errorMessage);
+        return;
+    }
+
+    // Security: Enforce length limits
+    if (taskName.length() > 255) {
+        QMessageBox::warning(m_mainWindow, "Task Name Too Long",
+                            "Task name must be less than 255 characters.");
+        return;
+    }
+
+    if (description.length() > 10000) {
+        QMessageBox::warning(m_mainWindow, "Description Too Long",
+                            "Task description must be less than 10,000 characters.");
+        return;
+    }
+
+    // Get current task list
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    if (taskListWidget->currentItem() == nullptr) {
+        QMessageBox::warning(m_mainWindow, "No Task List Selected",
+                            "Please select a task list first.");
+        return;
+    }
+
+    QString currentTaskList = taskListWidget->currentItem()->text();
+
+    // Find the tasklist file by name
+    QString taskListFilePath = findTasklistFileByName(currentTaskList);
+    if (taskListFilePath.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "Task List Not Found",
+                            "Could not find the selected task list.");
+        return;
+    }
+
+    // Check for duplicate task names (if name changed)
+    if (originalTaskName != taskName && checkDuplicateTaskName(taskName, taskListFilePath)) {
+        QMessageBox::warning(m_mainWindow, "Duplicate Task Name",
+                            "A task with this name already exists in the current task list.");
+        return;
+    }
+
+    // Prepare to decrypt and modify the task
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        QMessageBox::warning(m_mainWindow, "Directory Error",
+                            "Could not create temporary directory.");
+        return;
+    }
+    
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("modify_task", tempDir);
+    
+    // Decrypt the existing file
+    if (!CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, taskListFilePath, tempPath)) {
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not decrypt the task list file.");
+        return;
+    }
+    
+    // Read and modify the file
+    QFile tempFile(tempPath);
+    if (!tempFile.open(QIODevice::ReadWrite)) {
+        QFile::remove(tempPath);
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not open task list file.");
+        return;
+    }
+    
+    // Read metadata
+    QByteArray metadata = tempFile.read(METADATA_SIZE);
+    
+    // Read all task lines
+    QStringList taskLines;
+    QTextStream stream(&tempFile);
+    while (!stream.atEnd()) {
+        taskLines.append(stream.readLine());
+    }
+    
+    // Find and modify the task
+    bool taskFound = false;
+    QString originalTaskNameEscaped = originalTaskName;
+    originalTaskNameEscaped.replace("|", "\\|");
+
+    for (int i = 0; i < taskLines.size(); ++i) {
+        if (taskLines[i].isEmpty()) continue;
+        
+        QStringList parts = taskLines[i].split('|');
+        // New format: TaskName is first field
+        if (parts.size() >= 1 && parts[0] == originalTaskNameEscaped) {
+            taskFound = true;
+
+            // Preserve existing completion status and dates
+            QString completionStatus = (parts.size() > 1) ? parts[1] : "0";
+            QString completionDate = (parts.size() > 2) ? parts[2] : "";
+            QString creationDate = (parts.size() > 3) ? parts[3] : QDateTime::currentDateTime().toString(Qt::ISODate);
+
+            // Escape special characters
+            taskName.replace("|", "\\|");
+            description.replace("|", "\\|");
+            description.replace("\n", "\\n");
+            description.replace("\r", "\\r");
+
+            // Update the task data with new format
+            taskLines[i] = QString("%1|%2|%3|%4|DESC:%5")
+                .arg(taskName)
+                .arg(completionStatus)
+                .arg(completionDate)
+                .arg(creationDate)
+                .arg(description);
+            break;
+        }
+    }
+
+    if (!taskFound) {
+        tempFile.close();
+        QFile::remove(tempPath);
+        QMessageBox::warning(m_mainWindow, "Task Not Found",
+                            "Could not find the task to modify.");
+        return;
+    }
+    
+    // Write back the modified file
+    tempFile.seek(0);
+    tempFile.write(metadata);  // Write metadata header
+    for (const QString& taskLine : taskLines) {
+        if (!taskLine.isEmpty()) {
+            tempFile.write(taskLine.toUtf8());
+            tempFile.write("\n");
+        }
+    }
+    tempFile.resize(tempFile.pos());  // Truncate any remaining old content
+    tempFile.close();
+    
+    // Re-encrypt the file
+    if (!CryptoUtils::Encryption_EncryptFile(m_mainWindow->user_Key, tempPath, taskListFilePath)) {
+        QFile::remove(tempPath);
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not save the modified task list.");
+        return;
+    }
+    
+    // Clean up temp file
+    QFile::remove(tempPath);
+
+    // Unescape task name for display
+    taskName.replace("\\|", "|");
+
+    // Reload the task list to show the changes
+    LoadIndividualTasklist(currentTaskList, taskName);
+}
+
+void Operations_TaskLists::DeleteTask(const QString& taskName)
+{
+    qDebug() << "Operations_TaskLists: Deleting task:" << taskName;
+
+    // Confirm deletion
+    QMessageBox::StandardButton reply;
+    reply = QMessageBox::question(m_mainWindow, "Confirm Deletion",
+                                  "Are you sure you want to delete the task \"" + taskName + "\"?",
+                                  QMessageBox::Yes | QMessageBox::No);
+
+    if (reply != QMessageBox::Yes) {
+        return;
+    }
+
+    // Get current task list
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    if (taskListWidget->currentItem() == nullptr) {
+        QMessageBox::warning(m_mainWindow, "No Task List Selected",
+                            "Please select a task list first.");
+        return;
+    }
+
+    QString currentTaskList = taskListWidget->currentItem()->text();
+
+    // Find the tasklist file by name
+    QString taskListFilePath = findTasklistFileByName(currentTaskList);
+    if (taskListFilePath.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "Task List Not Found",
+                            "Could not find the selected task list.");
+        return;
+    }
+
+    // Read the existing file content
+    QStringList lines;
+    if (!readTasklistFileWithMetadata(taskListFilePath, lines)) {
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not read the task list file.");
+        return;
+    }
+
+    // Find and remove the task
+    bool taskFound = false;
+    QString taskNameEscaped = taskName;
+    taskNameEscaped.replace("|", "\\|");
+
+    // No header line in new format - start from index 0
+    for (int i = 0; i < lines.size(); ++i) {
+        QStringList parts = lines[i].split('|');
+        // New format: TaskName is at index 0
+        if (parts.size() >= 1 && parts[0] == taskNameEscaped) {
+            taskFound = true;
+            lines.removeAt(i);
+            break;
+        }
+    }
+
+    if (!taskFound) {
+        QMessageBox::warning(m_mainWindow, "Task Not Found",
+                            "Could not find the task to delete.");
+        return;
+    }
+
+    // Write back the file
+    if (!writeTasklistFileWithMetadata(taskListFilePath, lines)) {
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not write to the task list file.");
+        return;
+    }
+
+    // Clear UI elements if this was the selected task
+    if (m_currentTaskName == taskName) {
+        m_mainWindow->ui->tableWidget_TaskDetails->clear();
+        m_mainWindow->ui->tableWidget_TaskDetails->setRowCount(0);
+        m_mainWindow->ui->tableWidget_TaskDetails->setColumnCount(0);
+        m_mainWindow->ui->plainTextEdit_TaskDesc->clear();
+        m_currentTaskName = "";
+    }
+
+    // Reload the task list
+    LoadIndividualTasklist(currentTaskList, "");
+}
+
+void Operations_TaskLists::SetTaskStatus(bool checked, QListWidgetItem* item)
+{
+    qDebug() << "Operations_TaskLists: Setting task status, checked:" << checked;
+
+    if (!item) {
+        if (!validateListWidget(m_mainWindow->ui->listWidget_TaskListDisplay)) {
+            qWarning() << "Operations_TaskLists: Invalid task display widget";
+            return;
+        }
+
+        QListWidget* taskDisplayWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
+        item = taskDisplayWidget->currentItem();
+
+        if (!item) return;
+    }
+
+    QString taskName = item->text();
+    QString taskData = item->data(Qt::UserRole).toString();
+
+    // Get current task list
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    if (taskListWidget->currentItem() == nullptr) return;
+
+    QString currentTaskList = taskListWidget->currentItem()->text();
+
+    // Find the tasklist file by name
+    QString taskListFilePath = findTasklistFileByName(currentTaskList);
+    if (taskListFilePath.isEmpty()) {
+        qWarning() << "Operations_TaskLists: Could not find task list file for SetTaskStatus";
+        return;
+    }
+
+    // Read the existing file content
+    QStringList lines;
+    if (!readTasklistFileWithMetadata(taskListFilePath, lines)) {
+        return;
+    }
+
+    // Find and update the task
+    QString taskNameEscaped = taskName;
+    taskNameEscaped.replace("|", "\\|");
+
+    // No header line in new format - start from index 0
+    for (int i = 0; i < lines.size(); ++i) {
+        QStringList parts = lines[i].split('|');
+        // New format: TaskName is at index 0
+        if (parts.size() >= 1 && parts[0] == taskNameEscaped) {
+            // Update completion status and date (at indices 1 and 2)
+            if (parts.size() > 1) {
+                parts[1] = checked ? "1" : "0";
+            }
+            if (parts.size() > 2) {
+                parts[2] = checked ? QDateTime::currentDateTime().toString(Qt::ISODate) : "";
+            }
+
+            lines[i] = parts.join('|');
+            break;
+        }
+    }
+
+    // Write back the file
+    if (!writeTasklistFileWithMetadata(taskListFilePath, lines)) {
+        return;
+    }
+
+    // Update visual appearance
+    QFont font = item->font();
+    font.setStrikeOut(checked);
+    item->setFont(font);
+    item->setForeground(checked ? QColor(100, 100, 100) : QColor(255, 255, 255));
+
+    // Reorder tasks
+    EnforceTaskOrder();
+
+    // Update task details view
+    LoadTaskDetails(taskName);
+
+    // Update tasklist appearance
+    UpdateTasklistAppearance(currentTaskList);
+}
+
+void Operations_TaskLists::HandleTaskReorder()
+{
+    qDebug() << "Operations_TaskLists: Handling task reorder";
+
+    if (!validateListWidget(m_mainWindow->ui->listWidget_TaskListDisplay)) {
+        qWarning() << "Operations_TaskLists: Invalid task display widget";
+        return;
+    }
+
+    QListWidget* taskDisplayWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
+
+    // Check the current order and detect if any tasks moved between groups
+    int itemCount = safeGetItemCount(taskDisplayWidget);
+    if (itemCount == 0) return;
+
+    // Check if the groups are properly separated
+    bool needsReordering = false;
+    int lastCompletedIndex = -1;
+
+    for (int i = 0; i < itemCount; ++i) {
+        QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
+        if (!item) continue;
+
+        // Skip disabled items
+        if ((item->flags() & Qt::ItemIsEnabled) == 0) continue;
+
+        if (item->checkState() == Qt::Checked) {
+            // This is a completed task
+            if (lastCompletedIndex != -1 && lastCompletedIndex < i - 1) {
+                // There was a gap (pending task) between completed tasks
+                needsReordering = true;
+                break;
+            }
+            lastCompletedIndex = i;
+        } else {
+            // This is a pending task
+            // If we haven't seen any completed tasks yet, that's fine
+            // But if we have, and now we see a completed task later, that's bad
+        }
+    }
+
+    // Also check if any completed tasks come after pending tasks
+    if (!needsReordering) {
+        bool inPendingSection = false;
+        for (int i = 0; i < itemCount; ++i) {
+            QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
+            if (!item) continue;
+
+            // Skip disabled items
+            if ((item->flags() & Qt::ItemIsEnabled) == 0) continue;
+
+            if (item->checkState() != Qt::Checked) {
+                inPendingSection = true;
+            } else if (inPendingSection) {
+                // Found a completed task after we entered the pending section
+                needsReordering = true;
+                break;
+            }
+        }
+    }
+
+    if (needsReordering) {
+        qDebug() << "Operations_TaskLists: Groups are mixed, enforcing proper order";
+        // Groups are mixed, need to enforce proper ordering
+        // This will also save the order
+        EnforceTaskOrder();
+    } else {
+        qDebug() << "Operations_TaskLists: Groups are properly separated, saving order";
+        // Groups are properly separated, just save the new order
+        SaveTaskOrder();
+    }
+}
+
+void Operations_TaskLists::SaveTaskOrder()
+{
+    qDebug() << "Operations_TaskLists: Saving task order";
+
+    if (!validateListWidget(m_mainWindow->ui->listWidget_TaskListDisplay)) {
+        qWarning() << "Operations_TaskLists: Invalid task display widget";
+        return;
+    }
+
+    QListWidget* taskDisplayWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
+
+    // Get current task list
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    if (taskListWidget->currentItem() == nullptr) {
+        qDebug() << "Operations_TaskLists: No task list selected";
+        return;
+    }
+
+    QString currentTaskList = taskListWidget->currentItem()->text();
+
+    // Find the tasklist file by name
+    QString taskListFilePath = findTasklistFileByName(currentTaskList);
+    if (taskListFilePath.isEmpty()) {
+        qWarning() << "Operations_TaskLists: Could not find task list file for SaveTaskOrder";
+        return;
+    }
+
+    // Read the existing file content
+    QStringList lines;
+    if (!readTasklistFileWithMetadata(taskListFilePath, lines)) {
+        qWarning() << "Operations_TaskLists: Could not read task list file for reordering";
+        return;
+    }
+
+    if (lines.isEmpty()) return;
+
+    // Create a map of task names to their full data lines
+    // Note: No header line in new format - metadata is separate
+    QMap<QString, QString> taskDataMap;
+    for (int i = 0; i < lines.size(); ++i) {
+        if (lines[i].isEmpty()) continue;
+
+        QStringList parts = lines[i].split('|');
+        // New format: TaskName is at index 0
+        if (parts.size() >= 1) {
+            QString taskName = parts[0];
+            taskName.replace("\\|", "|");  // Unescape
+            taskDataMap[taskName] = lines[i];
+        }
+    }
+
+    // Build new ordered list based on display order
+    QStringList newLines;
+    // No header line in new format - metadata is separate
+
+    int itemCount = safeGetItemCount(taskDisplayWidget);
+    for (int i = 0; i < itemCount; ++i) {
+        QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
+        if (!item) continue;
+
+        // Skip disabled items (like "No tasks in this list")
+        if ((item->flags() & Qt::ItemIsEnabled) == 0) continue;
+
+        QString taskName = item->text();
+        if (taskDataMap.contains(taskName)) {
+            newLines.append(taskDataMap[taskName]);
+            taskDataMap.remove(taskName);  // Remove to track any missing tasks
+        }
+    }
+
+    // Add any remaining tasks that weren't in the display (shouldn't happen, but safety check)
+    for (const QString& taskData : taskDataMap.values()) {
+        newLines.append(taskData);
+    }
+
+    // Write back the reordered file
+    if (!writeTasklistFileWithMetadata(taskListFilePath, newLines)) {
+        qWarning() << "Operations_TaskLists: Could not write reordered task list file";
+        return;
+    }
+
+    qDebug() << "Operations_TaskLists: Task order saved successfully";
+}
+
+void Operations_TaskLists::SaveTaskDescription()
+{
+    qDebug() << "Operations_TaskLists: Saving task description";
+
+    if (m_currentTaskName.isEmpty()) return;
+
+    QString newDescription = m_mainWindow->ui->plainTextEdit_TaskDesc->toPlainText();
+    if (newDescription == m_lastSavedDescription) return;
+
+    // Get current task list
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    if (taskListWidget->currentItem() == nullptr) return;
+
+    QString currentTaskList = taskListWidget->currentItem()->text();
+
+    // Find the tasklist file by name
+    QString taskListFilePath = findTasklistFileByName(currentTaskList);
+    if (taskListFilePath.isEmpty()) {
+        qDebug() << "Operations_TaskLists: Could not find task list file for SaveTaskDescription";
+        return;
+    }
+
+    // Read the existing file content
+    QStringList lines;
+    if (!readTasklistFileWithMetadata(taskListFilePath, lines)) {
+        return;
+    }
+
+    // Find and update the task
+    QString taskNameEscaped = m_currentTaskName;
+    taskNameEscaped.replace("|", "\\|");
+
+    // No header line in new format - start from index 0
+    for (int i = 0; i < lines.size(); ++i) {
+        QStringList parts = lines[i].split('|');
+        // New format: TaskName is at index 0
+        if (parts.size() >= 1 && parts[0] == taskNameEscaped) {
+            // Escape special characters in description
+            QString escapedDescription = newDescription;
+            escapedDescription.replace("|", "\\|");
+            escapedDescription.replace("\n", "\\n");
+            escapedDescription.replace("\r", "\\r");
+
+            // Update or add description field (now at index 4)
+            bool descriptionFound = false;
+            for (int j = 4; j < parts.size(); ++j) {
+                if (parts[j].startsWith("DESC:")) {
+                    parts[j] = "DESC:" + escapedDescription;
+                    descriptionFound = true;
+                    break;
+                }
+            }
+
+            if (!descriptionFound) {
+                // Ensure we have at least 4 fields before adding description
+                while (parts.size() < 4) {
+                    parts.append("");
+                }
+                parts.append("DESC:" + escapedDescription);
+            }
+
+            lines[i] = parts.join('|');
+            break;
+        }
+    }
+
+    // Write back the file
+    if (writeTasklistFileWithMetadata(taskListFilePath, lines)) {
+        m_lastSavedDescription = newDescription;
+    }
+}
+
+//--------Helper Functions--------//
+bool Operations_TaskLists::checkDuplicateTaskName(const QString& taskName, const QString& taskListFilePath, const QString& currentTaskId)
+{
+    // Decrypt file to check for duplicates
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        return false;
+    }
+    
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("check_dup", tempDir);
+    
+    if (!CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, taskListFilePath, tempPath)) {
+        return false;
+    }
+    
+    QFile tempFile(tempPath);
+    if (!tempFile.open(QIODevice::ReadOnly)) {
+        QFile::remove(tempPath);
+        return false;
+    }
+    
+    // Skip metadata
+    tempFile.seek(METADATA_SIZE);
+    
+    QString taskNameEscaped = taskName;
+    taskNameEscaped.replace("|", "\\|");
+    
+    QTextStream stream(&tempFile);
+    while (!stream.atEnd()) {
+        QString line = stream.readLine();
+        if (line.isEmpty()) continue;
+        
+        QStringList parts = line.split('|');
+        // New format: TaskName is first field
+        if (parts.size() >= 1 && parts[0] == taskNameEscaped) {
+            if (currentTaskId.isEmpty() || parts[0] != currentTaskId) {
+                tempFile.close();
+                QFile::remove(tempPath);
+                return true;
+            }
+        }
+    }
+    
+    tempFile.close();
+    QFile::remove(tempPath);
+    return false;
+}
+
+bool Operations_TaskLists::AreAllTasksCompleted(const QString& tasklistName)
+{
+    // Find the tasklist file by name
+    QString taskListFilePath = findTasklistFileByName(tasklistName);
+    if (taskListFilePath.isEmpty()) {
+        qDebug() << "Operations_TaskLists: Could not find task list file for AreAllTasksCompleted";
+        return false;
+    }
+
+    QStringList lines;
+    if (!readTasklistFileWithMetadata(taskListFilePath, lines)) {
+        return false;
+    }
+
+    int taskCount = 0;
+    int completedCount = 0;
+
+    // No header line in new format - start from index 0
+    for (int i = 0; i < lines.size(); ++i) {
+        if (lines[i].isEmpty()) continue;
+
+        QStringList parts = lines[i].split('|');
+        // New format: CompletionStatus is at index 1
+        if (parts.size() >= 2) {
+            taskCount++;
+            if (parts[1] == "1") {
+                completedCount++;
+            }
+        }
+    }
+
+    return (taskCount > 0 && taskCount == completedCount);
+}
+
+void Operations_TaskLists::UpdateTasklistAppearance(const QString& tasklistName)
+{
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+
+    QList<QListWidgetItem*> items = taskListWidget->findItems(tasklistName, Qt::MatchExactly);
+    if (items.isEmpty()) return;
+
+    QListWidgetItem* item = items.first();
+
+    if (AreAllTasksCompleted(tasklistName)) {
+        QFont font = item->font();
+        font.setStrikeOut(true);
+        item->setFont(font);
+        item->setForeground(QColor(100, 100, 100));
+    } else {
+        QFont font = item->font();
+        font.setStrikeOut(false);
+        item->setFont(font);
+        item->setForeground(QColor(255, 255, 255));
+    }
+}
+
+void Operations_TaskLists::EnforceTaskOrder()
+{
+    qDebug() << "Operations_TaskLists: Enforcing task order";
+
+    if (!validateListWidget(m_mainWindow->ui->listWidget_TaskListDisplay)) {
+        qWarning() << "Operations_TaskLists: Invalid task display widget";
+        return;
+    }
+
+    QListWidget* taskDisplayWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
+
+    int itemCount = safeGetItemCount(taskDisplayWidget);
+    if (itemCount <= 1) return;
+
+    taskDisplayWidget->blockSignals(true);
+
+    // Lists to maintain order within groups
+    QList<QListWidgetItem*> completedItems;
+    QList<QListWidgetItem*> pendingItems;
+    QList<QListWidgetItem*> disabledItems;
+
+    QListWidgetItem* currentItem = taskDisplayWidget->currentItem();
+    QString currentItemText = currentItem ? currentItem->text() : "";
+
+    // Collect items in their current order (preserves relative ordering)
+    for (int i = 0; i < itemCount; ++i) {
+        QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
+        if (!item) continue;
+
+        // Store pointer to the item (we'll take them all at once later)
+        if ((item->flags() & Qt::ItemIsEnabled) == 0) {
+            disabledItems.append(item);
+        } else if (item->checkState() == Qt::Checked) {
+            completedItems.append(item);
+        } else {
+            pendingItems.append(item);
+        }
+    }
+
+    // Clear the widget and re-add items in the correct group order
+    // Take all items first (in reverse to avoid index shifting)
+    for (int i = itemCount - 1; i >= 0; --i) {
+        safeTakeItem(taskDisplayWidget, i);
+    }
+
+    // Add items back in the desired order: completed, pending, disabled
+    // This preserves the relative order within each group
+    for (QListWidgetItem* item : completedItems) {
+        if (item) {
+            taskDisplayWidget->addItem(item);
+        }
+    }
+    for (QListWidgetItem* item : pendingItems) {
+        if (item) {
+            taskDisplayWidget->addItem(item);
+        }
+    }
+    for (QListWidgetItem* item : disabledItems) {
+        if (item) {
+            taskDisplayWidget->addItem(item);
+        }
+    }
+
+    // Restore selection
+    if (!currentItemText.isEmpty()) {
+        int newCount = safeGetItemCount(taskDisplayWidget);
+        for (int i = 0; i < newCount; ++i) {
+            QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
+            if (item && item->text() == currentItemText) {
+                taskDisplayWidget->setCurrentItem(item);
+                break;
+            }
+        }
+    }
+
+    taskDisplayWidget->blockSignals(false);
+
+    // Save the new order after enforcing it
+    SaveTaskOrder();
+}
+
+bool Operations_TaskLists::SaveTasklistOrder()
+{
+    qDebug() << "Operations_TaskLists: Saving tasklist order";
+
+    if (!validateListWidget(m_mainWindow->ui->listWidget_TaskList_List)) {
+        qWarning() << "Operations_TaskLists: Invalid task list widget";
+        return false;
+    }
+
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+
+    int taskListCount = safeGetItemCount(taskListWidget);
+    if (taskListCount == 0) return true;
+
+    QString orderFilePath = "Data/" + m_mainWindow->user_Username + "/Tasklists/TasklistOrder.txt";
+
+    QStringList content;
+    content.append("# TasklistOrder");
+
+    for (int i = 0; i < taskListCount; ++i) {
+        QListWidgetItem* item = safeGetItem(taskListWidget, i);
+        if (item) {
+            content.append(item->text());
+        }
+    }
+
+    return OperationsFiles::writeEncryptedFileLines(orderFilePath, m_mainWindow->user_Key, content);
+}
+
+bool Operations_TaskLists::LoadTasklistOrder(QStringList& orderedTasklists)
+{
+    QString orderFilePath = "Data/" + m_mainWindow->user_Username + "/Tasklists/TasklistOrder.txt";
+
+    QFileInfo fileInfo(orderFilePath);
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        return false;
+    }
+
+    if (!OperationsFiles::validateFilePath(orderFilePath, OperationsFiles::FileType::Generic, m_mainWindow->user_Key)) {
+        qWarning() << "Operations_TaskLists: Invalid tasklist order file path";
+        return false;
+    }
+
+    QStringList contentLines;
+    if (!OperationsFiles::readEncryptedFileLines(orderFilePath, m_mainWindow->user_Key, contentLines)) {
+        qWarning() << "Operations_TaskLists: Failed to read tasklist order file";
+        return false;
+    }
+
+    if (contentLines.isEmpty()) {
+        qWarning() << "Operations_TaskLists: Empty tasklist order file";
+        return false;
+    }
+
+    QString headerLine = contentLines.first();
+    if (!headerLine.startsWith("# TasklistOrder")) {
+        qWarning() << "Operations_TaskLists: Invalid tasklist order file format";
+        return false;
+    }
+
+    for (int i = 1; i < contentLines.size(); ++i) {
+        QString line = contentLines[i].trimmed();
+        if (line.isEmpty()) continue;
+
+        InputValidation::ValidationResult nameResult =
+            InputValidation::validateInput(line, InputValidation::InputType::TaskListName);
+        if (nameResult.isValid) {
+            orderedTasklists.append(line);
+        }
+    }
+
+    return !orderedTasklists.isEmpty();
+}
+
+void Operations_TaskLists::UpdateTasklistsTextSize(int fontSize)
+{
+    qDebug() << "Operations_TaskLists: Updating text size to:" << fontSize;
+
+    QFont font = m_mainWindow->ui->listWidget_TaskList_List->font();
+    font.setPointSize(fontSize);
+
+    // Update list widgets
+    m_mainWindow->ui->listWidget_TaskList_List->setFont(font);
+    m_mainWindow->ui->listWidget_TaskListDisplay->setFont(font);
+
+    // Update checkbox hitbox width to scale with font size
+    // Cast to custom widget type to access setCheckboxWidth
+    if (auto* customTaskDisplay = qobject_cast<qlist_TasklistDisplay*>(m_mainWindow->ui->listWidget_TaskListDisplay)) {
+        // Calculate checkbox width proportional to font size
+        // Base calculation: fontSize * 2.5 gives good scaling
+        // This gives us ~25px for 10pt font, ~50px for 20pt font
+        int checkboxWidth = static_cast<int>(fontSize * 1.2);
+
+        // Ensure minimum and maximum reasonable sizes
+        if (checkboxWidth < 20) checkboxWidth = 20;  // Minimum clickable area
+        if (checkboxWidth > 60) checkboxWidth = 60;  // Maximum reasonable size
+
+        customTaskDisplay->setCheckboxWidth(checkboxWidth);
+        qDebug() << "Operations_TaskLists: Updated checkbox width to:" << checkboxWidth << "for font size:" << fontSize;
+    }
+
+    // Update labels
+    m_mainWindow->ui->label_TaskListName->setFont(font);
+    m_mainWindow->ui->label_Tasks->setFont(font);
+    m_mainWindow->ui->label_TaskDetails->setFont(font);
+
+    // Update table widget
+    m_mainWindow->ui->tableWidget_TaskDetails->setFont(font);
+
+    // Update the headers font as well
+    QHeaderView* horizontalHeader = m_mainWindow->ui->tableWidget_TaskDetails->horizontalHeader();
+    if (horizontalHeader) {
+        horizontalHeader->setFont(font);
+    }
+    QHeaderView* verticalHeader = m_mainWindow->ui->tableWidget_TaskDetails->verticalHeader();
+    if (verticalHeader) {
+        verticalHeader->setFont(font);
+    }
+
+    // Calculate appropriate height for the table widget based on font size
+    QFontMetrics fm(font);
+    int rowHeight = fm.height() + ROW_PADDING;
+    int headerHeight = fm.height() + HEADER_PADDING;
+    int totalHeight = headerHeight + rowHeight + EXTRA_PADDING;
+
+    // Ensure minimum readable height
+    if (totalHeight < MIN_TABLE_HEIGHT) {
+        totalHeight = MIN_TABLE_HEIGHT;
+    }
+    // Cap maximum height to prevent excessive expansion
+    if (totalHeight > MAX_TABLE_HEIGHT) {
+        totalHeight = MAX_TABLE_HEIGHT;
+    }
+
+    // Update table widget's minimum and maximum height
+    m_mainWindow->ui->tableWidget_TaskDetails->setMinimumHeight(totalHeight);
+    m_mainWindow->ui->tableWidget_TaskDetails->setMaximumHeight(totalHeight);
+
+    // Force the table to resize its rows
+    if (m_mainWindow->ui->tableWidget_TaskDetails->rowCount() > 0) {
+        m_mainWindow->ui->tableWidget_TaskDetails->resizeRowsToContents();
+
+        // Resize columns horizontally based on font size
+        QTableWidget* taskDetailsTable = m_mainWindow->ui->tableWidget_TaskDetails;
+        int columnCount = taskDetailsTable->columnCount();
+
+        if (columnCount > 0) {
+            // Calculate width for Status column (first column)
+            QString longestStatus = "Completed";  // Longest possible status text
+#if QT_VERSION >= QT_VERSION_CHECK(5, 11, 0)
+            int statusWidth = fm.horizontalAdvance(longestStatus) + 20;  // Add padding
+#else
+            int statusWidth = fm.width(longestStatus) + 20;  // Add padding
+#endif
+            taskDetailsTable->setColumnWidth(0, statusWidth);
+
+            // If task is completed, there's a Completion Date column (second column)
+            if (columnCount == 3) {  // Completed task has 3 columns
+                // Calculate width for Completion Date column
+                // Use a sample date format to calculate width
+                QString sampleDate = "Wednesday the 31st December 2025 at 23:59";
+#if QT_VERSION >= QT_VERSION_CHECK(5, 11, 0)
+                int dateWidth = fm.horizontalAdvance(sampleDate) + 20;  // Add padding
+#else
+                int dateWidth = fm.width(sampleDate) + 20;  // Add padding
+#endif
+                taskDetailsTable->setColumnWidth(1, dateWidth);
+            }
+
+            // The last column (Creation Date) is already set to stretch
+            // by the existing code in LoadTaskDetails
+        }
+    }
+
+    // Update plain text edit
+    m_mainWindow->ui->plainTextEdit_TaskDesc->setFont(font);
+}
+
+//--------Context Menu Functions--------//
+void Operations_TaskLists::showContextMenu_TaskListDisplay(const QPoint &pos)
+{
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
+    QListWidgetItem* item = taskListWidget->itemAt(pos);
+
+    QMenu contextMenu(m_mainWindow);
+
+    QAction* newTaskAction = contextMenu.addAction("New Task");
+    QAction* editTaskAction = contextMenu.addAction("Edit Task");
+    QAction* deleteTaskAction = contextMenu.addAction("Delete Task");
+
+    // Store task data safely before capturing
+    QString taskName;
+    QString taskData;
+    bool hasValidItem = false;
+
+    if (item && (item->flags() & Qt::ItemIsEnabled)) {
+        taskName = item->text();
+        taskData = item->data(Qt::UserRole).toString();
+        hasValidItem = true;
+        editTaskAction->setEnabled(true);
+        deleteTaskAction->setEnabled(true);
+    } else {
+        editTaskAction->setEnabled(false);
+        deleteTaskAction->setEnabled(false);
+    }
+
+    connect(newTaskAction, &QAction::triggered, this, [this]() {
+        ShowTaskMenu(false);
+    });
+
+    // Capture by value to avoid dangling pointer
+    connect(editTaskAction, &QAction::triggered, this, [this, taskName, taskData, hasValidItem]() {
+        if (hasValidItem) {
+            currentTaskToEdit = taskName;
+            currentTaskData = taskData;
+            m_currentTaskName = taskName;
+            ShowTaskMenu(true);
+        }
+    });
+
+    connect(deleteTaskAction, &QAction::triggered, this, [this, taskName, hasValidItem]() {
+        if (hasValidItem) {
+            DeleteTask(taskName);
+        }
+    });
+
+    contextMenu.exec(taskListWidget->mapToGlobal(pos));
+}
+
+void Operations_TaskLists::showContextMenu_TaskListList(const QPoint &pos)
+{
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidgetItem* item = taskListWidget->itemAt(pos);
+
+    QMenu contextMenu(m_mainWindow);
+
+    QAction* newTaskListAction = contextMenu.addAction("New Tasklist");
+    QAction* renameTaskListAction = contextMenu.addAction("Rename Tasklist");
+    QAction* deleteTaskListAction = contextMenu.addAction("Delete Tasklist");
+
+    // Store item index instead of pointer for safety
+    int itemRow = -1;
+    QString itemText;
+    bool hasValidItem = false;
+
+    if (item) {
+        itemRow = taskListWidget->row(item);
+        itemText = item->text();
+        hasValidItem = true;
+        renameTaskListAction->setEnabled(true);
+        deleteTaskListAction->setEnabled(true);
+    } else {
+        renameTaskListAction->setEnabled(false);
+        deleteTaskListAction->setEnabled(false);
+    }
+
+    connect(newTaskListAction, &QAction::triggered, this, &Operations_TaskLists::CreateNewTaskList);
+
+    // Capture row index instead of item pointer
+    connect(renameTaskListAction, &QAction::triggered, this, [this, itemRow, itemText, taskListWidget]() {
+        int currentCount = safeGetItemCount(taskListWidget);
+        if (itemRow >= 0 && itemRow < currentCount) {
+            QListWidgetItem* currentItem = safeGetItem(taskListWidget, itemRow);
+            if (currentItem && currentItem->text() == itemText) {
+                currentTaskListBeingRenamed = currentItem->text();
+                currentItem->setFlags(currentItem->flags() | Qt::ItemIsEditable);
+                taskListWidget->editItem(currentItem);
+
+                // Create a single-shot connection for rename completion
+                QMetaObject::Connection* conn = new QMetaObject::Connection();
+                *conn = connect(taskListWidget, &QListWidget::itemChanged, this,
+                        [this, taskListWidget, itemRow, conn](QListWidgetItem* changedItem) {
+                            int listCount = safeGetItemCount(taskListWidget);
+                            if (itemRow >= 0 && itemRow < listCount) {
+                                QListWidgetItem* itemAtRow = safeGetItem(taskListWidget, itemRow);
+                                if (itemAtRow && itemAtRow == changedItem) {
+                                    disconnect(*conn);
+                                    delete conn;
+                                    RenameTasklist(changedItem);
+                                }
+                            }
+                        });
+            }
+        }
+    });
+
+    connect(deleteTaskListAction, &QAction::triggered, this, &Operations_TaskLists::DeleteTaskList);
+
+    contextMenu.exec(taskListWidget->mapToGlobal(pos));
+}

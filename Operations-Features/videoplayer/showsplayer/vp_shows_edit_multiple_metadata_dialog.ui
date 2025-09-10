@@ -1,0 +1,389 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>VP_ShowsEditMultipleMetadataDialog</class>
+ <widget class="QDialog" name="VP_ShowsEditMultipleMetadataDialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>600</width>
+    <height>650</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Edit Multiple Files Metadata</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout_Main">
+   <item>
+    <widget class="QLabel" name="label_FileCount">
+     <property name="font">
+      <font>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Editing X files</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="Line" name="line_Top">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_EditFields">
+     <property name="title">
+      <string>Edit Fields</string>
+     </property>
+     <layout class="QGridLayout" name="gridLayout_Edit">
+      <item row="0" column="0">
+       <widget class="QCheckBox" name="checkBox_Language">
+        <property name="text">
+         <string>Language:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QComboBox" name="comboBox_Language">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <item>
+         <property name="text">
+          <string>English</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Japanese</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Spanish</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>French</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>German</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Italian</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Portuguese</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Russian</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Chinese</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Korean</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Arabic</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Hindi</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Other</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="0" column="2">
+       <widget class="QLabel" name="label_LanguageStatus">
+        <property name="styleSheet">
+         <string>color: gray;</string>
+        </property>
+        <property name="text">
+         <string>(Current: English)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QCheckBox" name="checkBox_Translation">
+        <property name="text">
+         <string>Translation:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QComboBox" name="comboBox_Translation">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <item>
+         <property name="text">
+          <string>Dubbed</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Subbed</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="1" column="2">
+       <widget class="QLabel" name="label_TranslationStatus">
+        <property name="styleSheet">
+         <string>color: gray;</string>
+        </property>
+        <property name="text">
+         <string>(Current: Dubbed)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QCheckBox" name="checkBox_ContentType">
+        <property name="text">
+         <string>Content Type:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QComboBox" name="comboBox_ContentType">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <item>
+         <property name="text">
+          <string>Regular Episode</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Movie</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>OVA/OAD</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Extra/Special</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="2" column="2">
+       <widget class="QLabel" name="label_ContentTypeStatus">
+        <property name="styleSheet">
+         <string>color: gray;</string>
+        </property>
+        <property name="text">
+         <string>(Current: Regular Episode)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QCheckBox" name="checkBox_Season">
+        <property name="text">
+         <string>Season:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QLineEdit" name="lineEdit_Season">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="maxLength">
+         <number>50</number>
+        </property>
+        <property name="placeholderText">
+         <string>e.g., 1, 2, or empty for absolute numbering</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="2">
+       <widget class="QLabel" name="label_SeasonStatus">
+        <property name="styleSheet">
+         <string>color: gray;</string>
+        </property>
+        <property name="text">
+         <string>(Current: 1)</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_ClearFields">
+     <property name="title">
+      <string>Clear Episode-Specific Data</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_Clear">
+      <item>
+       <widget class="QCheckBox" name="checkBox_ClearEpisodeNames">
+        <property name="text">
+         <string>Clear Episode Names</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBox_ClearEpisodeNumbers">
+        <property name="text">
+         <string>Clear Episode Numbers</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBox_ClearEpisodeImages">
+        <property name="text">
+         <string>Clear Episode Images</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBox_ClearEpisodeDescriptions">
+        <property name="text">
+         <string>Clear Episode Descriptions</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBox_ClearEpisodeAirDates">
+        <property name="text">
+         <string>Clear Episode Air Dates</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBox_ResetDisplayStatus">
+        <property name="text">
+         <string>Reset Display Status (disable dual display for special content)</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_Preview">
+     <property name="title">
+      <string>Preview of Changes</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_Preview">
+      <item>
+       <widget class="QTextEdit" name="textEdit_Preview">
+        <property name="styleSheet">
+         <string>QTextEdit { background-color: #f5f5f5; }</string>
+        </property>
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="Line" name="line_Bottom">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="checkBox_ReacquireTMDB">
+     <property name="text">
+      <string>Re-acquire TMDB metadata</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="label_Warning">
+     <property name="styleSheet">
+      <string>color: #ff6600; font-weight: bold;</string>
+     </property>
+     <property name="text">
+      <string>⚠ Changes will be applied to all selected files and cannot be undone.</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QDialogButtonBox" name="buttonBox">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <property name="standardButtons">
+      <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>accepted()</signal>
+   <receiver>VP_ShowsEditMultipleMetadataDialog</receiver>
+   <slot>accept()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>248</x>
+     <y>254</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>157</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>rejected()</signal>
+   <receiver>VP_ShowsEditMultipleMetadataDialog</receiver>
+   <slot>reject()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>316</x>
+     <y>260</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>286</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>
