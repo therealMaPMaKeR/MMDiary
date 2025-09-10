@@ -198,15 +198,30 @@ User data is stored in the following locations:
 - `./Data/[username]/persistent.db` - Contains persistent settings (window location, size, etc)
 
 ### User Data
-- **Diary Entries:** `./Data/[username]/Diaries/[year]/[month]/[day]/*.txt` - Encrypted diary files
-- **Task Lists:** `./Data/[username]/TaskLists/*.txt` - Encrypted task list files
-- **Passwords:** `./Data/[username]/Passwords/passwords.txt` - Encrypted password storage
-- **Encrypted Data:** `./Data/[username]/EncryptedData/(Archives/Document/Image/Video)` - User-encrypted files
-- **Video Player:** `./Data/[username]/Videoplayer/Shows` - Imported TV shows (encrypted)
+```
+Data/[username]/
+├── Diaries/
+│   └── [year]/[month]/[day]/*.txt     # Encrypted diary entries
+├── TaskLists/
+│   └── *.txt                           # Encrypted task lists
+├── Passwords/
+│   └── passwords.txt                   # Encrypted password storage
+├── EncryptedData/
+│   ├── Archives/                       # Encrypted archive files
+│   ├── Document/                       # Encrypted documents
+│   ├── Image/                          # Encrypted images
+│   └── Video/                          # Encrypted videos
+└── Videoplayer/
+    └── Shows/                          # Imported TV shows (encrypted)
+```
 
 ### Temporary Files
-- **Temp Files:** `./Data/[username]/Temp` and `./Data/[username]/Temp/tempdecrypt`
-- **Temp Locks:** `./Data/[username]/temp_metadata_locks` - TV show player metadata locks
+```
+Data/[username]/
+├── Temp/
+│   └── tempdecrypt/                    # Temporary decrypted files
+└── temp_metadata_locks/                # TV show player metadata locks
+```
 
 > ⚠️ **Note:** All files are encrypted using AES-256-GCM with user-specific keys.
 
