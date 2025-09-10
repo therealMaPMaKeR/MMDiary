@@ -193,7 +193,7 @@ MMDiary employs several security measures to protect user data:
 User data is stored in the following locations:
 
 ### Database Files
-- `./Data/MMDiary.db` - Contains user accounts
+- `./Data/users.db` - Contains user accounts
 - `./Data/[username]/settings.db` - Contains user settings
 - `./Data/[username]/persistent.db` - Contains persistent settings (window location, size, etc)
 
