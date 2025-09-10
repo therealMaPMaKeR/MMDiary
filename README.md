@@ -7,7 +7,7 @@
 - 🔐 **Encrypted Diary Entries** - Keep your thoughts private with AES-256-GCM encryption
 - ✅ **Task Management** - Organize your tasks with customizable lists and notifications  
 - 🔑 **Password Manager** - Securely store and manage your passwords
-- 📁 **Data Encryptor** - Encrypt files permanently; open them anytime without manual decryption (auto temp-decrypt with secure cleanup)
+- 📁 **Data Encryptor** - Encrypt files permanently; open them anytime without manual decryption.
 - 🎬 **Video Player** - Built-in media player (currently supports TV shows, movies coming soon)
 - 🥽 **VR Support** - VR video player for encrypted content
 
