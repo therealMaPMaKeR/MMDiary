@@ -80,6 +80,46 @@ WINDOWS SYSTEM VOLUME:
 
 
 ========================================================================
+                     VR CONTROLLER BINDINGS
+========================================================================
+
+BASIC CONTROLS:
+----------------
+• Menu/Application Button     - Play/Pause video
+• Trigger (Hold)              - Continuously recenter VR view
+• Grip Button                 - Modifier key (hold for advanced functions)
+
+TRACKPAD/JOYSTICK CONTROLS:
+----------------------------
+For Vive/Windows MR (Trackpad - requires CLICK):
+• Trackpad Click + Left/Right    - Seek backward/forward 10 seconds
+• Trackpad Click + Up/Down       - Zoom in/out (increase/decrease scale)
+
+For Oculus/Index (Joystick - no click required):
+• Joystick Left/Right            - Seek backward/forward 10 seconds
+• Joystick Up/Down               - Zoom in/out (increase/decrease scale)
+
+GRIP MODIFIER COMBINATIONS:
+----------------------------
+Hold Grip + other buttons for advanced functions:
+• Grip + Trigger                 - Decrease playback speed
+• Grip + Menu/Application        - Increase playback speed
+• Grip + Trackpad/Joystick Left  - Seek backward 60 seconds
+• Grip + Trackpad/Joystick Right - Seek forward 60 seconds
+• Grip + Trackpad/Joystick Up    - Increase Windows system volume
+• Grip + Trackpad/Joystick Down  - Decrease Windows system volume
+
+CONTROLLER NOTES:
+-----------------
+• Both left and right controllers work identically
+• Trackpad controls require clicking (not just touching) on Vive/WMR
+• Joystick controls activate with movement alone on Oculus/Index
+• Dead zones prevent accidental input from small movements
+• Seek/zoom actions trigger on threshold crossing, not continuous
+• Grip must be held before pressing other buttons for combinations
+
+
+========================================================================
                            ADDITIONAL NOTES
 ========================================================================
 
