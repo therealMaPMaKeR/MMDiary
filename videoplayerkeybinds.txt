@@ -1,0 +1,93 @@
+========================================================================
+                    VIDEO PLAYER KEYBOARD SHORTCUTS
+========================================================================
+
+This document lists all keyboard shortcuts available in the video players.
+These keybinds are not customizable through this file - it is for reference only.
+
+========================================================================
+                    STANDARD VIDEO PLAYER KEYBINDS
+========================================================================
+
+PLAYBACK CONTROLS:
+------------------
+• Space                  - Play/Pause video
+• Escape                 - Exit fullscreen (if in fullscreen) or close player
+
+SEEKING:
+--------
+• Left Arrow             - Seek backward 10 seconds
+• Right Arrow            - Seek forward 10 seconds
+• Ctrl + Left Arrow      - Jump to beginning of video
+• Ctrl + Right Arrow     - Jump to end of video
+
+VOLUME:
+-------
+• Up Arrow               - Increase volume by 5%
+• Down Arrow             - Decrease volume by 5%
+• Mouse Wheel Up         - Increase volume
+• Mouse Wheel Down       - Decrease volume
+
+PLAYBACK SPEED:
+---------------
+• Ctrl + Up Arrow        - Increase playback speed (next preset)
+• Ctrl + Down Arrow      - Decrease playback speed (previous preset)
+
+DISPLAY:
+--------
+• F11                    - Toggle fullscreen mode
+• Escape                 - Exit fullscreen mode
+
+
+========================================================================
+                      VR VIDEO PLAYER KEYBINDS
+========================================================================
+
+PLAYBACK CONTROLS:
+------------------
+• Shift + Space          - Play/Pause video
+• Ctrl + Space           - Play/Pause video
+• Space (Hold)           - Continuously recenter VR view (when in VR mode)
+• Escape                 - Close VR player
+
+SEEKING:
+--------
+• A or Left Arrow        - Seek backward 10 seconds
+• D or Right Arrow       - Seek forward 10 seconds
+• Shift + A              - Seek backward 60 seconds
+• Shift + D              - Seek forward 60 seconds
+• Ctrl/Shift + Left      - Seek backward 60 seconds
+• Ctrl/Shift + Right     - Seek forward 60 seconds
+
+ZOOM CONTROLS:
+--------------
+• W or Up Arrow          - Zoom in (increase video scale)
+• S or Down Arrow        - Zoom out (decrease video scale)
+
+PLAYBACK SPEED:
+---------------
+• Shift + W              - Increase playback speed
+• Shift + S              - Decrease playback speed
+• Ctrl/Shift + Up        - Increase playback speed
+• Ctrl/Shift + Down      - Decrease playback speed
+• Tab                    - Reset playback speed to 1x
+• End                    - Reset playback speed to 1x
+
+WINDOWS SYSTEM VOLUME:
+----------------------
+• Q or Page Down         - Decrease Windows system volume
+• E or Page Up           - Increase Windows system volume
+
+
+========================================================================
+                           ADDITIONAL NOTES
+========================================================================
+
+1. The Standard Video Player is used for regular video playback
+2. The VR Video Player is specifically for VR/360/180-degree videos
+3. In fullscreen mode, moving the mouse will show/hide controls
+4. Controls auto-hide after 3 seconds of inactivity in fullscreen
+5. Volume can be adjusted up to 200% in the Standard Video Player
+6. VR mode requires SteamVR to be installed and running
+
+========================================================================

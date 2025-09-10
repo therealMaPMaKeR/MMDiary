@@ -1,0 +1,49 @@
+MMDiary - User Guide
+Welcome to MMDiary!
+MMDiary is your secure personal information management application. Keep your private thoughts, tasks, and passwords protected with strong encryption while enjoying an intuitive dark-themed interface.
+
+Installation
+
+Extract all files from the zip archive to a location of your choice
+Run MMDiary.exe to start the application
+No additional installation required!
+
+Getting Started
+Creating Your Account
+
+
+Data Security:
+MMDiary takes your privacy seriously:
+
+All data is encrypted with AES-256-GCM encryption
+Your password never leaves your computer
+Data is only decrypted when you need to access it
+Your encryption key is securely wiped from memory on exit
+
+Backup/Restore/Update:
+Your data is stored in the Data folder where MMDiary is installed:
+
+To backup: Copy the entire Data folder to a safe location
+To restore: Replace the Data folder with your backup
+To update: Move your Data folder to the new installation
+
+You can also use the Show in File Explorer context menu option when you want to make backups of specific files.
+It is useful because since the files use obfuscated names, it can be near impossible to know which is which.
+
+You can delete persistentsettings.db and settings.db when the app is closed if you experience issues.
+Doing so might solve them.
+Never delete users.db , it is used to store your credentials.
+Without it you would lose access to all your encrypted data.
+
+Additional:
+see the videoplayerkeybinds.txt file if you want to know all the available keybinds for the video players.
+
+Contact and Support
+For questions, bug reports, or feature requests:
+
+GitHub: https://github.com/therealMaPMaKeR/MMDiary
+Email: stonedmapster@gmail.com
+
+Thank you for using MMDiary!
+
+MMDiary © 2025 MaPMaKeR
