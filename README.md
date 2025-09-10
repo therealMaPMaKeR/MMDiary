@@ -1,58 +1,36 @@
-# MMDiary
-MMDiary Project
+# MMDiary Project
 
+**MMDiary** is a secure personal information management application written in C++ using the Qt framework.
 
-MMDiary is a secure personal information management application written in C++ using the Qt framework.
+## ✨ Features
 
+- 🔐 **Encrypted Diary Entries** - Keep your thoughts private with AES-256-GCM encryption
+- ✅ **Task Management** - Organize your tasks with customizable lists and notifications  
+- 🔑 **Password Manager** - Securely store and manage your passwords
+- 📁 **Data Encryptor** - Encrypt any file with secure deletion (3-pass overwrite)
+- 🎬 **Video Player** - Built-in media player (currently supports TV shows, movies coming soon)
+- 🥽 **VR Support** - Special VR video player for encrypted content
 
-Features
-
-Encrypted diary entries: Keep your thoughts private with AES-256-GCM encryption
-
-Task management: Organize your tasks with customizable lists and notifications
-
-Password manager: Securely store and manage your passwords
-
-Data Encryptor: Allows you to encrypt any file you want and features a secure delete option with 3 passes.
-
-Video Player: Currently only supports tv shows, will implement movies and more later on. 
-
-Special: Built-in video player and vr video player for files in the encrypted data tab.
-
-
-Architecture
+## 🏗️ Architecture
 
 MMDiary is built with the following technologies:
 
+- **Qt 6.5.3** - UI framework and core functionality
+- **C++17** - Modern C++ features for robust implementation
+- **OpenSSL 3.5.0** - Cryptography library for secure encryption
+- **SQLite** - Local database for user data storage
 
-Qt 6.5.3: UI framework and core functionality
+## 📋 Build Requirements
 
-C++17: Modern C++ features for robust implementation
+- **Qt 6.5.3** or newer
+- **MSVC 2019** 64-bit compiler  
+- **Windows OS** (Windows-only application)
+- **CMake 3.16+** (optional, if not using Qt Creator)
+- **OpenSSL 3.5.0** (static libraries required)
+- **libVLC 3.0+** (for video playback)
+- **OpenVR 1.16+** (for VR support, optional)
 
-OpenSSL 3.5.0: Cryptography library for secure encryption
-
-SQLite: Local database for user data storage
-
-
-Build Requirements
-
-
-Qt 6.5.3 or newer
-
-MSVC 2019 64-bit compiler
-
-Windows operating system (Windows-only application)
-
-CMake 3.16+ (optional, if not using Qt Creator)
-
-OpenSSL 3.5.0 (static libraries required)
-
-libVLC 3.0+ (for video playback)
-
-OpenVR 1.16+ (for VR support, optional)
-
-
-Project Setup for Developers
+## 🛠️ Project Setup for Developers
 
 ## Prerequisites - Third-Party Dependencies
 
@@ -197,59 +175,47 @@ Note: The `tmdb_api_key.h` file is gitignored. Never commit your actual API key.
 Each developer needs their own TMDB API key.
 
 
-Security Architecture
+## 🔒 Security Architecture
 
 MMDiary employs several security measures to protect user data:
 
-
-AES-256-GCM encryption: All sensitive data is encrypted using industry-standard encryption.
-
-PBKDF2 key derivation: Password-based keys are derived using 1,000,000 iterations for enhanced security.
-
-In-memory protection: Encryption keys are securely wiped from memory when the application exits.
-
-Input validation: Comprehensive validation prevents injection attacks and other security issues.
-
-Path traversal protection: Strict file path validation prevents directory traversal attacks.
-
-Temp files are stored in the app's folder, making it easy to have peace of mind that no decrypted file remains on disk.
-
-Uses secure delete when deleting temporarily decrypted files.
+- **AES-256-GCM Encryption** - All sensitive data is encrypted using industry-standard encryption
+- **PBKDF2 Key Derivation** - Password-based keys are derived using 1,000,000 iterations for enhanced security
+- **In-Memory Protection** - Encryption keys are securely wiped from memory when the application exits
+- **Input Validation** - Comprehensive validation prevents injection attacks and other security issues
+- **Path Traversal Protection** - Strict file path validation prevents directory traversal attacks
+- **Secure Temp Files** - Temporary files are stored in the app's folder, ensuring no decrypted data remains on disk
+- **Secure Deletion** - Uses 3-pass overwrite when deleting temporarily decrypted files
 
 
-Data Storage
+## 📂 Data Storage
 
 User data is stored in the following locations:
 
+### Database Files
+- `./Data/MMDiary.db` - Contains user accounts
+- `./Data/[username]/settings.db` - Contains user settings
+- `./Data/[username]/persistent.db` - Contains persistent settings (window location, size, etc)
 
-Database: ./Data/MMDiary.db - Contains user accounts.
+### User Data
+- **Diary Entries:** `./Data/[username]/Diaries/[year]/[month]/[day]/*.txt` - Encrypted diary files
+- **Task Lists:** `./Data/[username]/TaskLists/*.txt` - Encrypted task list files
+- **Passwords:** `./Data/[username]/Passwords/passwords.txt` - Encrypted password storage
+- **Encrypted Data:** `./Data/[username]/EncryptedData/(Archives/Document/Image/Video)` - User-encrypted files
+- **Video Player:** `./Data/[username]/Videoplayer/Shows` - Imported TV shows (encrypted)
 
-Database: ./Data/[username]/settings.db - Contains user settings.
+### Temporary Files
+- **Temp Files:** `./Data/[username]/Temp` and `./Data/[username]/Temp/tempdecrypt`
+- **Temp Locks:** `./Data/[username]/temp_metadata_locks` - TV show player metadata locks
 
-Database: ./Data/[username]/persistent.db - Contains persistent settings (window location, size, etc)
-
-Diary entries: ./Data/[username]/Diaries/[year]/[month]/[day]/*.txt - Encrypted diary files
-
-Task lists: ./Data/[username]/TaskLists/*.txt - Encrypted task list files
-
-Passwords: ./Data/[username]/Passwords/passwords.txt - Encrypted password storage
-
-Encrypted Data: ./Data/[username]/EncryptedData/(Archives/Document/Image/Video) - Stores data encrypted by the user.
-
-Videoplayer: ./Data/[username]/Videoplayer/Shows - Stores imported tv shows. (encrypted)
-
-Temp files: ./Data/[username]/Temp and ./Data/[username]/Temp/tempdecrypt - stores temp files.
-
-Temp locks: ./Data/[username]/temp_metadata_locks - used to store temp locks for the tv show player.
-
-All files are encrypted using AES-256-GCM with user-specific keys.
+> ⚠️ **Note:** All files are encrypted using AES-256-GCM with user-specific keys.
 
 
-Contributing
+## 🤝 Contributing
 
-I am not accepting contributions right now since the project is personal and I want to retain full control over it.
+> ℹ️ **Note:** I am not accepting contributions right now since the project is personal and I want to retain full control over it.
 
-I will revisit this once this software is more complete.
+I will revisit this once the software is more complete.
 
 
 ## Third-Party Licenses and Legal Information
