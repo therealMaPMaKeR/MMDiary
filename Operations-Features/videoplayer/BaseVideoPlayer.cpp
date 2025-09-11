@@ -493,7 +493,7 @@ bool BaseVideoPlayer::loadVideo(const QString& filePath)
     
     if (!fileInfo.exists()) {
         qDebug() << "BaseVideoPlayer: File does not exist:" << filePath;
-        emit errorOccurred(tr("File not found: %1").arg(filePath));
+        //emit errorOccurred(tr("File not found: %1").arg(filePath)); // commented out because otherwise it blocks the retry attempt until the user interacts with the error message.
         return false;
     }
     
