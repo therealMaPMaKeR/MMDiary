@@ -134,10 +134,19 @@ void VP_Shows_Videoplayer::closeEvent(QCloseEvent *event)
 {
     qDebug() << "VP_Shows_Videoplayer: Close event received (show-specific override)";
     
-    // Save final watch progress
-    if (m_hasStartedPlaying) {
-        finalizeWatchProgress();
+#ifdef Q_OS_WIN
+    // During Windows shutdown, skip watch progress save to prevent delays
+    if (!m_windowsShutdownInProgress) {
+#endif
+        // Save final watch progress
+        if (m_hasStartedPlaying) {
+            finalizeWatchProgress();
+        }
+#ifdef Q_OS_WIN
+    } else {
+        qDebug() << "VP_Shows_Videoplayer: Skipping watch progress save due to Windows shutdown";
     }
+#endif
     
     // Stop the progress timer
     if (m_progressSaveTimer) {

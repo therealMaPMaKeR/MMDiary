@@ -20,6 +20,12 @@
 #include <memory>
 #include "vp_vlcplayer.h"
 
+// Windows-specific includes for shutdown detection
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
 /**
  * @class BaseVideoPlayer
  * @brief Base class for all video player implementations
@@ -110,6 +116,9 @@ protected:
     virtual bool eventFilter(QObject *watched, QEvent *event) override;
     virtual void focusInEvent(QFocusEvent *event) override;
     
+    // Windows shutdown detection
+    virtual bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
+    
     // UI setup methods - virtual for customization
     virtual void setupUI();
     virtual void createControls();
@@ -181,6 +190,11 @@ protected:
     
     // Helper to check if position update is needed
     bool shouldUpdateProgress(qint64 currentPosition) const;
+    
+    // Windows shutdown tracking (protected so derived classes can check it)
+#ifdef Q_OS_WIN
+    bool m_windowsShutdownInProgress = false;
+#endif
 
 private:
     void initializePlayer();

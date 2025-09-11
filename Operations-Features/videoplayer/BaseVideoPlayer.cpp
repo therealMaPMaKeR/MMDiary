@@ -150,6 +150,15 @@ BaseVideoPlayer::~BaseVideoPlayer()
 {
     qDebug() << "BaseVideoPlayer: Destructor called";
     
+#ifdef Q_OS_WIN
+    // If Windows is shutting down, ensure we stop the player immediately
+    if (m_windowsShutdownInProgress && m_mediaPlayer) {
+        qDebug() << "BaseVideoPlayer: Destructor during Windows shutdown - emergency stop";
+        m_mediaPlayer->stop();
+        QApplication::processEvents(); // Ensure stop completes
+    }
+#endif
+    
     // Stop timers
     if (m_cursorTimer) {
         m_cursorTimer->stop();
@@ -973,6 +982,68 @@ void BaseVideoPlayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state
     emit playbackStateChanged(state);
 }
 
+// Windows shutdown detection
+bool BaseVideoPlayer::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+{
+#ifdef Q_OS_WIN
+    // Check for Windows-specific messages
+    if (eventType == "windows_generic_MSG") {
+        MSG* msg = static_cast<MSG*>(message);
+        
+        // Handle Windows shutdown messages
+        if (msg->message == WM_QUERYENDSESSION) {
+            qDebug() << "BaseVideoPlayer: WM_QUERYENDSESSION received - Windows wants to shutdown";
+            
+            // Set shutdown flag to prevent any further operations
+            m_windowsShutdownInProgress = true;
+            
+            // CRITICAL: Stop video playback immediately to prevent memory access errors
+            if (m_mediaPlayer) {
+                qDebug() << "BaseVideoPlayer: Emergency stopping video playback for Windows shutdown";
+                m_mediaPlayer->stop();
+                
+                // Process events to ensure stop completes
+                QApplication::processEvents();
+            }
+            
+            // Create shutdown block to tell Windows to wait while we clean up
+            HWND hwnd = reinterpret_cast<HWND>(this->winId());
+            ShutdownBlockReasonCreate(hwnd, L"Video Player is closing...");
+            qDebug() << "BaseVideoPlayer: Created shutdown block reason";
+            
+            // Mark that we're closing to prevent any further operations
+            m_isClosing = true;
+            
+            // Close the player window properly
+            close();
+            
+            // Tell Windows we can be shut down (but we're asking it to wait)
+            if (result) {
+                *result = TRUE;
+            }
+            return true;
+        }
+        else if (msg->message == WM_ENDSESSION) {
+            qDebug() << "BaseVideoPlayer: WM_ENDSESSION received";
+            
+            // This comes after WM_QUERYENDSESSION if shutdown proceeds
+            // Ensure video is stopped (belt and suspenders approach)
+            if (m_mediaPlayer) {
+                m_mediaPlayer->stop();
+            }
+            
+            if (result) {
+                *result = TRUE;
+            }
+            return true;
+        }
+    }
+#endif
+    
+    // Call base class implementation for other events
+    return QWidget::nativeEvent(eventType, message, result);
+}
+
 // Event handlers
 void BaseVideoPlayer::closeEvent(QCloseEvent *event)
 {
@@ -1007,6 +1078,16 @@ void BaseVideoPlayer::closeEvent(QCloseEvent *event)
         
         // Emit signal with final position
         emit aboutToClose(finalPosition);
+        
+#ifdef Q_OS_WIN
+        // If Windows is shutting down, destroy the shutdown block
+        if (m_windowsShutdownInProgress) {
+            qDebug() << "BaseVideoPlayer: Removing Windows shutdown block";
+            HWND hwnd = reinterpret_cast<HWND>(this->winId());
+            ShutdownBlockReasonDestroy(hwnd);
+            qDebug() << "BaseVideoPlayer: Windows can now continue shutdown";
+        }
+#endif
     }
     
     event->accept();
