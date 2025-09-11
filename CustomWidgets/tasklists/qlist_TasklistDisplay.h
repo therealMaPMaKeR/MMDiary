@@ -1,6 +1,8 @@
 #ifndef QLIST_TASKLISTDISPLAY_H
 #define QLIST_TASKLISTDISPLAY_H
 
+#include "qapplication.h"
+#include "qelapsedtimer.h"
 #include <QWidget>
 #include <QListWidget>
 #include <QMouseEvent>
@@ -186,13 +188,15 @@ protected:
                 qDebug() << "qlist_TasklistDisplay: Double-click detected in checkbox area, treating as single click";
                 // Treat as a single click instead of a double-click
                 // We simulate another mouse press event to toggle the checkbox
-                QMouseEvent singleClick(QEvent::MouseButtonPress,
+                /*
+                    QMouseEvent singleClick(QEvent::MouseButtonPress,
                                         pos,
                                         event->globalPosition(),
                                         event->button(),
                                         event->buttons(),
                                         event->modifiers());
                 QListWidget::mousePressEvent(&singleClick);
+                */
                 return; // Don't pass to base class double-click handler
             }
         }
