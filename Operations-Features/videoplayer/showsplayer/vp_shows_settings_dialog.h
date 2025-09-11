@@ -31,6 +31,8 @@ public:
     bool wasTMDBDataUpdated() const { return m_tmdbDataWasUpdated; }
     // Check if display file names setting was changed (for tree refresh)
     bool wasDisplayFileNamesChanged() const { return m_displayFileNamesChanged; }
+    // Check if watch history was reset (for tree refresh)
+    bool wasWatchHistoryReset() const { return m_watchHistoryWasReset; }
 
 private slots:
     // Autofill/Search functionality slots
@@ -150,6 +152,7 @@ private:
     static constexpr int MAX_SUGGESTIONS = 8;    // Maximum number of suggestions to show
     // Note: Suggestion item heights are now calculated dynamically based on actual content
     bool m_displayFileNamesChanged;   // Track if display file names setting changed
+    bool m_watchHistoryWasReset = false;  // Track if watch history was reset
 };
 
 #endif // VP_SHOWS_SETTINGS_DIALOG_H

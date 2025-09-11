@@ -1821,6 +1821,8 @@ void VP_ShowsSettingsDialog::onResetWatchHistoryClicked()
     // Save the updated history
     if (watchHistory.saveHistoryWithBackup()) {
         qDebug() << "VP_ShowsSettingsDialog: Successfully reset watch history";
+        // Set flag to indicate watch history was reset and tree needs refreshing
+        m_watchHistoryWasReset = true;
         QMessageBox::information(this, tr("Success"), 
                                tr("Watch history has been reset."));
     } else {

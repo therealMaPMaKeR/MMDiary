@@ -2428,15 +2428,41 @@ void Operations_VP_Shows::openShowSettings()
     QString originalShowName = decryptedShowName;
     
     // Show the dialog modally
-    if (settingsDialog.exec() == QDialog::Accepted) {
+    int dialogResult = settingsDialog.exec();
+    
+    // Check if watch history was reset - this needs to refresh the tree even if dialog was cancelled
+    if (settingsDialog.wasWatchHistoryReset()) {
+        qDebug() << "Operations_VP_Shows: Watch history was reset, reloading watch history and refreshing episode tree";
+        
+        // Force reload of watch history from disk to get the reset data
+        if (m_watchHistory) {
+            qDebug() << "Operations_VP_Shows: Reloading watch history from disk after reset";
+            if (!m_watchHistory->loadHistory()) {
+                qDebug() << "Operations_VP_Shows: Failed to reload watch history after reset";
+            } else {
+                qDebug() << "Operations_VP_Shows: Successfully reloaded watch history after reset";
+            }
+        }
+        
+        // Now refresh the tree widget with the updated watch history
+        loadShowEpisodes(m_currentShowFolder);
+        
+        // Also explicitly refresh the colors to ensure they're updated
+        refreshEpisodeTreeColors();
+    }
+    
+    if (dialogResult == QDialog::Accepted) {
         qDebug() << "Operations_VP_Shows: Show settings saved";
         
         // Reload show settings first to update m_currentShowSettings with the new values
         loadShowSettings(m_currentShowFolder);
         
         // Check if TMDB data was updated or display file names setting changed and reload tree widget if needed
-        if (settingsDialog.wasTMDBDataUpdated() || settingsDialog.wasDisplayFileNamesChanged()) {
-            qDebug() << "Operations_VP_Shows: TMDB data or display file names setting was updated, reloading episode tree";
+        // Note: We already checked watch history above, so we don't need to check it again here
+        if (!settingsDialog.wasWatchHistoryReset() && 
+            (settingsDialog.wasTMDBDataUpdated() || settingsDialog.wasDisplayFileNamesChanged())) {
+            qDebug() << "Operations_VP_Shows: Tree refresh needed - TMDB:" << settingsDialog.wasTMDBDataUpdated()
+                     << "DisplayFileNames:" << settingsDialog.wasDisplayFileNamesChanged();
             // Now loadShowEpisodes will use the updated m_currentShowSettings values
             loadShowEpisodes(m_currentShowFolder);
         }
