@@ -29,7 +29,7 @@ const QString DEFAULT_TLISTS_PMESS = "None";
 const QString DEFAULT_TLISTS_NOTIF = "1";
 
 // Password Manager Settings
-const QString DEFAULT_PWMAN_DEF_SORTING_METHOD = "Password";
+const QString DEFAULT_PWMAN_DEF_SORTING_METHOD = "Service";
 const QString DEFAULT_PWMAN_REQ_PASSWORD = "0";
 const QString DEFAULT_PWMAN_HIDE_PASSWORDS = "0";
 
