@@ -398,11 +398,9 @@ QString AESGCM256Crypto::decrypt(const QByteArray& data) {
     // Ensure output buffer is the right size
     plaintext.resize(total_out);
 
-    // Convert decrypted data to QString
-    QString result;
-    for (size_t i = 0; i < plaintext.size(); ++i) {
-        result.append(QLatin1Char(static_cast<char>(plaintext[i])));
-    }
+    // Convert decrypted data to QString from UTF-8
+    QByteArray decryptedBytes(reinterpret_cast<const char*>(plaintext.data()), static_cast<int>(plaintext.size()));
+    QString result = QString::fromUtf8(decryptedBytes);
 
     // SECURITY: Clean up sensitive data from memory
     OPENSSL_cleanse(plaintext.data(), plaintext.size());
