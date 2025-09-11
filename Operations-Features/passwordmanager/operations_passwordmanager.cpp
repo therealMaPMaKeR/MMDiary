@@ -109,8 +109,31 @@ Operations_PasswordManager::~Operations_PasswordManager()
         m_clipboardTimer = nullptr;
     }
     
-    // Clean up any cached passwords in widgets
-    cleanupCachedPasswords();
+    // Force complete cleanup of ALL cached passwords in destructor
+    // This overrides the normal behavior to ensure security on shutdown
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->tableWidget_PWDisplay) {
+        int rowCount = m_mainWindow->ui->tableWidget_PWDisplay->rowCount();
+        int colCount = m_mainWindow->ui->tableWidget_PWDisplay->columnCount();
+        
+        for (int row = 0; row < rowCount; ++row) {
+            for (int col = 0; col < colCount; ++col) {
+                QTableWidgetItem* item = m_mainWindow->ui->tableWidget_PWDisplay->item(row, col);
+                if (item) {
+                    // Clear ALL UserRole data in destructor for security
+                    if (item->data(Qt::UserRole + 10).isValid()) {
+                        QString storedPassword = item->data(Qt::UserRole + 10).toString();
+                        secureStringClear(storedPassword);
+                        item->setData(Qt::UserRole + 10, QVariant());
+                    }
+                    if (item->data(Qt::UserRole + 1).isValid()) {
+                        QString storedPassword = item->data(Qt::UserRole + 1).toString();
+                        secureStringClear(storedPassword);
+                        item->setData(Qt::UserRole + 1, QVariant());
+                    }
+                }
+            }
+        }
+    }
     
     // Clear the current loaded value
     if (!m_currentLoadedValue.isEmpty()) {
@@ -131,11 +154,15 @@ void Operations_PasswordManager::cleanupCachedPasswords()
             for (int col = 0; col < colCount; ++col) {
                 QTableWidgetItem* item = m_mainWindow->ui->tableWidget_PWDisplay->item(row, col);
                 if (item) {
-                    // Clear UserRole+10 (stored password)
-                    if (item->data(Qt::UserRole + 10).isValid()) {
-                        QString storedPassword = item->data(Qt::UserRole + 10).toString();
-                        secureStringClear(storedPassword);
-                        item->setData(Qt::UserRole + 10, QVariant());
+                    // IMPORTANT: Don't clear UserRole+10 if passwords are hidden
+                    // We need this data to unmask passwords for copying!
+                    if (!m_mainWindow->setting_PWMan_HidePasswords) {
+                        // Only clear UserRole+10 when passwords are visible
+                        if (item->data(Qt::UserRole + 10).isValid()) {
+                            QString storedPassword = item->data(Qt::UserRole + 10).toString();
+                            secureStringClear(storedPassword);
+                            item->setData(Qt::UserRole + 10, QVariant());
+                        }
                     }
                     // Clear UserRole+1 (password in metadata)
                     if (item->data(Qt::UserRole + 1).isValid()) {
@@ -152,12 +179,16 @@ void Operations_PasswordManager::cleanupCachedPasswords()
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->listWidget_PWList) {
         int listCount = m_mainWindow->ui->listWidget_PWList->count();
         
-        for (int i = 0; i < listCount; ++i) {
-            QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
-            if (item && item->data(Qt::UserRole + 10).isValid()) {
-                QString storedPassword = item->data(Qt::UserRole + 10).toString();
-                secureStringClear(storedPassword);
-                item->setData(Qt::UserRole + 10, QVariant());
+        // IMPORTANT: Don't clear UserRole+10 if passwords are hidden
+        // We need this data to unmask passwords in the list!
+        if (!m_mainWindow->setting_PWMan_HidePasswords) {
+            for (int i = 0; i < listCount; ++i) {
+                QListWidgetItem* item = m_mainWindow->ui->listWidget_PWList->item(i);
+                if (item && item->data(Qt::UserRole + 10).isValid()) {
+                    QString storedPassword = item->data(Qt::UserRole + 10).toString();
+                    secureStringClear(storedPassword);
+                    item->setData(Qt::UserRole + 10, QVariant());
+                }
             }
         }
     }
@@ -1540,22 +1571,43 @@ void Operations_PasswordManager::onCopyToClipboardClicked()
     // Get the text from the cell
     QTableWidgetItem *item = m_mainWindow->ui->tableWidget_PWDisplay->item(row, column);
     if (item) {
-        // Get the text to copy
-        QString textToCopy = item->text();
-
-        // If this is a masked password, get the real password from user data
-        if (m_mainWindow->setting_PWMan_HidePasswords && textToCopy == "••••••••") {
-            textToCopy = item->data(Qt::UserRole + 10).toString();
-        }
-
         // Determine if this is a password column based on the current sorting method
         bool isPasswordColumn = false;
         QString sortingMethod = m_mainWindow->ui->comboBox_PWSortBy->currentText();
-
         if ((sortingMethod == "Password" && column == 0) ||
             (sortingMethod == "Account" && column == 1) ||
             (sortingMethod == "Service" && column == 2)) {
             isPasswordColumn = true;
+        }
+        
+        // Get the text to copy
+        QString textToCopy = item->text();
+
+        // If this is a masked password, get the real password from user data
+        if (isPasswordColumn && m_mainWindow->setting_PWMan_HidePasswords && textToCopy == "••••••••") {
+            qDebug() << "Operations_PasswordManager: Attempting to retrieve hidden password";
+            
+            // First try UserRole+10 where UpdatePasswordMasking stores it
+            textToCopy = item->data(Qt::UserRole + 10).toString();
+            qDebug() << "Operations_PasswordManager: UserRole+10 password length:" << textToCopy.length();
+            
+            // If still empty, get from the metadata stored in first column
+            if (textToCopy.isEmpty()) {
+                qDebug() << "Operations_PasswordManager: UserRole+10 empty, trying metadata fallback";
+                QTableWidgetItem* firstColItem = m_mainWindow->ui->tableWidget_PWDisplay->item(row, 0);
+                if (firstColItem) {
+                    QString metadataPassword = firstColItem->data(Qt::UserRole + 1).toString();
+                    qDebug() << "Operations_PasswordManager: Metadata password length:" << metadataPassword.length();
+                    if (!metadataPassword.isEmpty() && metadataPassword != "(None)") {
+                        textToCopy = metadataPassword;
+                        qDebug() << "Operations_PasswordManager: Successfully retrieved password from metadata";
+                    }
+                }
+            }
+            
+            if (textToCopy.isEmpty()) {
+                qWarning() << "Operations_PasswordManager: Failed to retrieve hidden password!";
+            }
         }
 
         // Use secure clipboard for passwords
@@ -1884,20 +1936,43 @@ void Operations_PasswordManager::onTableItemDoubleClicked(QTableWidgetItem *item
     int column = item->column();
     int row = item->row();
 
-    // Get text to copy (use original password if this is a masked password)
-    QString textToCopy = item->text();
-    if (m_mainWindow->setting_PWMan_HidePasswords && textToCopy == "••••••••") {
-        textToCopy = item->data(Qt::UserRole + 10).toString();
-    }
-
     // Determine if this is a password column based on the current sorting method
     bool isPasswordColumn = false;
     QString sortingMethod = m_mainWindow->ui->comboBox_PWSortBy->currentText();
-
     if ((sortingMethod == "Password" && column == 0) ||
         (sortingMethod == "Account" && column == 1) ||
         (sortingMethod == "Service" && column == 2)) {
         isPasswordColumn = true;
+    }
+    
+    // Get text to copy (use original password if this is a masked password)
+    QString textToCopy = item->text();
+    
+    // If this is a masked password, get the real password
+    if (isPasswordColumn && m_mainWindow->setting_PWMan_HidePasswords && textToCopy == "••••••••") {
+        qDebug() << "Operations_PasswordManager: Double-click - Attempting to retrieve hidden password";
+        
+        // First try UserRole+10 where UpdatePasswordMasking stores it
+        textToCopy = item->data(Qt::UserRole + 10).toString();
+        qDebug() << "Operations_PasswordManager: UserRole+10 password length:" << textToCopy.length();
+        
+        // If still empty, get from the metadata stored in first column
+        if (textToCopy.isEmpty()) {
+            qDebug() << "Operations_PasswordManager: UserRole+10 empty, trying metadata fallback";
+            QTableWidgetItem* firstColItem = m_mainWindow->ui->tableWidget_PWDisplay->item(row, 0);
+            if (firstColItem) {
+                QString metadataPassword = firstColItem->data(Qt::UserRole + 1).toString();
+                qDebug() << "Operations_PasswordManager: Metadata password length:" << metadataPassword.length();
+                if (!metadataPassword.isEmpty() && metadataPassword != "(None)") {
+                    textToCopy = metadataPassword;
+                    qDebug() << "Operations_PasswordManager: Successfully retrieved password from metadata";
+                }
+            }
+        }
+        
+        if (textToCopy.isEmpty()) {
+            qWarning() << "Operations_PasswordManager: Failed to retrieve hidden password!";
+        }
     }
 
     // Use secure clipboard for passwords
@@ -2165,6 +2240,8 @@ void Operations_PasswordManager::on_PWListItemClicked(QListWidgetItem *item)
 
 void Operations_PasswordManager::UpdatePasswordMasking()
 {
+    qDebug() << "Operations_PasswordManager: UpdatePasswordMasking called, hide setting:" << m_mainWindow->setting_PWMan_HidePasswords;
+    
     // Block signals during our updates to prevent recursion
     m_mainWindow->ui->comboBox_PWSortBy->blockSignals(true);
 
@@ -2225,19 +2302,42 @@ void Operations_PasswordManager::UpdatePasswordMasking()
             QTableWidgetItem* item = m_mainWindow->ui->tableWidget_PWDisplay->item(row, passwordColumn);
             if (item) {
                 // Store the actual password in user data if it's not already there
+                // IMPORTANT: Only store if the current text is NOT already masked
                 if (!item->data(Qt::UserRole + 10).isValid()) {
-                    item->setData(Qt::UserRole + 10, item->text());
+                    if (item->text() != "••••••••" && !item->text().isEmpty()) {
+                        // Store the current text as the password
+                        item->setData(Qt::UserRole + 10, item->text());
+                        qDebug() << "Operations_PasswordManager: Stored password in UserRole+10, length:" << item->text().length();
+                    } else {
+                        // If text is already masked or empty, try to get password from metadata
+                        qDebug() << "Operations_PasswordManager: Item text is masked or empty, trying metadata";
+                        QTableWidgetItem* firstColItem = m_mainWindow->ui->tableWidget_PWDisplay->item(row, 0);
+                        if (firstColItem) {
+                            QString metadataPassword = firstColItem->data(Qt::UserRole + 1).toString();
+                            if (!metadataPassword.isEmpty() && metadataPassword != "(None)") {
+                                item->setData(Qt::UserRole + 10, metadataPassword);
+                                qDebug() << "Operations_PasswordManager: Stored password from metadata, length:" << metadataPassword.length();
+                            } else {
+                                qDebug() << "Operations_PasswordManager: No valid password found in metadata";
+                            }
+                        }
+                    }
                 }
 
                 // Update display text based on masking setting
                 if (m_mainWindow->setting_PWMan_HidePasswords) {
-                    item->setText("••••••••");
+                    // Only mask if we have valid password data stored
+                    if (item->data(Qt::UserRole + 10).isValid()) {
+                        item->setText("••••••••");
+                    }
                 } else {
                     // Restore the original password from user data
                     QString originalPassword = item->data(Qt::UserRole + 10).toString();
-                    item->setText(originalPassword);
-                    // Clear the stored password data when unmasking
-                    item->setData(Qt::UserRole + 10, QVariant());
+                    if (!originalPassword.isEmpty()) {
+                        item->setText(originalPassword);
+                        // Clear the stored password data when unmasking
+                        item->setData(Qt::UserRole + 10, QVariant());
+                    }
                 }
             }
         }
