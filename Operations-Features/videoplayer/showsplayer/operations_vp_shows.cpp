@@ -349,9 +349,7 @@ Operations_VP_Shows::~Operations_VP_Shows()
         VP_MetadataLockManager::instance()->cleanup();
     }
     
-    // Clear session playback speeds
-    m_sessionPlaybackSpeeds.clear();
-    qDebug() << "Operations_VP_Shows: Session playback speeds cleared";
+    // Playback speeds are now handled globally in BaseVideoPlayer
 }
 
 // ============================================================================
@@ -1960,39 +1958,8 @@ void Operations_VP_Shows::cleanupIncompleteShowFolders()
 }
 
 // ============================================================================
-// Playback Speed Management (Session-based)
+// Playback Speed Management - Removed (now handled globally in BaseVideoPlayer)
 // ============================================================================
-
-qreal Operations_VP_Shows::getSessionPlaybackSpeed(const QString& showFolder) const
-{
-    qDebug() << "Operations_VP_Shows: Getting session playback speed for show:" << showFolder;
-    
-    // Check if we have a saved speed for this show in the current session
-    auto speedOpt = m_sessionPlaybackSpeeds.value(showFolder);
-    if (speedOpt.has_value()) {
-        qreal speed = speedOpt.value();
-        qDebug() << "Operations_VP_Shows: Found session speed:" << speed;
-        return speed;
-    }
-    
-    // Default to 1x speed
-    qDebug() << "Operations_VP_Shows: No session speed found, returning default 1.0x";
-    return 1.0;
-}
-
-void Operations_VP_Shows::setSessionPlaybackSpeed(const QString& showFolder, qreal speed)
-{
-    qDebug() << "Operations_VP_Shows: Setting session playback speed for show:" << showFolder << "to" << speed;
-    
-    // Clamp speed to reasonable values
-    if (speed < 0.25) speed = 0.25;
-    if (speed > 4.0) speed = 4.0;
-    
-    // Store the speed for this show in the session (thread-safe)
-    m_sessionPlaybackSpeeds.insert(showFolder, speed);
-    
-    qDebug() << "Operations_VP_Shows: Session speed saved. Current session speeds count:" << m_sessionPlaybackSpeeds.size();
-}
 
 void Operations_VP_Shows::loadTVShowsList()
 {
@@ -4050,14 +4017,7 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
             safeThisForError->cleanupTempFile();
         });
 
-        // Connect playback speed changed signal to save the speed for this show
-        connect(m_episodePlayer.get(), &VP_Shows_Videoplayer::playbackSpeedChanged,
-                this, [this](qreal speed) {
-            if (!m_currentShowFolder.isEmpty()) {
-                qDebug() << "Operations_VP_Shows: Playback speed changed to" << speed << "- saving for session";
-                setSessionPlaybackSpeed(m_currentShowFolder, speed);
-            }
-        });
+        // Playback speed is now saved globally in BaseVideoPlayer, no need for per-show handling
 
         // Connect finished signal to trigger autoplay when episode completes naturally
         QPointer<Operations_VP_Shows> safeThis = this;
@@ -4253,14 +4213,7 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
                         m_forceStartFromBeginning = false; // Reset the flag
                     }
 
-                    // Apply the session playback speed for this show
-                    if (!m_currentShowFolder.isEmpty()) {
-                        qreal sessionSpeed = getSessionPlaybackSpeed(m_currentShowFolder);
-                        if (!qFuzzyCompare(sessionSpeed, 1.0)) {
-                            qDebug() << "Operations_VP_Shows: Applying session playback speed:" << sessionSpeed;
-                            m_episodePlayer->setPlaybackSpeed(sessionSpeed);
-                        }
-                    }
+                    // Playback speed is now restored globally from BaseVideoPlayer's static member
 
                     // Determine if we should resume
                     bool shouldResume = (resumePosition > 1000);

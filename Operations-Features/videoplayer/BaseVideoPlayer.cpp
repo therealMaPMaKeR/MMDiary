@@ -22,6 +22,7 @@ bool BaseVideoPlayer::s_wasFullScreen = false;
 bool BaseVideoPlayer::s_wasMaximized = false;
 bool BaseVideoPlayer::s_wasMinimized = false;
 int BaseVideoPlayer::s_lastVolume = 70;  // Default volume
+qreal BaseVideoPlayer::s_lastPlaybackSpeed = 1.0;  // Default playback speed
 bool BaseVideoPlayer::s_hasStoredSettings = false;
 
 // Custom clickable slider class for seeking in video
@@ -224,8 +225,9 @@ void BaseVideoPlayer::initializeFromPreviousSettings()
              << "Was maximized:" << s_wasMaximized 
              << "Was minimized:" << s_wasMinimized;
     
-    // Always restore volume (even for first play)
+    // Always restore volume and playback speed (even for first play)
     setVolume(s_lastVolume);
+    setPlaybackSpeed(s_lastPlaybackSpeed);
     
     // Always try to restore to the last used monitor if available
     if (s_lastUsedScreen && QGuiApplication::screens().contains(s_lastUsedScreen)) {
@@ -338,7 +340,7 @@ void BaseVideoPlayer::createControls()
     m_speedSpinBox = new QDoubleSpinBox(this);
     m_speedSpinBox->setRange(0.1, 5.0);
     m_speedSpinBox->setSingleStep(0.1);
-    m_speedSpinBox->setValue(1.0);
+    m_speedSpinBox->setValue(s_lastPlaybackSpeed);  // Use saved speed
     m_speedSpinBox->setSuffix("x");
     m_speedSpinBox->setDecimals(1);
     m_speedSpinBox->setMaximumWidth(80);
@@ -682,6 +684,9 @@ void BaseVideoPlayer::setPlaybackSpeed(qreal speed)
         m_speedSpinBox->setValue(speed);
         m_speedSpinBox->blockSignals(false);
     }
+    
+    // Save playback speed for next session (like volume)
+    s_lastPlaybackSpeed = speed;
     
     emit playbackSpeedChanged(speed);
 }

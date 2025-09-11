@@ -259,10 +259,7 @@ public:
     bool m_forceStartFromBeginning = false;  // Flag to force starting from beginning when near end on direct play
     bool m_isRandomAutoplay = false;  // Flag to indicate this is random autoplay (for position reset)
     
-    // Playback speed management (session-based) - Thread-safe
-    ThreadSafeMap<QString, qreal> m_sessionPlaybackSpeeds;  // Thread-safe map of show folder path to playback speed
-    qreal getSessionPlaybackSpeed(const QString& showFolder) const;
-    void setSessionPlaybackSpeed(const QString& showFolder, qreal speed);
+    // Removed playback speed management - now handled globally in BaseVideoPlayer
     
     // Safe list/tree widget access helpers
     QListWidgetItem* safeGetListItem(QListWidget* widget, int index) const;

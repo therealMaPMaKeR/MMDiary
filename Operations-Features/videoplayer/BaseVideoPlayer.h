@@ -183,6 +183,7 @@ protected:
     static bool s_wasMaximized;
     static bool s_wasMinimized;
     static int s_lastVolume;
+    static qreal s_lastPlaybackSpeed;  // Remember playback speed across videos
     static bool s_hasStoredSettings;
     
     // Virtual initialization for derived classes
