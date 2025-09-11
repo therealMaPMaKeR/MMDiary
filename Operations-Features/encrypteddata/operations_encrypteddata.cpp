@@ -702,48 +702,6 @@ void Operations_EncryptedData::onEncryptionCancelled()
         disconnect(m_worker, nullptr, this, nullptr);
         m_worker->cancel();
     }
-
-    // Clean up the worker thread
-    if (m_workerThread) {
-        m_workerThread->quit();
-        if (!m_workerThread->wait(5000)) {  // Wait up to 5 seconds
-            qWarning() << "Operations_EncryptedData: Worker thread didn't finish cleanly in onEncryptionCancelled";
-            m_workerThread->terminate();
-            m_workerThread->wait(1000);
-        }
-        m_workerThread->deleteLater();
-        m_workerThread = nullptr;
-    }
-
-    // Clean up the worker
-    if (m_worker) {
-        // Get target files for cleanup
-        QStringList targetFiles = m_worker->getTargetFiles();
-        
-        // Delete the worker
-        m_worker->deleteLater();
-        m_worker = nullptr;
-        
-        // Clean up any partial encrypted files
-        for (const QString& targetFile : targetFiles) {
-            if (!targetFile.isEmpty() && QFile::exists(targetFile)) {
-                qDebug() << "Operations_EncryptedData: Removing partial encrypted file:" << targetFile;
-                QFile::remove(targetFile);
-            }
-        }
-    }
-
-    // Close the progress dialog
-    if (m_encryptionProgressDialog) {
-        m_encryptionProgressDialog->close();
-        m_encryptionProgressDialog->deleteLater();
-        m_encryptionProgressDialog = nullptr;
-    }
-
-    // Refresh the file list in case any partial files were created
-    populateEncryptedFilesList();
-
-    qDebug() << "Operations_EncryptedData: Encryption cancelled and cleaned up";
 }
 
 // ============================================================================
@@ -1028,43 +986,6 @@ void Operations_EncryptedData::onDecryptionCancelled()
         disconnect(m_decryptWorker, nullptr, this, nullptr);
         m_decryptWorker->cancel();
     }
-
-    // Clean up the worker thread
-    if (m_decryptWorkerThread) {
-        m_decryptWorkerThread->quit();
-        if (!m_decryptWorkerThread->wait(5000)) {  // Wait up to 5 seconds
-            qWarning() << "Operations_EncryptedData: Worker thread didn't finish cleanly in onDecryptionCancelled";
-            m_decryptWorkerThread->terminate();
-            m_decryptWorkerThread->wait(1000);
-        }
-        m_decryptWorkerThread->deleteLater();
-        m_decryptWorkerThread = nullptr;
-    }
-
-    // Clean up the worker
-    if (m_decryptWorker) {
-        // Get target file path for cleanup
-        QString targetFilePath = m_decryptWorker->getTargetFile();
-        
-        // Delete the worker
-        m_decryptWorker->deleteLater();
-        m_decryptWorker = nullptr;
-        
-        // Clean up any partial decrypted file
-        if (!targetFilePath.isEmpty() && QFile::exists(targetFilePath)) {
-            qDebug() << "Operations_EncryptedData: Removing partial decrypted file:" << targetFilePath;
-            QFile::remove(targetFilePath);
-        }
-    }
-
-    // Close the progress dialog
-    if (m_progressDialog) {
-        m_progressDialog->close();
-        m_progressDialog->deleteLater();
-        m_progressDialog = nullptr;
-    }
-
-    qDebug() << "Operations_EncryptedData: Decryption cancelled and cleaned up";
 }
 
 // ============================================================================
@@ -1392,48 +1313,11 @@ void Operations_EncryptedData::onTempDecryptionCancelled()
         m_tempDecryptWorker->cancel();
     }
 
-    // Clean up the worker thread
-    if (m_tempDecryptWorkerThread) {
-        m_tempDecryptWorkerThread->quit();
-        if (!m_tempDecryptWorkerThread->wait(5000)) {  // Wait up to 5 seconds
-            qWarning() << "Operations_EncryptedData: Worker thread didn't finish cleanly in onTempDecryptionCancelled";
-            m_tempDecryptWorkerThread->terminate();
-            m_tempDecryptWorkerThread->wait(1000);
-        }
-        m_tempDecryptWorkerThread->deleteLater();
-        m_tempDecryptWorkerThread = nullptr;
-    }
-
-    // Clean up the worker
-    if (m_tempDecryptWorker) {
-        // Get temp file path for cleanup
-        QString tempFilePath = m_tempDecryptWorker->getTargetFile();
-        
-        // Delete the worker
-        m_tempDecryptWorker->deleteLater();
-        m_tempDecryptWorker = nullptr;
-        
-        // Clean up any partial temp file
-        if (!tempFilePath.isEmpty() && QFile::exists(tempFilePath)) {
-            qDebug() << "Operations_EncryptedData: Removing partial temp file:" << tempFilePath;
-            QFile::remove(tempFilePath);
-        }
-    }
-
-    // Close the progress dialog
-    if (m_progressDialog) {
-        m_progressDialog->close();
-        m_progressDialog->deleteLater();
-        m_progressDialog = nullptr;
-    }
-
     // Clear pending app
     {
         QMutexLocker locker(&m_stateMutex);
         m_pendingAppToOpen.clear();
     }
-
-    qDebug() << "Operations_EncryptedData: Temp decryption cancelled and cleaned up";
 }
 
 // ============================================================================
@@ -3230,47 +3114,13 @@ void Operations_EncryptedData::onSecureDeletionFinished(bool success, const Dele
 
 void Operations_EncryptedData::onSecureDeletionCancelled()
 {
-    qDebug() << "Operations_EncryptedData: Secure deletion cancelled by user";
+    if (m_secureDeletionWorker) {
+        m_secureDeletionWorker->cancel();
+    }
 
     if (m_secureDeletionProgressDialog) {
         m_secureDeletionProgressDialog->setStatusText("Cancelling operation...");
     }
-
-    if (m_secureDeletionWorker) {
-        // Disconnect signals first to prevent race conditions
-        disconnect(m_secureDeletionWorker, nullptr, this, nullptr);
-        m_secureDeletionWorker->cancel();
-    }
-
-    // Clean up the worker thread
-    if (m_secureDeletionWorkerThread) {
-        m_secureDeletionWorkerThread->quit();
-        if (!m_secureDeletionWorkerThread->wait(5000)) {  // Wait up to 5 seconds
-            qWarning() << "Operations_EncryptedData: Worker thread didn't finish cleanly in onSecureDeletionCancelled";
-            m_secureDeletionWorkerThread->terminate();
-            m_secureDeletionWorkerThread->wait(1000);
-        }
-        m_secureDeletionWorkerThread->deleteLater();
-        m_secureDeletionWorkerThread = nullptr;
-    }
-
-    // Clean up the worker
-    if (m_secureDeletionWorker) {
-        m_secureDeletionWorker->deleteLater();
-        m_secureDeletionWorker = nullptr;
-    }
-
-    // Close the progress dialog
-    if (m_secureDeletionProgressDialog) {
-        m_secureDeletionProgressDialog->close();
-        m_secureDeletionProgressDialog->deleteLater();
-        m_secureDeletionProgressDialog = nullptr;
-    }
-
-    // Refresh the file list in case some files were deleted before cancellation
-    populateEncryptedFilesList();
-
-    qDebug() << "Operations_EncryptedData: Secure deletion cancelled and cleaned up";
 }
 
 
@@ -3613,44 +3463,14 @@ void Operations_EncryptedData::onBatchDecryptionFinished(bool success, const QSt
 
 void Operations_EncryptedData::onBatchDecryptionCancelled()
 {
-    qDebug() << "Operations_EncryptedData: Batch decryption cancelled by user";
-
-    if (m_batchProgressDialog) {
-        m_batchProgressDialog->setStatusText("Cancelling operation...");
-    }
-
     if (m_batchDecryptWorker) {
-        // Disconnect signals first to prevent race conditions
-        disconnect(m_batchDecryptWorker, nullptr, this, nullptr);
         m_batchDecryptWorker->cancel();
     }
 
-    // Clean up the worker thread
-    if (m_batchDecryptWorkerThread) {
-        m_batchDecryptWorkerThread->quit();
-        if (!m_batchDecryptWorkerThread->wait(5000)) {  // Wait up to 5 seconds
-            qWarning() << "Operations_EncryptedData: Worker thread didn't finish cleanly in onBatchDecryptionCancelled";
-            m_batchDecryptWorkerThread->terminate();
-            m_batchDecryptWorkerThread->wait(1000);
-        }
-        m_batchDecryptWorkerThread->deleteLater();
-        m_batchDecryptWorkerThread = nullptr;
-    }
-
-    // Clean up the worker
-    if (m_batchDecryptWorker) {
-        m_batchDecryptWorker->deleteLater();
-        m_batchDecryptWorker = nullptr;
-    }
-
-    // Close the progress dialog
+    // Fix: Use proper dialog reference for batch decryption
     if (m_batchProgressDialog) {
-        m_batchProgressDialog->close();
-        m_batchProgressDialog->deleteLater();
-        m_batchProgressDialog = nullptr;
+        m_batchProgressDialog->setStatusText("Cancelling operation...");
     }
-
-    qDebug() << "Operations_EncryptedData: Batch decryption cancelled and cleaned up";
 }
 
 // ============================================================================
