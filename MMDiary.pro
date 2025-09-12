@@ -483,6 +483,7 @@ FORMS += \
     Operations-Features/videoplayer/showsplayer/vp_shows_edit_multiple_metadata_dialog.ui \
     Operations-Features/videoplayer/showsplayer/vp_shows_settings_dialog.ui \
     Operations-Features/tasklists/tasklists_addtask.ui \
+    Operations-Features/tasklists/tasklists_createtasklist.ui \
     Operations-Global/imageviewer.ui \
     Operations-Global/passwordvalidation.ui \
     about_MMDiary.ui \

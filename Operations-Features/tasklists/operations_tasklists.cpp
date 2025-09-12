@@ -6,6 +6,7 @@
 #include "ui_mainwindow.h"
 #include "../../constants.h"
 #include "ui_tasklists_addtask.h"
+#include "ui_tasklists_createtasklist.h"
 #include "../../CustomWidgets/tasklists/qlist_TasklistDisplay.h"
 #include <QApplication>
 #include <QDateTime>
@@ -414,10 +415,6 @@ Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
     // Tree widget handles its own reordering internally
     // Structure changes are saved via the structureChanged signal connected above
 
-    // Connect the Create Category button
-    connect(m_mainWindow->ui->pushButton_Tasklists_NewCategory, &QPushButton::clicked,
-            this, &Operations_TaskLists::CreateNewCategory);
-    
     // Connect tree widget structure changes to save settings
     if (auto* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List)) {
         connect(treeWidget, &qtree_Tasklists_list::structureChanged,
@@ -1845,7 +1842,7 @@ void Operations_TaskLists::LoadTasklists()
 
 void Operations_TaskLists::CreateNewTaskList()
 {
-    qDebug() << "Operations_TaskLists: Creating new task list";
+    qDebug() << "Operations_TaskLists: Creating new task list with dialog";
 
     qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List);
     if (!treeWidget) {
@@ -1853,73 +1850,144 @@ void Operations_TaskLists::CreateNewTaskList()
         return;
     }
 
-    // Get the currently selected item to determine the category
-    QTreeWidgetItem* currentItem = treeWidget->currentItem();
-    QString targetCategory;
+    // Create and configure the dialog
+    QDialog dialog(m_mainWindow);
+    Ui::Tasklists_CreateTasklist ui;
+    ui.setupUi(&dialog);
+
+    // Get all existing categories for the combo box
+    QStringList categories = treeWidget->getAllCategories();
     
-    if (!currentItem) {
-        // No selection - check if there are any categories
-        QStringList categories = treeWidget->getAllCategories();
-        if (categories.isEmpty()) {
-            QMessageBox::information(m_mainWindow, "No Categories",
-                "Please create a category first before creating a tasklist.");
-            return;
-        }
-        // Prompt user to select a category
-        bool ok;
-        targetCategory = QInputDialog::getItem(m_mainWindow, "Select Category",
-            "Select a category for the new tasklist:", categories, 0, false, &ok);
-        if (!ok || targetCategory.isEmpty()) {
-            return; // User cancelled
-        }
-    } else if (treeWidget->isCategory(currentItem)) {
-        // A category is selected - use it
-        targetCategory = currentItem->text(0);
-    } else {
-        // A tasklist is selected - use its parent category
-        QTreeWidgetItem* parent = currentItem->parent();
-        if (parent) {
-            targetCategory = parent->text(0);
+    // Determine the default category based on current selection
+    QString defaultCategory;
+    QTreeWidgetItem* currentItem = treeWidget->currentItem();
+    
+    if (currentItem) {
+        if (treeWidget->isCategory(currentItem)) {
+            // A category is selected - use it
+            defaultCategory = currentItem->text(0);
         } else {
-            QMessageBox::warning(m_mainWindow, "Error",
-                "Selected tasklist has no parent category.");
-            return;
+            // A tasklist is selected - use its parent category
+            QTreeWidgetItem* parent = currentItem->parent();
+            if (parent) {
+                defaultCategory = parent->text(0);
+            }
+        }
+    }
+    
+    // If no default category and no categories exist, default to "New Category"
+    if (defaultCategory.isEmpty() && categories.isEmpty()) {
+        defaultCategory = "New Category";
+    } else if (defaultCategory.isEmpty() && !categories.isEmpty()) {
+        // Use the first available category
+        defaultCategory = categories.first();
+    }
+
+    // Populate the combo box with existing categories
+    ui.comboBox_Category->addItems(categories);
+    
+    // Set the default category in the combo box
+    if (!defaultCategory.isEmpty()) {
+        int index = ui.comboBox_Category->findText(defaultCategory);
+        if (index >= 0) {
+            ui.comboBox_Category->setCurrentIndex(index);
+        } else {
+            // Category doesn't exist in list, set it as text (for new categories)
+            ui.comboBox_Category->setCurrentText(defaultCategory);
         }
     }
 
-    // Get all existing tasklist names
+    // Get all existing tasklist names for generating a unique default name
     QStringList existingNames;
-    QStringList categories = treeWidget->getAllCategories();
     for (const QString& category : categories) {
         QStringList tasklistsInCategory = treeWidget->getTasklistsInCategory(category);
         existingNames.append(tasklistsInCategory);
     }
 
-    // Get a unique name for the new task list
+    // Set a unique default name for the new task list
     QString initialName = "New Task List";
     QString uniqueName = Operations::GetUniqueItemName(initialName, existingNames);
+    ui.lineEdit_TasklistName->setText(uniqueName);
+    ui.lineEdit_TasklistName->selectAll(); // Select all text for easy replacement
 
-    // Add the new tasklist to the selected category
-    QTreeWidgetItem* newItem = treeWidget->addTasklist(uniqueName, targetCategory);
-    if (!newItem) {
-        qWarning() << "Operations_TaskLists: Failed to add new tasklist to tree";
-        return;
+    // Focus on the name field
+    ui.lineEdit_TasklistName->setFocus();
+
+    // Show the dialog
+    if (dialog.exec() == QDialog::Accepted) {
+        QString tasklistName = ui.lineEdit_TasklistName->text().trimmed();
+        QString categoryName = ui.comboBox_Category->currentText().trimmed();
+
+        // Validate tasklist name
+        InputValidation::ValidationResult nameResult =
+            InputValidation::validateInput(tasklistName, InputValidation::InputType::TaskListName);
+        if (!nameResult.isValid) {
+            QMessageBox::warning(m_mainWindow, "Invalid Tasklist Name", nameResult.errorMessage);
+            return;
+        }
+
+        if (tasklistName.isEmpty()) {
+            QMessageBox::warning(m_mainWindow, "Empty Name",
+                                "Please enter a name for the tasklist.");
+            return;
+        }
+
+        // Validate category name
+        if (categoryName.isEmpty()) {
+            QMessageBox::warning(m_mainWindow, "Empty Category",
+                                "Please enter or select a category.");
+            return;
+        }
+
+        InputValidation::ValidationResult categoryResult =
+            InputValidation::validateInput(categoryName, InputValidation::InputType::PlainText);
+        if (!categoryResult.isValid) {
+            QMessageBox::warning(m_mainWindow, "Invalid Category Name", categoryResult.errorMessage);
+            return;
+        }
+
+        // Check if the category exists, create it if it doesn't
+        if (!categories.contains(categoryName)) {
+            qDebug() << "Operations_TaskLists: Creating new category:" << categoryName;
+            QTreeWidgetItem* newCategory = treeWidget->addCategory(categoryName);
+            if (!newCategory) {
+                QMessageBox::warning(m_mainWindow, "Category Creation Failed",
+                                   "Failed to create the new category.");
+                return;
+            }
+            newCategory->setExpanded(true);
+        }
+
+        // Check if tasklist name already exists and make it unique if necessary
+        QStringList allTasklists;
+        categories = treeWidget->getAllCategories(); // Refresh categories list
+        for (const QString& cat : categories) {
+            allTasklists.append(treeWidget->getTasklistsInCategory(cat));
+        }
+        
+        if (allTasklists.contains(tasklistName)) {
+            tasklistName = Operations::GetUniqueItemName(tasklistName, allTasklists);
+        }
+
+        // Add the new tasklist to the specified category
+        QTreeWidgetItem* newItem = treeWidget->addTasklist(tasklistName, categoryName);
+        if (!newItem) {
+            qWarning() << "Operations_TaskLists: Failed to add new tasklist to tree";
+            return;
+        }
+
+        // Create the task list directory and file
+        CreateTaskListFile(tasklistName);
+
+        // Select the new item
+        treeWidget->setCurrentItem(newItem);
+        
+        // Save the updated settings
+        SaveTasklistSettings();
+        
+        // Load the newly created tasklist
+        LoadIndividualTasklist(tasklistName, "NULL");
     }
-
-    // Create the task list directory and file
-    CreateTaskListFile(uniqueName);
-
-    // Select the new item
-    treeWidget->setCurrentItem(newItem);
-    
-    // Save the updated settings
-    SaveTasklistSettings();
-    
-    // TODO: Enable inline editing of the new tasklist name
-    // For now, the user can use right-click rename later
-    
-    // Load the newly created tasklist
-    LoadIndividualTasklist(uniqueName, "NULL");
 }
 
 void Operations_TaskLists::CreateTaskListFile(const QString& listName)
@@ -3633,8 +3701,33 @@ void Operations_TaskLists::CreateNewCategory()
     QString initialName = "New Category";
     QString uniqueName = Operations::GetUniqueItemName(initialName, existingCategories);
     
+    // Prompt user for category name
+    bool ok;
+    QString categoryName = QInputDialog::getText(m_mainWindow, "New Category",
+                                                "Enter category name:", QLineEdit::Normal,
+                                                uniqueName, &ok);
+    
+    if (!ok || categoryName.isEmpty()) {
+        return; // User cancelled or entered empty name
+    }
+    
+    // Validate category name
+    InputValidation::ValidationResult result =
+        InputValidation::validateInput(categoryName, InputValidation::InputType::PlainText);
+    if (!result.isValid) {
+        QMessageBox::warning(m_mainWindow, "Invalid Category Name", result.errorMessage);
+        return;
+    }
+    
+    // Check for duplicates and make unique if necessary
+    if (existingCategories.contains(categoryName)) {
+        categoryName = Operations::GetUniqueItemName(categoryName, existingCategories);
+        QMessageBox::information(m_mainWindow, "Name Adjusted",
+                               "A category with that name already exists. The category has been created as: " + categoryName);
+    }
+    
     // Add the category to the tree
-    QTreeWidgetItem* categoryItem = treeWidget->addCategory(uniqueName);
+    QTreeWidgetItem* categoryItem = treeWidget->addCategory(categoryName);
     if (!categoryItem) {
         qWarning() << "Operations_TaskLists: Failed to create category";
         return;
