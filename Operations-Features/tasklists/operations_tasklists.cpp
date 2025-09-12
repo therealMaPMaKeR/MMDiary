@@ -1988,6 +1988,168 @@ void Operations_TaskLists::CreateTaskListFile(const QString& listName)
     LoadIndividualTasklist(listName, "NULL");
 }
 
+void Operations_TaskLists::CreateNewTask()
+{
+    qDebug() << "Operations_TaskLists: Creating new task with inline editing";
+
+    // Get current task list
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
+    if (!currentTaskListItem) {
+        QMessageBox::warning(m_mainWindow, "No Task List Selected",
+                            "Please select a task list first.");
+        return;
+    }
+
+    QString currentTaskList = currentTaskListItem->text();
+
+    // Find the tasklist file
+    QString taskListFilePath = findTasklistFileByName(currentTaskList);
+    if (taskListFilePath.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "Task List Not Found",
+                            "Could not find the selected task list.");
+        return;
+    }
+
+    // Read existing tasks to check for duplicates
+    QJsonArray tasks;
+    if (!readTasklistJson(taskListFilePath, tasks)) {
+        // If reading fails, start with empty array
+        tasks = QJsonArray();
+    }
+
+    // Build list of existing task names
+    QStringList existingNames;
+    for (const QJsonValue& value : tasks) {
+        if (!value.isObject()) continue;
+        QJsonObject taskObj = value.toObject();
+        QString taskName = taskObj["name"].toString();
+        if (!taskName.isEmpty()) {
+            existingNames.append(taskName);
+        }
+    }
+
+    // Get a unique name for the new task
+    QString initialName = "New Task";
+    QString uniqueName = Operations::GetUniqueItemName(initialName, existingNames);
+
+    // Create new task object with unique name
+    QString taskId = QUuid::createUuid().toString();
+    QString creationDate = QDateTime::currentDateTime().toString(Qt::ISODate);
+    QJsonObject newTask = taskToJson(uniqueName, false, "", creationDate, "", taskId);
+    
+    // Add the new task to the array
+    tasks.append(newTask);
+    
+    // Write back the updated tasks
+    if (!writeTasklistJson(taskListFilePath, tasks)) {
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not save the new task.");
+        return;
+    }
+
+    // Reload the task list to show the new task
+    LoadIndividualTasklist(currentTaskList, uniqueName);
+
+    // Find the new task item in the display list and enable inline editing
+    QListWidget* taskDisplayWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
+    QListWidgetItem* newTaskItem = nullptr;
+    
+    int taskCount = safeGetItemCount(taskDisplayWidget);
+    for (int i = 0; i < taskCount; ++i) {
+        QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
+        if (item && item->text() == uniqueName) {
+            newTaskItem = item;
+            break;
+        }
+    }
+
+    if (!newTaskItem) {
+        qWarning() << "Operations_TaskLists: Could not find newly created task item for editing";
+        return;
+    }
+
+    // Store the task info for editing
+    currentTaskToEdit = uniqueName;
+    currentTaskData = taskId;
+    m_currentTaskName = uniqueName;
+
+    // Enable inline editing
+    newTaskItem->setFlags(newTaskItem->flags() | Qt::ItemIsEditable);
+    taskDisplayWidget->editItem(newTaskItem);
+
+    // Get the row for validation
+    int itemRow = taskDisplayWidget->row(newTaskItem);
+
+    // Use a single-shot connection to handle the edit completion
+    QMetaObject::Connection* conn = new QMetaObject::Connection();
+    *conn = connect(taskDisplayWidget, &QListWidget::itemChanged, this,
+            [this, taskDisplayWidget, itemRow, conn, uniqueName](QListWidgetItem* changedItem) {
+                // Validate the item at the row is the one that changed
+                int currentCount = safeGetItemCount(taskDisplayWidget);
+                if (itemRow >= 0 && itemRow < currentCount) {
+                    QListWidgetItem* itemAtRow = safeGetItem(taskDisplayWidget, itemRow);
+                    if (itemAtRow && itemAtRow == changedItem) {
+                        disconnect(*conn);
+                        delete conn;
+                        
+                        // Handle the rename with automatic duplicate numbering
+                        QString newName = changedItem->text().trimmed();
+                        
+                        // If the user cleared the name or left it as the unique name, just finish
+                        if (newName.isEmpty() || newName == uniqueName) {
+                            changedItem->setFlags(changedItem->flags() & ~Qt::ItemIsEditable);
+                            return;
+                        }
+                        
+                        // Get current task list to check for duplicates
+                        QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+                        QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
+                        if (!currentTaskListItem) {
+                            changedItem->setFlags(changedItem->flags() & ~Qt::ItemIsEditable);
+                            return;
+                        }
+                        
+                        QString currentTaskList = currentTaskListItem->text();
+                        QString taskListFilePath = findTasklistFileByName(currentTaskList);
+                        if (taskListFilePath.isEmpty()) {
+                            changedItem->setFlags(changedItem->flags() & ~Qt::ItemIsEditable);
+                            return;
+                        }
+                        
+                        // Read existing tasks
+                        QJsonArray tasks;
+                        if (!readTasklistJson(taskListFilePath, tasks)) {
+                            changedItem->setFlags(changedItem->flags() & ~Qt::ItemIsEditable);
+                            return;
+                        }
+                        
+                        // Build list of existing names (excluding the current task)
+                        QStringList existingNames;
+                        for (const QJsonValue& value : tasks) {
+                            if (!value.isObject()) continue;
+                            QJsonObject taskObj = value.toObject();
+                            QString taskName = taskObj["name"].toString();
+                            QString taskId = taskObj["id"].toString();
+                            // Exclude the current task being renamed
+                            if (!taskName.isEmpty() && taskId != currentTaskData) {
+                                existingNames.append(taskName);
+                            }
+                        }
+                        
+                        // Get unique name if there's a duplicate
+                        QString finalName = Operations::GetUniqueItemName(newName, existingNames);
+                        if (finalName != newName) {
+                            changedItem->setText(finalName);
+                        }
+                        
+                        // Now perform the actual rename
+                        RenameTask(changedItem);
+                    }
+                }
+            });
+}
+
 void Operations_TaskLists::DeleteTaskList()
 {
     qDebug() << "Operations_TaskLists: Deleting task list";
@@ -2318,11 +2480,26 @@ void Operations_TaskLists::AddTaskSimple(QString taskName, QString description)
         return;
     }
 
-    // Check for duplicate task names
+    // Check for duplicate task names and automatically append number if needed
     if (checkDuplicateTaskName(taskName, taskListFilePath)) {
-        QMessageBox::warning(m_mainWindow, "Duplicate Task Name",
-                            "A task with this name already exists in the current task list.");
-        return;
+        // Build list of existing task names
+        QJsonArray existingTasks;
+        if (!readTasklistJson(taskListFilePath, existingTasks)) {
+            existingTasks = QJsonArray();
+        }
+        
+        QStringList existingNames;
+        for (const QJsonValue& value : existingTasks) {
+            if (!value.isObject()) continue;
+            QJsonObject taskObj = value.toObject();
+            QString existingTaskName = taskObj["name"].toString();
+            if (!existingTaskName.isEmpty()) {
+                existingNames.append(existingTaskName);
+            }
+        }
+        
+        // Get unique name with number appended
+        taskName = Operations::GetUniqueItemName(taskName, existingNames);
     }
 
     // Read existing tasks
@@ -2394,11 +2571,30 @@ void Operations_TaskLists::ModifyTaskSimple(const QString& originalTaskName, QSt
         return;
     }
 
-    // Check for duplicate task names (if name changed)
+    // Check for duplicate task names (if name changed) and automatically append number if needed
     if (originalTaskName != taskName && checkDuplicateTaskName(taskName, taskListFilePath, currentTaskId)) {
-        QMessageBox::warning(m_mainWindow, "Duplicate Task Name",
-                            "A task with this name already exists in the current task list.");
-        return;
+        // Build list of existing task names (excluding the current task)
+        QJsonArray existingTasks;
+        if (!readTasklistJson(taskListFilePath, existingTasks)) {
+            QMessageBox::warning(m_mainWindow, "File Error",
+                                "Could not read the task list file.");
+            return;
+        }
+        
+        QStringList existingNames;
+        for (const QJsonValue& value : existingTasks) {
+            if (!value.isObject()) continue;
+            QJsonObject taskObj = value.toObject();
+            QString existingTaskName = taskObj["name"].toString();
+            QString existingTaskId = taskObj["id"].toString();
+            // Exclude the current task being modified
+            if (!existingTaskName.isEmpty() && existingTaskId != currentTaskId) {
+                existingNames.append(existingTaskName);
+            }
+        }
+        
+        // Get unique name with number appended
+        taskName = Operations::GetUniqueItemName(taskName, existingNames);
     }
 
     // Read existing tasks
@@ -2582,13 +2778,32 @@ void Operations_TaskLists::RenameTask(QListWidgetItem* item)
         return;
     }
 
-    // Check for duplicate task names
+    // Check for duplicate task names and automatically append number if needed
     if (checkDuplicateTaskName(newName, taskListFilePath, taskId)) {
-        QMessageBox::warning(m_mainWindow, "Duplicate Task Name",
-                            "A task with this name already exists in the current task list.");
-        item->setText(originalName);
-        item->setFlags(originalFlags & ~Qt::ItemIsEditable);
-        return;
+        // Build list of existing task names (excluding the current task)
+        QJsonArray tasks;
+        if (!readTasklistJson(taskListFilePath, tasks)) {
+            item->setText(originalName);
+            item->setFlags(originalFlags & ~Qt::ItemIsEditable);
+            return;
+        }
+        
+        QStringList existingNames;
+        for (const QJsonValue& value : tasks) {
+            if (!value.isObject()) continue;
+            QJsonObject taskObj = value.toObject();
+            QString taskName = taskObj["name"].toString();
+            QString existingTaskId = taskObj["id"].toString();
+            // Exclude the current task being renamed
+            if (!taskName.isEmpty() && existingTaskId != taskId) {
+                existingNames.append(taskName);
+            }
+        }
+        
+        // Get unique name with number appended
+        QString uniqueName = Operations::GetUniqueItemName(newName, existingNames);
+        newName = uniqueName;
+        item->setText(uniqueName);
     }
 
     // Read existing tasks
@@ -3336,7 +3551,7 @@ void Operations_TaskLists::showContextMenu_TaskListDisplay(const QPoint &pos)
     }
 
     connect(newTaskAction, &QAction::triggered, this, [this]() {
-        ShowTaskMenu(false);
+        CreateNewTask();
     });
 
     // Capture by value to avoid dangling pointer

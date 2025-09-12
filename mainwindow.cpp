@@ -1695,7 +1695,7 @@ void MainWindow::on_listWidget_TaskListDisplay_itemClicked(QListWidgetItem *item
 void MainWindow::on_pushButton_AddTask_clicked()
 {
     if (Operations_TaskLists_ptr) {
-        Operations_TaskLists_ptr->ShowTaskMenu(false);
+        Operations_TaskLists_ptr->CreateNewTask();
     }
 }
 

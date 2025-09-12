@@ -131,6 +131,7 @@ public:
     void RenameTasklist(QListWidgetItem* item);
     
     // Task operations
+    void CreateNewTask();  // New function for immediate task creation
     void ShowTaskMenu(bool editMode);
     void DeleteTask(const QString& taskName);
     void RenameTask(QListWidgetItem* item);
