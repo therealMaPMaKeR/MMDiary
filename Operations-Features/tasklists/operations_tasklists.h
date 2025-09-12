@@ -15,6 +15,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include "../../CustomWidgets/tasklists/qtree_Tasklists_list.h"
 
 class MainWindow;
 class Operations_TaskLists : public QObject
@@ -96,6 +99,15 @@ private:
     void SaveTaskOrder();  // Save the current task display order
     void HandleTaskReorder();  // Handle drag-and-drop reordering with group detection
     void EnforceTaskOrder();
+    
+    // Category and tasklist settings management
+    bool SaveTasklistSettings();
+    bool LoadTasklistSettings();
+    void CreateNewCategory();
+    
+    // Helper functions for tree widget operations
+    QTreeWidgetItem* findTasklistItemInTree(const QString& tasklistName);
+    QString getTasklistNameFromTreeItem(QTreeWidgetItem* item);
     
     // Safe container operations helpers
     QListWidgetItem* safeGetItem(QListWidget* widget, int index) const;
