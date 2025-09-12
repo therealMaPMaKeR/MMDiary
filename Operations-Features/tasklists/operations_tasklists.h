@@ -133,6 +133,7 @@ public:
     // Task operations
     void ShowTaskMenu(bool editMode);
     void DeleteTask(const QString& taskName);
+    void RenameTask(QListWidgetItem* item);
     
     // Context menu
     void showContextMenu_TaskListDisplay(const QPoint &pos);

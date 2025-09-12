@@ -1031,11 +1031,52 @@ void Operations_TaskLists::onTaskDisplayItemDoubleClicked(QListWidgetItem* item)
 {
     if (!item || (item->flags() & Qt::ItemIsEnabled) == 0) return;
 
+    if (!validateListWidget(m_mainWindow->ui->listWidget_TaskListDisplay)) {
+        qWarning() << "Operations_TaskLists: Invalid task display widget";
+        return;
+    }
+
+    QListWidget* listWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
+
+    // Validate item still exists in the list
+    bool itemExists = false;
+    int itemRow = -1;
+    int listCount = safeGetItemCount(listWidget);
+    for (int i = 0; i < listCount; ++i) {
+        QListWidgetItem* currentItem = safeGetItem(listWidget, i);
+        if (currentItem && currentItem == item) {
+            itemExists = true;
+            itemRow = i;
+            break;
+        }
+    }
+
+    if (!itemExists) return;
+
+    // Store the original task name for renaming
     currentTaskToEdit = item->text();
-    currentTaskData = item->data(Qt::UserRole).toString();
+    currentTaskData = item->data(Qt::UserRole).toString();  // Store the task ID
     m_currentTaskName = item->text();
 
-    ShowTaskMenu(true);
+    // Make the item editable and start editing
+    item->setFlags(item->flags() | Qt::ItemIsEditable);
+    listWidget->editItem(item);
+
+    // Use a single-shot connection to handle the edit completion
+    QMetaObject::Connection* conn = new QMetaObject::Connection();
+    *conn = connect(listWidget, &QListWidget::itemChanged, this,
+            [this, listWidget, itemRow, conn](QListWidgetItem* changedItem) {
+                // Validate the item at the row is the one that changed
+                int currentCount = safeGetItemCount(listWidget);
+                if (itemRow >= 0 && itemRow < currentCount) {
+                    QListWidgetItem* itemAtRow = safeGetItem(listWidget, itemRow);
+                    if (itemAtRow && itemAtRow == changedItem) {
+                        disconnect(*conn);
+                        delete conn;
+                        RenameTask(changedItem);
+                    }
+                }
+            });
 }
 
 void Operations_TaskLists::handleDeleteKeyPress()
@@ -1084,11 +1125,33 @@ void Operations_TaskLists::EditSelectedTask()
 
     if (!selectedItem || (selectedItem->flags() & Qt::ItemIsEnabled) == 0) return;
 
+    // Store the original task info
     currentTaskToEdit = selectedItem->text();
-    currentTaskData = selectedItem->data(Qt::UserRole).toString();
+    currentTaskData = selectedItem->data(Qt::UserRole).toString();  // Get task ID
     m_currentTaskName = selectedItem->text();
 
-    ShowTaskMenu(true);
+    // Enable inline editing
+    selectedItem->setFlags(selectedItem->flags() | Qt::ItemIsEditable);
+    taskListWidget->editItem(selectedItem);
+
+    // Get the row for validation
+    int itemRow = taskListWidget->row(selectedItem);
+
+    // Use a single-shot connection to handle the edit completion
+    QMetaObject::Connection* conn = new QMetaObject::Connection();
+    *conn = connect(taskListWidget, &QListWidget::itemChanged, this,
+            [this, taskListWidget, itemRow, conn](QListWidgetItem* changedItem) {
+                // Validate the item at the row is the one that changed
+                int currentCount = safeGetItemCount(taskListWidget);
+                if (itemRow >= 0 && itemRow < currentCount) {
+                    QListWidgetItem* itemAtRow = safeGetItem(taskListWidget, itemRow);
+                    if (itemAtRow && itemAtRow == changedItem) {
+                        disconnect(*conn);
+                        delete conn;
+                        RenameTask(changedItem);
+                    }
+                }
+            });
 }
 
 //--------Task List Display Functions--------//
@@ -2462,6 +2525,147 @@ void Operations_TaskLists::DeleteTask(const QString& taskName)
     LoadIndividualTasklist(currentTaskList, "");
 }
 
+void Operations_TaskLists::RenameTask(QListWidgetItem* item)
+{
+    qDebug() << "Operations_TaskLists: Renaming task";
+
+    Qt::ItemFlags originalFlags = item->flags();
+    QString originalName = currentTaskToEdit;
+    QString newName = item->text().trimmed();
+    QString taskId = currentTaskData;  // This contains the task ID
+
+    // Validate the new task name
+    InputValidation::ValidationResult result =
+        InputValidation::validateInput(newName, InputValidation::InputType::PlainText);
+
+    if (!result.isValid) {
+        QMessageBox::warning(m_mainWindow, "Invalid Task Name", result.errorMessage);
+        item->setText(originalName);
+        item->setFlags(originalFlags & ~Qt::ItemIsEditable);
+        return;
+    }
+
+    if (newName.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "Empty Task Name",
+                            "Task name cannot be empty.");
+        item->setText(originalName);
+        item->setFlags(originalFlags & ~Qt::ItemIsEditable);
+        return;
+    }
+
+    // If name hasn't changed, just restore flags and return
+    if (newName == originalName) {
+        item->setFlags(originalFlags & ~Qt::ItemIsEditable);
+        return;
+    }
+
+    // Get current task list
+    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
+    if (!currentTaskListItem) {
+        QMessageBox::warning(m_mainWindow, "No Task List Selected",
+                            "Please select a task list first.");
+        item->setText(originalName);
+        item->setFlags(originalFlags & ~Qt::ItemIsEditable);
+        return;
+    }
+
+    QString currentTaskList = currentTaskListItem->text();
+
+    // Find the tasklist file
+    QString taskListFilePath = findTasklistFileByName(currentTaskList);
+    if (taskListFilePath.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, "Task List Not Found",
+                            "Could not find the task list file.");
+        item->setText(originalName);
+        item->setFlags(originalFlags & ~Qt::ItemIsEditable);
+        return;
+    }
+
+    // Check for duplicate task names
+    if (checkDuplicateTaskName(newName, taskListFilePath, taskId)) {
+        QMessageBox::warning(m_mainWindow, "Duplicate Task Name",
+                            "A task with this name already exists in the current task list.");
+        item->setText(originalName);
+        item->setFlags(originalFlags & ~Qt::ItemIsEditable);
+        return;
+    }
+
+    // Read existing tasks
+    QJsonArray tasks;
+    if (!readTasklistJson(taskListFilePath, tasks)) {
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not read the task list file.");
+        item->setText(originalName);
+        item->setFlags(originalFlags & ~Qt::ItemIsEditable);
+        return;
+    }
+
+    // Find and update the task by ID
+    bool taskFound = false;
+    for (int i = 0; i < tasks.size(); ++i) {
+        QJsonValue value = tasks[i];
+        if (!value.isObject()) continue;
+        
+        QJsonObject taskObj = value.toObject();
+        // Find by ID for safety (in case there are duplicate names somehow)
+        if (taskObj["id"].toString() == taskId) {
+            // Update the task name
+            taskObj["name"] = newName;
+            tasks[i] = taskObj;
+            taskFound = true;
+            break;
+        }
+    }
+
+    if (!taskFound) {
+        // Fallback: try to find by name
+        for (int i = 0; i < tasks.size(); ++i) {
+            QJsonValue value = tasks[i];
+            if (!value.isObject()) continue;
+            
+            QJsonObject taskObj = value.toObject();
+            if (taskObj["name"].toString() == originalName) {
+                // Update the task name
+                taskObj["name"] = newName;
+                tasks[i] = taskObj;
+                taskFound = true;
+                break;
+            }
+        }
+    }
+
+    if (!taskFound) {
+        QMessageBox::warning(m_mainWindow, "Task Not Found",
+                            "Could not find the task to rename.");
+        item->setText(originalName);
+        item->setFlags(originalFlags & ~Qt::ItemIsEditable);
+        return;
+    }
+
+    // Write back the updated tasks
+    if (!writeTasklistJson(taskListFilePath, tasks)) {
+        QMessageBox::warning(m_mainWindow, "File Error",
+                            "Could not save the renamed task.");
+        item->setText(originalName);
+        item->setFlags(originalFlags & ~Qt::ItemIsEditable);
+        return;
+    }
+
+    // Update the current task name if this was the selected task
+    if (m_currentTaskName == originalName) {
+        m_currentTaskName = newName;
+    }
+
+    // Restore item flags (remove editable flag)
+    item->setFlags(originalFlags & ~Qt::ItemIsEditable);
+
+    // Reload task details if this is the currently selected task
+    if (item == m_mainWindow->ui->listWidget_TaskListDisplay->currentItem()) {
+        LoadTaskDetails(newName);
+    }
+}
+
 void Operations_TaskLists::SetTaskStatus(bool checked, QListWidgetItem* item)
 {
     qDebug() << "Operations_TaskLists: Setting task status, checked:" << checked;
@@ -3150,12 +3354,39 @@ void Operations_TaskLists::showContextMenu_TaskListDisplay(const QPoint &pos)
     });
 
     // Capture by value to avoid dangling pointer
-    connect(editTaskAction, &QAction::triggered, this, [this, taskName, taskData, hasValidItem]() {
+    connect(editTaskAction, &QAction::triggered, this, [this, taskName, taskData, hasValidItem, taskListWidget, pos]() {
         if (hasValidItem) {
-            currentTaskToEdit = taskName;
-            currentTaskData = taskData;
-            m_currentTaskName = taskName;
-            ShowTaskMenu(true);
+            // Find the item again to ensure it's still valid
+            QListWidgetItem* itemToEdit = taskListWidget->itemAt(pos);
+            if (itemToEdit && itemToEdit->text() == taskName) {
+                // Store the original task info
+                currentTaskToEdit = taskName;
+                currentTaskData = itemToEdit->data(Qt::UserRole).toString();  // Get task ID
+                m_currentTaskName = taskName;
+                
+                // Enable inline editing
+                itemToEdit->setFlags(itemToEdit->flags() | Qt::ItemIsEditable);
+                taskListWidget->editItem(itemToEdit);
+                
+                // Get the row for validation
+                int itemRow = taskListWidget->row(itemToEdit);
+                
+                // Use a single-shot connection to handle the edit completion
+                QMetaObject::Connection* conn = new QMetaObject::Connection();
+                *conn = connect(taskListWidget, &QListWidget::itemChanged, this,
+                        [this, taskListWidget, itemRow, conn](QListWidgetItem* changedItem) {
+                            // Validate the item at the row is the one that changed
+                            int currentCount = safeGetItemCount(taskListWidget);
+                            if (itemRow >= 0 && itemRow < currentCount) {
+                                QListWidgetItem* itemAtRow = safeGetItem(taskListWidget, itemRow);
+                                if (itemAtRow && itemAtRow == changedItem) {
+                                    disconnect(*conn);
+                                    delete conn;
+                                    RenameTask(changedItem);
+                                }
+                            }
+                        });
+            }
         }
     });
 
