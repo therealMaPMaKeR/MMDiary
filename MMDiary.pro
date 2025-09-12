@@ -349,6 +349,7 @@ SOURCES += \
     CustomWidgets/encrypteddata/encryptedfileitemwidget.cpp \
     CustomWidgets/encrypteddata/qlist_DataENC_Tags.cpp \
     CustomWidgets/tasklists/qlist_TasklistDisplay.cpp \
+    CustomWidgets/tasklists/qtree_Tasklists_list.cpp \
     CustomWidgets/videoplayer/qlist_VP_ShowsList.cpp \
     Operations-Features/diary/operations_diary.cpp \
     Operations-Features/encrypteddata/operations_encrypteddata.cpp \
@@ -416,6 +417,7 @@ HEADERS += \
     CustomWidgets/encrypteddata/encryptedfileitemwidget.h \
     CustomWidgets/encrypteddata/qlist_DataENC_Tags.h \
     CustomWidgets/tasklists/qlist_TasklistDisplay.h \
+    CustomWidgets/tasklists/qtree_Tasklists_list.h \
     CustomWidgets/videoplayer/qlist_VP_ShowsList.h \
     Operations-Features/diary/operations_diary.h \
     Operations-Features/encrypteddata/operations_encrypteddata.h \

@@ -923,7 +923,7 @@ void MainWindow::LoadPersistentSettings()
 
     // Apply tasklist settings if they exist and are valid
     if (Operations_TaskLists_ptr) {
-        QListWidget* taskListWidget = ui->listWidget_TaskList_List;
+        QListWidget* taskListWidget = ui->treeWidget_TaskList_List;
         if (taskListWidget && taskListWidget->count() > 0) {
             bool taskListLoaded = false;
             
@@ -1125,7 +1125,7 @@ void MainWindow::SavePersistentSettings()
     // QString currentTask = "";
 
     // Get current selected tasklist
-    QListWidget* taskListWidget = ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = ui->treeWidget_TaskList_List;
     if (taskListWidget) {
         QListWidgetItem* currentTaskListItem = taskListWidget->currentItem();
         if (currentTaskListItem) {

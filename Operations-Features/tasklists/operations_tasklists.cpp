@@ -313,7 +313,7 @@ Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
 {
     qDebug() << "Operations_TaskLists: Initializing";
 
-    m_mainWindow->ui->listWidget_TaskList_List->setSortingEnabled(false);
+    m_mainWindow->ui->treeWidget_TaskList_List->setSortingEnabled(false);
 
     // Clear the table
     m_mainWindow->ui->tableWidget_TaskDetails->clear();
@@ -339,24 +339,24 @@ Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
     m_mainWindow->ui->tableWidget_TaskDetails->installEventFilter(this);
 
     // Connect the context menu signal for the task list list widget
-    connect(m_mainWindow->ui->listWidget_TaskList_List, &QWidget::customContextMenuRequested,
+    connect(m_mainWindow->ui->treeWidget_TaskList_List, &QWidget::customContextMenuRequested,
             this, &Operations_TaskLists::showContextMenu_TaskListList);
 
     // Enable context menu policy for the task list list widget
-    m_mainWindow->ui->listWidget_TaskList_List->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_mainWindow->ui->treeWidget_TaskList_List->setContextMenuPolicy(Qt::CustomContextMenu);
 
     // Install event filters for key press events
-    m_mainWindow->ui->listWidget_TaskList_List->installEventFilter(this);
+    m_mainWindow->ui->treeWidget_TaskList_List->installEventFilter(this);
     m_mainWindow->ui->listWidget_TaskListDisplay->installEventFilter(this);
 
     // Connect item clicked signals to track the last clicked item
-    connect(m_mainWindow->ui->listWidget_TaskList_List, &QListWidget::itemClicked,
+    connect(m_mainWindow->ui->treeWidget_TaskList_List, &QListWidget::itemClicked,
             this, &Operations_TaskLists::onTaskListItemClicked);
     connect(m_mainWindow->ui->listWidget_TaskListDisplay, &QListWidget::itemClicked,
             this, &Operations_TaskLists::onTaskDisplayItemClicked);
 
     // Connect double-click signals
-    connect(m_mainWindow->ui->listWidget_TaskList_List, &QListWidget::itemDoubleClicked,
+    connect(m_mainWindow->ui->treeWidget_TaskList_List, &QListWidget::itemDoubleClicked,
             this, &Operations_TaskLists::onTaskListItemDoubleClicked);
     connect(m_mainWindow->ui->listWidget_TaskListDisplay, &QListWidget::itemDoubleClicked,
             this, &Operations_TaskLists::onTaskDisplayItemDoubleClicked);
@@ -382,10 +382,10 @@ Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
     m_mainWindow->ui->listWidget_TaskListDisplay->setDragDropMode(QAbstractItemView::InternalMove);
 
     // Enable drag and drop for task list widget
-    m_mainWindow->ui->listWidget_TaskList_List->setDragEnabled(true);
-    m_mainWindow->ui->listWidget_TaskList_List->setAcceptDrops(true);
-    m_mainWindow->ui->listWidget_TaskList_List->setDropIndicatorShown(true);
-    m_mainWindow->ui->listWidget_TaskList_List->setDragDropMode(QAbstractItemView::InternalMove);
+    m_mainWindow->ui->treeWidget_TaskList_List->setDragEnabled(true);
+    m_mainWindow->ui->treeWidget_TaskList_List->setAcceptDrops(true);
+    m_mainWindow->ui->treeWidget_TaskList_List->setDropIndicatorShown(true);
+    m_mainWindow->ui->treeWidget_TaskList_List->setDragDropMode(QAbstractItemView::InternalMove);
 
     // Connect drag and drop signals
     connect(m_mainWindow->ui->listWidget_TaskListDisplay, &qlist_TasklistDisplay::itemsReordered,
@@ -394,7 +394,7 @@ Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
                 HandleTaskReorder();
             });
 
-    connect(m_mainWindow->ui->listWidget_TaskList_List, &qlist_TasklistDisplay::itemsReordered,
+    connect(m_mainWindow->ui->treeWidget_TaskList_List, &qlist_TasklistDisplay::itemsReordered,
             this, &Operations_TaskLists::SaveTasklistOrder);
 
     LoadTasklists();
@@ -601,8 +601,8 @@ Operations_TaskLists::~Operations_TaskLists()
         if (m_mainWindow->ui->tableWidget_TaskDetails) {
             m_mainWindow->ui->tableWidget_TaskDetails->removeEventFilter(this);
         }
-        if (m_mainWindow->ui->listWidget_TaskList_List) {
-            m_mainWindow->ui->listWidget_TaskList_List->removeEventFilter(this);
+        if (m_mainWindow->ui->treeWidget_TaskList_List) {
+            m_mainWindow->ui->treeWidget_TaskList_List->removeEventFilter(this);
         }
     }
 
@@ -940,7 +940,7 @@ bool Operations_TaskLists::eventFilter(QObject* watched, QEvent* event)
 
         // Check if the key is Delete
         if (keyEvent->key() == Qt::Key_Delete) {
-            if (watched == m_mainWindow->ui->listWidget_TaskList_List ||
+            if (watched == m_mainWindow->ui->treeWidget_TaskList_List ||
                 watched == m_mainWindow->ui->listWidget_TaskListDisplay) {
                 handleDeleteKeyPress();
                 return true;
@@ -961,7 +961,7 @@ bool Operations_TaskLists::eventFilter(QObject* watched, QEvent* event)
 
 void Operations_TaskLists::onTaskListItemClicked(QListWidgetItem* item)
 {
-    m_lastClickedWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    m_lastClickedWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     m_lastClickedItem = item;
 }
 
@@ -974,7 +974,7 @@ void Operations_TaskLists::onTaskDisplayItemClicked(QListWidgetItem* item)
     if (item && (item->flags() & Qt::ItemIsEnabled) && item->text() != "No tasks in this list"
         && !item->data(Qt::UserRole + 999).toBool()) {  // Skip dummy item
         // Get current tasklist name
-        QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+        QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
         QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
         if (currentTaskListItem) {
             QString tasklistName = currentTaskListItem->text();
@@ -988,12 +988,12 @@ void Operations_TaskLists::onTaskListItemDoubleClicked(QListWidgetItem* item)
 {
     if (!item) return;
 
-    if (!validateListWidget(m_mainWindow->ui->listWidget_TaskList_List)) {
+    if (!validateListWidget(m_mainWindow->ui->treeWidget_TaskList_List)) {
         qWarning() << "Operations_TaskLists: Invalid task list widget";
         return;
     }
 
-    QListWidget* listWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* listWidget = m_mainWindow->ui->treeWidget_TaskList_List;
 
     // Validate item still exists in the list
     bool itemExists = false;
@@ -1118,7 +1118,7 @@ void Operations_TaskLists::handleDeleteKeyPress()
     // Now safe to check flags
     if ((m_lastClickedItem->flags() & Qt::ItemIsEnabled) == 0) return;
 
-    if (m_lastClickedWidget == m_mainWindow->ui->listWidget_TaskList_List) {
+    if (m_lastClickedWidget == m_mainWindow->ui->treeWidget_TaskList_List) {
         DeleteTaskList();
     } else if (m_lastClickedWidget == m_mainWindow->ui->listWidget_TaskListDisplay) {
         DeleteTask(m_lastClickedItem->text());
@@ -1182,7 +1182,7 @@ void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, c
     
     // IMPORTANT: Ensure the task list is selected in the UI widget
     // This is crucial for LoadTaskDetails to work properly, especially during app startup
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     if (taskListWidget) {
         bool taskListFound = false;
         int listCount = taskListWidget->count();
@@ -1448,7 +1448,7 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
     }
 
     // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
     if (!currentTaskListItem) {
         qDebug() << "Operations_TaskLists: ERROR - No task list selected in UI, cannot load task details";
@@ -1708,7 +1708,7 @@ void Operations_TaskLists::LoadTasklists()
 {
     qDebug() << "Operations_TaskLists: Loading tasklists";
 
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     taskListWidget->clear();
     taskListWidget->setSortingEnabled(false);
     
@@ -1832,9 +1832,9 @@ void Operations_TaskLists::CreateNewTaskList()
 {
     qDebug() << "Operations_TaskLists: Creating new task list";
 
-    m_mainWindow->ui->listWidget_TaskList_List->setSortingEnabled(false);
+    m_mainWindow->ui->treeWidget_TaskList_List->setSortingEnabled(false);
 
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
 
     // Check for existing task lists with the name "New Task List"
     QStringList existingNames;
@@ -2016,7 +2016,7 @@ void Operations_TaskLists::CreateNewTask()
     qDebug() << "Operations_TaskLists: Creating new task with inline editing";
 
     // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
     if (!currentTaskListItem) {
         QMessageBox::warning(m_mainWindow, "No Task List Selected",
@@ -2126,7 +2126,7 @@ void Operations_TaskLists::CreateNewTask()
                         }
                         
                         // Get current task list to check for duplicates
-                        QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+                        QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
                         QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
                         if (!currentTaskListItem) {
                             changedItem->setFlags(changedItem->flags() & ~Qt::ItemIsEditable);
@@ -2177,7 +2177,7 @@ void Operations_TaskLists::DeleteTaskList()
 {
     qDebug() << "Operations_TaskLists: Deleting task list";
 
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     QListWidgetItem* currentItem = taskListWidget->currentItem();
 
     if (!currentItem) {
@@ -2284,7 +2284,7 @@ void Operations_TaskLists::RenameTasklist(QListWidgetItem* item)
 
     // Check if the name already exists
     QStringList existingNames;
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     int taskListCount = safeGetItemCount(taskListWidget);
     for (int i = 0; i < taskListCount; ++i) {
         QListWidgetItem* existingItem = safeGetItem(taskListWidget, i);
@@ -2389,7 +2389,7 @@ void Operations_TaskLists::ShowTaskMenu(bool editMode)
     qDebug() << "Operations_TaskLists: Showing task menu, editMode:" << editMode;
 
     // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
     if (!currentTaskListItem) {
         QMessageBox::warning(m_mainWindow, "No Task List Selected",
@@ -2486,7 +2486,7 @@ void Operations_TaskLists::AddTaskSimple(QString taskName, QString description)
     }
 
     // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     if (taskListWidget->currentItem() == nullptr) {
         QMessageBox::warning(m_mainWindow, "No Task List Selected",
                             "Please select a task list first.");
@@ -2577,7 +2577,7 @@ void Operations_TaskLists::ModifyTaskSimple(const QString& originalTaskName, QSt
     }
 
     // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     if (taskListWidget->currentItem() == nullptr) {
         QMessageBox::warning(m_mainWindow, "No Task List Selected",
                             "Please select a task list first.");
@@ -2679,7 +2679,7 @@ void Operations_TaskLists::DeleteTask(const QString& taskName)
     }
 
     // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     if (taskListWidget->currentItem() == nullptr) {
         QMessageBox::warning(m_mainWindow, "No Task List Selected",
                             "Please select a task list first.");
@@ -2779,7 +2779,7 @@ void Operations_TaskLists::RenameTask(QListWidgetItem* item)
     }
 
     // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
     if (!currentTaskListItem) {
         QMessageBox::warning(m_mainWindow, "No Task List Selected",
@@ -2924,7 +2924,7 @@ void Operations_TaskLists::SetTaskStatus(bool checked, QListWidgetItem* item)
     QString taskData = item->data(Qt::UserRole).toString();
 
     // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     if (taskListWidget->currentItem() == nullptr) return;
 
     QString currentTaskList = taskListWidget->currentItem()->text();
@@ -3080,7 +3080,7 @@ void Operations_TaskLists::SaveTaskOrder()
     QListWidget* taskDisplayWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
 
     // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     if (taskListWidget->currentItem() == nullptr) {
         qDebug() << "Operations_TaskLists: No task list selected";
         return;
@@ -3162,7 +3162,7 @@ void Operations_TaskLists::SaveTaskDescription()
     if (newDescription == m_lastSavedDescription) return;
 
     // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     if (taskListWidget->currentItem() == nullptr) return;
 
     QString currentTaskList = taskListWidget->currentItem()->text();
@@ -3275,7 +3275,7 @@ bool Operations_TaskLists::AreAllTasksCompleted(const QString& tasklistName)
 
 void Operations_TaskLists::UpdateTasklistAppearance(const QString& tasklistName)
 {
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
 
     QList<QListWidgetItem*> items = taskListWidget->findItems(tasklistName, Qt::MatchExactly);
     if (items.isEmpty()) return;
@@ -3402,12 +3402,12 @@ bool Operations_TaskLists::SaveTasklistOrder()
 {
     qDebug() << "Operations_TaskLists: Saving tasklist order";
 
-    if (!validateListWidget(m_mainWindow->ui->listWidget_TaskList_List)) {
+    if (!validateListWidget(m_mainWindow->ui->treeWidget_TaskList_List)) {
         qWarning() << "Operations_TaskLists: Invalid task list widget";
         return false;
     }
 
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
 
     int taskListCount = safeGetItemCount(taskListWidget);
     if (taskListCount == 0) return true;
@@ -3476,11 +3476,11 @@ void Operations_TaskLists::UpdateTasklistsTextSize(int fontSize)
 {
     qDebug() << "Operations_TaskLists: Updating text size to:" << fontSize;
 
-    QFont font = m_mainWindow->ui->listWidget_TaskList_List->font();
+    QFont font = m_mainWindow->ui->treeWidget_TaskList_List->font();
     font.setPointSize(fontSize);
 
     // Update list widgets
-    m_mainWindow->ui->listWidget_TaskList_List->setFont(font);
+    m_mainWindow->ui->treeWidget_TaskList_List->setFont(font);
     m_mainWindow->ui->listWidget_TaskListDisplay->setFont(font);
 
     // Update checkbox hitbox width to scale with font size
@@ -3656,7 +3656,7 @@ void Operations_TaskLists::showContextMenu_TaskListDisplay(const QPoint &pos)
 
 void Operations_TaskLists::showContextMenu_TaskListList(const QPoint &pos)
 {
-    QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
+    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
     QListWidgetItem* item = taskListWidget->itemAt(pos);
 
     QMenu contextMenu(m_mainWindow);
