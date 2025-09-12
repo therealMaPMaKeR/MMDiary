@@ -325,7 +325,7 @@ void BaseVideoPlayer::createControls()
     // Position slider - use custom clickable slider
     m_positionSlider = createClickableSlider();
     m_positionSlider->setRange(0, 0);
-    m_positionSlider->setToolTip(tr("Click to seek\nLeft/Right: Seek 10s\nCtrl+Left: Jump to beginning\nCtrl+Right: Jump to end"));
+    m_positionSlider->setToolTip(tr("Click to seek\nLeft/Right: Seek 10s"));
     m_positionSlider->setFocusPolicy(Qt::ClickFocus);
     
     // Volume slider - use custom clickable slider, extended range to 200%
@@ -484,7 +484,7 @@ void BaseVideoPlayer::connectSignals()
             this, &BaseVideoPlayer::handleError);
     
     connect(m_mediaPlayer.get(), &VP_VLCPlayer::finished,
-            this, &BaseVideoPlayer::finished);
+            this, &BaseVideoPlayer::handleVideoFinished);
 }
 
 bool BaseVideoPlayer::loadVideo(const QString& filePath)
@@ -987,6 +987,20 @@ void BaseVideoPlayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state
     emit playbackStateChanged(state);
 }
 
+void BaseVideoPlayer::handleVideoFinished()
+{
+    qDebug() << "BaseVideoPlayer: Video finished - resetting to start and pausing";
+    
+    // Set position back to 0
+    setPosition(0);
+    
+    // Pause the video
+    pause();
+    
+    // Emit the finished signal for any other handlers
+    emit finished();
+}
+
 // Windows shutdown detection
 bool BaseVideoPlayer::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
 {
@@ -1156,44 +1170,20 @@ void BaseVideoPlayer::keyPressEvent(QKeyEvent *event)
             break;
             
         case Qt::Key_Right:
-            if (ctrlPressed) {
-                // Ctrl+Right: Jump to end of video
-                if (m_mediaPlayer && m_mediaPlayer->hasMedia()) {
-                    qint64 duration = m_mediaPlayer->duration();
-                    if (duration > 0) {
-                        // Jump to 1 second before the end to avoid immediate finish
-                        qint64 endPosition = duration - 1000;
-                        if (endPosition < 0) endPosition = 0;
-                        qDebug() << "BaseVideoPlayer: Ctrl+Right - jumping to end position:" << endPosition;
-                        setPosition(endPosition);
-                        event->accept();
-                    }
-                }
-            } else {
-                // Normal Right: Seek forward 10 seconds
-                if (m_mediaPlayer && m_mediaPlayer->hasMedia()) {
-                    qint64 newPos = m_mediaPlayer->position() + 10000;
-                    setPosition(newPos);
-                    event->accept();
-                }
+            // Normal Right: Seek forward 10 seconds
+            if (m_mediaPlayer && m_mediaPlayer->hasMedia()) {
+                qint64 newPos = m_mediaPlayer->position() + 10000;
+                setPosition(newPos);
+                event->accept();
             }
             break;
             
         case Qt::Key_Left:
-            if (ctrlPressed) {
-                // Ctrl+Left: Jump to beginning of video
-                if (m_mediaPlayer && m_mediaPlayer->hasMedia()) {
-                    qDebug() << "BaseVideoPlayer: Ctrl+Left - jumping to beginning";
-                    setPosition(0);
-                    event->accept();
-                }
-            } else {
-                // Normal Left: Seek backward 10 seconds
-                if (m_mediaPlayer && m_mediaPlayer->hasMedia()) {
-                    qint64 newPos = m_mediaPlayer->position() - 10000;
-                    setPosition(newPos);
-                    event->accept();
-                }
+            // Normal Left: Seek backward 10 seconds
+            if (m_mediaPlayer && m_mediaPlayer->hasMedia()) {
+                qint64 newPos = m_mediaPlayer->position() - 10000;
+                setPosition(newPos);
+                event->accept();
             }
             break;
             

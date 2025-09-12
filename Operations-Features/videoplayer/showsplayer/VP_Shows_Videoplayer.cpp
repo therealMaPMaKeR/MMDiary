@@ -176,6 +176,11 @@ void VP_Shows_Videoplayer::showEvent(QShowEvent *event)
     // Call base class implementation first
     BaseVideoPlayer::showEvent(event);
     
+    // Update position slider tooltip to include Ctrl+Left/Right for shows
+    if (m_positionSlider) {
+        m_positionSlider->setToolTip(tr("Click to seek\nLeft/Right: Seek 10s\nCtrl+Left: Jump to beginning\nCtrl+Right: Jump to end"));
+    }
+    
     // Now apply the window state based on what was stored
     // This needs to happen after the window is shown
     if (!m_isClosing) {
@@ -271,6 +276,50 @@ void VP_Shows_Videoplayer::changeEvent(QEvent *event)
     QWidget::changeEvent(event);
 }
 
+void VP_Shows_Videoplayer::keyPressEvent(QKeyEvent *event)
+{
+    qDebug() << "VP_Shows_Videoplayer: Key press event - Key:" << event->key() << "Modifiers:" << event->modifiers();
+    
+    // Check if Ctrl key is pressed (works for both left and right Ctrl)
+    bool ctrlPressed = (event->modifiers() & Qt::ControlModifier);
+    
+    // Handle show-specific keybinds
+    switch (event->key()) {
+        case Qt::Key_Right:
+            if (ctrlPressed) {
+                // Ctrl+Right: Jump to end of video
+                if (m_mediaPlayer && m_mediaPlayer->hasMedia()) {
+                    qint64 videoDuration = duration();
+                    if (videoDuration > 0) {
+                        // Jump to 1 second before the end to avoid immediate finish
+                        qint64 endPosition = videoDuration - 1000;
+                        if (endPosition < 0) endPosition = 0;
+                        qDebug() << "VP_Shows_Videoplayer: Ctrl+Right - jumping to end position:" << endPosition;
+                        setPosition(endPosition);
+                        event->accept();
+                        return;  // Don't call base class for this key combo
+                    }
+                }
+            }
+            break;
+            
+        case Qt::Key_Left:
+            if (ctrlPressed) {
+                // Ctrl+Left: Jump to beginning of video
+                if (m_mediaPlayer && m_mediaPlayer->hasMedia()) {
+                    qDebug() << "VP_Shows_Videoplayer: Ctrl+Left - jumping to beginning";
+                    setPosition(0);
+                    event->accept();
+                    return;  // Don't call base class for this key combo
+                }
+            }
+            break;
+    }
+    
+    // For all other keys, call base class implementation
+    BaseVideoPlayer::keyPressEvent(event);
+}
+
 void VP_Shows_Videoplayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state)
 {
     qDebug() << "VP_Shows_Videoplayer: Playback state changed (show-specific override)";
@@ -310,6 +359,16 @@ void VP_Shows_Videoplayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState 
         default:
             break;
     }
+}
+
+void VP_Shows_Videoplayer::handleVideoFinished()
+{
+    qDebug() << "VP_Shows_Videoplayer: Video finished - preserving autoplay behavior";
+    
+    // For shows player, we just emit the finished signal
+    // This allows the autoplay functionality in Operations_VP_Shows to work
+    // We do NOT reset position or pause like the base class does
+    emit finished();
 }
 
 void VP_Shows_Videoplayer::saveWatchProgress()

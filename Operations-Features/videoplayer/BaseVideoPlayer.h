@@ -100,6 +100,7 @@ protected slots:
     virtual void updateDuration(qint64 duration);
     virtual void handleError(const QString &errorString);
     virtual void handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state);
+    virtual void handleVideoFinished();
     
     // Cursor management
     void hideCursor();

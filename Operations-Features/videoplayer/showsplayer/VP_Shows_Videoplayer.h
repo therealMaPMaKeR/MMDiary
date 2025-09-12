@@ -31,7 +31,9 @@ protected:
     void closeEvent(QCloseEvent *event) override;
     void showEvent(QShowEvent *event) override;
     void changeEvent(QEvent *event) override;  // Handle window state changes
+    void keyPressEvent(QKeyEvent *event) override;  // Handle Ctrl+Left/Right for shows
     void handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state) override;
+    void handleVideoFinished() override;  // Override to preserve autoplay
 
 private:
     // Show-specific members only
