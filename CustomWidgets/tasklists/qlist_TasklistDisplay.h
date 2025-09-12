@@ -119,8 +119,11 @@ protected:
                         emit itemChanged(clickedItem);
                     }
                     
-                    // Select the item but don't let Qt handle the checkbox toggle
-                    setCurrentItem(clickedItem);
+                    // Only set as current item if it's not already selected
+                    // This prevents double-toggle bug when only one item exists
+                    if (currentItem() != clickedItem) {
+                        setCurrentItem(clickedItem);
+                    }
                     // CRITICAL: Don't pass to base class - this prevents Qt from toggling the checkbox
                     return;
                 } else {
@@ -137,8 +140,11 @@ protected:
                         // Emit itemChanged signal so Operations_TaskLists can handle the change
                         emit itemChanged(clickedItem);
                         
-                        // Select the item
-                        setCurrentItem(clickedItem);
+                        // Only set as current item if it's not already selected
+                        // This prevents any selection-related side effects
+                        if (currentItem() != clickedItem) {
+                            setCurrentItem(clickedItem);
+                        }
                         return; // Don't pass to base class
                     }
                 }

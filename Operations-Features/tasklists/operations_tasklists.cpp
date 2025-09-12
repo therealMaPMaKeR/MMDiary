@@ -365,6 +365,9 @@ Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
     connect(m_mainWindow->ui->listWidget_TaskListDisplay, &QListWidget::itemChanged,
             this, [this](QListWidgetItem* item) {
                 if (item) {
+                    // Skip dummy item
+                    if (item->data(Qt::UserRole + 999).toBool()) return;
+                    
                     bool checked = (item->checkState() == Qt::Checked);
                     m_mainWindow->ui->listWidget_TaskListDisplay->blockSignals(true);
                     SetTaskStatus(checked, item);
@@ -968,7 +971,8 @@ void Operations_TaskLists::onTaskDisplayItemClicked(QListWidgetItem* item)
     m_lastClickedItem = item;
     
     // Update the last selected task in metadata if it's a valid task
-    if (item && (item->flags() & Qt::ItemIsEnabled) && item->text() != "No tasks in this list") {
+    if (item && (item->flags() & Qt::ItemIsEnabled) && item->text() != "No tasks in this list"
+        && !item->data(Qt::UserRole + 999).toBool()) {  // Skip dummy item
         // Get current tasklist name
         QListWidget* taskListWidget = m_mainWindow->ui->listWidget_TaskList_List;
         QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
@@ -1030,6 +1034,9 @@ void Operations_TaskLists::onTaskListItemDoubleClicked(QListWidgetItem* item)
 void Operations_TaskLists::onTaskDisplayItemDoubleClicked(QListWidgetItem* item)
 {
     if (!item || (item->flags() & Qt::ItemIsEnabled) == 0) return;
+    
+    // Skip dummy item
+    if (item->data(Qt::UserRole + 999).toBool()) return;
 
     if (!validateListWidget(m_mainWindow->ui->listWidget_TaskListDisplay)) {
         qWarning() << "Operations_TaskLists: Invalid task display widget";
@@ -1350,11 +1357,19 @@ void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, c
         taskDisplayWidget->addItem(item);
     }
 
-    // If the list is empty, display a message
-    if (taskDisplayWidget->count() == 0) {
+    // ALWAYS add an invisible dummy item to prevent single-item checkbox bug
+    // This item is hidden and non-interactive
+    QListWidgetItem* dummyItem = new QListWidgetItem("");  // Empty text
+    dummyItem->setFlags(Qt::NoItemFlags);  // Make it completely non-interactive
+    dummyItem->setData(Qt::UserRole + 999, true);  // Mark it as dummy item
+    dummyItem->setSizeHint(QSize(0, 0));  // Make it have zero size - truly invisible
+    taskDisplayWidget->addItem(dummyItem);
+    
+    // If the list is empty (excluding our dummy), display a message
+    if (taskDisplayWidget->count() == 1) {  // Only our dummy item
         QListWidgetItem* item = new QListWidgetItem("No tasks in this list");
         item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
-        taskDisplayWidget->addItem(item);
+        taskDisplayWidget->insertItem(0, item);  // Insert before dummy
 
         // Clear the table
         m_mainWindow->ui->tableWidget_TaskDetails->clear();
@@ -1368,20 +1383,28 @@ void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, c
     // After loading all tasks, select the appropriate task
     int taskToSelectIndex = -1;
     int displayCount = safeGetItemCount(taskDisplayWidget);
+    int realTaskCount = 0;  // Count of real tasks (excluding dummy)
+    int lastRealTaskIndex = -1;
 
-    if (!actualTaskToSelect.isEmpty() && actualTaskToSelect != "NULL") {
-        for (int i = 0; i < displayCount; ++i) {
-            QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
-            if (item && item->text() == actualTaskToSelect) {
-                taskToSelectIndex = i;
-                break;
-            }
+    // Count real tasks and find the task to select
+    for (int i = 0; i < displayCount; ++i) {
+        QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
+        if (!item) continue;
+        
+        // Skip dummy item
+        if (item->data(Qt::UserRole + 999).toBool()) continue;
+        
+        realTaskCount++;
+        lastRealTaskIndex = i;  // Track the last real task index
+        
+        if (!actualTaskToSelect.isEmpty() && actualTaskToSelect != "NULL" && item->text() == actualTaskToSelect) {
+            taskToSelectIndex = i;
         }
     }
 
-    // If we didn't find the specified task or none was specified, select the last item
-    if (taskToSelectIndex == -1 && displayCount > 0) {
-        taskToSelectIndex = displayCount - 1;
+    // If we didn't find the specified task or none was specified, select the last real item
+    if (taskToSelectIndex == -1 && lastRealTaskIndex >= 0) {
+        taskToSelectIndex = lastRealTaskIndex;
     }
 
     // If we have a valid index, select that item
@@ -2989,6 +3012,9 @@ void Operations_TaskLists::HandleTaskReorder()
         QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
         if (!item) continue;
 
+        // Skip dummy item
+        if (item->data(Qt::UserRole + 999).toBool()) continue;
+        
         // Skip disabled items
         if ((item->flags() & Qt::ItemIsEnabled) == 0) continue;
 
@@ -3014,6 +3040,9 @@ void Operations_TaskLists::HandleTaskReorder()
             QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
             if (!item) continue;
 
+            // Skip dummy item
+            if (item->data(Qt::UserRole + 999).toBool()) continue;
+            
             // Skip disabled items
             if ((item->flags() & Qt::ItemIsEnabled) == 0) continue;
 
@@ -3092,6 +3121,9 @@ void Operations_TaskLists::SaveTaskOrder()
         QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
         if (!item) continue;
 
+        // Skip dummy item
+        if (item->data(Qt::UserRole + 999).toBool()) continue;
+        
         // Skip disabled items (like "No tasks in this list")
         if ((item->flags() & Qt::ItemIsEnabled) == 0) continue;
 
@@ -3292,6 +3324,9 @@ void Operations_TaskLists::EnforceTaskOrder()
         QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
         if (!item) continue;
 
+        // Skip dummy item
+        if (item->data(Qt::UserRole + 999).toBool()) continue;
+        
         // Store pointer to the item (we'll take them all at once later)
         if ((item->flags() & Qt::ItemIsEnabled) == 0) {
             disabledItems.append(item);
@@ -3304,8 +3339,22 @@ void Operations_TaskLists::EnforceTaskOrder()
 
     // Clear the widget and re-add items in the correct group order
     // Take all items first (in reverse to avoid index shifting)
+    // But keep track of the dummy item to re-add it at the end
+    QListWidgetItem* savedDummyItem = nullptr;
     for (int i = itemCount - 1; i >= 0; --i) {
+        QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
+        if (item && item->data(Qt::UserRole + 999).toBool()) {
+            savedDummyItem = item;  // Save reference to dummy but don't take it yet
+            continue;
+        }
         safeTakeItem(taskDisplayWidget, i);
+    }
+    // Now take the dummy item
+    if (savedDummyItem) {
+        int dummyIndex = taskDisplayWidget->row(savedDummyItem);
+        if (dummyIndex >= 0) {
+            safeTakeItem(taskDisplayWidget, dummyIndex);
+        }
     }
 
     // Add items back in the desired order: completed, pending, disabled
@@ -3324,6 +3373,11 @@ void Operations_TaskLists::EnforceTaskOrder()
         if (item) {
             taskDisplayWidget->addItem(item);
         }
+    }
+    
+    // Re-add the dummy item at the end
+    if (savedDummyItem) {
+        taskDisplayWidget->addItem(savedDummyItem);
     }
 
     // Restore selection
