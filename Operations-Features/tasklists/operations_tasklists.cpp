@@ -27,109 +27,282 @@
 #endif
 #include "operations_files.h"
 
-// Security: Centralized escaping functions for task data
+// Security: Centralized helper functions for task data
 namespace TaskDataSecurity {
-    QString escapeTaskField(const QString& input) {
-        QString escaped = input;
-        // Escape in specific order to prevent double-escaping
-        escaped.replace("\\", "\\\\");  // Backslash first
-        escaped.replace("|", "\\|");      // Then pipe
-        escaped.replace("\n", "\\n");    // Newline
-        escaped.replace("\r", "\\r");    // Carriage return
-        escaped.replace("\t", "\\t");    // Tab
-        escaped.replace("\0", "");        // Remove null bytes
-        return escaped;
+// Note: escapeTaskField and unescapeTaskField functions removed - no longer needed with JSON format
+
+QString sanitizeFileName(const QString& input) {
+    QString sanitized = input;
+    // Remove null bytes first
+    sanitized.remove(QChar('\0'));
+    // Remove control characters (0x00-0x1F, 0x7F)
+    sanitized.remove(QRegularExpression("[\\x00-\\x1F\\x7F]"));
+    // Replace dangerous path characters
+    sanitized.replace(QRegularExpression("[\\\\/:*?\"<>|\\.\\.]"), "_");
+    // Remove leading/trailing dots and spaces (Windows specific)
+    sanitized = sanitized.trimmed();
+    sanitized.remove(QRegularExpression("^\\.+|\\s+$|\\.$"));
+    // Limit length to prevent path overflow
+    if (sanitized.length() > 200) {
+        sanitized = sanitized.left(200);
     }
-
-    QString unescapeTaskField(const QString& input) {
-        QString unescaped = input;
-        // Unescape in reverse order
-        unescaped.replace("\\t", "\t");
-        unescaped.replace("\\r", "\r");
-        unescaped.replace("\\n", "\n");
-        unescaped.replace("\\|", "|");
-        unescaped.replace("\\\\", "\\");
-        return unescaped;
+    // If empty after sanitization, use default
+    if (sanitized.isEmpty()) {
+        sanitized = "unnamed_list";
     }
+    return sanitized;
+}
 
-    QString sanitizeFileName(const QString& input) {
-        QString sanitized = input;
-        // Remove null bytes first
-        sanitized.remove(QChar('\0'));
-        // Remove control characters (0x00-0x1F, 0x7F)
-        sanitized.remove(QRegularExpression("[\\x00-\\x1F\\x7F]"));
-        // Replace dangerous path characters
-        sanitized.replace(QRegularExpression("[\\\\/:*?\"<>|\\.\\.]"), "_");
-        // Remove leading/trailing dots and spaces (Windows specific)
-        sanitized = sanitized.trimmed();
-        sanitized.remove(QRegularExpression("^\\.+|\\s+$|\\.$"));
-        // Limit length to prevent path overflow
-        if (sanitized.length() > 200) {
-            sanitized = sanitized.left(200);
-        }
-        // If empty after sanitization, use default
-        if (sanitized.isEmpty()) {
-            sanitized = "unnamed_list";
-        }
-        return sanitized;
-    }
+QString generateSecureTempFileName(const QString& baseName, const QString& tempDir) {
+    // Generate unique temporary file name with random component
+    QDateTime now = QDateTime::currentDateTime();
+    qint64 timestamp = now.toMSecsSinceEpoch();
+    quint32 randomValue = QRandomGenerator::global()->generate();
 
-    QString generateSecureTempFileName(const QString& baseName, const QString& tempDir) {
-        // Generate unique temporary file name with random component
-        QDateTime now = QDateTime::currentDateTime();
-        qint64 timestamp = now.toMSecsSinceEpoch();
-        quint32 randomValue = QRandomGenerator::global()->generate();
+    QString sanitizedBase = sanitizeFileName(baseName);
+    QString tempFileName = QString("%1_%2_%3_temp.txt")
+                               .arg(sanitizedBase)
+                               .arg(timestamp)
+                               .arg(randomValue, 8, 16, QChar('0')); // 8-digit hex
 
-        QString sanitizedBase = sanitizeFileName(baseName);
-        QString tempFileName = QString("%1_%2_%3_temp.txt")
-            .arg(sanitizedBase)
-            .arg(timestamp)
-            .arg(randomValue, 8, 16, QChar('0')); // 8-digit hex
+    return QDir(tempDir).absoluteFilePath(tempFileName);
+}
 
-        return QDir(tempDir).absoluteFilePath(tempFileName);
-    }
+// Security: Clear sensitive string data from memory
+void secureStringClear(QString& str) {
+    if (str.isEmpty()) return;
 
-    // Security: Clear sensitive string data from memory
-    void secureStringClear(QString& str) {
-        if (str.isEmpty()) return;
-
-        // Get the internal data
-        // Note: This works for non-shared QString instances
-        QChar* data = str.data();
-        int len = str.length();
+    // Get the internal data
+    // Note: This works for non-shared QString instances
+    QChar* data = str.data();
+    int len = str.length();
 
 #ifdef Q_OS_WIN
-        // On Windows, use SecureZeroMemory to prevent compiler optimization
-        // This ensures the memory is actually cleared
-        SecureZeroMemory(data, len * sizeof(QChar));
+    // On Windows, use SecureZeroMemory to prevent compiler optimization
+    // This ensures the memory is actually cleared
+    SecureZeroMemory(data, len * sizeof(QChar));
 #else
-        // Fallback for non-Windows (though you specified Windows only)
-        // Overwrite with zeros
-        for (int i = 0; i < len; ++i) {
-            data[i] = QChar('\0');
-        }
+    // Fallback for non-Windows (though you specified Windows only)
+    // Overwrite with zeros
+    for (int i = 0; i < len; ++i) {
+        data[i] = QChar('\0');
+    }
 
-        // Force multiple overwrites to prevent compiler optimization
-        for (int i = 0; i < len; ++i) {
-            data[i] = QChar(0x00);
-        }
+    // Force multiple overwrites to prevent compiler optimization
+    for (int i = 0; i < len; ++i) {
+        data[i] = QChar(0x00);
+    }
 #endif
 
-        // Clear the string
-        str.clear();
+    // Clear the string
+    str.clear();
 
-        // Force the string to release its memory
-        str.squeeze();
-    }
-
-    // Security: Clear QStringList data from memory
-    void secureStringListClear(QStringList& list) {
-        for (QString& str : list) {
-            secureStringClear(str);
-        }
-        list.clear();
-    }
+    // Force the string to release its memory
+    str.squeeze();
 }
+
+// Security: Clear QStringList data from memory
+void secureStringListClear(QStringList& list) {
+    for (QString& str : list) {
+        secureStringClear(str);
+    }
+    list.clear();
+}
+}
+
+// JSON helper functions for task data
+QJsonObject Operations_TaskLists::taskToJson(const QString& name, bool completed, const QString& completionDate,
+                                             const QString& creationDate, const QString& description, const QString& id) {
+    QJsonObject task;
+    task["id"] = id.isEmpty() ? QUuid::createUuid().toString() : id;
+    task["name"] = name;
+    task["completed"] = completed;
+    task["completionDate"] = completionDate;
+    task["creationDate"] = creationDate;
+    task["description"] = description;
+    return task;
+}
+
+bool Operations_TaskLists::parseJsonTask(const QJsonObject& taskObj, QString& name, bool& completed,
+                                        QString& completionDate, QString& creationDate, QString& description, QString& id) {
+    if (!taskObj.contains("name") || !taskObj.contains("id")) {
+        return false;
+    }
+    
+    id = taskObj["id"].toString();
+    name = taskObj["name"].toString();
+    completed = taskObj["completed"].toBool();
+    completionDate = taskObj["completionDate"].toString();
+    creationDate = taskObj["creationDate"].toString();
+    description = taskObj["description"].toString();
+    
+    return true;
+}
+
+bool Operations_TaskLists::readTasklistJson(const QString& filePath, QJsonArray& tasks) {
+    qDebug() << "Operations_TaskLists: Reading JSON tasks from:" << filePath;
+    
+    // Create temporary directory
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        qWarning() << "Operations_TaskLists: Failed to create temp directory";
+        return false;
+    }
+    
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("read_json", tempDir);
+    
+    // Decrypt the file
+    if (!CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, filePath, tempPath)) {
+        qWarning() << "Operations_TaskLists: Failed to decrypt tasklist file";
+        return false;
+    }
+    
+    // Open the decrypted file
+    QFile tempFile(tempPath);
+    if (!tempFile.open(QIODevice::ReadOnly)) {
+        QFile::remove(tempPath);
+        qWarning() << "Operations_TaskLists: Failed to open decrypted file";
+        return false;
+    }
+    
+    // Skip the metadata header (512 bytes)
+    tempFile.seek(METADATA_SIZE);
+    
+    // Read the JSON content
+    QByteArray jsonData = tempFile.readAll();
+    tempFile.close();
+    QFile::remove(tempPath);
+    
+    if (jsonData.trimmed().isEmpty()) {
+        // Empty task list
+        tasks = QJsonArray();
+        return true;
+    }
+    
+    // Parse JSON
+    QJsonDocument doc = QJsonDocument::fromJson(jsonData);
+    if (!doc.isObject()) {
+        qWarning() << "Operations_TaskLists: Invalid JSON format";
+        return false;
+    }
+    
+    QJsonObject root = doc.object();
+    if (!root.contains("tasks") || !root["tasks"].isArray()) {
+        qWarning() << "Operations_TaskLists: Missing or invalid tasks array";
+        return false;
+    }
+    
+    tasks = root["tasks"].toArray();
+    return true;
+}
+
+bool Operations_TaskLists::writeTasklistJson(const QString& filePath, const QJsonArray& tasks) {
+    qDebug() << "Operations_TaskLists: Writing JSON tasks to:" << filePath;
+    
+    // First read the existing metadata to preserve it
+    QString tasklistName;
+    QString lastSelectedTask;
+    
+    // Read existing metadata
+    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
+    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+        qWarning() << "Operations_TaskLists: Failed to create temp directory";
+        return false;
+    }
+    
+    QString readTempPath = TaskDataSecurity::generateSecureTempFileName("read_metadata_json", tempDir);
+    
+    // Decrypt file to read metadata
+    if (CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, filePath, readTempPath)) {
+        QFile readFile(readTempPath);
+        if (readFile.open(QIODevice::ReadOnly)) {
+            QByteArray metadataBytes = readFile.read(METADATA_SIZE);
+            if (metadataBytes.size() == METADATA_SIZE) {
+                const TasklistMetadata* oldMetadata = reinterpret_cast<const TasklistMetadata*>(metadataBytes.constData());
+                
+                // Extract tasklist name
+                char nameBuffer[257];
+                memcpy(nameBuffer, oldMetadata->name, 256);
+                nameBuffer[256] = '\0';
+                tasklistName = QString::fromUtf8(nameBuffer);
+                
+                // Extract lastSelectedTask
+                char taskBuffer[129];
+                memcpy(taskBuffer, oldMetadata->lastSelectedTask, 128);
+                taskBuffer[128] = '\0';
+                lastSelectedTask = QString::fromUtf8(taskBuffer);
+            }
+            readFile.close();
+        }
+        QFile::remove(readTempPath);
+    }
+    
+    if (tasklistName.isEmpty()) {
+        qWarning() << "Operations_TaskLists: Failed to read existing metadata";
+        return false;
+    }
+    
+    // Create temporary file for writing
+    QString tempPath = TaskDataSecurity::generateSecureTempFileName("write_json", tempDir);
+    QFile tempFile(tempPath);
+    
+    if (!tempFile.open(QIODevice::WriteOnly)) {
+        qWarning() << "Operations_TaskLists: Failed to open temp file for writing";
+        return false;
+    }
+    
+    // Write metadata header
+    TasklistMetadata metadata;
+    memset(&metadata, 0, sizeof(metadata));
+    
+    // Set magic and version
+    strncpy(metadata.magic, TASKLIST_MAGIC, 8);
+    strncpy(metadata.version, TASKLIST_VERSION, 4);
+    
+    // Set tasklist name
+    QByteArray nameBytes = tasklistName.toUtf8();
+    int nameToCopy = qMin(nameBytes.size(), 255);
+    memcpy(metadata.name, nameBytes.constData(), nameToCopy);
+    
+    // Set creation date
+    QString creationDate = QDateTime::currentDateTime().toString(Qt::ISODate);
+    QByteArray dateBytes = creationDate.toUtf8();
+    int dateToCopy = qMin(dateBytes.size(), 31);
+    memcpy(metadata.creationDate, dateBytes.constData(), dateToCopy);
+    
+    // Preserve lastSelectedTask
+    if (!lastSelectedTask.isEmpty()) {
+        QByteArray taskBytes = lastSelectedTask.toUtf8();
+        int taskToCopy = qMin(taskBytes.size(), 127);
+        memcpy(metadata.lastSelectedTask, taskBytes.constData(), taskToCopy);
+    }
+    
+    // Write metadata to temp file
+    tempFile.write(reinterpret_cast<const char*>(&metadata), METADATA_SIZE);
+    
+    // Create JSON document
+    QJsonObject root;
+    root["version"] = 2;
+    root["tasks"] = tasks;
+    
+    QJsonDocument doc(root);
+    tempFile.write(doc.toJson(QJsonDocument::Compact));
+    
+    tempFile.close();
+    
+    // Encrypt the temp file to the final location
+    bool success = CryptoUtils::Encryption_EncryptFile(m_mainWindow->user_Key, tempPath, filePath);
+    
+    // Clean up temp file
+    QFile::remove(tempPath);
+    
+    if (!success) {
+        qWarning() << "Operations_TaskLists: Failed to encrypt tasklist file";
+    }
+    
+    return success;
+}
+
 
 Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
@@ -1060,36 +1233,33 @@ void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, c
     // Set the task list label with the name
     m_mainWindow->ui->label_TaskListName->setText(tasklistName);
 
-    // Process each task line (new format: TaskName|CompletionStatus|CompletionDate|CreationDate|DESC:Description)
-    for (const QString& line : taskLines) {
-        if (line.isEmpty()) continue;
+    // Read JSON tasks
+    QJsonArray tasks;
+    if (!readTasklistJson(taskListFilePath, tasks)) {
+        qWarning() << "Operations_TaskLists: Failed to read JSON tasks";
+        // Continue with empty task list
+    }
 
-        // Parse the task data (pipe-separated values)
-        QStringList parts = line.split('|');
-
-        // Validate minimum required fields for new format
-        if (parts.size() < 4) {
-            qWarning() << "Operations_TaskLists: Skipping invalid task entry - insufficient fields";
+    // Process each task from JSON
+    for (const QJsonValue& value : tasks) {
+        if (!value.isObject()) continue;
+        
+        QJsonObject taskObj = value.toObject();
+        
+        // Parse task fields
+        QString taskId, taskName, completionDate, creationDate, description;
+        bool isCompleted;
+        
+        if (!parseJsonTask(taskObj, taskName, isCompleted, completionDate, creationDate, description, taskId)) {
+            qWarning() << "Operations_TaskLists: Skipping invalid task object";
             continue;
         }
-
-        QString taskName = parts[0];
-        QString completionStatus = parts[1];
-        // parts[2] is completion date
-        // parts[3] is creation date
-        // parts[4] is description (if present)
-
-        // Security: Use centralized unescaping for task name
-        taskName = TaskDataSecurity::unescapeTaskField(taskName);
         
         // Validate task name
         if (taskName.trimmed().isEmpty()) {
             qWarning() << "Operations_TaskLists: Skipping task with empty name";
             continue;
         }
-
-        // Check if the task is completed
-        bool isCompleted = (completionStatus == "1");
 
         // Create a list widget item for the task
         QListWidgetItem* item = new QListWidgetItem(taskName);
@@ -1109,8 +1279,9 @@ void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, c
             item->setForeground(QColor(255, 255, 255)); // White color
         }
 
-        // Store the task line for reference (already in new format)
-        item->setData(Qt::UserRole, line);
+        // Store the task ID for reference
+        item->setData(Qt::UserRole, taskId);
+        item->setData(Qt::UserRole + 1, QJsonDocument(taskObj).toJson(QJsonDocument::Compact));
 
         // Add the item to the list widget
         taskDisplayWidget->addItem(item);
@@ -1307,107 +1478,102 @@ void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
         return;
     }
 
-    // Skip the 512-byte metadata header
-    file.seek(METADATA_SIZE);
+    file.close();
     
-    // Read the file content
-    QTextStream in(&file);
-    // No header line to skip in new format - tasks start immediately after metadata
+    // Read JSON tasks
+    QJsonArray tasks;
+    if (!readTasklistJson(taskListFilePath, tasks)) {
+        qWarning() << "Operations_TaskLists: Failed to read JSON tasks for details";
+        return;
+    }
 
     QString taskDescription = "";
     bool taskFound = false;
+    QString taskId;
+    bool isCompleted = false;
+    QString completionDateStr;
+    QString creationDateStr;
 
-    // Process each line in the file to find the task
-    while (!in.atEnd() && !taskFound) {
-        QString line = in.readLine();
-        if (line.isEmpty()) continue;
-
-        // Parse the task data (pipe-separated values)
-        // New format: TaskName|CompletionStatus|CompletionDate|CreationDate|DESC:Description
-        QStringList parts = line.split('|');
-
-        // Basic sanity check
-        if (parts.size() < 4) continue;
-
-        QString currentTaskName = parts[0];
-
-        // Unescape any escaped pipe characters in the task name
-        currentTaskName.replace("\\|", "|");
-
-        // Check if this is the task we're looking for
+    // Find the task by name
+    for (const QJsonValue& value : tasks) {
+        if (!value.isObject()) continue;
+        
+        QJsonObject taskObj = value.toObject();
+        QString currentTaskName = taskObj["name"].toString();
+        
         if (currentTaskName == taskName) {
             taskFound = true;
-            currentTaskData = line;
-
-            // Check for task description (should be at index 4)
-            if (parts.size() > 4 && parts[4].startsWith("DESC:")) {
-                taskDescription = parts[4].mid(5); // Remove "DESC:" prefix
-                // Security: Use centralized unescaping
-                taskDescription = TaskDataSecurity::unescapeTaskField(taskDescription);
-            }
-
-            // Get completion status
-            bool isCompleted = (parts[1] == "1");
-            QString completionStatus = isCompleted ? "Completed" : "Pending";
-
-            // Get creation date
-            QString creationDate = (parts.size() > 3) ? parts[3] : "Unknown";
-            QDateTime creationDateTime = QDateTime::fromString(creationDate, Qt::ISODate);
-            QString formattedCreationDate = FormatDateTime(creationDateTime);
-
-            // Configure table (no Task Type column in new format)
-            int columnCount = isCompleted ? 3 : 2;
-
-            taskDetailsTable->setColumnCount(columnCount);
-
-            QStringList headers;
-            headers << "Status";
-
-            if (isCompleted) {
-                headers << "Completion Date" << "Creation Date";
-            } else {
-                headers << "Creation Date";
-            }
-
-            taskDetailsTable->setHorizontalHeaderLabels(headers);
-            taskDetailsTable->insertRow(0);
-
-            // Completion Status
-            QTableWidgetItem* statusItem = new QTableWidgetItem(completionStatus);
-            if (isCompleted) {
-                statusItem->setForeground(Qt::green);
-            }
-            taskDetailsTable->setItem(0, 0, statusItem);
-
-            // If task is completed, add completion date
-            if (isCompleted) {
-                QString completionDateStr = (parts.size() > 2) ? parts[2] : "";
-                QDateTime completionDateTime = QDateTime::fromString(completionDateStr, Qt::ISODate);
-                QString formattedCompletionDate = FormatDateTime(completionDateTime);
-                taskDetailsTable->setItem(0, 1, new QTableWidgetItem(formattedCompletionDate));
-
-                // Creation Date
-                taskDetailsTable->setItem(0, 2, new QTableWidgetItem(formattedCreationDate));
-            } else {
-                // Creation Date
-                taskDetailsTable->setItem(0, 1, new QTableWidgetItem(formattedCreationDate));
-            }
-
-            // Resize columns to content
-            taskDetailsTable->resizeColumnsToContents();
-
-            // Resize rows to content for proper height
-            taskDetailsTable->resizeRowsToContents();
-
-            // Make the last column stretch
-            int lastColumn = taskDetailsTable->columnCount() - 1;
-            taskDetailsTable->horizontalHeader()->setSectionResizeMode(lastColumn, QHeaderView::Stretch);
-
+            
+            // Parse task data
+            taskId = taskObj["id"].toString();
+            currentTaskId = taskId;  // Store for later use
+            isCompleted = taskObj["completed"].toBool();
+            completionDateStr = taskObj["completionDate"].toString();
+            creationDateStr = taskObj["creationDate"].toString();
+            taskDescription = taskObj["description"].toString();
+            
+            // Store the current task data as JSON for later use
+            currentTaskData = QJsonDocument(taskObj).toJson(QJsonDocument::Compact);
+            
             break;
         }
     }
+    
+    if (!taskFound) {
+        qWarning() << "Operations_TaskLists: Could not find the specified task in the task list.";
+        return;
+    }
 
-    file.close();
+    // Format the task details
+    QString completionStatus = isCompleted ? "Completed" : "Pending";
+    QDateTime creationDateTime = QDateTime::fromString(creationDateStr, Qt::ISODate);
+    QString formattedCreationDate = FormatDateTime(creationDateTime);
+
+    // Configure table
+    int columnCount = isCompleted ? 3 : 2;
+    taskDetailsTable->setColumnCount(columnCount);
+
+    QStringList headers;
+    headers << "Status";
+
+    if (isCompleted) {
+        headers << "Completion Date" << "Creation Date";
+    } else {
+        headers << "Creation Date";
+    }
+
+    taskDetailsTable->setHorizontalHeaderLabels(headers);
+    taskDetailsTable->insertRow(0);
+
+    // Completion Status
+    QTableWidgetItem* statusItem = new QTableWidgetItem(completionStatus);
+    if (isCompleted) {
+        statusItem->setForeground(Qt::green);
+    }
+    taskDetailsTable->setItem(0, 0, statusItem);
+
+    // If task is completed, add completion date
+    if (isCompleted) {
+        QDateTime completionDateTime = QDateTime::fromString(completionDateStr, Qt::ISODate);
+        QString formattedCompletionDate = FormatDateTime(completionDateTime);
+        taskDetailsTable->setItem(0, 1, new QTableWidgetItem(formattedCompletionDate));
+
+        // Creation Date
+        taskDetailsTable->setItem(0, 2, new QTableWidgetItem(formattedCreationDate));
+    } else {
+        // Creation Date
+        taskDetailsTable->setItem(0, 1, new QTableWidgetItem(formattedCreationDate));
+    }
+
+    // Resize columns to content
+    taskDetailsTable->resizeColumnsToContents();
+
+    // Resize rows to content for proper height
+    taskDetailsTable->resizeRowsToContents();
+
+    // Make the last column stretch
+    int lastColumn = taskDetailsTable->columnCount() - 1;
+    taskDetailsTable->horizontalHeader()->setSectionResizeMode(lastColumn, QHeaderView::Stretch);
     // tempPath cleanup is handled by TempFileGuard
 
     if (!taskFound) {
@@ -1731,9 +1897,13 @@ void Operations_TaskLists::CreateTaskListFile(const QString& listName)
     // Write metadata to temp file
     tempFile.write(reinterpret_cast<const char*>(&metadata), METADATA_SIZE);
     
-    // Write a newline after metadata to separate it from tasks
-    // (No tasks initially, so file will just have metadata)
-    tempFile.write("\n");
+    // Write initial JSON structure with empty tasks array
+    QJsonObject root;
+    root["version"] = 2;
+    root["tasks"] = QJsonArray();  // Empty task array
+    
+    QJsonDocument doc(root);
+    tempFile.write(doc.toJson(QJsonDocument::Compact));
     
     tempFile.close();
     
@@ -2092,64 +2262,27 @@ void Operations_TaskLists::AddTaskSimple(QString taskName, QString description)
         return;
     }
 
-    // Security: Use centralized escaping for task data
-    QString escapedTaskName = TaskDataSecurity::escapeTaskField(taskName);
-    QString escapedDescription = TaskDataSecurity::escapeTaskField(description);
+    // Read existing tasks
+    QJsonArray tasks;
+    if (!readTasklistJson(taskListFilePath, tasks)) {
+        // If reading fails, start with empty array
+        tasks = QJsonArray();
+    }
 
-    // Create the task data line with new format: TaskName|CompletionStatus|CompletionDate|CreationDate|DESC:Description
-    QString taskData = QString("%1|0||%2|DESC:%3")
-        .arg(escapedTaskName)
-        .arg(QDateTime::currentDateTime().toString(Qt::ISODate))
-        .arg(escapedDescription);
-
-    // Read existing tasks from file
-    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
-    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
-        QMessageBox::warning(m_mainWindow, "Directory Error",
-                            "Could not create temporary directory.");
-        return;
-    }
+    // Create new task object
+    QString taskId = QUuid::createUuid().toString();
+    QString creationDate = QDateTime::currentDateTime().toString(Qt::ISODate);
+    QJsonObject newTask = taskToJson(taskName, false, "", creationDate, description, taskId);
     
-    QString tempPath = TaskDataSecurity::generateSecureTempFileName("add_task", tempDir);
+    // Add the new task to the array
+    tasks.append(newTask);
     
-    // Decrypt the existing file
-    if (!CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, taskListFilePath, tempPath)) {
-        QMessageBox::warning(m_mainWindow, "File Error",
-                            "Could not decrypt the task list file.");
-        return;
-    }
-    
-    // Read the decrypted file
-    QFile tempFile(tempPath);
-    if (!tempFile.open(QIODevice::ReadWrite)) {
-        QFile::remove(tempPath);
-        QMessageBox::warning(m_mainWindow, "File Error",
-                            "Could not open task list file.");
-        return;
-    }
-    
-    // Read all content
-    QByteArray allContent = tempFile.readAll();
-    
-    // Append the new task (after metadata)
-    tempFile.seek(tempFile.size());
-    tempFile.write(taskData.toUtf8());
-    tempFile.write("\n");
-    tempFile.close();
-    
-    // Re-encrypt the file
-    if (!CryptoUtils::Encryption_EncryptFile(m_mainWindow->user_Key, tempPath, taskListFilePath)) {
-        QFile::remove(tempPath);
+    // Write back the updated tasks
+    if (!writeTasklistJson(taskListFilePath, tasks)) {
         QMessageBox::warning(m_mainWindow, "File Error",
                             "Could not save the updated task list.");
         return;
     }
-    
-    // Clean up temp file
-    QFile::remove(tempPath);
-
-    // Unescape task name for display
-    taskName.replace("\\|", "|");
 
     // Reload the task list to show the new task
     LoadIndividualTasklist(currentTaskList, taskName);
@@ -2199,116 +2332,51 @@ void Operations_TaskLists::ModifyTaskSimple(const QString& originalTaskName, QSt
     }
 
     // Check for duplicate task names (if name changed)
-    if (originalTaskName != taskName && checkDuplicateTaskName(taskName, taskListFilePath)) {
+    if (originalTaskName != taskName && checkDuplicateTaskName(taskName, taskListFilePath, currentTaskId)) {
         QMessageBox::warning(m_mainWindow, "Duplicate Task Name",
                             "A task with this name already exists in the current task list.");
         return;
     }
 
-    // Prepare to decrypt and modify the task
-    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
-    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
-        QMessageBox::warning(m_mainWindow, "Directory Error",
-                            "Could not create temporary directory.");
-        return;
-    }
-    
-    QString tempPath = TaskDataSecurity::generateSecureTempFileName("modify_task", tempDir);
-    
-    // Decrypt the existing file
-    if (!CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, taskListFilePath, tempPath)) {
+    // Read existing tasks
+    QJsonArray tasks;
+    if (!readTasklistJson(taskListFilePath, tasks)) {
         QMessageBox::warning(m_mainWindow, "File Error",
-                            "Could not decrypt the task list file.");
+                            "Could not read the task list file.");
         return;
-    }
-    
-    // Read and modify the file
-    QFile tempFile(tempPath);
-    if (!tempFile.open(QIODevice::ReadWrite)) {
-        QFile::remove(tempPath);
-        QMessageBox::warning(m_mainWindow, "File Error",
-                            "Could not open task list file.");
-        return;
-    }
-    
-    // Read metadata
-    QByteArray metadata = tempFile.read(METADATA_SIZE);
-    
-    // Read all task lines
-    QStringList taskLines;
-    QTextStream stream(&tempFile);
-    while (!stream.atEnd()) {
-        taskLines.append(stream.readLine());
     }
     
     // Find and modify the task
     bool taskFound = false;
-    QString originalTaskNameEscaped = originalTaskName;
-    originalTaskNameEscaped.replace("|", "\\|");
-
-    for (int i = 0; i < taskLines.size(); ++i) {
-        if (taskLines[i].isEmpty()) continue;
+    for (int i = 0; i < tasks.size(); ++i) {
+        QJsonValue value = tasks[i];
+        if (!value.isObject()) continue;
         
-        QStringList parts = taskLines[i].split('|');
-        // New format: TaskName is first field
-        if (parts.size() >= 1 && parts[0] == originalTaskNameEscaped) {
+        QJsonObject taskObj = value.toObject();
+        if (taskObj["name"].toString() == originalTaskName) {
+            // Preserve existing fields but update name and description
+            taskObj["name"] = taskName;
+            taskObj["description"] = description;
+            
+            // Update the task in the array
+            tasks[i] = taskObj;
             taskFound = true;
-
-            // Preserve existing completion status and dates
-            QString completionStatus = (parts.size() > 1) ? parts[1] : "0";
-            QString completionDate = (parts.size() > 2) ? parts[2] : "";
-            QString creationDate = (parts.size() > 3) ? parts[3] : QDateTime::currentDateTime().toString(Qt::ISODate);
-
-            // Escape special characters
-            taskName.replace("|", "\\|");
-            description.replace("|", "\\|");
-            description.replace("\n", "\\n");
-            description.replace("\r", "\\r");
-
-            // Update the task data with new format
-            taskLines[i] = QString("%1|%2|%3|%4|DESC:%5")
-                .arg(taskName)
-                .arg(completionStatus)
-                .arg(completionDate)
-                .arg(creationDate)
-                .arg(description);
             break;
         }
     }
-
+    
     if (!taskFound) {
-        tempFile.close();
-        QFile::remove(tempPath);
         QMessageBox::warning(m_mainWindow, "Task Not Found",
                             "Could not find the task to modify.");
         return;
     }
     
-    // Write back the modified file
-    tempFile.seek(0);
-    tempFile.write(metadata);  // Write metadata header
-    for (const QString& taskLine : taskLines) {
-        if (!taskLine.isEmpty()) {
-            tempFile.write(taskLine.toUtf8());
-            tempFile.write("\n");
-        }
-    }
-    tempFile.resize(tempFile.pos());  // Truncate any remaining old content
-    tempFile.close();
-    
-    // Re-encrypt the file
-    if (!CryptoUtils::Encryption_EncryptFile(m_mainWindow->user_Key, tempPath, taskListFilePath)) {
-        QFile::remove(tempPath);
+    // Write back the updated tasks
+    if (!writeTasklistJson(taskListFilePath, tasks)) {
         QMessageBox::warning(m_mainWindow, "File Error",
                             "Could not save the modified task list.");
         return;
     }
-    
-    // Clean up temp file
-    QFile::remove(tempPath);
-
-    // Unescape task name for display
-    taskName.replace("\\|", "|");
 
     // Reload the task list to show the changes
     LoadIndividualTasklist(currentTaskList, taskName);
@@ -2346,9 +2414,9 @@ void Operations_TaskLists::DeleteTask(const QString& taskName)
         return;
     }
 
-    // Read the existing file content
-    QStringList lines;
-    if (!readTasklistFileWithMetadata(taskListFilePath, lines)) {
+    // Read existing tasks
+    QJsonArray tasks;
+    if (!readTasklistJson(taskListFilePath, tasks)) {
         QMessageBox::warning(m_mainWindow, "File Error",
                             "Could not read the task list file.");
         return;
@@ -2356,16 +2424,14 @@ void Operations_TaskLists::DeleteTask(const QString& taskName)
 
     // Find and remove the task
     bool taskFound = false;
-    QString taskNameEscaped = taskName;
-    taskNameEscaped.replace("|", "\\|");
-
-    // No header line in new format - start from index 0
-    for (int i = 0; i < lines.size(); ++i) {
-        QStringList parts = lines[i].split('|');
-        // New format: TaskName is at index 0
-        if (parts.size() >= 1 && parts[0] == taskNameEscaped) {
+    for (int i = 0; i < tasks.size(); ++i) {
+        QJsonValue value = tasks[i];
+        if (!value.isObject()) continue;
+        
+        QJsonObject taskObj = value.toObject();
+        if (taskObj["name"].toString() == taskName) {
+            tasks.removeAt(i);
             taskFound = true;
-            lines.removeAt(i);
             break;
         }
     }
@@ -2376,8 +2442,8 @@ void Operations_TaskLists::DeleteTask(const QString& taskName)
         return;
     }
 
-    // Write back the file
-    if (!writeTasklistFileWithMetadata(taskListFilePath, lines)) {
+    // Write back the updated tasks
+    if (!writeTasklistJson(taskListFilePath, tasks)) {
         QMessageBox::warning(m_mainWindow, "File Error",
                             "Could not write to the task list file.");
         return;
@@ -2428,36 +2494,40 @@ void Operations_TaskLists::SetTaskStatus(bool checked, QListWidgetItem* item)
         return;
     }
 
-    // Read the existing file content
-    QStringList lines;
-    if (!readTasklistFileWithMetadata(taskListFilePath, lines)) {
+    // Read existing tasks
+    QJsonArray tasks;
+    if (!readTasklistJson(taskListFilePath, tasks)) {
+        qWarning() << "Operations_TaskLists: Failed to read tasks for status update";
         return;
     }
-
+    
     // Find and update the task
-    QString taskNameEscaped = taskName;
-    taskNameEscaped.replace("|", "\\|");
-
-    // No header line in new format - start from index 0
-    for (int i = 0; i < lines.size(); ++i) {
-        QStringList parts = lines[i].split('|');
-        // New format: TaskName is at index 0
-        if (parts.size() >= 1 && parts[0] == taskNameEscaped) {
-            // Update completion status and date (at indices 1 and 2)
-            if (parts.size() > 1) {
-                parts[1] = checked ? "1" : "0";
-            }
-            if (parts.size() > 2) {
-                parts[2] = checked ? QDateTime::currentDateTime().toString(Qt::ISODate) : "";
-            }
-
-            lines[i] = parts.join('|');
+    bool taskFound = false;
+    for (int i = 0; i < tasks.size(); ++i) {
+        QJsonValue value = tasks[i];
+        if (!value.isObject()) continue;
+        
+        QJsonObject taskObj = value.toObject();
+        if (taskObj["name"].toString() == taskName) {
+            // Update completion status and date
+            taskObj["completed"] = checked;
+            taskObj["completionDate"] = checked ? QDateTime::currentDateTime().toString(Qt::ISODate) : "";
+            
+            // Update the task in the array
+            tasks[i] = taskObj;
+            taskFound = true;
             break;
         }
     }
-
-    // Write back the file
-    if (!writeTasklistFileWithMetadata(taskListFilePath, lines)) {
+    
+    if (!taskFound) {
+        qWarning() << "Operations_TaskLists: Task not found for status update:" << taskName;
+        return;
+    }
+    
+    // Write back the updated tasks
+    if (!writeTasklistJson(taskListFilePath, tasks)) {
+        qWarning() << "Operations_TaskLists: Failed to write updated tasks";
         return;
     }
 
@@ -2709,49 +2779,27 @@ void Operations_TaskLists::SaveTaskDescription()
 //--------Helper Functions--------//
 bool Operations_TaskLists::checkDuplicateTaskName(const QString& taskName, const QString& taskListFilePath, const QString& currentTaskId)
 {
-    // Decrypt file to check for duplicates
-    QString tempDir = "Data/" + m_mainWindow->user_Username + "/temp/";
-    if (!OperationsFiles::ensureDirectoryExists(tempDir)) {
+    // Read the JSON tasks
+    QJsonArray tasks;
+    if (!readTasklistJson(taskListFilePath, tasks)) {
         return false;
     }
     
-    QString tempPath = TaskDataSecurity::generateSecureTempFileName("check_dup", tempDir);
-    
-    if (!CryptoUtils::Encryption_DecryptFile(m_mainWindow->user_Key, taskListFilePath, tempPath)) {
-        return false;
-    }
-    
-    QFile tempFile(tempPath);
-    if (!tempFile.open(QIODevice::ReadOnly)) {
-        QFile::remove(tempPath);
-        return false;
-    }
-    
-    // Skip metadata
-    tempFile.seek(METADATA_SIZE);
-    
-    QString taskNameEscaped = taskName;
-    taskNameEscaped.replace("|", "\\|");
-    
-    QTextStream stream(&tempFile);
-    while (!stream.atEnd()) {
-        QString line = stream.readLine();
-        if (line.isEmpty()) continue;
+    // Check each task for duplicate name
+    for (const QJsonValue& value : tasks) {
+        if (!value.isObject()) continue;
         
-        QStringList parts = line.split('|');
-        // New format: TaskName is first field
-        if (parts.size() >= 1 && parts[0] == taskNameEscaped) {
-            if (currentTaskId.isEmpty() || parts[0] != currentTaskId) {
-                tempFile.close();
-                QFile::remove(tempPath);
-                return true;
-            }
+        QJsonObject taskObj = value.toObject();
+        QString existingName = taskObj["name"].toString();
+        QString existingId = taskObj["id"].toString();
+        
+        // Check if this is a duplicate (same name but different ID)
+        if (existingName == taskName && (currentTaskId.isEmpty() || existingId != currentTaskId)) {
+            return true;  // Found a duplicate
         }
     }
     
-    tempFile.close();
-    QFile::remove(tempPath);
-    return false;
+    return false;  // No duplicate found
 }
 
 bool Operations_TaskLists::AreAllTasksCompleted(const QString& tasklistName)

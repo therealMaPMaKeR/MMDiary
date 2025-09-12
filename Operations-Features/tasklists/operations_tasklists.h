@@ -12,6 +12,9 @@
 #include <QMessageBox>
 #include "../../Operations-Global/ThreadSafeContainers.h"
 #include "../../Operations-Global/SafeTimer.h"
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 class MainWindow;
 class Operations_TaskLists : public QObject
@@ -35,7 +38,7 @@ private:
     
     static constexpr int METADATA_SIZE = 512;
     static constexpr const char* TASKLIST_MAGIC = "TASKLIST";
-    static constexpr const char* TASKLIST_VERSION = "0002";
+    static constexpr const char* TASKLIST_VERSION = "0003";  // JSON format
     
     // Helper functions for metadata
     bool writeTasklistMetadata(const QString& filePath, const QString& tasklistName, const QByteArray& key);
@@ -52,6 +55,15 @@ private:
     bool checkDuplicateTaskName(const QString& taskName, const QString& taskListFilePath, const QString& currentTaskId = QString());
     QString currentTaskToEdit;    // Stores the name of the task being edited
     QString currentTaskData;       // Stores the data of the task being edited
+    QString currentTaskId;         // Stores the ID of the task being edited
+    
+    // JSON helper functions
+    QJsonObject taskToJson(const QString& name, bool completed, const QString& completionDate,
+                          const QString& creationDate, const QString& description, const QString& id);
+    bool parseJsonTask(const QJsonObject& taskObj, QString& name, bool& completed, 
+                      QString& completionDate, QString& creationDate, QString& description, QString& id);
+    bool readTasklistJson(const QString& filePath, QJsonArray& tasks);
+    bool writeTasklistJson(const QString& filePath, const QJsonArray& tasks);
     
     SafeTimer* m_descriptionSaveTimer;
     QString m_currentTaskName;
