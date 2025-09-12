@@ -672,7 +672,7 @@ void qtree_Tasklists_list::selectionChanged(const QItemSelection &selected, cons
     }
 }
 
-QMimeData* qtree_Tasklists_list::mimeData(const QList<QTreeWidgetItem*> items) const
+QMimeData* qtree_Tasklists_list::mimeData(const QList<QTreeWidgetItem*>& items) const
 {
     if (items.isEmpty()) {
         return nullptr;

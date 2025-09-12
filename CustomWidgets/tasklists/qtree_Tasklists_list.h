@@ -96,7 +96,7 @@ protected:
     void selectionChanged(const QItemSelection &selected, const QItemSelection &deselected) override;
     
     // Create mime data for drag operation
-    QMimeData* mimeData(const QList<QTreeWidgetItem*> items) const override;
+    QMimeData* mimeData(const QList<QTreeWidgetItem*>& items) const override;
     
     // Supported mime types
     QStringList mimeTypes() const override;
