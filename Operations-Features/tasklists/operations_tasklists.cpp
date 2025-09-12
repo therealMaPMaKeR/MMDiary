@@ -2684,15 +2684,21 @@ void Operations_TaskLists::DeleteTask(const QString& taskName)
         return;
     }
 
-    // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
-    if (taskListWidget->currentItem() == nullptr) {
-        QMessageBox::warning(m_mainWindow, "No Task List Selected",
-                            "Please select a task list first.");
+    // Get current task list from tree widget
+    qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List);
+    if (!treeWidget) {
+        qWarning() << "Operations_TaskLists: Failed to cast tree widget in DeleteTask";
         return;
     }
 
-    QString currentTaskList = taskListWidget->currentItem()->text();
+    QTreeWidgetItem* currentItem = treeWidget->currentItem();
+    if (!currentItem || treeWidget->isCategory(currentItem)) {
+        QMessageBox::warning(m_mainWindow, "No Task List Selected",
+                             "Please select a task list first.");
+        return;
+    }
+
+    QString currentTaskList = currentItem->text(0);
 
     // Find the tasklist file by name
     QString taskListFilePath = findTasklistFileByName(currentTaskList);

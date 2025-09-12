@@ -921,6 +921,7 @@ void MainWindow::LoadPersistentSettings()
     // COMMENTED OUT: Task restoration now handled by metadata in tasklist files
     // QString currentTask = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_TLists_CurrentTask);
 
+    /*
     // Apply tasklist settings if they exist and are valid
     if (Operations_TaskLists_ptr) {
         QListWidget* taskListWidget = ui->treeWidget_TaskList_List;
@@ -962,7 +963,7 @@ void MainWindow::LoadPersistentSettings()
             qDebug() << "MainWindow: Task list widget is null or empty when applying settings";
         }
     }
-
+    */
     // Load encrypted data settings
     QString savedSortType = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_DataENC_SortType);
     QString savedCategory = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_DataENC_CurrentCategory);
@@ -1125,6 +1126,7 @@ void MainWindow::SavePersistentSettings()
     // QString currentTask = "";
 
     // Get current selected tasklist
+    /*
     QListWidget* taskListWidget = ui->treeWidget_TaskList_List;
     if (taskListWidget) {
         QListWidgetItem* currentTaskListItem = taskListWidget->currentItem();
@@ -1156,6 +1158,7 @@ void MainWindow::SavePersistentSettings()
     // COMMENTED OUT: Task selection now saved in tasklist metadata
     // m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_TLists_CurrentTask, currentTask);
 
+    */
     // Save encrypted data settings
     QString currentSortType = "";
     QString currentCategory = "";
