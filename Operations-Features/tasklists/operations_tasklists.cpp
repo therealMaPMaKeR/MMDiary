@@ -1771,14 +1771,22 @@ void Operations_TaskLists::LoadTasklists()
         allTasklistNames.append(tasklistName);
     }
 
-    // If settings weren't loaded or incomplete, add all tasklists to Uncategorized
+    // If settings weren't loaded or incomplete, handle orphaned tasklists
     if (!settingsLoaded) {
-        // Ensure Uncategorized category exists
-        treeWidget->getOrCreateCategory("Uncategorized");
+        // Check if we have any categories at all
+        QStringList categories = treeWidget->getAllCategories();
+        if (categories.isEmpty() && !allTasklistNames.isEmpty()) {
+            // No categories exist but we have tasklists - create a default category
+            treeWidget->addCategory("My Tasks");
+            categories.append("My Tasks");
+        }
         
-        // Add all tasklists to Uncategorized
-        for (const QString& tasklistName : allTasklistNames) {
-            treeWidget->addTasklist(tasklistName, "Uncategorized");
+        // Add all tasklists to the first available category
+        if (!categories.isEmpty() && !allTasklistNames.isEmpty()) {
+            QString defaultCategory = categories.first();
+            for (const QString& tasklistName : allTasklistNames) {
+                treeWidget->addTasklist(tasklistName, defaultCategory);
+            }
         }
     } else {
         // Settings were loaded, now add any tasklists that aren't in the settings
@@ -1790,10 +1798,28 @@ void Operations_TaskLists::LoadTasklists()
             tasklistsInTree.append(tasklistsInCategory);
         }
         
-        // Add any tasklists that aren't in the tree to Uncategorized
+        // Handle orphaned tasklists (those not in the tree)
+        QStringList orphanedTasklists;
         for (const QString& tasklistName : allTasklistNames) {
             if (!tasklistsInTree.contains(tasklistName)) {
-                treeWidget->addTasklist(tasklistName, "Uncategorized");
+                orphanedTasklists.append(tasklistName);
+            }
+        }
+        
+        // If we have orphaned tasklists, add them to a category
+        if (!orphanedTasklists.isEmpty()) {
+            QString targetCategory;
+            if (categories.isEmpty()) {
+                // No categories exist - create one
+                treeWidget->addCategory("My Tasks");
+                targetCategory = "My Tasks";
+            } else {
+                // Use the first available category
+                targetCategory = categories.first();
+            }
+            
+            for (const QString& tasklistName : orphanedTasklists) {
+                treeWidget->addTasklist(tasklistName, targetCategory);
             }
         }
     }
@@ -1827,6 +1853,40 @@ void Operations_TaskLists::CreateNewTaskList()
         return;
     }
 
+    // Get the currently selected item to determine the category
+    QTreeWidgetItem* currentItem = treeWidget->currentItem();
+    QString targetCategory;
+    
+    if (!currentItem) {
+        // No selection - check if there are any categories
+        QStringList categories = treeWidget->getAllCategories();
+        if (categories.isEmpty()) {
+            QMessageBox::information(m_mainWindow, "No Categories",
+                "Please create a category first before creating a tasklist.");
+            return;
+        }
+        // Prompt user to select a category
+        bool ok;
+        targetCategory = QInputDialog::getItem(m_mainWindow, "Select Category",
+            "Select a category for the new tasklist:", categories, 0, false, &ok);
+        if (!ok || targetCategory.isEmpty()) {
+            return; // User cancelled
+        }
+    } else if (treeWidget->isCategory(currentItem)) {
+        // A category is selected - use it
+        targetCategory = currentItem->text(0);
+    } else {
+        // A tasklist is selected - use its parent category
+        QTreeWidgetItem* parent = currentItem->parent();
+        if (parent) {
+            targetCategory = parent->text(0);
+        } else {
+            QMessageBox::warning(m_mainWindow, "Error",
+                "Selected tasklist has no parent category.");
+            return;
+        }
+    }
+
     // Get all existing tasklist names
     QStringList existingNames;
     QStringList categories = treeWidget->getAllCategories();
@@ -1839,8 +1899,8 @@ void Operations_TaskLists::CreateNewTaskList()
     QString initialName = "New Task List";
     QString uniqueName = Operations::GetUniqueItemName(initialName, existingNames);
 
-    // Add the new tasklist to Uncategorized category
-    QTreeWidgetItem* newItem = treeWidget->addTasklist(uniqueName, "Uncategorized");
+    // Add the new tasklist to the selected category
+    QTreeWidgetItem* newItem = treeWidget->addTasklist(uniqueName, targetCategory);
     if (!newItem) {
         qWarning() << "Operations_TaskLists: Failed to add new tasklist to tree";
         return;
@@ -4010,43 +4070,58 @@ void Operations_TaskLists::showContextMenu_TaskListList(const QPoint &pos)
         connect(deleteCategoryAction, &QAction::triggered, this, [this, treeWidget, item, itemText]() {
             if (!item || !treeWidget->isCategory(item)) return;
             
-            // Check if category has children
-            if (item->childCount() > 0) {
-                QMessageBox::StandardButton reply = QMessageBox::question(m_mainWindow, "Delete Category",
-                    QString("The category '%1' contains %2 tasklist(s). "
-                           "All tasklists will be moved to 'Uncategorized'. Continue?")
-                           .arg(itemText).arg(item->childCount()),
-                    QMessageBox::Yes | QMessageBox::No);
-                
-                if (reply != QMessageBox::Yes) return;
-                
-                // Move all children to Uncategorized
-                while (item->childCount() > 0) {
-                    QTreeWidgetItem* child = item->takeChild(0);
-                    QString tasklistName = child->text(0);
-                    delete child;
-                    treeWidget->addTasklist(tasklistName, "Uncategorized");
+            // Get all tasklists in this category
+            QStringList tasklistsToDelete;
+            for (int i = 0; i < item->childCount(); ++i) {
+                QTreeWidgetItem* child = item->child(i);
+                if (child) {
+                    tasklistsToDelete.append(child->text(0));
                 }
+            }
+            
+            // Show confirmation with list of tasklists to be deleted
+            QString message;
+            if (tasklistsToDelete.isEmpty()) {
+                message = QString("Are you sure you want to delete the empty category '%1'?").arg(itemText);
             } else {
-                // Empty category, just confirm deletion
-                QMessageBox::StandardButton reply = QMessageBox::question(m_mainWindow, "Delete Category",
-                    QString("Are you sure you want to delete the category '%1'?").arg(itemText),
-                    QMessageBox::Yes | QMessageBox::No);
-                
-                if (reply != QMessageBox::Yes) return;
+                message = QString("WARNING: Deleting category '%1' will permanently delete the following %2 tasklist(s):\n\n")
+                    .arg(itemText).arg(tasklistsToDelete.size());
+                for (const QString& tasklist : tasklistsToDelete) {
+                    message += "• " + tasklist + "\n";
+                }
+                message += "\nThis action cannot be undone. Continue?";
             }
             
-            // Delete the category
-            int index = treeWidget->indexOfTopLevelItem(item);
-            if (index >= 0) {
-                delete treeWidget->takeTopLevelItem(index);
+            QMessageBox::StandardButton reply = QMessageBox::warning(
+                m_mainWindow, "Delete Category",
+                message,
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No);
+            
+            if (reply != QMessageBox::Yes) return;
+            
+            // Delete all tasklist files
+            for (const QString& tasklistName : tasklistsToDelete) {
+                QString taskListFilePath = findTasklistFileByName(tasklistName);
+                if (!taskListFilePath.isEmpty()) {
+                    QFile::remove(taskListFilePath);
+                    m_tasklistNameToFile.remove(tasklistName);
+                }
             }
             
-            // Ensure Uncategorized still exists
-            treeWidget->ensureUncategorizedExists();
+            // Delete the category (which will also delete all child items)
+            treeWidget->removeCategory(itemText);
             
             // Save the updated settings
             SaveTasklistSettings();
+            
+            // Clear UI if any deleted tasklist was selected
+            m_mainWindow->ui->listWidget_TaskListDisplay->clear();
+            m_mainWindow->ui->tableWidget_TaskDetails->clear();
+            m_mainWindow->ui->tableWidget_TaskDetails->setRowCount(0);
+            m_mainWindow->ui->tableWidget_TaskDetails->setColumnCount(0);
+            m_mainWindow->ui->plainTextEdit_TaskDesc->clear();
+            m_mainWindow->ui->label_TaskListName->clear();
         });
     }
     

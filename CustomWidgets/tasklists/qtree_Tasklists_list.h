@@ -34,7 +34,7 @@ public:
     bool renameCategory(const QString& oldName, const QString& newName);
     
     // Tasklist management
-    QTreeWidgetItem* addTasklist(const QString& tasklistName, const QString& categoryName = "Uncategorized");
+    QTreeWidgetItem* addTasklist(const QString& tasklistName, const QString& categoryName);
     void moveTasklistToCategory(const QString& tasklistName, const QString& categoryName);
     QTreeWidgetItem* findTasklist(const QString& tasklistName);
     QString getTasklistCategory(const QString& tasklistName);
@@ -59,7 +59,8 @@ public:
     // Enable/disable drag and drop
     void setDragDropEnabled(bool enabled);
 
-    void ensureUncategorizedExists();
+    // Get all tasklists (for deletion confirmation)
+    QStringList getAllTasklists() const;
 
 signals:
     // Emitted when the structure changes (categories or tasklist order)
@@ -141,7 +142,6 @@ private:
     QAction* m_actionNewTasklist;
     
     // Constants
-    static constexpr const char* UNCATEGORIZED_NAME = "Uncategorized";
     static constexpr const char* MIME_TYPE_TASKLIST = "application/x-tasklist-item";
 };
 

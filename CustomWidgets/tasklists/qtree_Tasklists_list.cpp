@@ -54,9 +54,6 @@ void qtree_Tasklists_list::setupWidget()
     m_actionNewCategory = new QAction("New Category", this);
     m_actionNewTasklist = new QAction("New Tasklist", this);
     
-    // Ensure Uncategorized category exists
-    ensureUncategorizedExists();
-    
     // Connect selection changed
     connect(this, &QTreeWidget::itemSelectionChanged, this, [this]() {
         QList<QTreeWidgetItem*> selected = selectedItems();
@@ -90,22 +87,21 @@ void qtree_Tasklists_list::setDragDropEnabled(bool enabled)
     }
 }
 
-void qtree_Tasklists_list::ensureUncategorizedExists()
+QStringList qtree_Tasklists_list::getAllTasklists() const
 {
-    if (!findCategory(UNCATEGORIZED_NAME)) {
-        QTreeWidgetItem* uncategorized = new QTreeWidgetItem(this);
-        uncategorized->setText(0, UNCATEGORIZED_NAME);
-        uncategorized->setData(0, CategoryRole, true);
-        uncategorized->setExpanded(true);
-        
-        // Set appearance for category
-        QFont font = uncategorized->font(0);
-        font.setBold(true);
-        uncategorized->setFont(0, font);
-        uncategorized->setForeground(0, QColor(180, 180, 180));
-        
-        m_categories.append(UNCATEGORIZED_NAME);
+    QStringList allTasklists;
+    for (int i = 0; i < topLevelItemCount(); ++i) {
+        QTreeWidgetItem* categoryItem = topLevelItem(i);
+        if (categoryItem && isCategory(const_cast<qtree_Tasklists_list*>(this)->topLevelItem(i))) {
+            for (int j = 0; j < categoryItem->childCount(); ++j) {
+                QTreeWidgetItem* tasklistItem = categoryItem->child(j);
+                if (tasklistItem) {
+                    allTasklists.append(tasklistItem->text(0));
+                }
+            }
+        }
     }
+    return allTasklists;
 }
 
 QTreeWidgetItem* qtree_Tasklists_list::addCategory(const QString& categoryName)
@@ -169,23 +165,17 @@ void qtree_Tasklists_list::removeCategory(const QString& categoryName)
 {
     qDebug() << "qtree_Tasklists_list: Removing category:" << categoryName;
     
-    // Don't allow removing Uncategorized
-    if (categoryName == UNCATEGORIZED_NAME) {
-        qWarning() << "qtree_Tasklists_list: Cannot remove Uncategorized category";
-        return;
-    }
-    
     QTreeWidgetItem* categoryItem = findCategory(categoryName);
     if (!categoryItem) {
         return;
     }
     
-    // Move all tasklists to Uncategorized
-    QTreeWidgetItem* uncategorized = getOrCreateCategory(UNCATEGORIZED_NAME);
+    // All tasklists in this category will be deleted by the caller
+    // Just clear the children here
     while (categoryItem->childCount() > 0) {
         QTreeWidgetItem* child = categoryItem->takeChild(0);
         if (child) {
-            uncategorized->addChild(child);
+            delete child;
         }
     }
     
@@ -207,12 +197,6 @@ void qtree_Tasklists_list::removeCategory(const QString& categoryName)
 bool qtree_Tasklists_list::renameCategory(const QString& oldName, const QString& newName)
 {
     qDebug() << "qtree_Tasklists_list: Renaming category from" << oldName << "to" << newName;
-    
-    // Don't allow renaming Uncategorized
-    if (oldName == UNCATEGORIZED_NAME) {
-        qWarning() << "qtree_Tasklists_list: Cannot rename Uncategorized category";
-        return false;
-    }
     
     // Validate new name
     InputValidation::ValidationResult result = 
@@ -262,10 +246,11 @@ QTreeWidgetItem* qtree_Tasklists_list::addTasklist(const QString& tasklistName, 
         return findTasklist(tasklistName);
     }
     
-    // Get or create category
-    QTreeWidgetItem* categoryItem = getOrCreateCategory(categoryName);
+    // Category is required - must exist
+    QTreeWidgetItem* categoryItem = findCategory(categoryName);
     if (!categoryItem) {
-        categoryItem = getOrCreateCategory(UNCATEGORIZED_NAME);
+        qWarning() << "qtree_Tasklists_list: Category does not exist:" << categoryName;
+        return nullptr;
     }
     
     // Create tasklist item
@@ -292,7 +277,11 @@ void qtree_Tasklists_list::moveTasklistToCategory(const QString& tasklistName, c
     
     // Get current category
     QTreeWidgetItem* currentCategory = tasklistItem->parent();
-    QString oldCategoryName = currentCategory ? currentCategory->text(0) : UNCATEGORIZED_NAME;
+    if (!currentCategory) {
+        qWarning() << "qtree_Tasklists_list: Tasklist has no parent category";
+        return;
+    }
+    QString oldCategoryName = currentCategory->text(0);
     
     // Get or create new category
     QTreeWidgetItem* newCategory = getOrCreateCategory(categoryName);
@@ -338,7 +327,7 @@ QString qtree_Tasklists_list::getTasklistCategory(const QString& tasklistName)
     if (tasklistItem && tasklistItem->parent()) {
         return tasklistItem->parent()->text(0);
     }
-    return UNCATEGORIZED_NAME;
+    return QString(); // Empty string if no category (shouldn't happen)
 }
 
 QStringList qtree_Tasklists_list::getAllCategories() const
@@ -424,7 +413,6 @@ bool qtree_Tasklists_list::loadStructureFromJson(const QJsonDocument& doc)
     
     // Load categories and tasklists
     QJsonArray categoriesArray = root["categories"].toArray();
-    bool hasUncategorized = false;
     
     for (const QJsonValue& value : categoriesArray) {
         if (!value.isObject()) continue;
@@ -433,10 +421,6 @@ bool qtree_Tasklists_list::loadStructureFromJson(const QJsonDocument& doc)
         QString categoryName = categoryObj["name"].toString();
         
         if (categoryName.isEmpty()) continue;
-        
-        if (categoryName == UNCATEGORIZED_NAME) {
-            hasUncategorized = true;
-        }
         
         // Create category
         QTreeWidgetItem* categoryItem = addCategory(categoryName);
@@ -452,11 +436,6 @@ bool qtree_Tasklists_list::loadStructureFromJson(const QJsonDocument& doc)
                 }
             }
         }
-    }
-    
-    // Ensure Uncategorized exists
-    if (!hasUncategorized) {
-        ensureUncategorizedExists();
     }
     
     emit structureChanged();
