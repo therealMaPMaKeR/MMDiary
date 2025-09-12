@@ -2010,10 +2010,9 @@ void Operations_TaskLists::ShowTaskMenu(bool editMode)
         }
     }
 
-    QString taskName = ui.lineEdit_TaskName->text().trimmed();
     // Show the dialog
     if (dialog.exec() == QDialog::Accepted) {
-
+        QString taskName = ui.lineEdit_TaskName->text().trimmed();
         // Validate task name
         InputValidation::ValidationResult result =
             InputValidation::validateInput(taskName, InputValidation::InputType::PlainText);
@@ -2039,7 +2038,7 @@ void Operations_TaskLists::ShowTaskMenu(bool editMode)
     }
     else {
         // Reload the task list to fix a bug with double click on checkbox when only one item is in the list
-        LoadIndividualTasklist(currentTaskList, taskName);
+        LoadIndividualTasklist(currentTaskList, "NULL");
     }
 }
 
