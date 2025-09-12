@@ -135,7 +135,8 @@ private:
     bool m_isMonitoring;
     QString m_monitoredContentHash;
     HWND m_hwnd;  // Hidden window for clipboard monitoring
-    UINT m_clipboardSequenceNumber;
+    HHOOK m_keyboardHook;  // Low-level keyboard hook for detecting Ctrl+V
+    bool m_ctrlPressed;  // Track Ctrl key state
     
     // Callbacks
     std::function<void()> m_onPasteCallback;
@@ -144,12 +145,18 @@ private:
     // Helper functions
     void setupClipboardMonitoring();
     void cleanupClipboardMonitoring();
+    void setupKeyboardHook();
+    void cleanupKeyboardHook();
     QString getCurrentClipboardHash() const;
-    bool detectPasteEvent();
+    void checkForPasteCombo(DWORD vkCode, bool keyDown);
     
     // Windows specific
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
     void handleClipboardUpdate();
+    
+    // Static instance pointer for keyboard hook callback
+    static ClipboardMonitor* s_instance;
 };
 
 // Utility functions for quick access

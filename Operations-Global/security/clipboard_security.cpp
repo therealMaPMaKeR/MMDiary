@@ -8,6 +8,7 @@
 #include <QTimer>
 #include <QProcess>
 #include <QCoreApplication>
+#include <QMetaObject>
 #include <windows.h>
 #include <vector>
 #include <algorithm>
@@ -606,12 +607,16 @@ bool isClipboardSafe() {
     return !ClipboardSecurityManager::isClipboardBeingMonitored();
 }
 
+// Static instance pointer for keyboard hook
+ClipboardMonitor* ClipboardMonitor::s_instance = nullptr;
+
 // ClipboardMonitor implementation
 ClipboardMonitor::ClipboardMonitor(QObject* parent)
     : QObject(parent)
     , m_isMonitoring(false)
     , m_hwnd(nullptr)
-    , m_clipboardSequenceNumber(0)
+    , m_keyboardHook(nullptr)
+    , m_ctrlPressed(false)
 {
     qDebug() << "ClipboardMonitor: Constructor";
 }
@@ -631,46 +636,14 @@ void ClipboardMonitor::startMonitoring(const QString& contentHash)
     
     qDebug() << "ClipboardMonitor: Starting monitoring for content hash:" << contentHash;
     m_monitoredContentHash = contentHash;
-    m_clipboardSequenceNumber = GetClipboardSequenceNumber();
+    m_ctrlPressed = false;
+    
+    // Set static instance for keyboard hook
+    s_instance = this;
     
     setupClipboardMonitoring();
+    setupKeyboardHook();
     m_isMonitoring = true;
-    
-    // Start a timer to periodically check for clipboard changes
-    // Using SafeTimer as per security requirements
-    SafeTimer* checkTimer = new SafeTimer(this, "ClipboardMonitor");
-    checkTimer->setInterval(500); // Check every 500ms
-    checkTimer->start([this]() {
-        if (!m_isMonitoring) {
-            return;
-        }
-        
-        // Check if clipboard sequence number changed (indicates clipboard access)
-        UINT currentSeq = GetClipboardSequenceNumber();
-        if (currentSeq != m_clipboardSequenceNumber) {
-            m_clipboardSequenceNumber = currentSeq;
-            
-            // Check if content changed
-            QString currentHash = getCurrentClipboardHash();
-            if (currentHash != m_monitoredContentHash) {
-                qDebug() << "ClipboardMonitor: Clipboard content changed (overwritten)";
-                emit clipboardOverwritten();
-                if (m_onOverwriteCallback) {
-                    m_onOverwriteCallback();
-                }
-                stopMonitoring();
-            } else {
-                // Content is the same but sequence changed - likely a paste event
-                if (detectPasteEvent()) {
-                    qDebug() << "ClipboardMonitor: Paste event detected";
-                    emit pasteDetected();
-                    if (m_onPasteCallback) {
-                        m_onPasteCallback();
-                    }
-                }
-            }
-        }
-    });
 }
 
 void ClipboardMonitor::stopMonitoring()
@@ -682,9 +655,18 @@ void ClipboardMonitor::stopMonitoring()
     qDebug() << "ClipboardMonitor: Stopping monitoring";
     m_isMonitoring = false;
     m_monitoredContentHash.clear();
+    m_ctrlPressed = false;
     
+    cleanupKeyboardHook();
     cleanupClipboardMonitoring();
-    emit monitoringStopped();
+    
+    // Clear static instance
+    if (s_instance == this) {
+        s_instance = nullptr;
+    }
+    
+    // Use QMetaObject::invokeMethod for thread-safe signal emission
+    QMetaObject::invokeMethod(this, "monitoringStopped", Qt::QueuedConnection);
 }
 
 bool ClipboardMonitor::isMonitoredContentStillPresent() const
@@ -763,20 +745,89 @@ QString ClipboardMonitor::getCurrentClipboardHash() const
     return QString::fromLatin1(hash.result().toHex());
 }
 
-bool ClipboardMonitor::detectPasteEvent()
+void ClipboardMonitor::setupKeyboardHook()
 {
-    // Simple heuristic: if clipboard was accessed but content didn't change,
-    // it's likely a paste event
-    // More sophisticated detection could track window focus changes
+    qDebug() << "ClipboardMonitor: Setting up keyboard hook";
     
-    // Check if any window other than ours accessed the clipboard
-    HWND currentOwner = GetClipboardOwner();
-    if (currentOwner && currentOwner != m_hwnd) {
-        // Another application accessed clipboard
-        return true;
+    // Install low-level keyboard hook
+    m_keyboardHook = SetWindowsHookEx(
+        WH_KEYBOARD_LL,
+        KeyboardProc,
+        GetModuleHandle(nullptr),
+        0
+    );
+    
+    if (!m_keyboardHook) {
+        qWarning() << "ClipboardMonitor: Failed to install keyboard hook, error:" << GetLastError();
+    } else {
+        qDebug() << "ClipboardMonitor: Keyboard hook installed successfully";
+    }
+}
+
+void ClipboardMonitor::cleanupKeyboardHook()
+{
+    if (m_keyboardHook) {
+        qDebug() << "ClipboardMonitor: Removing keyboard hook";
+        UnhookWindowsHookEx(m_keyboardHook);
+        m_keyboardHook = nullptr;
+    }
+}
+
+void ClipboardMonitor::checkForPasteCombo(DWORD vkCode, bool keyDown)
+{
+    if (!m_isMonitoring) {
+        return;
     }
     
-    return false;
+    // Track Ctrl key state
+    if (vkCode == VK_CONTROL || vkCode == VK_LCONTROL || vkCode == VK_RCONTROL) {
+        m_ctrlPressed = keyDown;
+    }
+    
+    // Track Shift key state for Shift+Insert detection
+    static bool shiftPressed = false;
+    if (vkCode == VK_SHIFT || vkCode == VK_LSHIFT || vkCode == VK_RSHIFT) {
+        shiftPressed = keyDown;
+    }
+    
+    // Check for paste combinations
+    bool pasteDetected = false;
+    
+    // Ctrl+V (most common paste)
+    if (keyDown && m_ctrlPressed && vkCode == 'V') {
+        qDebug() << "ClipboardMonitor: Ctrl+V detected";
+        pasteDetected = true;
+    }
+    // Shift+Insert (alternative paste)
+    else if (keyDown && shiftPressed && vkCode == VK_INSERT) {
+        qDebug() << "ClipboardMonitor: Shift+Insert detected";
+        pasteDetected = true;
+    }
+    
+    if (pasteDetected) {
+        // Verify that our monitored content is still in the clipboard
+        if (isMonitoredContentStillPresent()) {
+            qDebug() << "ClipboardMonitor: Paste event confirmed - monitored password is being pasted";
+            // Use QMetaObject::invokeMethod for thread-safe signal emission from static callback
+            QMetaObject::invokeMethod(this, "pasteDetected", Qt::QueuedConnection);
+            if (m_onPasteCallback) {
+                m_onPasteCallback();
+            }
+        } else {
+            qDebug() << "ClipboardMonitor: Paste key detected but clipboard content has changed";
+        }
+    }
+}
+
+LRESULT CALLBACK ClipboardMonitor::KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+    if (nCode >= 0 && s_instance) {
+        KBDLLHOOKSTRUCT* kbd = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+        bool keyDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
+        s_instance->checkForPasteCombo(kbd->vkCode, keyDown);
+    }
+    
+    return CallNextHookEx(nullptr, nCode, wParam, lParam);
 }
 
 LRESULT CALLBACK ClipboardMonitor::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -807,7 +858,8 @@ void ClipboardMonitor::handleClipboardUpdate()
     QString currentHash = getCurrentClipboardHash();
     if (currentHash != m_monitoredContentHash) {
         qDebug() << "ClipboardMonitor: Clipboard overwritten via WM_CLIPBOARDUPDATE";
-        emit clipboardOverwritten();
+        // Use QMetaObject::invokeMethod for thread-safe signal emission
+        QMetaObject::invokeMethod(this, "clipboardOverwritten", Qt::QueuedConnection);
         if (m_onOverwriteCallback) {
             m_onOverwriteCallback();
         }

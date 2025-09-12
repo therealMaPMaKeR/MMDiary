@@ -64,7 +64,7 @@ static SecureByteArray qStringToSecure(const QString& str) {
 }
 
 Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
-    : m_mainWindow(mainWindow), m_currentLoadedValue(QString()), m_clipboardTimer(nullptr)
+    : m_mainWindow(mainWindow), m_currentLoadedValue(QString()), m_clipboardTimer(nullptr), m_pasteDelayTimer(nullptr)
 {
     connect(m_mainWindow->ui->listWidget_PWList, &QListWidget::itemClicked,
             this, &Operations_PasswordManager::on_PWListItemClicked);
@@ -91,6 +91,10 @@ Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
     m_clipboardTimer = new SafeTimer(this, "Operations_PasswordManager");
     m_clipboardTimer->setSingleShot(true);
     
+    // Initialize paste delay timer
+    m_pasteDelayTimer = new SafeTimer(this, "Operations_PasswordManager");
+    m_pasteDelayTimer->setSingleShot(true);
+    
     // Initialize clipboard monitor
     m_clipboardMonitor = new ClipboardSecurity::ClipboardMonitor(this);
     connect(m_clipboardMonitor, &ClipboardSecurity::ClipboardMonitor::pasteDetected,
@@ -115,6 +119,15 @@ Operations_PasswordManager::~Operations_PasswordManager()
         }
         delete m_clipboardTimer;
         m_clipboardTimer = nullptr;
+    }
+    
+    // Stop and delete paste delay timer
+    if (m_pasteDelayTimer) {
+        if (m_pasteDelayTimer->isActive()) {
+            m_pasteDelayTimer->stop();
+        }
+        delete m_pasteDelayTimer;
+        m_pasteDelayTimer = nullptr;
     }
     
     // Stop and delete clipboard monitor
@@ -2433,9 +2446,14 @@ void Operations_PasswordManager::clearClipboard()
         clipboard->clear();
     }
 
-    // Stop the timer if it's still active
+    // Stop the 30-second timer if it's still active
     if (m_clipboardTimer && m_clipboardTimer->isActive()) {
         m_clipboardTimer->stop();
+    }
+    
+    // Stop paste delay timer if it's still active
+    if (m_pasteDelayTimer && m_pasteDelayTimer->isActive()) {
+        m_pasteDelayTimer->stop();
     }
     
     // Stop monitoring if active
@@ -2473,27 +2491,55 @@ void Operations_PasswordManager::stopClipboardMonitoring()
         m_clipboardMonitor->stopMonitoring();
     }
     
+    // Stop any pending paste delay timer
+    if (m_pasteDelayTimer && m_pasteDelayTimer->isActive()) {
+        m_pasteDelayTimer->stop();
+        qDebug() << "Operations_PasswordManager: Stopped paste delay timer during monitoring stop";
+    }
+    
     m_copiedPasswordHash.clear();
 }
 
 void Operations_PasswordManager::onClipboardPasteDetected()
 {
-    qDebug() << "Operations_PasswordManager: Paste detected, clearing clipboard immediately";
+    qDebug() << "Operations_PasswordManager: Paste detected, scheduling clipboard clear";
     
-    // Clear immediately after paste
-    clearClipboard();
+    // Show immediate feedback that paste was detected
+    m_mainWindow->statusBar()->showMessage("Password paste detected - clearing clipboard in 0.5 seconds...", 1000);
     
-    // Show notification
-    m_mainWindow->statusBar()->showMessage("Password pasted and cleared from clipboard.", 2000);
+    // Stop any existing paste delay timer
+    if (m_pasteDelayTimer && m_pasteDelayTimer->isActive()) {
+        m_pasteDelayTimer->stop();
+        qDebug() << "Operations_PasswordManager: Stopped existing paste delay timer";
+    }
+    
+    // Add a small delay to allow the paste operation to complete
+    // 500ms should be enough for the paste to finish in most applications
+    // This gives Windows time to process the paste before we clear the clipboard
+    // Could be made configurable in settings if users need different timing
+    m_pasteDelayTimer->setInterval(500);
+    m_pasteDelayTimer->start([this]() {
+        qDebug() << "Operations_PasswordManager: Clearing clipboard after paste delay";
+        clearClipboard();
+        
+        // Show notification that clipboard has been cleared
+        m_mainWindow->statusBar()->showMessage("Password pasted and clipboard cleared successfully.", 2000);
+    });
 }
 
 void Operations_PasswordManager::onClipboardOverwritten()
 {
     qDebug() << "Operations_PasswordManager: Clipboard overwritten by user, canceling clear timer";
     
-    // Stop the timer since user copied something else
+    // Stop the 30-second timer since user copied something else
     if (m_clipboardTimer && m_clipboardTimer->isActive()) {
         m_clipboardTimer->stop();
+    }
+    
+    // Stop any pending paste delay timer
+    if (m_pasteDelayTimer && m_pasteDelayTimer->isActive()) {
+        m_pasteDelayTimer->stop();
+        qDebug() << "Operations_PasswordManager: Stopped paste delay timer due to overwrite";
     }
     
     // Stop monitoring

@@ -48,6 +48,7 @@ private:
     void cleanupCachedPasswords();
 
     SafeTimer* m_clipboardTimer = nullptr; // Timer for clearing clipboard
+    SafeTimer* m_pasteDelayTimer = nullptr; // Timer for delay after paste detection
     ClipboardSecurity::ClipboardMonitor* m_clipboardMonitor = nullptr; // Monitor for paste/overwrite detection
     bool m_clipboardClearPending = false; // Track if clipboard clear is pending
     QString m_copiedPasswordHash; // Hash of the copied password for comparison
