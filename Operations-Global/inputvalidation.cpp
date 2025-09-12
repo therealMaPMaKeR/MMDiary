@@ -377,26 +377,27 @@ ValidationResult validateInput(const QString& input, InputType type, int maxLeng
             return result;
         }
 
-        // Validate task list name: allow alphanumeric, spaces, and common punctuation
-        QRegularExpression taskListNamePattern("^[\\w\\s\\-.,!?()]+$");
-        if (!taskListNamePattern.match(input).hasMatch()) {
+        // Since tasklist names are now stored in metadata (not as filenames),
+        // we can allow most printable characters including: / : * ? " < > | @ # $ % & + = etc.
+        // Only restrict control characters for safety
+        QRegularExpression controlChars("[\\x00-\\x1F\\x7F]");
+        if (controlChars.match(input).hasMatch()) {
             result.isValid = false;
-            result.errorMessage = "Task list name contains invalid characters";
+            result.errorMessage = "Task list name contains invalid control characters";
             return result;
         }
 
-        // Check for filesystem-unsafe characters
-        QRegularExpression invalidFileChars("[\\\\/:*?\"<>|]");
-        if (invalidFileChars.match(input).hasMatch()) {
-            result.isValid = false;
-            result.errorMessage = "Task list name contains characters that are not allowed in file names";
-            return result;
-        }
-
-        // Check for leading/trailing spaces
+        // Check for leading/trailing spaces (for cleanliness)
         if (input != input.trimmed()) {
             result.isValid = false;
             result.errorMessage = "Task list name cannot have leading or trailing spaces";
+            return result;
+        }
+        
+        // Check for multiple consecutive spaces (for cleanliness)
+        if (input.contains("  ")) {
+            result.isValid = false;
+            result.errorMessage = "Task list name cannot contain multiple consecutive spaces";
             return result;
         }
         break;
