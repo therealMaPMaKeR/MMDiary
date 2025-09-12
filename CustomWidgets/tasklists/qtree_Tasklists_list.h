@@ -59,6 +59,8 @@ public:
     // Enable/disable drag and drop
     void setDragDropEnabled(bool enabled);
 
+    void ensureUncategorizedExists();
+
 signals:
     // Emitted when the structure changes (categories or tasklist order)
     void structureChanged();
@@ -112,7 +114,6 @@ private:
     void setupWidget();
     bool isTasklist(QTreeWidgetItem* item) const;
     QTreeWidgetItem* getCategoryItem(QTreeWidgetItem* item) const;
-    void ensureUncategorizedExists();
     void updateItemAppearance(QTreeWidgetItem* item);
     bool canDropOn(QTreeWidgetItem* item, const QMimeData* data) const;
     void clearTrackedItem(QTreeWidgetItem* item);  // Clear tracked pointers when item is deleted

@@ -21,6 +21,7 @@
 #include <QHeaderView>
 #include <QFontMetrics>
 #include <QUuid>
+#include <QInputDialog>
 #include <utility>  // For std::pair and std::make_pair
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -2783,10 +2784,17 @@ void Operations_TaskLists::RenameTask(QListWidgetItem* item)
         return;
     }
 
-    // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
-    QListWidgetItem* currentTaskListItem = taskListWidget ? taskListWidget->currentItem() : nullptr;
-    if (!currentTaskListItem) {
+    // Get current task list from tree widget
+    qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List);
+    if (!treeWidget) {
+        qWarning() << "Operations_TaskLists: Failed to cast tree widget in RenameTask";
+        item->setText(originalName);
+        item->setFlags(originalFlags & ~Qt::ItemIsEditable);
+        return;
+    }
+    
+    QTreeWidgetItem* currentTaskListItem = treeWidget->currentItem();
+    if (!currentTaskListItem || treeWidget->isCategory(currentTaskListItem)) {
         QMessageBox::warning(m_mainWindow, "No Task List Selected",
                             "Please select a task list first.");
         item->setText(originalName);
@@ -2794,7 +2802,7 @@ void Operations_TaskLists::RenameTask(QListWidgetItem* item)
         return;
     }
 
-    QString currentTaskList = currentTaskListItem->text();
+    QString currentTaskList = currentTaskListItem->text(0);
 
     // Find the tasklist file
     QString taskListFilePath = findTasklistFileByName(currentTaskList);
@@ -3090,14 +3098,20 @@ void Operations_TaskLists::SaveTaskOrder()
 
     QListWidget* taskDisplayWidget = m_mainWindow->ui->listWidget_TaskListDisplay;
 
-    // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
-    if (taskListWidget->currentItem() == nullptr) {
+    // Get current task list from tree widget
+    qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List);
+    if (!treeWidget) {
+        qWarning() << "Operations_TaskLists: Failed to cast tree widget in SaveTaskOrder";
+        return;
+    }
+    
+    QTreeWidgetItem* currentItem = treeWidget->currentItem();
+    if (!currentItem || treeWidget->isCategory(currentItem)) {
         qDebug() << "Operations_TaskLists: No task list selected";
         return;
     }
 
-    QString currentTaskList = taskListWidget->currentItem()->text();
+    QString currentTaskList = currentItem->text(0);
 
     // Find the tasklist file by name
     QString taskListFilePath = findTasklistFileByName(currentTaskList);
@@ -3172,11 +3186,20 @@ void Operations_TaskLists::SaveTaskDescription()
     QString newDescription = m_mainWindow->ui->plainTextEdit_TaskDesc->toPlainText();
     if (newDescription == m_lastSavedDescription) return;
 
-    // Get current task list
-    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
-    if (taskListWidget->currentItem() == nullptr) return;
+    // Get current task list from tree widget
+    qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List);
+    if (!treeWidget) {
+        qWarning() << "Operations_TaskLists: Failed to cast tree widget in SaveTaskDescription";
+        return;
+    }
+    
+    QTreeWidgetItem* currentItem = treeWidget->currentItem();
+    if (!currentItem || treeWidget->isCategory(currentItem)) {
+        qDebug() << "Operations_TaskLists: No task list selected";
+        return;
+    }
 
-    QString currentTaskList = taskListWidget->currentItem()->text();
+    QString currentTaskList = currentItem->text(0);
 
     // Find the tasklist file by name
     QString taskListFilePath = findTasklistFileByName(currentTaskList);
@@ -3854,62 +3877,176 @@ void Operations_TaskLists::showContextMenu_TaskListDisplay(const QPoint &pos)
 
 void Operations_TaskLists::showContextMenu_TaskListList(const QPoint &pos)
 {
-    QListWidget* taskListWidget = m_mainWindow->ui->treeWidget_TaskList_List;
-    QListWidgetItem* item = taskListWidget->itemAt(pos);
+    qDebug() << "Operations_TaskLists: Showing context menu for tasklist tree";
+    
+    // Cast to qtree_Tasklists_list
+    qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List);
+    if (!treeWidget) {
+        qWarning() << "Operations_TaskLists: Failed to cast tree widget in showContextMenu_TaskListList";
+        return;
+    }
+    
+    QTreeWidgetItem* item = treeWidget->itemAt(pos);
 
     QMenu contextMenu(m_mainWindow);
 
-    QAction* newTaskListAction = contextMenu.addAction("New Tasklist");
-    QAction* renameTaskListAction = contextMenu.addAction("Rename Tasklist");
-    QAction* deleteTaskListAction = contextMenu.addAction("Delete Tasklist");
-
-    // Store item index instead of pointer for safety
-    int itemRow = -1;
-    QString itemText;
-    bool hasValidItem = false;
-
-    if (item) {
-        itemRow = taskListWidget->row(item);
-        itemText = item->text();
-        hasValidItem = true;
-        renameTaskListAction->setEnabled(true);
-        deleteTaskListAction->setEnabled(true);
+    // Determine what actions to show based on what was clicked
+    bool isCategory = item ? treeWidget->isCategory(item) : false;
+    bool hasItem = (item != nullptr);
+    
+    QAction* newCategoryAction = nullptr;
+    QAction* newTaskListAction = nullptr;
+    QAction* renameCategoryAction = nullptr;
+    QAction* renameTaskListAction = nullptr;
+    QAction* deleteCategoryAction = nullptr;
+    QAction* deleteTaskListAction = nullptr;
+    
+    if (!hasItem || isCategory) {
+        // Clicked on empty space or category
+        newCategoryAction = contextMenu.addAction("New Category");
+        newTaskListAction = contextMenu.addAction("New Tasklist");
+        
+        if (isCategory) {
+            contextMenu.addSeparator();
+            renameCategoryAction = contextMenu.addAction("Rename Category");
+            deleteCategoryAction = contextMenu.addAction("Delete Category");
+        }
     } else {
-        renameTaskListAction->setEnabled(false);
-        deleteTaskListAction->setEnabled(false);
+        // Clicked on a tasklist
+        newTaskListAction = contextMenu.addAction("New Tasklist");
+        renameTaskListAction = contextMenu.addAction("Rename Tasklist");
+        deleteTaskListAction = contextMenu.addAction("Delete Tasklist");
     }
 
-    connect(newTaskListAction, &QAction::triggered, this, &Operations_TaskLists::CreateNewTaskList);
+    // Store item data for use in lambdas
+    QString itemText = item ? item->text(0) : QString();
 
-    // Capture row index instead of item pointer
-    connect(renameTaskListAction, &QAction::triggered, this, [this, itemRow, itemText, taskListWidget]() {
-        int currentCount = safeGetItemCount(taskListWidget);
-        if (itemRow >= 0 && itemRow < currentCount) {
-            QListWidgetItem* currentItem = safeGetItem(taskListWidget, itemRow);
-            if (currentItem && currentItem->text() == itemText) {
-                currentTaskListBeingRenamed = currentItem->text();
-                currentItem->setFlags(currentItem->flags() | Qt::ItemIsEditable);
-                taskListWidget->editItem(currentItem);
-
-                // Create a single-shot connection for rename completion
-                QMetaObject::Connection* conn = new QMetaObject::Connection();
-                *conn = connect(taskListWidget, &QListWidget::itemChanged, this,
-                        [this, taskListWidget, itemRow, conn](QListWidgetItem* changedItem) {
-                            int listCount = safeGetItemCount(taskListWidget);
-                            if (itemRow >= 0 && itemRow < listCount) {
-                                QListWidgetItem* itemAtRow = safeGetItem(taskListWidget, itemRow);
-                                if (itemAtRow && itemAtRow == changedItem) {
-                                    disconnect(*conn);
-                                    delete conn;
-                                    RenameTasklist(changedItem);
-                                }
-                            }
-                        });
+    // Connect actions
+    if (newCategoryAction) {
+        connect(newCategoryAction, &QAction::triggered, this, &Operations_TaskLists::CreateNewCategory);
+    }
+    
+    if (newTaskListAction) {
+        connect(newTaskListAction, &QAction::triggered, this, &Operations_TaskLists::CreateNewTaskList);
+    }
+    
+    if (renameCategoryAction) {
+        connect(renameCategoryAction, &QAction::triggered, this, [this, treeWidget, item, itemText]() {
+            if (!item || !treeWidget->isCategory(item)) return;
+            
+            // Get existing category names for validation
+            QStringList existingCategories = treeWidget->getAllCategories();
+            existingCategories.removeAll(itemText);  // Remove current name from list
+            
+            bool ok;
+            QString newName = QInputDialog::getText(m_mainWindow, "Rename Category",
+                                                   "Enter new category name:", QLineEdit::Normal,
+                                                   itemText, &ok);
+            if (ok && !newName.isEmpty() && newName != itemText) {
+                // Validate the new name
+                InputValidation::ValidationResult result =
+                    InputValidation::validateInput(newName, InputValidation::InputType::TaskListName);
+                
+                if (!result.isValid) {
+                    QMessageBox::warning(m_mainWindow, "Invalid Category Name", result.errorMessage);
+                    return;
+                }
+                
+                // Check for duplicates
+                if (existingCategories.contains(newName)) {
+                    QMessageBox::warning(m_mainWindow, "Duplicate Name",
+                                       "A category with this name already exists.");
+                    return;
+                }
+                
+                // Rename the category
+                item->setText(0, newName);
+                
+                // Save the updated settings
+                SaveTasklistSettings();
             }
-        }
-    });
+        });
+    }
+    
+    if (renameTaskListAction) {
+        connect(renameTaskListAction, &QAction::triggered, this, [this, treeWidget, item, itemText]() {
+            if (!item || treeWidget->isCategory(item)) return;
+            
+            // Get existing tasklist names for validation
+            QStringList existingNames;
+            QStringList categories = treeWidget->getAllCategories();
+            for (const QString& category : categories) {
+                QStringList tasklistsInCategory = treeWidget->getTasklistsInCategory(category);
+                for (const QString& tasklistName : tasklistsInCategory) {
+                    if (tasklistName != itemText) {
+                        existingNames.append(tasklistName);
+                    }
+                }
+            }
+            
+            bool ok;
+            QString newName = QInputDialog::getText(m_mainWindow, "Rename Tasklist",
+                                                   "Enter new tasklist name:", QLineEdit::Normal,
+                                                   itemText, &ok);
+            if (ok && !newName.isEmpty() && newName != itemText) {
+                // Store the original name for the rename operation
+                currentTaskListBeingRenamed = itemText;
+                
+                // Create a temporary QListWidgetItem to pass to RenameTasklist
+                // This is a workaround since RenameTasklist expects QListWidgetItem*
+                QListWidgetItem tempItem(newName);
+                RenameTasklist(&tempItem);
+            }
+        });
+    }
+    
+    if (deleteCategoryAction) {
+        connect(deleteCategoryAction, &QAction::triggered, this, [this, treeWidget, item, itemText]() {
+            if (!item || !treeWidget->isCategory(item)) return;
+            
+            // Check if category has children
+            if (item->childCount() > 0) {
+                QMessageBox::StandardButton reply = QMessageBox::question(m_mainWindow, "Delete Category",
+                    QString("The category '%1' contains %2 tasklist(s). "
+                           "All tasklists will be moved to 'Uncategorized'. Continue?")
+                           .arg(itemText).arg(item->childCount()),
+                    QMessageBox::Yes | QMessageBox::No);
+                
+                if (reply != QMessageBox::Yes) return;
+                
+                // Move all children to Uncategorized
+                while (item->childCount() > 0) {
+                    QTreeWidgetItem* child = item->takeChild(0);
+                    QString tasklistName = child->text(0);
+                    delete child;
+                    treeWidget->addTasklist(tasklistName, "Uncategorized");
+                }
+            } else {
+                // Empty category, just confirm deletion
+                QMessageBox::StandardButton reply = QMessageBox::question(m_mainWindow, "Delete Category",
+                    QString("Are you sure you want to delete the category '%1'?").arg(itemText),
+                    QMessageBox::Yes | QMessageBox::No);
+                
+                if (reply != QMessageBox::Yes) return;
+            }
+            
+            // Delete the category
+            int index = treeWidget->indexOfTopLevelItem(item);
+            if (index >= 0) {
+                delete treeWidget->takeTopLevelItem(index);
+            }
+            
+            // Ensure Uncategorized still exists
+            treeWidget->ensureUncategorizedExists();
+            
+            // Save the updated settings
+            SaveTasklistSettings();
+        });
+    }
+    
+    if (deleteTaskListAction) {
+        connect(deleteTaskListAction, &QAction::triggered, this, &Operations_TaskLists::DeleteTaskList);
+    }
 
-    connect(deleteTaskListAction, &QAction::triggered, this, &Operations_TaskLists::DeleteTaskList);
-
-    contextMenu.exec(taskListWidget->mapToGlobal(pos));
+    contextMenu.exec(treeWidget->mapToGlobal(pos));
 }
