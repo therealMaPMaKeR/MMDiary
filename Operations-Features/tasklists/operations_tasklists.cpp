@@ -2851,34 +2851,27 @@ void Operations_TaskLists::SaveTaskOrder()
         return;
     }
 
-    // Read the existing file content
-    QStringList lines;
-    if (!readTasklistFileWithMetadata(taskListFilePath, lines)) {
-        qWarning() << "Operations_TaskLists: Could not read task list file for reordering";
+    // Read existing JSON tasks
+    QJsonArray existingTasks;
+    if (!readTasklistJson(taskListFilePath, existingTasks)) {
+        qWarning() << "Operations_TaskLists: Could not read task list JSON for reordering";
         return;
     }
 
-    if (lines.isEmpty()) return;
-
-    // Create a map of task names to their full data lines
-    // Note: No header line in new format - metadata is separate
-    QMap<QString, QString> taskDataMap;
-    for (int i = 0; i < lines.size(); ++i) {
-        if (lines[i].isEmpty()) continue;
-
-        QStringList parts = lines[i].split('|');
-        // New format: TaskName is at index 0
-        if (parts.size() >= 1) {
-            QString taskName = parts[0];
-            taskName.replace("\\|", "|");  // Unescape
-            taskDataMap[taskName] = lines[i];
+    // Create a map of task names to their JSON objects
+    QMap<QString, QJsonObject> taskMap;
+    for (const QJsonValue& value : existingTasks) {
+        if (!value.isObject()) continue;
+        QJsonObject taskObj = value.toObject();
+        QString taskName = taskObj["name"].toString();
+        if (!taskName.isEmpty()) {
+            taskMap[taskName] = taskObj;
         }
     }
 
-    // Build new ordered list based on display order
-    QStringList newLines;
-    // No header line in new format - metadata is separate
-
+    // Build new ordered task array based on display order
+    QJsonArray reorderedTasks;
+    
     int itemCount = safeGetItemCount(taskDisplayWidget);
     for (int i = 0; i < itemCount; ++i) {
         QListWidgetItem* item = safeGetItem(taskDisplayWidget, i);
@@ -2888,20 +2881,24 @@ void Operations_TaskLists::SaveTaskOrder()
         if ((item->flags() & Qt::ItemIsEnabled) == 0) continue;
 
         QString taskName = item->text();
-        if (taskDataMap.contains(taskName)) {
-            newLines.append(taskDataMap[taskName]);
-            taskDataMap.remove(taskName);  // Remove to track any missing tasks
+        if (taskMap.contains(taskName)) {
+            // Update the completion status based on the checkbox state
+            QJsonObject taskObj = taskMap[taskName];
+            taskObj["completed"] = (item->checkState() == Qt::Checked);
+            
+            reorderedTasks.append(taskObj);
+            taskMap.remove(taskName);  // Remove to track any missing tasks
         }
     }
 
     // Add any remaining tasks that weren't in the display (shouldn't happen, but safety check)
-    for (const QString& taskData : taskDataMap.values()) {
-        newLines.append(taskData);
+    for (const QJsonObject& taskObj : taskMap.values()) {
+        reorderedTasks.append(taskObj);
     }
 
-    // Write back the reordered file
-    if (!writeTasklistFileWithMetadata(taskListFilePath, newLines)) {
-        qWarning() << "Operations_TaskLists: Could not write reordered task list file";
+    // Write back the reordered tasks
+    if (!writeTasklistJson(taskListFilePath, reorderedTasks)) {
+        qWarning() << "Operations_TaskLists: Could not write reordered task list";
         return;
     }
 
@@ -2930,53 +2927,42 @@ void Operations_TaskLists::SaveTaskDescription()
         return;
     }
 
-    // Read the existing file content
-    QStringList lines;
-    if (!readTasklistFileWithMetadata(taskListFilePath, lines)) {
+    // Read existing JSON tasks
+    QJsonArray tasks;
+    if (!readTasklistJson(taskListFilePath, tasks)) {
+        qWarning() << "Operations_TaskLists: Could not read task list JSON for saving description";
         return;
     }
 
-    // Find and update the task
-    QString taskNameEscaped = m_currentTaskName;
-    taskNameEscaped.replace("|", "\\|");
-
-    // No header line in new format - start from index 0
-    for (int i = 0; i < lines.size(); ++i) {
-        QStringList parts = lines[i].split('|');
-        // New format: TaskName is at index 0
-        if (parts.size() >= 1 && parts[0] == taskNameEscaped) {
-            // Escape special characters in description
-            QString escapedDescription = newDescription;
-            escapedDescription.replace("|", "\\|");
-            escapedDescription.replace("\n", "\\n");
-            escapedDescription.replace("\r", "\\r");
-
-            // Update or add description field (now at index 4)
-            bool descriptionFound = false;
-            for (int j = 4; j < parts.size(); ++j) {
-                if (parts[j].startsWith("DESC:")) {
-                    parts[j] = "DESC:" + escapedDescription;
-                    descriptionFound = true;
-                    break;
-                }
-            }
-
-            if (!descriptionFound) {
-                // Ensure we have at least 4 fields before adding description
-                while (parts.size() < 4) {
-                    parts.append("");
-                }
-                parts.append("DESC:" + escapedDescription);
-            }
-
-            lines[i] = parts.join('|');
+    // Find and update the task by name
+    bool taskFound = false;
+    for (int i = 0; i < tasks.size(); ++i) {
+        QJsonValue value = tasks[i];
+        if (!value.isObject()) continue;
+        
+        QJsonObject taskObj = value.toObject();
+        if (taskObj["name"].toString() == m_currentTaskName) {
+            // Update the description
+            taskObj["description"] = newDescription;
+            
+            // Update the task in the array
+            tasks[i] = taskObj;
+            taskFound = true;
             break;
         }
     }
-
-    // Write back the file
-    if (writeTasklistFileWithMetadata(taskListFilePath, lines)) {
+    
+    if (!taskFound) {
+        qWarning() << "Operations_TaskLists: Task not found for description update:" << m_currentTaskName;
+        return;
+    }
+    
+    // Write back the updated tasks
+    if (writeTasklistJson(taskListFilePath, tasks)) {
         m_lastSavedDescription = newDescription;
+        qDebug() << "Operations_TaskLists: Task description saved successfully";
+    } else {
+        qWarning() << "Operations_TaskLists: Failed to write updated task description";
     }
 }
 
