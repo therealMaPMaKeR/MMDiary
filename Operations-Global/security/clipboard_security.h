@@ -4,7 +4,9 @@
 #include <QString>
 #include <QObject>
 #include <QClipboard>
+#include <QCryptographicHash>
 #include <memory>
+#include <functional>
 #include <windows.h>
 
 namespace ClipboardSecurity {
@@ -102,6 +104,52 @@ public:
 private:
     bool m_isOpen;
     HWND m_previousOwner;
+};
+
+// Clipboard Monitor class for detecting paste and overwrite events
+class ClipboardMonitor : public QObject {
+    Q_OBJECT
+
+public:
+    explicit ClipboardMonitor(QObject* parent = nullptr);
+    ~ClipboardMonitor();
+
+    // Start monitoring with a specific content hash
+    void startMonitoring(const QString& contentHash);
+    void stopMonitoring();
+    bool isMonitoring() const { return m_isMonitoring; }
+    
+    // Set callbacks for events
+    void setOnPasteCallback(std::function<void()> callback) { m_onPasteCallback = callback; }
+    void setOnOverwriteCallback(std::function<void()> callback) { m_onOverwriteCallback = callback; }
+    
+    // Check if monitored content is still in clipboard
+    bool isMonitoredContentStillPresent() const;
+
+signals:
+    void pasteDetected();
+    void clipboardOverwritten();
+    void monitoringStopped();
+
+private:
+    bool m_isMonitoring;
+    QString m_monitoredContentHash;
+    HWND m_hwnd;  // Hidden window for clipboard monitoring
+    UINT m_clipboardSequenceNumber;
+    
+    // Callbacks
+    std::function<void()> m_onPasteCallback;
+    std::function<void()> m_onOverwriteCallback;
+    
+    // Helper functions
+    void setupClipboardMonitoring();
+    void cleanupClipboardMonitoring();
+    QString getCurrentClipboardHash() const;
+    bool detectPasteEvent();
+    
+    // Windows specific
+    static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    void handleClipboardUpdate();
 };
 
 // Utility functions for quick access

@@ -8,6 +8,7 @@
 #include "inputvalidation.h"
 #include "encryption/SecureByteArray.h"
 #include "../Operations-Global/SafeTimer.h"
+#include "../Operations-Global/security/clipboard_security.h"
 #include <QMessageBox>
 
 class MainWindow;
@@ -47,8 +48,16 @@ private:
     void cleanupCachedPasswords();
 
     SafeTimer* m_clipboardTimer = nullptr; // Timer for clearing clipboard
+    ClipboardSecurity::ClipboardMonitor* m_clipboardMonitor = nullptr; // Monitor for paste/overwrite detection
+    bool m_clipboardClearPending = false; // Track if clipboard clear is pending
+    QString m_copiedPasswordHash; // Hash of the copied password for comparison
+    
     void startClipboardClearTimer();
     void clearClipboard();
+    void setupClipboardMonitoring(const QString& password);
+    void stopClipboardMonitoring();
+    void onClipboardPasteDetected();
+    void onClipboardOverwritten();
 
     // Function to show context menu
     void showContextMenu_PWDisplay(const QPoint &pos);

@@ -15,6 +15,7 @@
 #include <QGuiApplication>
 #include <QDialog>
 #include <QRandomGenerator>
+#include <QCryptographicHash>
 #include "inputvalidation.h"
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -89,6 +90,13 @@ Operations_PasswordManager::Operations_PasswordManager(MainWindow* mainWindow)
     // Initialize clipboard timer
     m_clipboardTimer = new SafeTimer(this, "Operations_PasswordManager");
     m_clipboardTimer->setSingleShot(true);
+    
+    // Initialize clipboard monitor
+    m_clipboardMonitor = new ClipboardSecurity::ClipboardMonitor(this);
+    connect(m_clipboardMonitor, &ClipboardSecurity::ClipboardMonitor::pasteDetected,
+            this, &Operations_PasswordManager::onClipboardPasteDetected);
+    connect(m_clipboardMonitor, &ClipboardSecurity::ClipboardMonitor::clipboardOverwritten,
+            this, &Operations_PasswordManager::onClipboardOverwritten);
 
     // Initialize search placeholder text
     updateSearchPlaceholder();
@@ -107,6 +115,13 @@ Operations_PasswordManager::~Operations_PasswordManager()
         }
         delete m_clipboardTimer;
         m_clipboardTimer = nullptr;
+    }
+    
+    // Stop and delete clipboard monitor
+    if (m_clipboardMonitor) {
+        m_clipboardMonitor->stopMonitoring();
+        delete m_clipboardMonitor;
+        m_clipboardMonitor = nullptr;
     }
     
     // Force complete cleanup of ALL cached passwords in destructor
@@ -1632,6 +1647,7 @@ void Operations_PasswordManager::onCopyToClipboardClicked()
             clipResult = ClipboardSecurity::ClipboardSecurityManager::copyPasswordSecure(textToCopy);
             if (clipResult.success) {
                 startClipboardClearTimer();
+                setupClipboardMonitoring(textToCopy);
             }
         } else {
             // Regular copy for non-password fields
@@ -1997,6 +2013,7 @@ void Operations_PasswordManager::onTableItemDoubleClicked(QTableWidgetItem *item
         clipResult = ClipboardSecurity::ClipboardSecurityManager::copyPasswordSecure(textToCopy);
         if (clipResult.success) {
             startClipboardClearTimer();
+            setupClipboardMonitoring(textToCopy);
         }
     } else {
         // Regular copy for non-password fields
@@ -2385,6 +2402,9 @@ void Operations_PasswordManager::startClipboardClearTimer()
             m_clipboardTimer->stop();
         }
 
+        // Mark that clearing is pending
+        m_clipboardClearPending = true;
+
         // Start the timer with callback
         m_clipboardTimer->setInterval(30000); // 30 seconds
         m_clipboardTimer->start([this]() {
@@ -2396,6 +2416,12 @@ void Operations_PasswordManager::startClipboardClearTimer()
 void Operations_PasswordManager::clearClipboard()
 {
     qDebug() << "Operations_PasswordManager: Clearing clipboard for security";
+    
+    // Don't clear if it's not pending (already cleared or overwritten)
+    if (!m_clipboardClearPending) {
+        qDebug() << "Operations_PasswordManager: Clipboard clear not pending, skipping";
+        return;
+    }
 
     // Use the enhanced secure clipboard clearing
     bool cleared = ClipboardSecurity::ClipboardSecurityManager::clearClipboardSecure();
@@ -2411,6 +2437,72 @@ void Operations_PasswordManager::clearClipboard()
     if (m_clipboardTimer && m_clipboardTimer->isActive()) {
         m_clipboardTimer->stop();
     }
+    
+    // Stop monitoring if active
+    stopClipboardMonitoring();
+    
+    m_clipboardClearPending = false;
+    m_copiedPasswordHash.clear();
 
     m_mainWindow->statusBar()->showMessage("Clipboard cleared for security.", 2000);
+}
+
+void Operations_PasswordManager::setupClipboardMonitoring(const QString& password)
+{
+    qDebug() << "Operations_PasswordManager: Setting up clipboard monitoring";
+    
+    // Stop any existing monitoring
+    stopClipboardMonitoring();
+    
+    // Create hash of the password for comparison
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    hash.addData(password.toUtf8());
+    m_copiedPasswordHash = QString::fromLatin1(hash.result().toHex());
+    
+    // Start monitoring with the hash
+    if (m_clipboardMonitor) {
+        m_clipboardMonitor->startMonitoring(m_copiedPasswordHash);
+    }
+}
+
+void Operations_PasswordManager::stopClipboardMonitoring()
+{
+    qDebug() << "Operations_PasswordManager: Stopping clipboard monitoring";
+    
+    if (m_clipboardMonitor && m_clipboardMonitor->isMonitoring()) {
+        m_clipboardMonitor->stopMonitoring();
+    }
+    
+    m_copiedPasswordHash.clear();
+}
+
+void Operations_PasswordManager::onClipboardPasteDetected()
+{
+    qDebug() << "Operations_PasswordManager: Paste detected, clearing clipboard immediately";
+    
+    // Clear immediately after paste
+    clearClipboard();
+    
+    // Show notification
+    m_mainWindow->statusBar()->showMessage("Password pasted and cleared from clipboard.", 2000);
+}
+
+void Operations_PasswordManager::onClipboardOverwritten()
+{
+    qDebug() << "Operations_PasswordManager: Clipboard overwritten by user, canceling clear timer";
+    
+    // Stop the timer since user copied something else
+    if (m_clipboardTimer && m_clipboardTimer->isActive()) {
+        m_clipboardTimer->stop();
+    }
+    
+    // Stop monitoring
+    stopClipboardMonitoring();
+    
+    // Mark as no longer pending
+    m_clipboardClearPending = false;
+    m_copiedPasswordHash.clear();
+    
+    // Show notification
+    m_mainWindow->statusBar()->showMessage("Clipboard monitoring stopped (content overwritten).", 2000);
 }

@@ -1,11 +1,13 @@
 #include "clipboard_security.h"
 #include "../inputvalidation.h"
+#include "../SafeTimer.h"
 #include <QGuiApplication>
 #include <QMimeData>
 #include <QDebug>
 #include <QRandomGenerator>
 #include <QTimer>
 #include <QProcess>
+#include <QCoreApplication>
 #include <windows.h>
 #include <vector>
 #include <algorithm>
@@ -602,6 +604,215 @@ bool clearSensitiveClipboard() {
 
 bool isClipboardSafe() {
     return !ClipboardSecurityManager::isClipboardBeingMonitored();
+}
+
+// ClipboardMonitor implementation
+ClipboardMonitor::ClipboardMonitor(QObject* parent)
+    : QObject(parent)
+    , m_isMonitoring(false)
+    , m_hwnd(nullptr)
+    , m_clipboardSequenceNumber(0)
+{
+    qDebug() << "ClipboardMonitor: Constructor";
+}
+
+ClipboardMonitor::~ClipboardMonitor()
+{
+    qDebug() << "ClipboardMonitor: Destructor";
+    stopMonitoring();
+}
+
+void ClipboardMonitor::startMonitoring(const QString& contentHash)
+{
+    if (m_isMonitoring) {
+        qDebug() << "ClipboardMonitor: Already monitoring, stopping previous session";
+        stopMonitoring();
+    }
+    
+    qDebug() << "ClipboardMonitor: Starting monitoring for content hash:" << contentHash;
+    m_monitoredContentHash = contentHash;
+    m_clipboardSequenceNumber = GetClipboardSequenceNumber();
+    
+    setupClipboardMonitoring();
+    m_isMonitoring = true;
+    
+    // Start a timer to periodically check for clipboard changes
+    // Using SafeTimer as per security requirements
+    SafeTimer* checkTimer = new SafeTimer(this, "ClipboardMonitor");
+    checkTimer->setInterval(500); // Check every 500ms
+    checkTimer->start([this]() {
+        if (!m_isMonitoring) {
+            return;
+        }
+        
+        // Check if clipboard sequence number changed (indicates clipboard access)
+        UINT currentSeq = GetClipboardSequenceNumber();
+        if (currentSeq != m_clipboardSequenceNumber) {
+            m_clipboardSequenceNumber = currentSeq;
+            
+            // Check if content changed
+            QString currentHash = getCurrentClipboardHash();
+            if (currentHash != m_monitoredContentHash) {
+                qDebug() << "ClipboardMonitor: Clipboard content changed (overwritten)";
+                emit clipboardOverwritten();
+                if (m_onOverwriteCallback) {
+                    m_onOverwriteCallback();
+                }
+                stopMonitoring();
+            } else {
+                // Content is the same but sequence changed - likely a paste event
+                if (detectPasteEvent()) {
+                    qDebug() << "ClipboardMonitor: Paste event detected";
+                    emit pasteDetected();
+                    if (m_onPasteCallback) {
+                        m_onPasteCallback();
+                    }
+                }
+            }
+        }
+    });
+}
+
+void ClipboardMonitor::stopMonitoring()
+{
+    if (!m_isMonitoring) {
+        return;
+    }
+    
+    qDebug() << "ClipboardMonitor: Stopping monitoring";
+    m_isMonitoring = false;
+    m_monitoredContentHash.clear();
+    
+    cleanupClipboardMonitoring();
+    emit monitoringStopped();
+}
+
+bool ClipboardMonitor::isMonitoredContentStillPresent() const
+{
+    if (!m_isMonitoring || m_monitoredContentHash.isEmpty()) {
+        return false;
+    }
+    
+    QString currentHash = getCurrentClipboardHash();
+    return currentHash == m_monitoredContentHash;
+}
+
+void ClipboardMonitor::setupClipboardMonitoring()
+{
+    // Register window class for clipboard monitoring
+    const wchar_t* className = L"MMDiaryClipboardMonitor";
+    WNDCLASSEX wc = {0};
+    wc.cbSize = sizeof(WNDCLASSEX);
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = GetModuleHandle(nullptr);
+    wc.lpszClassName = className;
+    
+    if (!RegisterClassEx(&wc)) {
+        // Class might already be registered
+        DWORD error = GetLastError();
+        if (error != ERROR_CLASS_ALREADY_EXISTS) {
+            qWarning() << "ClipboardMonitor: Failed to register window class, error:" << error;
+            return;
+        }
+    }
+    
+    // Create hidden window
+    m_hwnd = CreateWindowEx(
+        0,
+        className,
+        L"ClipboardMonitor",
+        0,
+        0, 0, 0, 0,
+        HWND_MESSAGE,  // Message-only window
+        nullptr,
+        GetModuleHandle(nullptr),
+        this  // Pass this pointer for WndProc
+    );
+    
+    if (!m_hwnd) {
+        qWarning() << "ClipboardMonitor: Failed to create window";
+        return;
+    }
+    
+    // Add to clipboard viewer chain
+    AddClipboardFormatListener(m_hwnd);
+    qDebug() << "ClipboardMonitor: Setup complete";
+}
+
+void ClipboardMonitor::cleanupClipboardMonitoring()
+{
+    if (m_hwnd) {
+        RemoveClipboardFormatListener(m_hwnd);
+        DestroyWindow(m_hwnd);
+        m_hwnd = nullptr;
+    }
+}
+
+QString ClipboardMonitor::getCurrentClipboardHash() const
+{
+    QClipboard* clipboard = QGuiApplication::clipboard();
+    QString text = clipboard->text();
+    
+    if (text.isEmpty()) {
+        return QString();
+    }
+    
+    // Create hash of clipboard content
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    hash.addData(text.toUtf8());
+    return QString::fromLatin1(hash.result().toHex());
+}
+
+bool ClipboardMonitor::detectPasteEvent()
+{
+    // Simple heuristic: if clipboard was accessed but content didn't change,
+    // it's likely a paste event
+    // More sophisticated detection could track window focus changes
+    
+    // Check if any window other than ours accessed the clipboard
+    HWND currentOwner = GetClipboardOwner();
+    if (currentOwner && currentOwner != m_hwnd) {
+        // Another application accessed clipboard
+        return true;
+    }
+    
+    return false;
+}
+
+LRESULT CALLBACK ClipboardMonitor::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (msg == WM_CREATE) {
+        CREATESTRUCT* pCreate = reinterpret_cast<CREATESTRUCT*>(lParam);
+        ClipboardMonitor* monitor = reinterpret_cast<ClipboardMonitor*>(pCreate->lpCreateParams);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(monitor));
+    }
+    
+    ClipboardMonitor* monitor = reinterpret_cast<ClipboardMonitor*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
+    
+    if (monitor && msg == WM_CLIPBOARDUPDATE) {
+        monitor->handleClipboardUpdate();
+        return 0;
+    }
+    
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+void ClipboardMonitor::handleClipboardUpdate()
+{
+    if (!m_isMonitoring) {
+        return;
+    }
+    
+    // This is called when clipboard content changes
+    QString currentHash = getCurrentClipboardHash();
+    if (currentHash != m_monitoredContentHash) {
+        qDebug() << "ClipboardMonitor: Clipboard overwritten via WM_CLIPBOARDUPDATE";
+        emit clipboardOverwritten();
+        if (m_onOverwriteCallback) {
+            m_onOverwriteCallback();
+        }
+        stopMonitoring();
+    }
 }
 
 } // namespace ClipboardSecurity
