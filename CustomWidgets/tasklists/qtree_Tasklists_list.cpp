@@ -12,9 +12,9 @@
 
 qtree_Tasklists_list::qtree_Tasklists_list(QWidget *parent)
     : QTreeWidget(parent)
+    , m_draggedItem(nullptr)
     , m_dragDropEnabled(true)
     , m_lastSelectedItem(nullptr)
-    , m_draggedItem(nullptr)
 {
     qDebug() << "qtree_Tasklists_list: Constructor called";
     setupWidget();
@@ -233,10 +233,8 @@ bool qtree_Tasklists_list::renameCategory(const QString& oldName, const QString&
     categoryItem->setText(0, newName);
     
     // Update categories list
-    int index = m_categories.indexOf(oldName);
-    if (index >= 0) {
-        m_categories.replace(index, newName);
-    }
+    m_categories.removeOne(oldName);
+    m_categories.append(newName);
     
     emit categoryRenamed(oldName, newName);
     emit structureChanged();
