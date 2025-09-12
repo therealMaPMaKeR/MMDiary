@@ -989,16 +989,13 @@ void BaseVideoPlayer::handlePlaybackStateChanged(VP_VLCPlayer::PlayerState state
 
 void BaseVideoPlayer::handleVideoFinished()
 {
-    qDebug() << "BaseVideoPlayer: Video finished - resetting to start and pausing";
+    qDebug() << "BaseVideoPlayer: Video finished - closing player";
     
-    // Set position back to 0
-    setPosition(0);
-    
-    // Pause the video
-    pause();
-    
-    // Emit the finished signal for any other handlers
+    // Emit the finished signal first for any handlers
     emit finished();
+    
+    // Close the player window
+    close();
 }
 
 // Windows shutdown detection
