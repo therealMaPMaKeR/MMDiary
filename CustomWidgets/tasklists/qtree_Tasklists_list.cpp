@@ -581,13 +581,18 @@ void qtree_Tasklists_list::dropEvent(QDropEvent *event)
     
     // Get current parent
     QTreeWidgetItem* currentParent = tasklistItem->parent();
-    QString oldCategoryName = currentParent ? currentParent->text(0) : UNCATEGORIZED_NAME;
+    if (!currentParent) {
+        // Tasklist must have a parent category
+        qWarning() << "qtree_Tasklists_list: Tasklist has no parent category, cannot drop";
+        event->ignore();
+        return;
+    }
+    
+    QString oldCategoryName = currentParent->text(0);
     QString newCategoryName = targetCategory->text(0);
     
     // Remove from current position
-    if (currentParent) {
-        currentParent->removeChild(tasklistItem);
-    }
+    currentParent->removeChild(tasklistItem);
     
     // Insert at new position
     if (targetIndex >= 0 && targetIndex <= targetCategory->childCount()) {
