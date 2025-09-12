@@ -189,6 +189,9 @@ void qtree_Tasklists_list::removeCategory(const QString& categoryName)
         }
     }
     
+    // Clear tracked pointers before removing
+    clearTrackedItem(categoryItem);
+    
     // Remove the category
     int index = indexOfTopLevelItem(categoryItem);
     if (index >= 0) {
@@ -410,6 +413,10 @@ bool qtree_Tasklists_list::loadStructureFromJson(const QJsonDocument& doc)
         qWarning() << "qtree_Tasklists_list: Missing or invalid categories array";
         return false;
     }
+    
+    // Clear tracked pointers before clearing the tree
+    m_draggedItem = nullptr;
+    m_lastSelectedItem = nullptr;
     
     // Clear current structure
     clear();
@@ -633,7 +640,11 @@ void qtree_Tasklists_list::mousePressEvent(QMouseEvent *event)
         // Only allow dragging tasklists, not categories
         if (isTasklist(item)) {
             m_draggedItem = item;
+        } else {
+            m_draggedItem = nullptr;  // Clear if not a tasklist
         }
+    } else {
+        m_draggedItem = nullptr;  // Clear on other buttons or conditions
     }
     
     QTreeWidget::mousePressEvent(event);
@@ -761,4 +772,23 @@ bool qtree_Tasklists_list::canDropOn(QTreeWidgetItem* item, const QMimeData* dat
     
     // Can drop tasklists on categories or other tasklists (for reordering)
     return isCategory(item) || isTasklist(item);
+}
+
+void qtree_Tasklists_list::clearTrackedItem(QTreeWidgetItem* item)
+{
+    if (!item) return;
+    
+    // Clear tracked pointers if they match the item being removed
+    if (m_draggedItem == item) {
+        m_draggedItem = nullptr;
+    }
+    
+    if (m_lastSelectedItem == item) {
+        m_lastSelectedItem = nullptr;
+    }
+    
+    // Also check children recursively
+    for (int i = 0; i < item->childCount(); ++i) {
+        clearTrackedItem(item->child(i));
+    }
 }

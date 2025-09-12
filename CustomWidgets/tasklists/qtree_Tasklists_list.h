@@ -115,6 +115,7 @@ private:
     void ensureUncategorizedExists();
     void updateItemAppearance(QTreeWidgetItem* item);
     bool canDropOn(QTreeWidgetItem* item, const QMimeData* data) const;
+    void clearTrackedItem(QTreeWidgetItem* item);  // Clear tracked pointers when item is deleted
     
     // Track categories using thread-safe container
     ThreadSafeList<QString> m_categories;
@@ -124,11 +125,13 @@ private:
     static constexpr int TasklistPathRole = Qt::UserRole + 2;
     
     // Drag and drop state
-    QPointer<QTreeWidgetItem> m_draggedItem;
+    // Note: QTreeWidgetItem doesn't inherit QObject, so we use raw pointers with careful cleanup
+    QTreeWidgetItem* m_draggedItem;
     bool m_dragDropEnabled;
     
     // Last selected item tracking
-    QPointer<QTreeWidgetItem> m_lastSelectedItem;
+    // Note: QTreeWidgetItem doesn't inherit QObject, so we use raw pointers with careful cleanup
+    QTreeWidgetItem* m_lastSelectedItem;
     
     // Context menu actions
     QAction* m_actionRename;
