@@ -258,6 +258,7 @@ public:
     bool m_episodeWasNearCompletion = false;  // Flag to track if episode reached near-end position
     bool m_forceStartFromBeginning = false;  // Flag to force starting from beginning when near end on direct play
     bool m_isRandomAutoplay = false;  // Flag to indicate this is random autoplay (for position reset)
+    bool m_isDecrypting = false;  // Flag to track if we're currently decrypting an episode
     
     // Removed playback speed management - now handled globally in BaseVideoPlayer
     

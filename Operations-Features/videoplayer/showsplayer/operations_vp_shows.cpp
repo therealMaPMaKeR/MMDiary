@@ -87,6 +87,7 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     , m_isAutoplayInProgress(false)
     , m_episodeWasNearCompletion(false)
     , m_pendingAutoplayIsRandom(false)
+    , m_isDecrypting(false)
 {
     qDebug() << "Operations_VP_Shows: Constructor called";
     qDebug() << "Operations_VP_Shows: Autoplay system initialized";
@@ -3683,6 +3684,10 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     qDebug() << "Operations_VP_Shows: Is autoplay:" << m_isAutoplayInProgress;
     qDebug() << "Operations_VP_Shows: Is random autoplay:" << m_isRandomAutoplay;
     
+    // Set the decryption flag
+    m_isDecrypting = true;
+    qDebug() << "Operations_VP_Shows: Set decrypting flag to true";
+    
     // Start timer to track decryption time (for small episode fix)
     QElapsedTimer decryptionTimer;
     decryptionTimer.start();
@@ -3888,6 +3893,8 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
 
     if (!OperationsFiles::ensureDirectoryExists(tempPath)) {
         qDebug() << "Operations_VP_Shows: Failed to create temp directory";
+        m_isDecrypting = false;
+        qDebug() << "Operations_VP_Shows: Cleared decrypting flag after temp directory creation failure";
         QMessageBox::critical(m_mainWindow,
                             tr("Playback Error"),
                             tr("Failed to create temporary directory."));
@@ -3896,6 +3903,8 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
 
     if (!OperationsFiles::ensureDirectoryExists(tempDecryptPath)) {
         qDebug() << "Operations_VP_Shows: Failed to create tempdecrypt directory";
+        m_isDecrypting = false;
+        qDebug() << "Operations_VP_Shows: Cleared decrypting flag after tempdecrypt directory creation failure";
         QMessageBox::critical(m_mainWindow,
                             tr("Playback Error"),
                             tr("Failed to create temporary decryption directory."));
@@ -3920,6 +3929,10 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
 
     if (!decryptSuccess) {
         qDebug() << "Operations_VP_Shows: Failed to decrypt video file";
+        
+        // Clear the decryption flag
+        m_isDecrypting = false;
+        qDebug() << "Operations_VP_Shows: Cleared decrypting flag after decryption failure";
         
         // Reset autoplay flags if this was an autoplay attempt
         if (m_isAutoplayInProgress) {
@@ -4162,7 +4175,18 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         }
     }
     
+    // If loading ultimately failed, clear the decryption flag
+    if (!loadSuccess) {
+        m_isDecrypting = false;
+        qDebug() << "Operations_VP_Shows: Cleared decrypting flag after load failure";
+        // The function will return early later, so we clear the flag here
+    }
+    
     if (loadSuccess) {
+        // Clear the decryption flag now that loading is successful
+        m_isDecrypting = false;
+        qDebug() << "Operations_VP_Shows: Cleared decrypting flag after successful load";
+        
         // Show the window first
         m_episodePlayer->show();
 
@@ -4509,6 +4533,29 @@ void Operations_VP_Shows::clearContextMenuData()
 void Operations_VP_Shows::onPlayContinueClicked()
 {
     qDebug() << "Operations_VP_Shows: Play/Continue button clicked";
+    
+    // Check if we're currently decrypting an episode
+    if (m_isDecrypting) {
+        qDebug() << "Operations_VP_Shows: Currently decrypting an episode, ignoring button press";
+        return;
+    }
+    
+    // Check if there's already a video player window open
+    if (m_episodePlayer && m_episodePlayer->isVisible()) {
+        qDebug() << "Operations_VP_Shows: Video player window already open, bringing to front";
+        
+        // Bring the existing window to the forefront
+        m_episodePlayer->raise();
+        m_episodePlayer->activateWindow();
+        m_episodePlayer->setFocus();
+        
+        // If minimized, restore it
+        if (m_episodePlayer->isMinimized()) {
+            m_episodePlayer->showNormal();
+        }
+        
+        return;
+    }
     
     // Use the helper function to determine which episode to play
     QTreeWidgetItem* episodeToPlay = determineEpisodeToPlay();
