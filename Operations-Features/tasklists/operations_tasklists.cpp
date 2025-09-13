@@ -353,16 +353,12 @@ Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
 
     // Connect item clicked signals to track the last clicked item
     if (auto* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List)) {
-        connect(treeWidget, &QTreeWidget::itemClicked,
-                this, [this, treeWidget](QTreeWidgetItem* item, int) {
-                    // Only handle clicks on tasklists, not categories
-                    if (!treeWidget->isCategory(item)) {
-                        QString tasklistName = getTasklistNameFromTreeItem(item);
-                        if (!tasklistName.isEmpty()) {
-                            LoadIndividualTasklist(tasklistName, "NULL");
-                        }
-                    }
-                });
+        // Connect the category and tasklist selection signals
+        // These will be emitted for both mouse clicks and arrow key navigation
+        connect(treeWidget, &qtree_Tasklists_list::categorySelected,
+                this, &Operations_TaskLists::onCategorySelected);
+        connect(treeWidget, &qtree_Tasklists_list::tasklistSelected,
+                this, &Operations_TaskLists::onTasklistSelected);
                 
         // Connect double-click for rename
         connect(treeWidget, &QTreeWidget::itemDoubleClicked,
@@ -4223,4 +4219,49 @@ void Operations_TaskLists::showContextMenu_TaskListList(const QPoint &pos)
     }
 
     contextMenu.exec(treeWidget->mapToGlobal(pos));
+}
+
+//---------Clear Tasklist display--------//
+
+// Clear task display when category is selected
+void Operations_TaskLists::ClearTaskDisplay()
+{
+    qDebug() << "Operations_TaskLists: Clearing task display";
+
+    // Clear the task list display
+    m_mainWindow->ui->listWidget_TaskListDisplay->clear();
+
+    // Clear the task details table
+    m_mainWindow->ui->tableWidget_TaskDetails->clear();
+    m_mainWindow->ui->tableWidget_TaskDetails->setRowCount(0);
+    m_mainWindow->ui->tableWidget_TaskDetails->setColumnCount(0);
+
+    // Clear the task description
+    m_mainWindow->ui->plainTextEdit_TaskDesc->clear();
+
+    // Clear the tasklist name label
+    m_mainWindow->ui->label_TaskListName->clear();
+
+    // Reset tracking variables
+    m_lastClickedItem = nullptr;
+    m_lastClickedWidget = nullptr;
+    m_currentTaskName.clear();
+}
+
+void Operations_TaskLists::onCategorySelected(const QString& categoryName)
+{
+    qDebug() << "Operations_TaskLists: Category selected:" << categoryName;
+
+    // Clear the task display when a category is selected
+    ClearTaskDisplay();
+}
+
+void Operations_TaskLists::onTasklistSelected(const QString& tasklistName)
+{
+    qDebug() << "Operations_TaskLists: Tasklist selected:" << tasklistName;
+
+    if (!tasklistName.isEmpty()) {
+        // Load the selected tasklist
+        LoadIndividualTasklist(tasklistName, "NULL");
+    }
 }

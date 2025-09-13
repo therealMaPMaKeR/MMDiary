@@ -168,6 +168,11 @@ public:
     // Update text size for task lists
     void UpdateTasklistsTextSize(int fontSize);
     
+    // Clear task display when category is selected
+    void ClearTaskDisplay();
+    void onCategorySelected(const QString& categoryName);
+    void onTasklistSelected(const QString& tasklistName);
+    
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 };
