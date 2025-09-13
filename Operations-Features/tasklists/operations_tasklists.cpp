@@ -4156,19 +4156,16 @@ void Operations_TaskLists::showContextMenu_TaskListList(const QPoint &pos)
     QAction* deleteCategoryAction = nullptr;
     QAction* deleteTaskListAction = nullptr;
     
-    if (!hasItem || isCategory) {
-        // Clicked on empty space or category
+    if (!hasItem) {
+        // Clicked on empty space - show both new options
         newCategoryAction = contextMenu.addAction("New Category");
         newTaskListAction = contextMenu.addAction("New Tasklist");
-        
-        if (isCategory) {
-            contextMenu.addSeparator();
-            renameCategoryAction = contextMenu.addAction("Rename Category");
-            deleteCategoryAction = contextMenu.addAction("Delete Category");
-        }
+    } else if (isCategory) {
+        // Clicked on a category - only show rename and delete for category
+        renameCategoryAction = contextMenu.addAction("Rename Category");
+        deleteCategoryAction = contextMenu.addAction("Delete Category");
     } else {
-        // Clicked on a tasklist
-        newTaskListAction = contextMenu.addAction("New Tasklist");
+        // Clicked on a tasklist - only show rename and delete for tasklist
         renameTaskListAction = contextMenu.addAction("Rename Tasklist");
         deleteTaskListAction = contextMenu.addAction("Delete Tasklist");
     }
