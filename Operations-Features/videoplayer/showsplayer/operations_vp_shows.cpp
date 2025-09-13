@@ -2670,6 +2670,54 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName, const QStr
     }
 
     QString actualFolderPath = folderPath;
+    QString actualShowName = showName;
+
+    // If show name is empty (called from persistent settings), load it from settings or metadata
+    if (actualShowName.isEmpty() && !actualFolderPath.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Show name is empty, loading from settings or metadata";
+
+        // Create managers for reading settings and metadata
+        VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+        VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+
+        // First, try to load the show name from settings file
+        VP_ShowsSettings::ShowSettings settings;
+        if (settingsManager.loadShowSettings(actualFolderPath, settings)) {
+            if (!settings.showName.isEmpty()) {
+                actualShowName = settings.showName;
+                qDebug() << "Operations_VP_Shows: Loaded show name from settings:" << actualShowName;
+            }
+        }
+
+        // If still empty, try to load from video metadata
+        if (actualShowName.isEmpty()) {
+            qDebug() << "Operations_VP_Shows: No show name in settings, trying metadata";
+            QDir showFolder(actualFolderPath);
+            QStringList videoExtensions;
+            videoExtensions << "*.mmvid";
+            showFolder.setNameFilters(videoExtensions);
+            QStringList videoFiles = showFolder.entryList(QDir::Files);
+
+            if (!videoFiles.isEmpty()) {
+                QString firstVideoPath = showFolder.absoluteFilePath(videoFiles.first());
+                VP_ShowsMetadata::ShowMetadata metadata;
+
+                if (metadataManager.readMetadataFromFile(firstVideoPath, metadata)) {
+                    if (!metadata.showName.isEmpty()) {
+                        actualShowName = metadata.showName;
+                        qDebug() << "Operations_VP_Shows: Loaded show name from metadata:" << actualShowName;
+                    }
+                }
+            }
+        }
+
+        // If still empty, use folder name as fallback
+        if (actualShowName.isEmpty()) {
+            QDir dir(actualFolderPath);
+            actualShowName = dir.dirName();
+            qDebug() << "Operations_VP_Shows: Using folder name as fallback:" << actualShowName;
+        }
+    }
 
     // If no folder path provided, try to look it up from the mapping
     if (actualFolderPath.isEmpty()) {
@@ -2749,7 +2797,7 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName, const QStr
 
     // Update the show name label
     if (m_mainWindow->ui->label_VP_Shows_Display_Name) {
-        m_mainWindow->ui->label_VP_Shows_Display_Name->setText(showName);
+        m_mainWindow->ui->label_VP_Shows_Display_Name->setText(actualShowName);
     }
     
     // Load and display the show image
