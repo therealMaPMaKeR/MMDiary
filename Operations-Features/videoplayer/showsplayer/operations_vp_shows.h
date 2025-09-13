@@ -188,6 +188,10 @@ public:
     void setupContextMenu();
     void showContextMenu(const QPoint& pos);
     
+    // Context menu for poster on display page
+    void setupPosterContextMenu();
+    void showPosterContextMenu(const QPoint& pos);
+    
     // Context menu actions
     void addEpisodesToShow();
     void decryptAndExportShow();

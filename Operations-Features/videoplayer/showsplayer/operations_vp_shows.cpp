@@ -2842,6 +2842,9 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName, const QStr
             m_mainWindow->ui->label_VP_Shows_Display_Image->setText(tr("No Image Available"));
             qDebug() << "Operations_VP_Shows: No image available for show, displaying placeholder text";
         }
+        
+        // Setup context menu for the poster
+        setupPosterContextMenu();
     }
     
     // Load and display the show description
@@ -4731,6 +4734,25 @@ void Operations_VP_Shows::setupContextMenu()
     qDebug() << "Operations_VP_Shows: Context menu setup complete";
 }
 
+void Operations_VP_Shows::setupPosterContextMenu()
+{
+    qDebug() << "Operations_VP_Shows: Setting up context menu for poster on display page";
+    
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->label_VP_Shows_Display_Image) {
+        qDebug() << "Operations_VP_Shows: Cannot setup poster context menu - label widget not available";
+        return;
+    }
+    
+    // Enable context menu for the poster label
+    m_mainWindow->ui->label_VP_Shows_Display_Image->setContextMenuPolicy(Qt::CustomContextMenu);
+    
+    // Connect the context menu signal
+    connect(m_mainWindow->ui->label_VP_Shows_Display_Image, &QLabel::customContextMenuRequested,
+            this, &Operations_VP_Shows::showPosterContextMenu);
+    
+    qDebug() << "Operations_VP_Shows: Poster context menu setup complete";
+}
+
 void Operations_VP_Shows::showContextMenu(const QPoint& pos)
 {
     qDebug() << "Operations_VP_Shows: Context menu requested";
@@ -4791,6 +4813,78 @@ void Operations_VP_Shows::showContextMenu(const QPoint& pos)
     
     // Show the menu at the cursor position
     contextMenu->exec(m_mainWindow->ui->listWidget_VP_List_List->mapToGlobal(pos));
+    
+    // Clean up
+    contextMenu->deleteLater();
+    
+    // Clear context menu data after use to prevent stale references
+    clearContextMenuData();
+}
+
+void Operations_VP_Shows::showPosterContextMenu(const QPoint& pos)
+{
+    qDebug() << "Operations_VP_Shows: Poster context menu requested";
+    
+    // Check for valid m_mainWindow pointer
+    if (!m_mainWindow) {
+        qDebug() << "Operations_VP_Shows: MainWindow pointer is null";
+        return;
+    }
+    
+    if (!m_mainWindow->ui || !m_mainWindow->ui->label_VP_Shows_Display_Image) {
+        return;
+    }
+    
+    // Check if we have a current show being displayed
+    if (m_currentShowFolder.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No show currently displayed";
+        return;
+    }
+    
+    // Get the show name from the display label
+    QString showName;
+    if (m_mainWindow->ui->label_VP_Shows_Display_Name) {
+        showName = m_mainWindow->ui->label_VP_Shows_Display_Name->text();
+    }
+    
+    if (showName.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Show name not available";
+        return;
+    }
+    
+    // Clear any previous context menu data before setting new values
+    clearContextMenuData();
+    
+    // Store the show name and path for the context menu actions
+    m_contextMenuShowName = showName;
+    m_contextMenuShowPath = m_currentShowFolder;
+    
+    qDebug() << "Operations_VP_Shows: Creating poster context menu for show:" << m_contextMenuShowName;
+    
+    // Create the context menu
+    QMenu* contextMenu = new QMenu(m_mainWindow);
+    
+    // Add Episodes action
+    QAction* addEpisodesAction = contextMenu->addAction(tr("Add Episodes to \"%1\"").arg(m_contextMenuShowName));
+    connect(addEpisodesAction, &QAction::triggered, this, &Operations_VP_Shows::addEpisodesToShow);
+    
+    // Decrypt and Export action
+    QAction* exportAction = contextMenu->addAction(tr("Decrypt and Export \"%1\"").arg(m_contextMenuShowName));
+    connect(exportAction, &QAction::triggered, this, &Operations_VP_Shows::decryptAndExportShow);
+    
+    // Delete action
+    QAction* deleteAction = contextMenu->addAction(tr("Delete \"%1\"").arg(m_contextMenuShowName));
+    connect(deleteAction, &QAction::triggered, this, &Operations_VP_Shows::deleteShow);
+    
+    // Add separator
+    contextMenu->addSeparator();
+    
+    // Show in File Explorer action
+    QAction* showInExplorerAction = contextMenu->addAction(tr("Show in File Explorer"));
+    connect(showInExplorerAction, &QAction::triggered, this, &Operations_VP_Shows::showInFileExplorer);
+    
+    // Show the menu at the cursor position
+    contextMenu->exec(m_mainWindow->ui->label_VP_Shows_Display_Image->mapToGlobal(pos));
     
     // Clean up
     contextMenu->deleteLater();
