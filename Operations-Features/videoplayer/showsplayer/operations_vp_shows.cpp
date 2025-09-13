@@ -288,6 +288,13 @@ Operations_VP_Shows::~Operations_VP_Shows()
         m_pendingAutoplayIsRandom = false;
     }
     
+    // Clear pending context menu play information
+    if (!m_pendingContextMenuEpisodePath.isEmpty() || !m_pendingContextMenuEpisodeName.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Clearing pending context menu play information in destructor";
+        m_pendingContextMenuEpisodePath.clear();
+        m_pendingContextMenuEpisodeName.clear();
+    }
+    
     // Clear context menu data first to prevent dangling references
     clearContextMenuData();
     
@@ -3615,6 +3622,12 @@ void Operations_VP_Shows::onEpisodeDoubleClicked(QTreeWidgetItem* item, int colu
         return;
     }
     
+    // Check if we're currently decrypting an episode
+    if (m_isDecrypting) {
+        qDebug() << "Operations_VP_Shows: Currently decrypting an episode, ignoring double-click";
+        return;
+    }
+    
     // Check if this is an episode item (not a language or season item)
     if (item->childCount() > 0) {
         // This is a language or season item, not an episode
@@ -3671,6 +3684,58 @@ void Operations_VP_Shows::onEpisodeDoubleClicked(QTreeWidgetItem* item, int colu
         }
     }
     
+    // Check if there's already a video player window open
+    if (m_episodePlayer && m_episodePlayer->isVisible()) {
+        qDebug() << "Operations_VP_Shows: Existing video player detected - closing it before playing new episode";
+        
+        // Store the episode information for playing after cleanup
+        m_pendingContextMenuEpisodePath = videoPath;
+        m_pendingContextMenuEpisodeName = episodeName;
+        
+        // Store flag to indicate we should start from beginning if needed
+        m_forceStartFromBeginning = forceStartFromBeginning;
+        
+        // Stop playback tracking if active
+        if (m_playbackTracker && m_playbackTracker->isTracking()) {
+            qDebug() << "Operations_VP_Shows: Stopping active playback tracking";
+            m_playbackTracker->stopTracking();
+        }
+        
+        // Force release the video file and clean up
+        forceReleaseVideoFile();
+        
+        // Close the player
+        if (m_episodePlayer->isVisible()) {
+            m_episodePlayer->close();
+        }
+        m_episodePlayer.reset();
+        
+        // Clean up any existing temp file
+        cleanupTempFile();
+        
+        qDebug() << "Operations_VP_Shows: Previous video player closed and cleaned up";
+        
+        // Use a timer to ensure cleanup is complete before playing new episode
+        QTimer::singleShot(100, this, [this]() {
+            if (!m_pendingContextMenuEpisodePath.isEmpty() && !m_pendingContextMenuEpisodeName.isEmpty()) {
+                qDebug() << "Operations_VP_Shows: Playing pending double-clicked episode after cleanup";
+                
+                // Decrypt and play the episode
+                QString episodePath = m_pendingContextMenuEpisodePath;
+                QString episodeName = m_pendingContextMenuEpisodeName;
+                
+                // Clear the pending values
+                m_pendingContextMenuEpisodePath.clear();
+                m_pendingContextMenuEpisodeName.clear();
+                
+                decryptAndPlayEpisode(episodePath, episodeName);
+            }
+        });
+        
+        return;
+    }
+    
+    // No existing player, proceed with normal play
     // Store flag to indicate we should start from beginning
     m_forceStartFromBeginning = forceStartFromBeginning;
     
@@ -3700,6 +3765,13 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         m_pendingAutoplayPath.clear();
         m_pendingAutoplayName.clear();
         m_pendingAutoplayIsRandom = false;
+    }
+    
+    // Clear any pending context menu play info (defensive cleanup)
+    if (!m_pendingContextMenuEpisodePath.isEmpty() || !m_pendingContextMenuEpisodeName.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: Clearing any stale pending context menu play info";
+        m_pendingContextMenuEpisodePath.clear();
+        m_pendingContextMenuEpisodeName.clear();
     }
 
     // Reset stored window settings if this is NOT autoplay
@@ -6501,6 +6573,12 @@ void Operations_VP_Shows::playEpisodeFromContextMenu()
 {
     qDebug() << "Operations_VP_Shows: Play episode from context menu";
     
+    // Check if we're currently decrypting an episode
+    if (m_isDecrypting) {
+        qDebug() << "Operations_VP_Shows: Currently decrypting an episode, ignoring context menu play";
+        return;
+    }
+    
     if (m_contextMenuEpisodePaths.isEmpty()) {
         qDebug() << "Operations_VP_Shows: No episodes to play";
         return;
@@ -6534,6 +6612,78 @@ void Operations_VP_Shows::playEpisodeFromContextMenu()
     
     qDebug() << "Operations_VP_Shows: Playing episode:" << episodeName;
     
+    // Check if there's already a video player window open
+    if (m_episodePlayer && m_episodePlayer->isVisible()) {
+        qDebug() << "Operations_VP_Shows: Existing video player detected - closing it before playing new episode";
+        
+        // Store the episode information for playing after cleanup
+        m_pendingContextMenuEpisodePath = firstEpisodePath;
+        m_pendingContextMenuEpisodeName = episodeName;
+        
+        // Stop playback tracking if active
+        if (m_playbackTracker && m_playbackTracker->isTracking()) {
+            qDebug() << "Operations_VP_Shows: Stopping active playback tracking";
+            m_playbackTracker->stopTracking();
+        }
+        
+        // Force release the video file and clean up
+        forceReleaseVideoFile();
+        
+        // Close the player
+        if (m_episodePlayer->isVisible()) {
+            m_episodePlayer->close();
+        }
+        m_episodePlayer.reset();
+        
+        // Clean up any existing temp file
+        cleanupTempFile();
+        
+        qDebug() << "Operations_VP_Shows: Previous video player closed and cleaned up";
+        
+        // Use a timer to ensure cleanup is complete before playing new episode
+        QTimer::singleShot(100, this, [this]() {
+            if (!m_pendingContextMenuEpisodePath.isEmpty() && !m_pendingContextMenuEpisodeName.isEmpty()) {
+                qDebug() << "Operations_VP_Shows: Playing pending context menu episode after cleanup";
+                
+                // Check if we should start from the beginning due to near-end position
+                bool forceStartFromBeginning = false;
+                if (m_watchHistory && !m_currentShowFolder.isEmpty()) {
+                    QDir showDir(m_currentShowFolder);
+                    QString relativePath = showDir.relativeFilePath(m_pendingContextMenuEpisodePath);
+                    qint64 resumePosition = m_watchHistory->getResumePosition(relativePath);
+                    
+                    if (resumePosition > 0) {
+                        EpisodeWatchInfo watchInfo = m_watchHistory->getEpisodeWatchInfo(relativePath);
+                        if (watchInfo.totalDuration > 0) {
+                            qint64 remainingTime = watchInfo.totalDuration - resumePosition;
+                            if (remainingTime <= VP_ShowsWatchHistory::COMPLETION_THRESHOLD_MS) {
+                                forceStartFromBeginning = true;
+                                qDebug() << "Operations_VP_Shows: Context menu play - resume position is near end (" << remainingTime
+                                         << "ms remaining), will start from beginning instead";
+                            }
+                        }
+                    }
+                }
+                
+                // Store flag to indicate we should start from beginning
+                m_forceStartFromBeginning = forceStartFromBeginning;
+                
+                // Decrypt and play the episode
+                QString episodePath = m_pendingContextMenuEpisodePath;
+                QString episodeName = m_pendingContextMenuEpisodeName;
+                
+                // Clear the pending values
+                m_pendingContextMenuEpisodePath.clear();
+                m_pendingContextMenuEpisodeName.clear();
+                
+                decryptAndPlayEpisode(episodePath, episodeName);
+            }
+        });
+        
+        return;
+    }
+    
+    // No existing player, proceed with normal play
     // Check if we should start from the beginning due to near-end position
     // This is for direct play from context menu
     bool forceStartFromBeginning = false;

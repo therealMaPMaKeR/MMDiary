@@ -305,6 +305,10 @@ public:
     QString m_pendingAutoplayName;
     bool m_pendingAutoplayIsRandom = false;
     
+    // Pending context menu play information (for playing after closing existing player)
+    QString m_pendingContextMenuEpisodePath;
+    QString m_pendingContextMenuEpisodeName;
+    
     // Autoplay functionality
     QStringList getAllAvailableEpisodes() const;  // Get all episodes in playback order
     QString findNextEpisode(const QString& currentEpisodePath) const;  // Find next episode to play
