@@ -333,7 +333,7 @@ void BaseVideoPlayer::createControls()
     m_volumeSlider->setRange(0, 200);
     m_volumeSlider->setValue(s_lastVolume);
     m_volumeSlider->setMaximumWidth(100);
-    m_volumeSlider->setToolTip(tr("Volume (up to 200%)\nUp/Down: Adjust volume\nScroll: Adjust volume"));
+    m_volumeSlider->setToolTip(tr("Volume (up to 200%)\nUp/Down: Adjust volume\nMouse Wheel: Adjust volume\nCtrl+Mouse Wheel: Adjust playback speed"));
     m_volumeSlider->setFocusPolicy(Qt::ClickFocus);
     
     // Speed spin box
@@ -344,7 +344,7 @@ void BaseVideoPlayer::createControls()
     m_speedSpinBox->setSuffix("x");
     m_speedSpinBox->setDecimals(1);
     m_speedSpinBox->setMaximumWidth(80);
-    m_speedSpinBox->setToolTip(tr("Playback Speed\nCtrl+Up: Increase speed by 0.1\nCtrl+Down: Decrease speed by 0.1"));
+    m_speedSpinBox->setToolTip(tr("Playback Speed\nCtrl+Up / Ctrl+MouseWheel Up: Increase speed by 0.1\nCtrl+Down / Ctrl+MouseWheel Down: Decrease speed by 0.1"));
     m_speedSpinBox->setFocusPolicy(Qt::NoFocus);
     
     // Labels
@@ -1234,13 +1234,44 @@ void BaseVideoPlayer::keyPressEvent(QKeyEvent *event)
 
 void BaseVideoPlayer::wheelEvent(QWheelEvent *event)
 {
-    // Adjust volume with mouse wheel
+    // Check if Ctrl key is pressed
+    bool ctrlPressed = (event->modifiers() & Qt::ControlModifier);
     int delta = event->angleDelta().y();
     
-    if (delta > 0) {
-        setVolume(volume() + 5);
-    } else if (delta < 0) {
-        setVolume(volume() - 5);
+    if (ctrlPressed) {
+        // Ctrl + mouse wheel: Adjust playback speed
+        if (delta > 0) {
+            // Ctrl + wheel up: Increase playback speed by 0.1
+            if (m_speedSpinBox) {
+                qreal currentSpeed = m_speedSpinBox->value();
+                qreal newSpeed = currentSpeed + 0.1;
+                if (newSpeed <= 5.0) {
+                    qDebug() << "BaseVideoPlayer: Ctrl+MouseWheel Up - increasing playback speed from" << currentSpeed << "to" << newSpeed;
+                    setPlaybackSpeed(newSpeed);
+                } else {
+                    qDebug() << "BaseVideoPlayer: Already at maximum playback speed (5.0x)";
+                }
+            }
+        } else if (delta < 0) {
+            // Ctrl + wheel down: Decrease playback speed by 0.1
+            if (m_speedSpinBox) {
+                qreal currentSpeed = m_speedSpinBox->value();
+                qreal newSpeed = currentSpeed - 0.1;
+                if (newSpeed >= 0.1) {
+                    qDebug() << "BaseVideoPlayer: Ctrl+MouseWheel Down - decreasing playback speed from" << currentSpeed << "to" << newSpeed;
+                    setPlaybackSpeed(newSpeed);
+                } else {
+                    qDebug() << "BaseVideoPlayer: Already at minimum playback speed (0.1x)";
+                }
+            }
+        }
+    } else {
+        // Normal mouse wheel: Adjust volume
+        if (delta > 0) {
+            setVolume(volume() + 5);
+        } else if (delta < 0) {
+            setVolume(volume() - 5);
+        }
     }
     
     event->accept();
