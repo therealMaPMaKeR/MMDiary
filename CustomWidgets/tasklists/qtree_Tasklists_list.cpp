@@ -521,11 +521,31 @@ void qtree_Tasklists_list::dragMoveEvent(QDragMoveEvent *event)
     
     // Handle category dragging
     if (event->mimeData()->hasFormat(MIME_TYPE_CATEGORY)) {
-        // Categories can only be reordered at the root level
+        // Get the dragged category name from mime data
+        QByteArray encodedData = event->mimeData()->data(MIME_TYPE_CATEGORY);
+        QDataStream stream(&encodedData, QIODevice::ReadOnly);
+        QString draggedCategoryName;
+        stream >> draggedCategoryName;
+        
+        QTreeWidgetItem* draggedCategory = findCategory(draggedCategoryName);
+        
+        // Categories can be reordered at the root level
         if (!item || isCategory(item)) {
             // Either dropping at empty space or between categories
             event->acceptProposedAction();
             setDropIndicatorShown(true);
+        } else if (isTasklist(item)) {
+            // Check if this tasklist belongs to the dragged category
+            QTreeWidgetItem* parentCategory = item->parent();
+            if (parentCategory && parentCategory == draggedCategory) {
+                // Can't drop a category on its own tasklists
+                event->ignore();
+                setDropIndicatorShown(false);
+            } else {
+                // Allow dropping on tasklists - will insert after their parent category
+                event->acceptProposedAction();
+                setDropIndicatorShown(true);
+            }
         } else {
             event->ignore();
             setDropIndicatorShown(false);
@@ -610,8 +630,24 @@ void qtree_Tasklists_list::dropEvent(QDropEvent *event)
             if (dropPos.y() > itemRect.center().y()) {
                 targetIndex++;
             }
+        } else if (isTasklist(targetItem)) {
+            // Dropping on a tasklist - insert after its parent category
+            QTreeWidgetItem* parentCategory = targetItem->parent();
+            if (!parentCategory) {
+                event->ignore();
+                return;
+            }
+            
+            // Don't allow dropping a category on its own tasklists
+            if (parentCategory == categoryItem) {
+                event->ignore();
+                return;
+            }
+            
+            // Insert after the parent category
+            targetIndex = indexOfTopLevelItem(parentCategory) + 1;
         } else {
-            // Can't drop category on a tasklist
+            // Invalid drop target
             event->ignore();
             return;
         }
@@ -899,8 +935,9 @@ bool qtree_Tasklists_list::canDropOn(QTreeWidgetItem* item, const QMimeData* dat
     if (!data) return false;
     
     if (data->hasFormat(MIME_TYPE_CATEGORY)) {
-        // Categories can only be dropped at root level (between other categories)
-        return !item || isCategory(item);
+        // Categories can be dropped at root level, on other categories, 
+        // or on tasklists (which will place them after the tasklist's parent category)
+        return !item || isCategory(item) || isTasklist(item);
     }
     
     if (data->hasFormat(MIME_TYPE_TASKLIST)) {
