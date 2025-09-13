@@ -8,6 +8,7 @@
 #include <QMenu>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QTimer>
 #include "../../Operations-Global/inputvalidation.h"
 
 qtree_Tasklists_list::qtree_Tasklists_list(QWidget *parent)
@@ -283,23 +284,34 @@ void qtree_Tasklists_list::moveTasklistToCategory(const QString& tasklistName, c
     }
     QString oldCategoryName = currentCategory->text(0);
     
+    // If moving to the same category, do nothing
+    if (oldCategoryName == categoryName) {
+        return;
+    }
+    
     // Get or create new category
     QTreeWidgetItem* newCategory = getOrCreateCategory(categoryName);
     if (!newCategory) {
         return;
     }
     
-    // Move the item
-    if (currentCategory) {
-        currentCategory->removeChild(tasklistItem);
-    } else {
-        int index = indexOfTopLevelItem(tasklistItem);
-        if (index >= 0) {
-            takeTopLevelItem(index);
-        }
+    // Take the item from current parent (removes but keeps alive)
+    int index = currentCategory->indexOfChild(tasklistItem);
+    QTreeWidgetItem* takenItem = currentCategory->takeChild(index);
+    
+    if (!takenItem) {
+        qWarning() << "qtree_Tasklists_list: Failed to take item from parent";
+        return;
     }
     
-    newCategory->addChild(tasklistItem);
+    // Add to new category
+    newCategory->addChild(takenItem);
+    
+    // Ensure new category is expanded
+    newCategory->setExpanded(true);
+    
+    // Update the display
+    this->update();
     
     emit tasklistMoved(tasklistName, oldCategoryName, categoryName);
     emit structureChanged();
@@ -552,62 +564,49 @@ void qtree_Tasklists_list::dropEvent(QDropEvent *event)
     QString tasklistName;
     stream >> tasklistName;
     
-    QTreeWidgetItem* tasklistItem = findTasklist(tasklistName);
-    if (!tasklistItem) {
-        event->ignore();
-        return;
-    }
-    
-    // Determine target category and position
-    QTreeWidgetItem* targetCategory = nullptr;
-    int targetIndex = -1;
+    // Determine target category name
+    QString targetCategoryName;
     
     if (isCategory(targetItem)) {
-        // Dropping on a category - add to end
-        targetCategory = targetItem;
-        targetIndex = targetCategory->childCount();
+        // Dropping on a category
+        targetCategoryName = targetItem->text(0);
     } else if (isTasklist(targetItem)) {
-        // Dropping on a tasklist - insert at that position
-        targetCategory = targetItem->parent();
-        if (targetCategory) {
-            targetIndex = targetCategory->indexOfChild(targetItem);
+        // Dropping on a tasklist - move to its category
+        QTreeWidgetItem* parent = targetItem->parent();
+        if (parent) {
+            targetCategoryName = parent->text(0);
         }
     }
     
-    if (!targetCategory) {
+    if (targetCategoryName.isEmpty()) {
         event->ignore();
         return;
     }
     
-    // Get current parent
-    QTreeWidgetItem* currentParent = tasklistItem->parent();
-    if (!currentParent) {
-        // Tasklist must have a parent category
-        qWarning() << "qtree_Tasklists_list: Tasklist has no parent category, cannot drop";
-        event->ignore();
-        return;
-    }
+    // Use the existing moveTasklistToCategory method
+    moveTasklistToCategory(tasklistName, targetCategoryName);
     
-    QString oldCategoryName = currentParent->text(0);
-    QString newCategoryName = targetCategory->text(0);
+    // Schedule a deferred update to ensure visibility after all signals are processed
+    QTimer::singleShot(50, this, [this, tasklistName]() {
+        // Find and select the moved item
+        QTreeWidgetItem* movedItem = findTasklist(tasklistName);
+        if (movedItem) {
+            // Expand parent to ensure visibility
+            if (movedItem->parent()) {
+                movedItem->parent()->setExpanded(true);
+            }
+
+            // Select it but DON'T scroll (scrollToItem was causing crashes)
+            this->setCurrentItem(movedItem);
+            // Comment out the scrollToItem call that was causing crashes
+            this->scrollToItem(movedItem, QAbstractItemView::PositionAtCenter);
+            // Force a repaint
+            this->viewport()->repaint();
+        }
+    });
     
-    // Remove from current position
-    currentParent->removeChild(tasklistItem);
-    
-    // Insert at new position
-    if (targetIndex >= 0 && targetIndex <= targetCategory->childCount()) {
-        targetCategory->insertChild(targetIndex, tasklistItem);
-    } else {
-        targetCategory->addChild(tasklistItem);
-    }
-    
-    // Notify about the move
-    if (oldCategoryName != newCategoryName) {
-        emit tasklistMoved(tasklistName, oldCategoryName, newCategoryName);
-    }
-    
-    emit structureChanged();
-    event->acceptProposedAction();
+    //commenting this out solved a persistent issue causing the items to disappear after being moved.
+    //event->acceptProposedAction();
 }
 
 void qtree_Tasklists_list::dragLeaveEvent(QDragLeaveEvent *event)
