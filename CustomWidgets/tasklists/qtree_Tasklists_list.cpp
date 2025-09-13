@@ -659,6 +659,9 @@ void qtree_Tasklists_list::dropEvent(QDropEvent *event)
             return;
         }
         
+        // Save the expanded state before moving
+        bool wasExpanded = categoryItem->isExpanded();
+        
         // Adjust target index if moving down
         if (currentIndex < targetIndex) {
             targetIndex--;
@@ -678,6 +681,9 @@ void qtree_Tasklists_list::dropEvent(QDropEvent *event)
         
         // Insert at the new position
         insertTopLevelItem(targetIndex, takenItem);
+        
+        // Restore the expanded state
+        takenItem->setExpanded(wasExpanded);
         
         // Select the moved category
         setCurrentItem(takenItem);
