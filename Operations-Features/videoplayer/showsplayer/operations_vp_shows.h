@@ -239,7 +239,7 @@ public:
     bool deleteEpisodesWithConfirmation(const QStringList& episodePaths, const QString& description);
     bool exportEpisodes(const QStringList& episodePaths, const QString& exportPath, const QString& showName);
     void setWatchedStateForEpisodes(const QStringList& episodePaths, bool watched);
-    void performEpisodeExportWithWorker(const QStringList& episodePaths, const QString& exportPath, const QString& description);
+    void performEpisodeExportWithWorker(const QStringList& episodePaths, const QString& exportPath, const QString& description, bool createFolderStructure = true);
     
     // Currently selected tree item for episode context menu
     QTreeWidgetItem* m_contextMenuTreeItem = nullptr;  // Initialize to nullptr for safety

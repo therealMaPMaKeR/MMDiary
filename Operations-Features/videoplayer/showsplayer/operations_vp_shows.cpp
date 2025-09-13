@@ -5170,46 +5170,46 @@ qint64 Operations_VP_Shows::estimateDecryptedSize(const QString& showFolderPath)
     return estimatedSize;
 }
 
-bool Operations_VP_Shows::exportShowEpisodes(const QString& showFolderPath, const QString& exportPath, 
+bool Operations_VP_Shows::exportShowEpisodes(const QString& showFolderPath, const QString& exportPath,
                                             const QString& showName)
 {
     qDebug() << "Operations_VP_Shows: Exporting show from:" << showFolderPath << "to:" << exportPath;
-    
+
     // Create show folder in export path
     QDir exportDir(exportPath);
     QString showFolderName = showName;
-    
+
     // Sanitize the show name for use as a folder name
     showFolderName.replace(QRegularExpression("[<>:\"|?*]"), "_");
-    
+
     if (!exportDir.mkdir(showFolderName)) {
         // Folder might already exist, try to use it
         qDebug() << "Operations_VP_Shows: Show folder already exists or couldn't be created";
     }
-    
+
     QString showExportPath = exportDir.absoluteFilePath(showFolderName);
     QDir showExportDir(showExportPath);
-    
+
     // Get all video files (now using .mmvid extension)
     QDir showDir(showFolderPath);
     QStringList videoExtensions;
     videoExtensions << "*.mmvid"; // Custom extension for encrypted video files
     showDir.setNameFilters(videoExtensions);
     QStringList videoFiles = showDir.entryList(QDir::Files);
-    
+
     // Create metadata manager
     VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
-    
+
     // Create progress dialog
     QProgressDialog progress(tr("Exporting %1...").arg(showName), tr("Cancel"), 0, videoFiles.size(), m_mainWindow);
     progress.setWindowModality(Qt::WindowModal);
     progress.setMinimumDuration(0);
     progress.show();
     QCoreApplication::processEvents();
-    
+
     int processed = 0;
     bool allSuccess = true;
-    
+
     // Process each video file
     for (const QString& videoFile : videoFiles) {
         if (progress.wasCanceled()) {
@@ -6617,8 +6617,8 @@ void Operations_VP_Shows::decryptAndExportEpisodeFromContextMenu()
         return;
     }
     
-    // Perform the export
-    performEpisodeExportWithWorker(m_contextMenuEpisodePaths, exportPath, description);
+    // Perform the export without folder structure (direct export to selected folder)
+    performEpisodeExportWithWorker(m_contextMenuEpisodePaths, exportPath, description, false);
 }
 
 void Operations_VP_Shows::editEpisodeMetadata()
@@ -8409,10 +8409,11 @@ void Operations_VP_Shows::handleEpisodeNearCompletion(const QString& episodePath
     // This is just a notification that we're near the end
 }
 
-void Operations_VP_Shows::performEpisodeExportWithWorker(const QStringList& episodePaths, const QString& exportPath, const QString& description)
+void Operations_VP_Shows::performEpisodeExportWithWorker(const QStringList& episodePaths, const QString& exportPath, const QString& description, bool createFolderStructure)
 {
     qDebug() << "Operations_VP_Shows: Preparing episode export with worker";
     qDebug() << "Operations_VP_Shows: Episodes to export:" << episodePaths.size();
+    qDebug() << "Operations_VP_Shows: Create folder structure:" << createFolderStructure;
     
     // Get the show name
     QString showName;
@@ -8429,20 +8430,176 @@ void Operations_VP_Shows::performEpisodeExportWithWorker(const QStringList& epis
     // Create metadata manager to read episode info
     VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
     
-    // Create show folder in export path
+    // Setup export directory based on createFolderStructure flag
     QDir exportDir(exportPath);
-    QString showFolderName = showName;
+    QString baseExportPath = exportPath;  // Store the base export path
     
-    // Sanitize the show name for use as a folder name
-    showFolderName.replace(QRegularExpression("[<>:\"|?*]"), "_");
+    if (createFolderStructure) {
+        // Create show folder in export path when folder structure is requested
+        QString showFolderName = showName;
+        
+        // Sanitize the show name for use as a folder name
+        showFolderName.replace(QRegularExpression("[<>:\"|?*]"), "_");
     
-    if (!exportDir.mkdir(showFolderName)) {
-        // Folder might already exist, try to use it
-        qDebug() << "Operations_VP_Shows: Show folder already exists or couldn't be created";
+        if (!exportDir.mkdir(showFolderName)) {
+            // Folder might already exist, try to use it
+            qDebug() << "Operations_VP_Shows: Show folder already exists or couldn't be created";
+        }
+
+        baseExportPath = exportDir.absoluteFilePath(showFolderName);
     }
-    
-    QString showExportPath = exportDir.absoluteFilePath(showFolderName);
-    QDir showExportDir(showExportPath);
+    // When createFolderStructure is false, we export directly to the provided path
+
+    QDir showExportDir(baseExportPath);
+
+    // Process each episode
+    for (const QString& episodePath : episodePaths) {
+        // Read metadata to determine output path and filename
+        VP_ShowsMetadata::ShowMetadata metadata;
+        if (!metadataManager.readMetadataFromFile(episodePath, metadata)) {
+            qDebug() << "Operations_VP_Shows: Failed to read metadata from:" << episodePath;
+            continue;
+        }
+
+        // Parse season and episode numbers
+        int seasonNum = metadata.season.toInt();
+        int episodeNum = metadata.episode.toInt();
+        if (seasonNum <= 0 || episodeNum <= 0) {
+            // Try to parse from filename as fallback
+            VP_ShowsTMDB::parseEpisodeFromFilename(metadata.filename, seasonNum, episodeNum);
+            if (seasonNum <= 0) seasonNum = 1;
+        }
+
+        QString outputFileName;
+        QString outputFilePath;
+
+        if (createFolderStructure) {
+            // Create full folder structure (language/season)
+            QString languageFolderName = QString("%1 %2").arg(metadata.language).arg(metadata.translation);
+            languageFolderName.replace(QRegularExpression("[<>:\"|?*]"), "_");
+
+            if (!showExportDir.exists(languageFolderName)) {
+                if (!showExportDir.mkdir(languageFolderName)) {
+                    qDebug() << "Operations_VP_Shows: Failed to create language folder:" << languageFolderName;
+                    continue;
+                }
+            }
+
+            QString languagePath = showExportDir.absoluteFilePath(languageFolderName);
+            QDir languageDir(languagePath);
+
+            // Check if using absolute numbering
+            QString episodeFolderPath;
+            if (metadata.isAbsoluteNumbering() || seasonNum == 0) {
+                // For absolute numbering, create "Episodes" folder instead of season folder
+                QString episodesFolderName = "Episodes";
+                if (!languageDir.exists(episodesFolderName)) {
+                    if (!languageDir.mkdir(episodesFolderName)) {
+                        qDebug() << "Operations_VP_Shows: Failed to create episodes folder:" << episodesFolderName;
+                        continue;
+                    }
+                }
+                episodeFolderPath = languageDir.absoluteFilePath(episodesFolderName);
+            } else {
+                // Traditional season folder structure
+                QString seasonFolderName = QString("Season %1").arg(seasonNum, 2, 10, QChar('0'));
+                if (!languageDir.exists(seasonFolderName)) {
+                    if (!languageDir.mkdir(seasonFolderName)) {
+                        qDebug() << "Operations_VP_Shows: Failed to create season folder:" << seasonFolderName;
+                        continue;
+                    }
+                }
+                episodeFolderPath = languageDir.absoluteFilePath(seasonFolderName);
+            }
+
+            // Generate output filename for folder structure
+            if (episodeNum > 0) {
+                if (metadata.isAbsoluteNumbering() || seasonNum == 0) {
+                    outputFileName = QString("%1_E%2")
+                                   .arg(showName)
+                                   .arg(episodeNum, 3, 10, QChar('0'));
+                } else {
+                    outputFileName = QString("%1_S%2E%3")
+                                   .arg(showName)
+                                   .arg(seasonNum, 2, 10, QChar('0'))
+                                   .arg(episodeNum, 2, 10, QChar('0'));
+                }
+
+                if (!metadata.EPName.isEmpty()) {
+                    outputFileName += "_" + metadata.EPName;
+                }
+            } else {
+                QFileInfo fileInfo(metadata.filename);
+                outputFileName = fileInfo.completeBaseName();
+            }
+
+            // Sanitize filename
+            outputFileName.replace(QRegularExpression("[<>:\"|?*]"), "_");
+
+            // Add extension
+            QString originalExtension;
+            if (!metadata.filename.isEmpty()) {
+                QFileInfo originalFileInfo(metadata.filename);
+                originalExtension = originalFileInfo.suffix();
+            }
+            if (!originalExtension.isEmpty()) {
+                outputFileName += "." + originalExtension;
+            } else {
+                outputFileName += ".mp4";
+            }
+
+            outputFilePath = QDir(episodeFolderPath).absoluteFilePath(outputFileName);
+
+        } else {
+            // Export directly to the selected folder without creating subfolders
+            if (episodeNum > 0) {
+                if (metadata.isAbsoluteNumbering() || seasonNum == 0) {
+                    outputFileName = QString("%1_E%2")
+                                   .arg(showName)
+                                   .arg(episodeNum, 3, 10, QChar('0'));
+                } else {
+                    outputFileName = QString("%1_S%2E%3")
+                                   .arg(showName)
+                                   .arg(seasonNum, 2, 10, QChar('0'))
+                                   .arg(episodeNum, 2, 10, QChar('0'));
+                }
+
+                if (!metadata.EPName.isEmpty()) {
+                    outputFileName += "_" + metadata.EPName;
+                }
+            } else {
+                QFileInfo fileInfo(metadata.filename);
+                outputFileName = fileInfo.completeBaseName();
+            }
+
+            // Sanitize filename
+            outputFileName.replace(QRegularExpression("[<>:\"|?*]"), "_");
+
+            // Add extension
+            QString originalExtension;
+            if (!metadata.filename.isEmpty()) {
+                QFileInfo originalFileInfo(metadata.filename);
+                originalExtension = originalFileInfo.suffix();
+            }
+            if (!originalExtension.isEmpty()) {
+                outputFileName += "." + originalExtension;
+            } else {
+                outputFileName += ".mp4";
+            }
+
+            // Export directly to baseExportPath
+            outputFilePath = QDir(baseExportPath).absoluteFilePath(outputFileName);
+        }
+
+        // Create export info
+        VP_ShowsExportWorker::ExportFileInfo fileInfo;
+        fileInfo.sourceFile = episodePath;
+        fileInfo.targetFile = outputFilePath;
+        fileInfo.displayName = outputFileName;
+        fileInfo.fileSize = QFileInfo(episodePath).size();
+
+        exportFiles.append(fileInfo);
+    }
     
     // Process each episode
     for (const QString& episodePath : episodePaths) {
