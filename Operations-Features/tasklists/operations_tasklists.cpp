@@ -351,6 +351,17 @@ Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
     m_mainWindow->ui->treeWidget_TaskList_List->installEventFilter(this);
     m_mainWindow->ui->listWidget_TaskListDisplay->installEventFilter(this);
 
+    // Initialize Add Task button as disabled
+    if (m_mainWindow->ui->pushButton_AddTask) {
+        m_mainWindow->ui->pushButton_AddTask->setEnabled(false);
+        // Apply disabled styling
+        QString disabledStyle = "QPushButton { "
+                               "    color: rgba(255, 255, 255, 0.4); "
+                               "    background-color: rgba(60, 60, 60, 0.3); "
+                               "}";
+        m_mainWindow->ui->pushButton_AddTask->setStyleSheet(disabledStyle);
+    }
+
     // Connect item clicked signals to track the last clicked item
     if (auto* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List)) {
         // Connect the category and tasklist selection signals
@@ -1416,6 +1427,9 @@ void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, c
 
     // Update the appearance of the tasklist in the list
     UpdateTasklistAppearance(tasklistName);
+    
+    // Update Add Task button state since a tasklist is loaded
+    UpdateAddTaskButtonState();
 }
 
 void Operations_TaskLists::LoadTaskDetails(const QString& taskName)
@@ -1871,9 +1885,9 @@ void Operations_TaskLists::CreateNewTaskList()
         }
     }
     
-    // If no default category and no categories exist, default to "New Category"
+    // If no default category and no categories exist, default to "Uncategorized"
     if (defaultCategory.isEmpty() && categories.isEmpty()) {
-        defaultCategory = "New Category";
+        defaultCategory = "Uncategorized";
     } else if (defaultCategory.isEmpty() && !categories.isEmpty()) {
         // Use the first available category
         defaultCategory = categories.first();
@@ -3694,7 +3708,7 @@ void Operations_TaskLists::CreateNewCategory()
     QStringList existingCategories = treeWidget->getAllCategories();
     
     // Get a unique name for the new category
-    QString initialName = "New Category";
+    QString initialName = "Uncategorized";
     QString uniqueName = Operations::GetUniqueItemName(initialName, existingCategories);
     
     // Prompt user for category name
@@ -3950,6 +3964,92 @@ void Operations_TaskLists::UpdateTasklistsTextSize(int fontSize)
 
     // Update plain text edit
     m_mainWindow->ui->plainTextEdit_TaskDesc->setFont(font);
+}
+
+void Operations_TaskLists::ClearTaskDisplay()
+{
+    qDebug() << "Operations_TaskLists: Clearing task display";
+    
+    if (m_mainWindow && m_mainWindow->ui) {
+        // Clear the task list display
+        if (m_mainWindow->ui->listWidget_TaskListDisplay) {
+            m_mainWindow->ui->listWidget_TaskListDisplay->clear();
+        }
+        
+        // Clear task details table
+        if (m_mainWindow->ui->tableWidget_TaskDetails) {
+            m_mainWindow->ui->tableWidget_TaskDetails->clear();
+            m_mainWindow->ui->tableWidget_TaskDetails->setRowCount(0);
+            m_mainWindow->ui->tableWidget_TaskDetails->setColumnCount(0);
+        }
+        
+        // Clear task description
+        if (m_mainWindow->ui->plainTextEdit_TaskDesc) {
+            m_mainWindow->ui->plainTextEdit_TaskDesc->clear();
+        }
+        
+        // Clear task list name label
+        if (m_mainWindow->ui->label_TaskListName) {
+            m_mainWindow->ui->label_TaskListName->clear();
+        }
+    }
+}
+
+void Operations_TaskLists::onCategorySelected(const QString& categoryName)
+{
+    qDebug() << "Operations_TaskLists: Category selected:" << categoryName;
+    // Clear task display when a category is selected
+    ClearTaskDisplay();
+    // Update Add Task button state (disable for categories)
+    UpdateAddTaskButtonState();
+}
+
+void Operations_TaskLists::onTasklistSelected(const QString& tasklistName)
+{
+    qDebug() << "Operations_TaskLists: Tasklist selected:" << tasklistName;
+    // Load the selected tasklist
+    LoadIndividualTasklist(tasklistName, "NULL");
+    // Update Add Task button state (enable for tasklists)
+    UpdateAddTaskButtonState();
+}
+
+void Operations_TaskLists::UpdateAddTaskButtonState()
+{
+    qDebug() << "Operations_TaskLists: Updating Add Task button state";
+    
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->pushButton_AddTask) {
+        qDebug() << "Operations_TaskLists: Add Task button not available";
+        return;
+    }
+    
+    // Get the tree widget
+    qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List);
+    if (!treeWidget) {
+        qWarning() << "Operations_TaskLists: Failed to cast tree widget in UpdateAddTaskButtonState";
+        return;
+    }
+    
+    // Get the current selection
+    QTreeWidgetItem* currentItem = treeWidget->currentItem();
+    
+    // Define styles for enabled and disabled states
+    QString enabledStyle = "";  // Default/empty style for enabled state
+    QString disabledStyle = "QPushButton { "
+                           "    color: rgba(255, 255, 255, 0.4); "
+                           "    background-color: rgba(60, 60, 60, 0.3); "
+                           "}";
+    
+    if (currentItem && !treeWidget->isCategory(currentItem)) {
+        // A tasklist is selected - enable the button
+        qDebug() << "Operations_TaskLists: Tasklist selected - enabling Add Task button";
+        m_mainWindow->ui->pushButton_AddTask->setEnabled(true);
+        m_mainWindow->ui->pushButton_AddTask->setStyleSheet(enabledStyle);
+    } else {
+        // Either no selection or a category is selected - disable the button
+        qDebug() << "Operations_TaskLists: No tasklist selected - disabling Add Task button";
+        m_mainWindow->ui->pushButton_AddTask->setEnabled(false);
+        m_mainWindow->ui->pushButton_AddTask->setStyleSheet(disabledStyle);
+    }
 }
 
 //--------Context Menu Functions--------//
@@ -4221,47 +4321,4 @@ void Operations_TaskLists::showContextMenu_TaskListList(const QPoint &pos)
     contextMenu.exec(treeWidget->mapToGlobal(pos));
 }
 
-//---------Clear Tasklist display--------//
 
-// Clear task display when category is selected
-void Operations_TaskLists::ClearTaskDisplay()
-{
-    qDebug() << "Operations_TaskLists: Clearing task display";
-
-    // Clear the task list display
-    m_mainWindow->ui->listWidget_TaskListDisplay->clear();
-
-    // Clear the task details table
-    m_mainWindow->ui->tableWidget_TaskDetails->clear();
-    m_mainWindow->ui->tableWidget_TaskDetails->setRowCount(0);
-    m_mainWindow->ui->tableWidget_TaskDetails->setColumnCount(0);
-
-    // Clear the task description
-    m_mainWindow->ui->plainTextEdit_TaskDesc->clear();
-
-    // Clear the tasklist name label
-    m_mainWindow->ui->label_TaskListName->clear();
-
-    // Reset tracking variables
-    m_lastClickedItem = nullptr;
-    m_lastClickedWidget = nullptr;
-    m_currentTaskName.clear();
-}
-
-void Operations_TaskLists::onCategorySelected(const QString& categoryName)
-{
-    qDebug() << "Operations_TaskLists: Category selected:" << categoryName;
-
-    // Clear the task display when a category is selected
-    ClearTaskDisplay();
-}
-
-void Operations_TaskLists::onTasklistSelected(const QString& tasklistName)
-{
-    qDebug() << "Operations_TaskLists: Tasklist selected:" << tasklistName;
-
-    if (!tasklistName.isEmpty()) {
-        // Load the selected tasklist
-        LoadIndividualTasklist(tasklistName, "NULL");
-    }
-}

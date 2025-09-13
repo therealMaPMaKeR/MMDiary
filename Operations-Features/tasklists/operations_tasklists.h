@@ -173,6 +173,9 @@ public:
     void onCategorySelected(const QString& categoryName);
     void onTasklistSelected(const QString& tasklistName);
     
+    // Update Add Task button state based on selection
+    void UpdateAddTaskButtonState();
+    
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 };
