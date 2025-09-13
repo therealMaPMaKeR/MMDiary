@@ -426,6 +426,10 @@ Operations_TaskLists::Operations_TaskLists(MainWindow* mainWindow)
     if (auto* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List)) {
         connect(treeWidget, &qtree_Tasklists_list::structureChanged,
                 this, &Operations_TaskLists::SaveTasklistSettings);
+        
+        // Connect task drop signal for transferring tasks between tasklists
+        connect(treeWidget, &qtree_Tasklists_list::taskDroppedOnTasklist,
+                this, &Operations_TaskLists::TransferTaskToTasklist);
     }
     
     LoadTasklists();
@@ -4172,6 +4176,144 @@ void Operations_TaskLists::onTasklistSelected(const QString& tasklistName)
     LoadIndividualTasklist(tasklistName, "NULL");
     // Update Add Task button state (enable for tasklists)
     UpdateAddTaskButtonState();
+}
+
+void Operations_TaskLists::TransferTaskToTasklist(const QString& taskName, const QString& taskId, 
+                                                  const QString& targetTasklist, const QJsonObject& taskData)
+{
+    qDebug() << "Operations_TaskLists: Transferring task" << taskName << "to tasklist" << targetTasklist;
+    
+    // Get the current tasklist from tree widget
+    qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List);
+    if (!treeWidget) {
+        qWarning() << "Operations_TaskLists: Failed to cast tree widget in TransferTaskToTasklist";
+        return;
+    }
+    
+    QTreeWidgetItem* currentItem = treeWidget->currentItem();
+    if (!currentItem || treeWidget->isCategory(currentItem)) {
+        qWarning() << "Operations_TaskLists: No source tasklist selected for transfer";
+        return;
+    }
+    
+    QString sourceTasklist = currentItem->text(0);
+    
+    // Don't transfer to the same tasklist
+    if (sourceTasklist == targetTasklist) {
+        qDebug() << "Operations_TaskLists: Source and target tasklists are the same, ignoring";
+        return;
+    }
+    
+    // Find source tasklist file
+    QString sourceFilePath = findTasklistFileByName(sourceTasklist);
+    if (sourceFilePath.isEmpty()) {
+        qWarning() << "Operations_TaskLists: Could not find source tasklist file";
+        return;
+    }
+    
+    // Find target tasklist file
+    QString targetFilePath = findTasklistFileByName(targetTasklist);
+    if (targetFilePath.isEmpty()) {
+        qWarning() << "Operations_TaskLists: Could not find target tasklist file";
+        return;
+    }
+    
+    // Read source tasklist tasks
+    QJsonArray sourceTasks;
+    if (!readTasklistJson(sourceFilePath, sourceTasks)) {
+        qWarning() << "Operations_TaskLists: Failed to read source tasklist";
+        return;
+    }
+    
+    // Find and remove the task from source
+    QJsonObject transferredTask;
+    bool taskFound = false;
+    QJsonArray updatedSourceTasks;
+    
+    for (int i = 0; i < sourceTasks.size(); ++i) {
+        QJsonValue value = sourceTasks[i];
+        if (!value.isObject()) continue;
+        
+        QJsonObject taskObj = value.toObject();
+        
+        // Match by task ID if available, otherwise by name
+        bool isMatch = false;
+        if (!taskId.isEmpty() && taskObj["id"].toString() == taskId) {
+            isMatch = true;
+        } else if (taskObj["name"].toString() == taskName) {
+            isMatch = true;
+        }
+        
+        if (isMatch) {
+            transferredTask = taskObj;
+            taskFound = true;
+            // Don't add this task to the updated source list
+        } else {
+            updatedSourceTasks.append(taskObj);
+        }
+    }
+    
+    if (!taskFound) {
+        qWarning() << "Operations_TaskLists: Task not found in source tasklist";
+        return;
+    }
+    
+    // Save updated source tasklist
+    if (!writeTasklistJson(sourceFilePath, updatedSourceTasks)) {
+        qWarning() << "Operations_TaskLists: Failed to save updated source tasklist";
+        return;
+    }
+    
+    // Read target tasklist tasks
+    QJsonArray targetTasks;
+    if (!readTasklistJson(targetFilePath, targetTasks)) {
+        // If reading fails, start with empty array
+        targetTasks = QJsonArray();
+    }
+    
+    // Check for duplicate names in target
+    QString finalTaskName = transferredTask["name"].toString();
+    QStringList existingNames;
+    for (const QJsonValue& value : targetTasks) {
+        if (!value.isObject()) continue;
+        QJsonObject taskObj = value.toObject();
+        existingNames.append(taskObj["name"].toString());
+    }
+    
+    if (existingNames.contains(finalTaskName)) {
+        // Generate unique name
+        finalTaskName = Operations::GetUniqueItemName(finalTaskName, existingNames);
+        transferredTask["name"] = finalTaskName;
+    }
+    
+    // Ensure task has an ID
+    if (transferredTask["id"].toString().isEmpty()) {
+        transferredTask["id"] = QUuid::createUuid().toString();
+    }
+    
+    // Add transferred task to target
+    targetTasks.append(transferredTask);
+    
+    // Save updated target tasklist
+    if (!writeTasklistJson(targetFilePath, targetTasks)) {
+        qWarning() << "Operations_TaskLists: Failed to save updated target tasklist";
+        return;
+    }
+    
+    qDebug() << "Operations_TaskLists: Successfully transferred task" << taskName << "to" << targetTasklist;
+    
+    // Refresh the display if we're viewing the source tasklist
+    if (currentItem && currentItem->text(0) == sourceTasklist) {
+        LoadIndividualTasklist(sourceTasklist, "NULL");
+    }
+    
+    // Update appearances for both tasklists
+    UpdateTasklistAppearance(sourceTasklist);
+    UpdateTasklistAppearance(targetTasklist);
+    
+    // Show success message
+    QString message = QString("Task '%1' has been moved to '%2'").arg(finalTaskName).arg(targetTasklist);
+    QMessageBox::information(m_mainWindow, "Task Transferred", message);
 }
 
 void Operations_TaskLists::UpdateAddTaskButtonState()

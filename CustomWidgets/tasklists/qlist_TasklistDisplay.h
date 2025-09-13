@@ -12,6 +12,10 @@
 #include <QDebug>
 #include <QPointer>
 #include <QUuid>
+#include <QDrag>
+#include <QMimeData>
+#include <QJsonObject>
+#include <QJsonDocument>
 
 class qlist_TasklistDisplay : public QListWidget
 {
@@ -67,8 +71,17 @@ public:
 signals:
     // Signal emitted when items are reordered through drag and drop
     void itemsReordered();
+    
+    // Signal emitted when a task is being dragged externally
+    void taskExternalDragStarted(const QString& taskName, const QString& taskData);
 
 protected:
+    // Override startDrag to add task data for external drops
+    void startDrag(Qt::DropActions supportedActions) override;
+    
+    // Override mimeData to provide task information
+    QMimeData* mimeData(const QList<QListWidgetItem*>& items) const;
+    
     // Override scrollTo to disable automatic scrolling to selected items
     void scrollTo(const QModelIndex &index, ScrollHint hint = EnsureVisible) override {
         Q_UNUSED(index);
@@ -226,11 +239,21 @@ protected:
 
     // Additional drag and drop event handlers for more control if needed
     void dragEnterEvent(QDragEnterEvent *event) override {
-        QListWidget::dragEnterEvent(event);
+        // Accept both internal moves and external task drops
+        if (event->mimeData()->hasFormat("application/x-task-data")) {
+            event->ignore();  // Don't accept task drops back into the same list
+        } else {
+            QListWidget::dragEnterEvent(event);
+        }
     }
 
     void dragMoveEvent(QDragMoveEvent *event) override {
-        QListWidget::dragMoveEvent(event);
+        // Accept both internal moves and external task drops
+        if (event->mimeData()->hasFormat("application/x-task-data")) {
+            event->ignore();  // Don't accept task drops back into the same list
+        } else {
+            QListWidget::dragMoveEvent(event);
+        }
     }
 
 private slots:

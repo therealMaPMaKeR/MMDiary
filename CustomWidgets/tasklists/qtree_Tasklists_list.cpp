@@ -503,7 +503,8 @@ void qtree_Tasklists_list::dragEnterEvent(QDragEnterEvent *event)
     }
     
     if (event->mimeData()->hasFormat(MIME_TYPE_TASKLIST) || 
-        event->mimeData()->hasFormat(MIME_TYPE_CATEGORY)) {
+        event->mimeData()->hasFormat(MIME_TYPE_CATEGORY) ||
+        event->mimeData()->hasFormat("application/x-task-data")) {
         event->acceptProposedAction();
     } else {
         event->ignore();
@@ -546,6 +547,28 @@ void qtree_Tasklists_list::dragMoveEvent(QDragMoveEvent *event)
                 event->acceptProposedAction();
                 setDropIndicatorShown(true);
             }
+        } else {
+            event->ignore();
+            setDropIndicatorShown(false);
+        }
+        return;
+    }
+    
+    // Handle external task dragging
+    if (event->mimeData()->hasFormat("application/x-task-data")) {
+        if (!item) {
+            event->ignore();
+            return;
+        }
+        
+        // Can only drop tasks on tasklists, not categories
+        if (isTasklist(item)) {
+            event->acceptProposedAction();
+            setDropIndicatorShown(true);
+        } else if (isCategory(item)) {
+            // Visual feedback that categories don't accept tasks directly
+            event->ignore();
+            setDropIndicatorShown(false);
         } else {
             event->ignore();
             setDropIndicatorShown(false);
@@ -599,6 +622,39 @@ void qtree_Tasklists_list::dropEvent(QDropEvent *event)
     }
     
     const QMimeData* mimeData = event->mimeData();
+    
+    // Handle external task drop
+    if (mimeData->hasFormat("application/x-task-data")) {
+        QTreeWidgetItem* targetItem = itemAt(event->position().toPoint());
+        
+        if (!targetItem || !isTasklist(targetItem)) {
+            event->ignore();
+            return;
+        }
+        
+        // Get the target tasklist name
+        QString targetTasklist = targetItem->text(0);
+        
+        // Parse the task data
+        QByteArray taskData = mimeData->data("application/x-task-data");
+        QJsonDocument doc = QJsonDocument::fromJson(taskData);
+        
+        if (!doc.isObject()) {
+            event->ignore();
+            return;
+        }
+        
+        QJsonObject taskJson = doc.object();
+        QString taskName = taskJson["name"].toString();
+        QString taskId = taskJson["taskId"].toString();
+        bool completed = taskJson["completed"].toBool();
+        
+        // Emit signal to handle the task transfer
+        emit taskDroppedOnTasklist(taskName, taskId, targetTasklist, taskJson);
+        
+        event->acceptProposedAction();
+        return;
+    }
     
     // Handle category reordering
     if (mimeData->hasFormat(MIME_TYPE_CATEGORY)) {

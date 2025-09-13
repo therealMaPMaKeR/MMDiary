@@ -83,6 +83,10 @@ signals:
     
     // Context menu requested
     void contextMenuRequested(const QPoint& pos);
+    
+    // Emitted when a task is dropped on a tasklist
+    void taskDroppedOnTasklist(const QString& taskName, const QString& taskId, 
+                               const QString& targetTasklist, const QJsonObject& taskData);
 
 protected:
     // Override drag and drop events

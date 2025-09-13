@@ -185,6 +185,10 @@ public:
     // Update Add Task button state based on selection
     void UpdateAddTaskButtonState();
     
+    // Transfer task between tasklists
+    void TransferTaskToTasklist(const QString& taskName, const QString& taskId, 
+                                const QString& targetTasklist, const QJsonObject& taskData);
+    
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 };
