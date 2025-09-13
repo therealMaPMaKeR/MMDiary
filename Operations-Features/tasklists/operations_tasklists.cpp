@@ -1930,6 +1930,9 @@ void Operations_TaskLists::CreateNewTaskList()
     if (dialog.exec() == QDialog::Accepted) {
         QString tasklistName = ui.lineEdit_TasklistName->text().trimmed();
         QString categoryName = ui.comboBox_Category->currentText().trimmed();
+        
+        // Clean semicolons from category name to prevent conflicts with persistent settings
+        categoryName.remove(';');
 
         // Validate tasklist name
         InputValidation::ValidationResult nameResult =
@@ -3876,6 +3879,9 @@ void Operations_TaskLists::CreateNewCategory()
         return; // User cancelled or entered empty name
     }
     
+    // Clean semicolons from category name to prevent conflicts with persistent settings
+    categoryName.remove(';');
+    
     // Validate category name
     InputValidation::ValidationResult result =
         InputValidation::validateInput(categoryName, InputValidation::InputType::PlainText);
@@ -4350,6 +4356,9 @@ void Operations_TaskLists::showContextMenu_TaskListList(const QPoint &pos)
                                                    "Enter new category name:", QLineEdit::Normal,
                                                    itemText, &ok);
             if (ok && !newName.isEmpty() && newName != itemText) {
+                // Clean semicolons from new category name to prevent conflicts with persistent settings
+                newName.remove(';');
+                
                 // Validate the new name
                 InputValidation::ValidationResult result =
                     InputValidation::validateInput(newName, InputValidation::InputType::TaskListName);

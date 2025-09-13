@@ -23,6 +23,7 @@
 #include "ui_about_MMDiary.h"
 #include "ui_changelog.h"
 #include "noncechecker.h"
+#include "CustomWidgets/tasklists/qtree_Tasklists_list.h"
 #include <QApplication>
 #include <QWindow>
 #include <cstring> // For secure memory operations
@@ -918,52 +919,87 @@ void MainWindow::LoadPersistentSettings()
 
     // Load tasklist-specific settings
     QString currentList = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_TLists_CurrentList);
-    // COMMENTED OUT: Task restoration now handled by metadata in tasklist files
-    // QString currentTask = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_TLists_CurrentTask);
+    QString foldedCategories = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_TLists_FoldedCategories);
 
-    /*
     // Apply tasklist settings if they exist and are valid
     if (Operations_TaskLists_ptr) {
-        QListWidget* taskListWidget = ui->treeWidget_TaskList_List;
-        if (taskListWidget && taskListWidget->count() > 0) {
-            bool taskListLoaded = false;
-            
-            // Try to load the saved task list if it exists
-            if (!currentList.isEmpty()) {
-                int listCount = taskListWidget->count();
-                for (int i = 0; i < listCount; ++i) {
-                    QListWidgetItem* listItem = taskListWidget->item(i);
-                    if (listItem && listItem->text() == currentList) {
-                        taskListWidget->setCurrentRow(i);
-
-                        // Load the individual tasklist 
-                        // Task selection is now handled by metadata in the tasklist file
-                        //Use a timer, temporary fix, is perfectly fine if we are not opening directly on tasklist tab, but otherwise it's not great. Will do for now.
-                        QTimer::singleShot(10, this, [&, currentList]() {
-                            Operations_TaskLists_ptr->LoadIndividualTasklist(currentList, "NULL");
-                            taskListLoaded = true;
-                        });
-                        break;
-                    } else if (!listItem) {
-                        qDebug() << "MainWindow: Null item at index" << i << "in task list";
+        qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(ui->treeWidget_TaskList_List);
+        if (treeWidget) {
+            // First, apply folded categories state
+            if (!foldedCategories.isEmpty()) {
+                QStringList foldedCategoriesList = foldedCategories.split(";", Qt::SkipEmptyParts);
+                
+                // Iterate through all categories and set their expanded state
+                for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+                    QTreeWidgetItem* categoryItem = treeWidget->topLevelItem(i);
+                    if (categoryItem && treeWidget->isCategory(categoryItem)) {
+                        QString categoryName = categoryItem->text(0);
+                        
+                        // If this category is in the folded list, collapse it
+                        // Otherwise, ensure it's expanded (default state)
+                        if (foldedCategoriesList.contains(categoryName)) {
+                            categoryItem->setExpanded(false);
+                            qDebug() << "MainWindow: Collapsed category:" << categoryName;
+                        } else {
+                            categoryItem->setExpanded(true);
+                        }
                     }
                 }
             }
             
-            // If no saved task list was loaded, load the first one
+            // Then, try to select and load the saved task list if it exists
+            bool taskListLoaded = false;
+            if (!currentList.isEmpty()) {
+                // Find the tasklist item in the tree
+                QTreeWidgetItem* tasklistItem = treeWidget->findTasklist(currentList);
+                if (tasklistItem) {
+                    // Select the tasklist
+                    treeWidget->setCurrentItem(tasklistItem);
+                    
+                    // Ensure the parent category is expanded so the selection is visible
+                    if (tasklistItem->parent()) {
+                        tasklistItem->parent()->setExpanded(true);
+                    }
+                    
+                    // Load the individual tasklist 
+                    // Use a timer to ensure UI is ready
+                    QTimer::singleShot(10, this, [this, currentList]() {
+                        if (Operations_TaskLists_ptr) {
+                            Operations_TaskLists_ptr->LoadIndividualTasklist(currentList, "NULL");
+                        }
+                    });
+                    taskListLoaded = true;
+                    qDebug() << "MainWindow: Loaded saved task list:" << currentList;
+                }
+            }
+            
+            // If no saved task list was loaded, try to load the first available tasklist
             if (!taskListLoaded) {
-                QListWidgetItem* firstItem = taskListWidget->item(0);
-                if (firstItem) {
-                    taskListWidget->setCurrentRow(0);
-                    Operations_TaskLists_ptr->LoadIndividualTasklist(firstItem->text(), "NULL");
-                    qDebug() << "MainWindow: No saved task list found, loading first task list";
+                QStringList allTasklists = treeWidget->getAllTasklists();
+                if (!allTasklists.isEmpty()) {
+                    QString firstTasklist = allTasklists.first();
+                    QTreeWidgetItem* firstItem = treeWidget->findTasklist(firstTasklist);
+                    if (firstItem) {
+                        treeWidget->setCurrentItem(firstItem);
+                        
+                        // Ensure the parent category is expanded
+                        if (firstItem->parent()) {
+                            firstItem->parent()->setExpanded(true);
+                        }
+                        
+                        QTimer::singleShot(10, this, [this, firstTasklist]() {
+                            if (Operations_TaskLists_ptr) {
+                                Operations_TaskLists_ptr->LoadIndividualTasklist(firstTasklist, "NULL");
+                            }
+                        });
+                        qDebug() << "MainWindow: No saved task list found, loading first task list:" << firstTasklist;
+                    }
                 }
             }
         } else {
-            qDebug() << "MainWindow: Task list widget is null or empty when applying settings";
+            qDebug() << "MainWindow: Task list tree widget is null when applying settings";
         }
     }
-    */
     // Load encrypted data settings
     QString savedSortType = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_DataENC_SortType);
     QString savedCategory = m_persistentSettingsManager->GetPersistentSettingsData_String(Constants::PSettingsT_Index_DataENC_CurrentCategory);
@@ -1122,43 +1158,47 @@ void MainWindow::SavePersistentSettings()
 
     // Save tasklist-specific settings
     QString currentList = "";
-    // COMMENTED OUT: Task selection now saved in tasklist metadata instead of persistent settings
-    // QString currentTask = "";
+    QString foldedCategories = "";
 
-    // Get current selected tasklist
-    /*
-    QListWidget* taskListWidget = ui->treeWidget_TaskList_List;
-    if (taskListWidget) {
-        QListWidgetItem* currentTaskListItem = taskListWidget->currentItem();
-        if (currentTaskListItem) {
-            currentList = currentTaskListItem->text();
+    // Get current selected tasklist from tree widget
+    qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(ui->treeWidget_TaskList_List);
+    if (treeWidget) {
+        QTreeWidgetItem* currentItem = treeWidget->currentItem();
+        if (currentItem) {
+            // If a tasklist is selected (not a category)
+            if (!treeWidget->isCategory(currentItem)) {
+                currentList = currentItem->text(0);
+            } else {
+                // If a category is selected, we don't save it as current list
+                qDebug() << "MainWindow: Current selection is a category, not saving as current list";
+            }
         } else {
             qDebug() << "MainWindow: No current task list item selected";
         }
+        
+        // Get all folded (collapsed) categories
+        QStringList foldedCategoriesList;
+        for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* categoryItem = treeWidget->topLevelItem(i);
+            if (categoryItem && treeWidget->isCategory(categoryItem)) {
+                // Check if category is collapsed (not expanded)
+                if (!categoryItem->isExpanded()) {
+                    foldedCategoriesList.append(categoryItem->text(0));
+                }
+            }
+        }
+        
+        // Join folded categories with semicolon separator
+        if (!foldedCategoriesList.isEmpty()) {
+            foldedCategories = foldedCategoriesList.join(";");
+        }
     } else {
-        qDebug() << "MainWindow: Task list widget is null";
+        qDebug() << "MainWindow: Task list tree widget is null";
     }
-
-    // COMMENTED OUT: Task selection now saved in tasklist metadata
-    // Get current selected task
-    // QListWidget* taskDisplayWidget = ui->listWidget_TaskListDisplay;
-    // if (taskDisplayWidget) {
-    //     QListWidgetItem* currentTaskItem = taskDisplayWidget->currentItem();
-    //     if (currentTaskItem && currentTaskItem->text() != "No tasks in this list") {
-    //         currentTask = currentTaskItem->text();
-    //     } else {
-    //         qDebug() << "MainWindow: No current task item selected";
-    //     }
-    // } else {
-    //     qDebug() << "MainWindow: Task display widget is null";
-    // }
 
     // Save tasklist settings (encrypted since they might be sensitive)
     m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_TLists_CurrentList, currentList);
-    // COMMENTED OUT: Task selection now saved in tasklist metadata
-    // m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_TLists_CurrentTask, currentTask);
-
-    */
+    m_persistentSettingsManager->UpdatePersistentSettingsData_TEXT(Constants::PSettingsT_Index_TLists_FoldedCategories, foldedCategories);
     // Save encrypted data settings
     QString currentSortType = "";
     QString currentCategory = "";
