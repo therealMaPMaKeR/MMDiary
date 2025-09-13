@@ -143,6 +143,7 @@ private:
     
     // Constants
     static constexpr const char* MIME_TYPE_TASKLIST = "application/x-tasklist-item";
+    static constexpr const char* MIME_TYPE_CATEGORY = "application/x-category-item";
 };
 
 #endif // QTREE_TASKLISTS_LIST_H

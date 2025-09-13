@@ -502,7 +502,8 @@ void qtree_Tasklists_list::dragEnterEvent(QDragEnterEvent *event)
         return;
     }
     
-    if (event->mimeData()->hasFormat(MIME_TYPE_TASKLIST)) {
+    if (event->mimeData()->hasFormat(MIME_TYPE_TASKLIST) || 
+        event->mimeData()->hasFormat(MIME_TYPE_CATEGORY)) {
         event->acceptProposedAction();
     } else {
         event->ignore();
@@ -518,13 +519,27 @@ void qtree_Tasklists_list::dragMoveEvent(QDragMoveEvent *event)
     
     QTreeWidgetItem* item = itemAt(event->position().toPoint());
     
-    if (!item) {
-        event->ignore();
+    // Handle category dragging
+    if (event->mimeData()->hasFormat(MIME_TYPE_CATEGORY)) {
+        // Categories can only be reordered at the root level
+        if (!item || isCategory(item)) {
+            // Either dropping at empty space or between categories
+            event->acceptProposedAction();
+            setDropIndicatorShown(true);
+        } else {
+            event->ignore();
+            setDropIndicatorShown(false);
+        }
         return;
     }
     
-    // Can only drop tasklists on categories or other tasklists (for reordering)
+    // Handle tasklist dragging
     if (event->mimeData()->hasFormat(MIME_TYPE_TASKLIST)) {
+        if (!item) {
+            event->ignore();
+            return;
+        }
+        
         if (isCategory(item)) {
             // Can drop on category
             event->acceptProposedAction();
@@ -563,13 +578,85 @@ void qtree_Tasklists_list::dropEvent(QDropEvent *event)
         return;
     }
     
+    const QMimeData* mimeData = event->mimeData();
+    
+    // Handle category reordering
+    if (mimeData->hasFormat(MIME_TYPE_CATEGORY)) {
+        QByteArray encodedData = mimeData->data(MIME_TYPE_CATEGORY);
+        QDataStream stream(&encodedData, QIODevice::ReadOnly);
+        QString categoryName;
+        stream >> categoryName;
+        
+        QTreeWidgetItem* categoryItem = findCategory(categoryName);
+        if (!categoryItem) {
+            event->ignore();
+            return;
+        }
+        
+        // Find target position
+        QTreeWidgetItem* targetItem = itemAt(event->position().toPoint());
+        int targetIndex = -1;
+        
+        if (!targetItem) {
+            // Dropping at the end of the list
+            targetIndex = topLevelItemCount();
+        } else if (isCategory(targetItem)) {
+            // Dropping on or near another category
+            targetIndex = indexOfTopLevelItem(targetItem);
+            
+            // Check if we're dropping below the target
+            QRect itemRect = visualItemRect(targetItem);
+            QPoint dropPos = event->position().toPoint();
+            if (dropPos.y() > itemRect.center().y()) {
+                targetIndex++;
+            }
+        } else {
+            // Can't drop category on a tasklist
+            event->ignore();
+            return;
+        }
+        
+        // Get current index
+        int currentIndex = indexOfTopLevelItem(categoryItem);
+        if (currentIndex < 0) {
+            event->ignore();
+            return;
+        }
+        
+        // Adjust target index if moving down
+        if (currentIndex < targetIndex) {
+            targetIndex--;
+        }
+        
+        // Don't move if it's the same position
+        if (currentIndex == targetIndex) {
+            return;
+        }
+        
+        // Take the item from its current position
+        QTreeWidgetItem* takenItem = takeTopLevelItem(currentIndex);
+        if (!takenItem) {
+            event->ignore();
+            return;
+        }
+        
+        // Insert at the new position
+        insertTopLevelItem(targetIndex, takenItem);
+        
+        // Select the moved category
+        setCurrentItem(takenItem);
+        
+        emit structureChanged();
+        return;
+    }
+    
+    // Handle tasklist moving (existing code)
     QTreeWidgetItem* targetItem = itemAt(event->position().toPoint());
     if (!targetItem) {
         event->ignore();
         return;
     }
     
-    const QMimeData* mimeData = event->mimeData();
     if (!mimeData->hasFormat(MIME_TYPE_TASKLIST)) {
         event->ignore();
         return;
@@ -675,11 +762,11 @@ void qtree_Tasklists_list::mousePressEvent(QMouseEvent *event)
     QTreeWidgetItem* item = itemAt(event->pos());
     
     if (item && event->button() == Qt::LeftButton && m_dragDropEnabled) {
-        // Only allow dragging tasklists, not categories
-        if (isTasklist(item)) {
+        // Allow dragging both tasklists and categories
+        if (isTasklist(item) || isCategory(item)) {
             m_draggedItem = item;
         } else {
-            m_draggedItem = nullptr;  // Clear if not a tasklist
+            m_draggedItem = nullptr;  // Clear if neither
         }
     } else {
         m_draggedItem = nullptr;  // Clear on other buttons or conditions
@@ -726,17 +813,23 @@ QMimeData* qtree_Tasklists_list::mimeData(const QList<QTreeWidgetItem*>& items) 
     }
     
     QTreeWidgetItem* item = items.first();
-    if (!isTasklist(item)) {
-        return nullptr;  // Can't drag categories
-    }
-    
     QMimeData* mimeData = new QMimeData();
     QByteArray encodedData;
     QDataStream stream(&encodedData, QIODevice::WriteOnly);
     
-    stream << item->text(0);  // Store tasklist name
+    if (isCategory(item)) {
+        // Store category name
+        stream << item->text(0);
+        mimeData->setData(MIME_TYPE_CATEGORY, encodedData);
+    } else if (isTasklist(item)) {
+        // Store tasklist name
+        stream << item->text(0);
+        mimeData->setData(MIME_TYPE_TASKLIST, encodedData);
+    } else {
+        delete mimeData;
+        return nullptr;
+    }
     
-    mimeData->setData(MIME_TYPE_TASKLIST, encodedData);
     return mimeData;
 }
 
@@ -744,6 +837,7 @@ QStringList qtree_Tasklists_list::mimeTypes() const
 {
     QStringList types;
     types << MIME_TYPE_TASKLIST;
+    types << MIME_TYPE_CATEGORY;
     return types;
 }
 
@@ -802,14 +896,19 @@ void qtree_Tasklists_list::updateItemAppearance(QTreeWidgetItem* item)
 
 bool qtree_Tasklists_list::canDropOn(QTreeWidgetItem* item, const QMimeData* data) const
 {
-    if (!item || !data) return false;
+    if (!data) return false;
     
-    if (!data->hasFormat(MIME_TYPE_TASKLIST)) {
-        return false;
+    if (data->hasFormat(MIME_TYPE_CATEGORY)) {
+        // Categories can only be dropped at root level (between other categories)
+        return !item || isCategory(item);
     }
     
-    // Can drop tasklists on categories or other tasklists (for reordering)
-    return isCategory(item) || isTasklist(item);
+    if (data->hasFormat(MIME_TYPE_TASKLIST)) {
+        // Can drop tasklists on categories or other tasklists (for reordering)
+        return item && (isCategory(item) || isTasklist(item));
+    }
+    
+    return false;
 }
 
 void qtree_Tasklists_list::clearTrackedItem(QTreeWidgetItem* item)
