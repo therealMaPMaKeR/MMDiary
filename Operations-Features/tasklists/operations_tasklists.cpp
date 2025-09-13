@@ -1425,8 +1425,11 @@ void Operations_TaskLists::LoadIndividualTasklist(const QString& tasklistName, c
         }
     }
 
-    // Update the appearance of the tasklist in the list
+    // Update the appearance of the tasklist and its parent category
     UpdateTasklistAppearance(tasklistName);
+    
+    // Debug: Check if the appearance update is working
+    qDebug() << "Operations_TaskLists: Called UpdateTasklistAppearance after loading" << tasklistName;
     
     // Update Add Task button state since a tasklist is loaded
     UpdateAddTaskButtonState();
@@ -1831,10 +1834,7 @@ void Operations_TaskLists::LoadTasklists()
         }
     }
     
-    // Update appearance of all tasklists
-    for (const QString& tasklistName : allTasklistNames) {
-        UpdateTasklistAppearance(tasklistName);
-    }
+    // Don't update appearances here - they will be updated in UpdateAllAppearances
 
     // Select the first tasklist if any exist
     if (!allTasklistNames.isEmpty()) {
@@ -2690,6 +2690,9 @@ void Operations_TaskLists::AddTaskSimple(QString taskName, QString description)
 
     // Reload the task list to show the new task
     LoadIndividualTasklist(currentTaskList, taskName);
+    
+    // Update the tasklist appearance after adding a task
+    UpdateTasklistAppearance(currentTaskList);
 }
 
 void Operations_TaskLists::ModifyTaskSimple(const QString& originalTaskName, QString taskName, QString description)
@@ -2809,6 +2812,9 @@ void Operations_TaskLists::ModifyTaskSimple(const QString& originalTaskName, QSt
 
     // Reload the task list to show the changes
     LoadIndividualTasklist(currentTaskList, taskName);
+    
+    // Update the tasklist appearance after modifying a task
+    UpdateTasklistAppearance(currentTaskList);
 }
 
 void Operations_TaskLists::DeleteTask(const QString& taskName)
@@ -3432,28 +3438,34 @@ bool Operations_TaskLists::AreAllTasksCompleted(const QString& tasklistName)
         return false;
     }
 
-    QStringList lines;
-    if (!readTasklistFileWithMetadata(taskListFilePath, lines)) {
+    // Read JSON tasks
+    QJsonArray tasks;
+    if (!readTasklistJson(taskListFilePath, tasks)) {
+        qDebug() << "Operations_TaskLists: Failed to read JSON tasks for completion check";
         return false;
     }
-
+    
+    // If there are no tasks, it's not considered "completed"
+    if (tasks.isEmpty()) {
+        return false;
+    }
+    
     int taskCount = 0;
     int completedCount = 0;
-
-    // No header line in new format - start from index 0
-    for (int i = 0; i < lines.size(); ++i) {
-        if (lines[i].isEmpty()) continue;
-
-        QStringList parts = lines[i].split('|');
-        // New format: CompletionStatus is at index 1
-        if (parts.size() >= 2) {
-            taskCount++;
-            if (parts[1] == "1") {
-                completedCount++;
-            }
+    
+    // Check each task's completion status
+    for (const QJsonValue& value : tasks) {
+        if (!value.isObject()) continue;
+        
+        QJsonObject taskObj = value.toObject();
+        taskCount++;
+        
+        if (taskObj["completed"].toBool()) {
+            completedCount++;
         }
     }
-
+    
+    // Return true only if there's at least one task and all are completed
     return (taskCount > 0 && taskCount == completedCount);
 }
 
@@ -3466,18 +3478,34 @@ void Operations_TaskLists::UpdateTasklistAppearance(const QString& tasklistName)
     }
 
     QTreeWidgetItem* item = treeWidget->findTasklist(tasklistName);
-    if (!item) return;
+    if (!item) {
+        qDebug() << "Operations_TaskLists: Could not find tasklist item for:" << tasklistName;
+        return;
+    }
 
-    if (AreAllTasksCompleted(tasklistName)) {
+    bool allCompleted = AreAllTasksCompleted(tasklistName);
+    qDebug() << "Operations_TaskLists: Tasklist" << tasklistName << "all completed:" << allCompleted;
+    
+    if (allCompleted) {
         QFont font = item->font(0);
         font.setStrikeOut(true);
         item->setFont(0, font);
         item->setForeground(0, QColor(100, 100, 100));
+        
+        // Force the tree widget to update this item
+        treeWidget->update(treeWidget->visualItemRect(item));
+        
+        qDebug() << "Operations_TaskLists: Applied strikethrough and grey to tasklist:" << tasklistName;
     } else {
         QFont font = item->font(0);
         font.setStrikeOut(false);
         item->setFont(0, font);
         item->setForeground(0, QColor(255, 255, 255));
+        
+        // Force the tree widget to update this item
+        treeWidget->update(treeWidget->visualItemRect(item));
+        
+        qDebug() << "Operations_TaskLists: Removed strikethrough from tasklist:" << tasklistName;
     }
     
     // After updating tasklist, update its parent category
@@ -3534,15 +3562,26 @@ void Operations_TaskLists::UpdateCategoryAppearance(const QString& categoryName)
     }
     
     QTreeWidgetItem* categoryItem = treeWidget->findCategory(categoryName);
-    if (!categoryItem) return;
+    if (!categoryItem) {
+        qDebug() << "Operations_TaskLists: Could not find category item for:" << categoryName;
+        return;
+    }
     
-    if (AreAllTasklistsInCategoryCompleted(categoryName)) {
+    bool allCompleted = AreAllTasklistsInCategoryCompleted(categoryName);
+    qDebug() << "Operations_TaskLists: Category" << categoryName << "all completed:" << allCompleted;
+    
+    if (allCompleted) {
         // Apply strikethrough and grey color to completed category
         QFont font = categoryItem->font(0);
         font.setStrikeOut(true);
         font.setBold(true);  // Keep bold for categories
         categoryItem->setFont(0, font);
         categoryItem->setForeground(0, QColor(100, 100, 100));  // Grey
+        
+        // Force the tree widget to update this item
+        treeWidget->update(treeWidget->visualItemRect(categoryItem));
+        
+        qDebug() << "Operations_TaskLists: Applied strikethrough and grey to category:" << categoryName;
     } else {
         // Remove strikethrough, keep normal category appearance
         QFont font = categoryItem->font(0);
@@ -3550,6 +3589,11 @@ void Operations_TaskLists::UpdateCategoryAppearance(const QString& categoryName)
         font.setBold(true);  // Keep bold for categories
         categoryItem->setFont(0, font);
         categoryItem->setForeground(0, QColor(180, 180, 180));  // Normal category color
+        
+        // Force the tree widget to update this item
+        treeWidget->update(treeWidget->visualItemRect(categoryItem));
+        
+        qDebug() << "Operations_TaskLists: Removed strikethrough from category:" << categoryName;
     }
 }
 
