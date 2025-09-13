@@ -2323,6 +2323,10 @@ void Operations_TaskLists::DeleteTaskList()
 
     // Get parent category before deletion
     QTreeWidgetItem* parentCategory = currentItem->parent();
+    QString parentCategoryName;
+    if (parentCategory) {
+        parentCategoryName = parentCategory->text(0);
+    }
     
     // Remove the item from the tree
     if (parentCategory) {
@@ -2335,6 +2339,11 @@ void Operations_TaskLists::DeleteTaskList()
         }
     }
     delete currentItem;
+    
+    // Update the parent category appearance after deletion
+    if (!parentCategoryName.isEmpty()) {
+        UpdateCategoryAppearance(parentCategoryName);
+    }
 
     // Clear UI elements
     m_mainWindow->ui->listWidget_TaskListDisplay->clear();
