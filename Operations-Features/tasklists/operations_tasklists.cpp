@@ -4311,9 +4311,9 @@ void Operations_TaskLists::TransferTaskToTasklist(const QString& taskName, const
     UpdateTasklistAppearance(sourceTasklist);
     UpdateTasklistAppearance(targetTasklist);
     
-    // Show success message
+    // Show success message in status bar
     QString message = QString("Task '%1' has been moved to '%2'").arg(finalTaskName).arg(targetTasklist);
-    QMessageBox::information(m_mainWindow, "Task Transferred", message);
+    m_mainWindow->statusBar()->showMessage(message, 3000);  // Show for 3 seconds
 }
 
 void Operations_TaskLists::UpdateAddTaskButtonState()
