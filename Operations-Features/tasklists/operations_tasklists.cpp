@@ -4416,12 +4416,21 @@ void Operations_TaskLists::showContextMenu_TaskListList(const QPoint &pos)
             if (tasklistsToDelete.isEmpty()) {
                 message = QString("Are you sure you want to delete the empty category '%1'?").arg(itemText);
             } else {
-                message = QString("WARNING: Deleting category '%1' will permanently delete the following %2 tasklist(s):\n\n")
-                    .arg(itemText).arg(tasklistsToDelete.size());
-                for (const QString& tasklist : tasklistsToDelete) {
-                    message += "• " + tasklist + "\n";
+                // Check if we have more than 15 tasklists
+                if (tasklistsToDelete.size() > 15) {
+                    // Just show the count when there are too many tasklists
+                    message = QString("WARNING: Deleting category '%1' will permanently delete %2 tasklist(s).\n\n")
+                        .arg(itemText).arg(tasklistsToDelete.size());
+                    message += "This action cannot be undone. Continue?";
+                } else {
+                    // Show the list of tasklists (15 or fewer)
+                    message = QString("WARNING: Deleting category '%1' will permanently delete the following %2 tasklist(s):\n\n")
+                        .arg(itemText).arg(tasklistsToDelete.size());
+                    for (const QString& tasklist : tasklistsToDelete) {
+                        message += "• " + tasklist + "\n";
+                    }
+                    message += "\nThis action cannot be undone. Continue?";
                 }
-                message += "\nThis action cannot be undone. Continue?";
             }
             
             QMessageBox::StandardButton reply = QMessageBox::warning(
