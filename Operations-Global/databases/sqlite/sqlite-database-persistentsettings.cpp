@@ -236,6 +236,7 @@ bool DatabasePersistentSettingsManager::IndexIsValid(QString index, QString type
         // Tasklist settings (TEXT - potentially sensitive)
         columnTypes[Constants::PSettingsT_Index_TLists_CurrentList] = Constants::DataType_QString;
         columnTypes[Constants::PSettingsT_Index_TLists_CurrentTask] = Constants::DataType_QString;
+        columnTypes[Constants::PSettingsT_Index_TLists_FoldedCategories] = Constants::DataType_QString;
 
         // Encrypted Data settings (TEXT - potentially sensitive)
         columnTypes[Constants::PSettingsT_Index_DataENC_CurrentCategory] = Constants::DataType_QString;
@@ -591,39 +592,103 @@ bool DatabasePersistentSettingsManager::rollbackFromV2()
 
 bool DatabasePersistentSettingsManager::migrateToV3()
 {
-    qDebug() << "DatabasePersistentSettingsManager: Migrating persistent settings database to v3 - adding video player columns";
+    qDebug() << "DatabasePersistentSettingsManager: Migrating persistent settings database to v3 - adding video player and tasklist columns";
     
-    // We need to use ALTER TABLE to add new columns to the existing table
-    // SQLite ALTER TABLE only supports adding one column at a time
+    // Safer approach: create new table, copy data, drop old, rename
+    // 1. Create a new table with the desired schema
+    QMap<QString, QString> newTableColumns;
+    newTableColumns["id"] = "INTEGER PRIMARY KEY";
     
-    // Add VideoPlayer tab index column
-    QString sql = QString("ALTER TABLE persistentSettingsTable ADD COLUMN %1 INTEGER")
-                  .arg(Constants::PSettingsT_Index_MainTabWidgetIndex_VideoPlayer);
-    if (!m_dbManager.executeQuery(sql)) {
-        qWarning() << "Failed to add VideoPlayer tab index column:" << m_dbManager.lastError();
+    // Main window settings
+    newTableColumns[Constants::PSettingsT_Index_MainWindow_SizeX] = "INTEGER";
+    newTableColumns[Constants::PSettingsT_Index_MainWindow_SizeY] = "INTEGER";
+    newTableColumns[Constants::PSettingsT_Index_MainWindow_PosX] = "INTEGER";
+    newTableColumns[Constants::PSettingsT_Index_MainWindow_PosY] = "INTEGER";
+    
+    // Tab indices
+    newTableColumns[Constants::PSettingsT_Index_MainTabWidgetIndex_CurrentTabIndex] = "INTEGER";
+    newTableColumns[Constants::PSettingsT_Index_MainTabWidgetIndex_Settings] = "INTEGER";
+    newTableColumns[Constants::PSettingsT_Index_MainTabWidgetIndex_Diary] = "INTEGER";
+    newTableColumns[Constants::PSettingsT_Index_MainTabWidgetIndex_Tasklists] = "INTEGER";
+    newTableColumns[Constants::PSettingsT_Index_MainTabWidgetIndex_PWManager] = "INTEGER";
+    newTableColumns[Constants::PSettingsT_Index_MainTabWidgetIndex_EncryptedData] = "INTEGER";
+    newTableColumns[Constants::PSettingsT_Index_MainTabWidgetIndex_VideoPlayer] = "INTEGER"; // New in v3
+    
+    // Tab visibility
+    newTableColumns[Constants::PSettingsT_Index_TabVisible_Diaries] = "INTEGER DEFAULT 1";
+    newTableColumns[Constants::PSettingsT_Index_TabVisible_Tasklists] = "INTEGER DEFAULT 1";
+    newTableColumns[Constants::PSettingsT_Index_TabVisible_Passwords] = "INTEGER DEFAULT 1";
+    newTableColumns[Constants::PSettingsT_Index_TabVisible_DataEncryption] = "INTEGER DEFAULT 1";
+    newTableColumns[Constants::PSettingsT_Index_TabVisible_Settings] = "INTEGER DEFAULT 1";
+    newTableColumns[Constants::PSettingsT_Index_TabVisible_VideoPlayer] = "INTEGER DEFAULT 1"; // New in v3
+    
+    // Tasklist settings
+    newTableColumns[Constants::PSettingsT_Index_TLists_CurrentList] = "TEXT";
+    newTableColumns[Constants::PSettingsT_Index_TLists_CurrentTask] = "TEXT";
+    newTableColumns[Constants::PSettingsT_Index_TLists_FoldedCategories] = "TEXT"; // New in v3
+    
+    // Encrypted Data settings
+    newTableColumns[Constants::PSettingsT_Index_DataENC_CurrentCategory] = "TEXT";
+    newTableColumns[Constants::PSettingsT_Index_DataENC_CurrentTags] = "TEXT";
+    newTableColumns[Constants::PSettingsT_Index_DataENC_SortType] = "TEXT";
+    newTableColumns[Constants::PSettingsT_Index_DataENC_TagSelectionMode] = "TEXT";
+    
+    // VideoPlayer settings (New in v3)
+    newTableColumns[Constants::PSettingsT_Index_VP_Shows_ShowsListViewMode] = "TEXT";
+    newTableColumns[Constants::PSettingsT_Index_VP_Shows_CurrentShow] = "TEXT";
+    
+    // Create the new table
+    if (!m_dbManager.createTable("persistentSettingsTable_new", newTableColumns)) {
+        qWarning() << "DatabasePersistentSettingsManager: Failed to create new table for v3 migration:" << m_dbManager.lastError();
         return false;
     }
     
-    // Add VideoPlayer tab visibility column (default to visible)
-    sql = QString("ALTER TABLE persistentSettingsTable ADD COLUMN %1 INTEGER DEFAULT 1")
-          .arg(Constants::PSettingsT_Index_TabVisible_VideoPlayer);
-    if (!m_dbManager.executeQuery(sql)) {
-        qWarning() << "Failed to add VideoPlayer tab visibility column:" << m_dbManager.lastError();
+    // 2. Copy data from old table (only columns that exist in v2)
+    QString copyQuery = QString(
+        "INSERT INTO persistentSettingsTable_new (id, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20) "
+        "SELECT id, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20 "
+        "FROM persistentSettingsTable")
+        .arg(Constants::PSettingsT_Index_MainWindow_SizeX)
+        .arg(Constants::PSettingsT_Index_MainWindow_SizeY)
+        .arg(Constants::PSettingsT_Index_MainWindow_PosX)
+        .arg(Constants::PSettingsT_Index_MainWindow_PosY)
+        .arg(Constants::PSettingsT_Index_MainTabWidgetIndex_CurrentTabIndex)
+        .arg(Constants::PSettingsT_Index_MainTabWidgetIndex_Settings)
+        .arg(Constants::PSettingsT_Index_MainTabWidgetIndex_Diary)
+        .arg(Constants::PSettingsT_Index_MainTabWidgetIndex_Tasklists)
+        .arg(Constants::PSettingsT_Index_MainTabWidgetIndex_PWManager)
+        .arg(Constants::PSettingsT_Index_MainTabWidgetIndex_EncryptedData)
+        .arg(Constants::PSettingsT_Index_TabVisible_Diaries)
+        .arg(Constants::PSettingsT_Index_TabVisible_Tasklists)
+        .arg(Constants::PSettingsT_Index_TabVisible_Passwords)
+        .arg(Constants::PSettingsT_Index_TabVisible_DataEncryption)
+        .arg(Constants::PSettingsT_Index_TabVisible_Settings)
+        .arg(Constants::PSettingsT_Index_TLists_CurrentList)
+        .arg(Constants::PSettingsT_Index_TLists_CurrentTask)
+        .arg(Constants::PSettingsT_Index_DataENC_CurrentCategory)
+        .arg(Constants::PSettingsT_Index_DataENC_CurrentTags)
+        .arg(Constants::PSettingsT_Index_DataENC_SortType)
+        .arg(Constants::PSettingsT_Index_DataENC_TagSelectionMode);
+    
+    if (!m_dbManager.executeQuery(copyQuery)) {
+        qWarning() << "DatabasePersistentSettingsManager: Failed to copy data to new table:" << m_dbManager.lastError();
+        // Try to clean up
+        m_dbManager.dropTable("persistentSettingsTable_new");
         return false;
     }
     
-    // Add VideoPlayer Shows-specific columns (TEXT for encrypted data)
-    sql = QString("ALTER TABLE persistentSettingsTable ADD COLUMN %1 TEXT")
-          .arg(Constants::PSettingsT_Index_VP_Shows_ShowsListViewMode);
-    if (!m_dbManager.executeQuery(sql)) {
-        qWarning() << "Failed to add VP_Shows_ShowsListViewMode column:" << m_dbManager.lastError();
+    // 3. Drop old table
+    if (!m_dbManager.dropTable("persistentSettingsTable")) {
+        qWarning() << "DatabasePersistentSettingsManager: Failed to drop old table:" << m_dbManager.lastError();
+        // Try to clean up
+        m_dbManager.dropTable("persistentSettingsTable_new");
         return false;
     }
-      
-    sql = QString("ALTER TABLE persistentSettingsTable ADD COLUMN %1 TEXT")
-          .arg(Constants::PSettingsT_Index_VP_Shows_CurrentShow);
-    if (!m_dbManager.executeQuery(sql)) {
-        qWarning() << "Failed to add VP_Shows_CurrentShow column:" << m_dbManager.lastError();
+    
+    // 4. Rename new table
+    QString renameQuery = "ALTER TABLE persistentSettingsTable_new RENAME TO persistentSettingsTable";
+    if (!m_dbManager.executeQuery(renameQuery)) {
+        qWarning() << "DatabasePersistentSettingsManager: Failed to rename new table:" << m_dbManager.lastError();
         return false;
     }
     
@@ -633,7 +698,7 @@ bool DatabasePersistentSettingsManager::migrateToV3()
 
 bool DatabasePersistentSettingsManager::rollbackFromV3()
 {
-    qDebug() << "DatabasePersistentSettingsManager: Rolling back from v3 - removing video player columns";
+    qDebug() << "DatabasePersistentSettingsManager: Rolling back from v3 - removing video player and new tasklist columns";
     
     // SQLite doesn't support DROP COLUMN, so we need to:
     // 1. Create a new temporary table without the new columns
@@ -666,7 +731,7 @@ bool DatabasePersistentSettingsManager::rollbackFromV3()
     v2Columns[Constants::PSettingsT_Index_TabVisible_DataEncryption] = "INTEGER DEFAULT 1";
     v2Columns[Constants::PSettingsT_Index_TabVisible_Settings] = "INTEGER DEFAULT 1";
     
-    // Tasklist settings
+    // Tasklist settings (without FoldedCategories)
     v2Columns[Constants::PSettingsT_Index_TLists_CurrentList] = "TEXT";
     v2Columns[Constants::PSettingsT_Index_TLists_CurrentTask] = "TEXT";
     

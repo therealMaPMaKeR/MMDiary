@@ -128,6 +128,7 @@ const QString PSettingsT_Index_TabVisible_VideoPlayer = "PSettings_TabVisible_Vi
 //Tasklists
 const QString PSettingsT_Index_TLists_CurrentList = "PSettings_TLists_CurrentList";
 const QString PSettingsT_Index_TLists_CurrentTask = "PSettings_TLists_CurrentTask";
+const QString PSettingsT_Index_TLists_FoldedCategories = "PSettings_TLists_FoldedCategories";
 //Password Manager
 //Settings
 //Encrypted Data

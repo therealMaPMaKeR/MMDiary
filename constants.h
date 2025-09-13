@@ -104,6 +104,7 @@ extern const QString PSettingsT_Index_TabVisible_VideoPlayer;
 //Tasklists
 extern const QString PSettingsT_Index_TLists_CurrentList;
 extern const QString PSettingsT_Index_TLists_CurrentTask;
+extern const QString PSettingsT_Index_TLists_FoldedCategories;
 //Password Manager
 //Settings
 //Encrypted Data
