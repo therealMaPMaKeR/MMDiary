@@ -1844,6 +1844,9 @@ void Operations_TaskLists::LoadTasklists()
             treeWidget->setCurrentItem(firstTasklist);
         }
     }
+    
+    // Update all tasklist and category appearances after loading
+    UpdateAllAppearances();
 
     // Don't automatically load a task list here - let LoadPersistentSettings handle it
     // This prevents the issue where task details aren't shown on app startup
@@ -2892,6 +2895,9 @@ void Operations_TaskLists::DeleteTask(const QString& taskName)
 
     // Reload the task list
     LoadIndividualTasklist(currentTaskList, "");
+    
+    // Update the tasklist appearance after deleting a task
+    UpdateTasklistAppearance(currentTaskList);
 }
 
 void Operations_TaskLists::RenameTask(QListWidgetItem* item)
@@ -3472,6 +3478,102 @@ void Operations_TaskLists::UpdateTasklistAppearance(const QString& tasklistName)
         font.setStrikeOut(false);
         item->setFont(0, font);
         item->setForeground(0, QColor(255, 255, 255));
+    }
+    
+    // After updating tasklist, update its parent category
+    if (item->parent()) {
+        QString categoryName = item->parent()->text(0);
+        UpdateCategoryAppearance(categoryName);
+    }
+}
+
+bool Operations_TaskLists::AreAllTasklistsInCategoryCompleted(const QString& categoryName)
+{
+    qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List);
+    if (!treeWidget) {
+        qWarning() << "Operations_TaskLists: Failed to cast tree widget in AreAllTasklistsInCategoryCompleted";
+        return false;
+    }
+    
+    QTreeWidgetItem* categoryItem = treeWidget->findCategory(categoryName);
+    if (!categoryItem) {
+        return false;
+    }
+    
+    // If category has no tasklists, it's not completed
+    if (categoryItem->childCount() == 0) {
+        return false;
+    }
+    
+    // Check each tasklist in the category
+    bool hasAtLeastOneTasklist = false;
+    for (int i = 0; i < categoryItem->childCount(); ++i) {
+        QTreeWidgetItem* tasklistItem = categoryItem->child(i);
+        if (!tasklistItem) continue;
+        
+        QString tasklistName = tasklistItem->text(0);
+        
+        // Check if this tasklist has all tasks completed
+        // AreAllTasksCompleted already checks if there's at least one task
+        if (!AreAllTasksCompleted(tasklistName)) {
+            return false;  // At least one tasklist is not completed
+        }
+        hasAtLeastOneTasklist = true;
+    }
+    
+    // All tasklists are completed (and there's at least one tasklist)
+    return hasAtLeastOneTasklist;
+}
+
+void Operations_TaskLists::UpdateCategoryAppearance(const QString& categoryName)
+{
+    qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List);
+    if (!treeWidget) {
+        qWarning() << "Operations_TaskLists: Failed to cast tree widget in UpdateCategoryAppearance";
+        return;
+    }
+    
+    QTreeWidgetItem* categoryItem = treeWidget->findCategory(categoryName);
+    if (!categoryItem) return;
+    
+    if (AreAllTasklistsInCategoryCompleted(categoryName)) {
+        // Apply strikethrough and grey color to completed category
+        QFont font = categoryItem->font(0);
+        font.setStrikeOut(true);
+        font.setBold(true);  // Keep bold for categories
+        categoryItem->setFont(0, font);
+        categoryItem->setForeground(0, QColor(100, 100, 100));  // Grey
+    } else {
+        // Remove strikethrough, keep normal category appearance
+        QFont font = categoryItem->font(0);
+        font.setStrikeOut(false);
+        font.setBold(true);  // Keep bold for categories
+        categoryItem->setFont(0, font);
+        categoryItem->setForeground(0, QColor(180, 180, 180));  // Normal category color
+    }
+}
+
+void Operations_TaskLists::UpdateAllAppearances()
+{
+    qDebug() << "Operations_TaskLists: Updating all tasklists and categories appearances";
+    
+    qtree_Tasklists_list* treeWidget = qobject_cast<qtree_Tasklists_list*>(m_mainWindow->ui->treeWidget_TaskList_List);
+    if (!treeWidget) {
+        qWarning() << "Operations_TaskLists: Failed to cast tree widget in UpdateAllAppearances";
+        return;
+    }
+    
+    // First update all tasklists
+    QStringList allTasklists = treeWidget->getAllTasklists();
+    for (const QString& tasklistName : allTasklists) {
+        UpdateTasklistAppearance(tasklistName);
+    }
+    
+    // Then update all categories (already done by UpdateTasklistAppearance,
+    // but do it again to ensure all categories are covered)
+    QStringList allCategories = treeWidget->getAllCategories();
+    for (const QString& categoryName : allCategories) {
+        UpdateCategoryAppearance(categoryName);
     }
 }
 

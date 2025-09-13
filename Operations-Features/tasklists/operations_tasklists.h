@@ -162,8 +162,17 @@ public:
     // Check if all tasks in a tasklist are completed
     bool AreAllTasksCompleted(const QString& tasklistName);
     
+    // Check if all tasklists in a category have all tasks completed
+    bool AreAllTasklistsInCategoryCompleted(const QString& categoryName);
+    
     // Update the visual appearance of a tasklist based on completion status
     void UpdateTasklistAppearance(const QString& tasklistName);
+    
+    // Update the visual appearance of a category based on completion status
+    void UpdateCategoryAppearance(const QString& categoryName);
+    
+    // Update all tasklists and categories visual appearance
+    void UpdateAllAppearances();
     
     // Update text size for task lists
     void UpdateTasklistsTextSize(int fontSize);
