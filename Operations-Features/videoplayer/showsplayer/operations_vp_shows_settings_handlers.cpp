@@ -18,6 +18,7 @@
 #include <QDesktopServices>
 #include <QUrl>
 #include <QProcess>
+#include <vector>
 
 // Windows-specific includes for file explorer
 #ifdef Q_OS_WIN
@@ -320,22 +321,21 @@ void Operations_VP_Shows::showEpisodesInFileExplorer()
     }
     
 #ifdef Q_OS_WIN
-    if (validPaths.size() == 1) {
-        // Single file - select it in Explorer
-        QString filePath = validPaths.first();
-        QString nativePath = QDir::toNativeSeparators(filePath);
-        bool explorerOpened = false;
+    // Windows-specific implementation to open Explorer and select files
+    bool explorerOpened = false;
+    
+    // Method 1: Try using Windows Shell API (supports multiple file selection)
+    HRESULT result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    if (SUCCEEDED(result) || result == S_FALSE) {  // S_FALSE means already initialized
         
-        // Method 1: Try using Windows Shell API (most reliable)
-        HRESULT result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-        if (SUCCEEDED(result) || result == S_FALSE) {  // S_FALSE means already initialized
-            // Convert QString to wide string for Windows API
+        if (validPaths.size() == 1) {
+            // Single file - use simple approach
+            QString filePath = validPaths.first();
+            QString nativePath = QDir::toNativeSeparators(filePath);
             std::wstring wPath = nativePath.toStdWString();
             
-            // Parse the file path to get an ITEMIDLIST
             LPITEMIDLIST pidl = ILCreateFromPathW(wPath.c_str());
             if (pidl) {
-                // Open Explorer and select the file
                 HRESULT hr = SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0);
                 if (SUCCEEDED(hr)) {
                     qDebug() << "Operations_VP_Shows: Successfully opened Explorer with file selected:" << filePath;
@@ -344,17 +344,106 @@ void Operations_VP_Shows::showEpisodesInFileExplorer()
                     qWarning() << "Operations_VP_Shows: SHOpenFolderAndSelectItems failed with HRESULT:" << hr;
                 }
                 ILFree(pidl);
-            } else {
-                qWarning() << "Operations_VP_Shows: Failed to create ITEMIDLIST from path";
+            }
+        } else {
+            // Multiple files - properly select all of them
+            // First, verify all files are in the same folder
+            QFileInfo firstFileInfo(validPaths.first());
+            QString folderPath = firstFileInfo.absolutePath();
+            bool allInSameFolder = true;
+            
+            for (const QString& path : validPaths) {
+                QFileInfo fileInfo(path);
+                if (fileInfo.absolutePath() != folderPath) {
+                    allInSameFolder = false;
+                    break;
+                }
             }
             
-            if (result != S_FALSE) {
-                CoUninitialize();
+            if (allInSameFolder) {
+                // Convert folder path to PIDL
+                QString nativeFolderPath = QDir::toNativeSeparators(folderPath);
+                std::wstring wFolderPath = nativeFolderPath.toStdWString();
+                LPITEMIDLIST pidlFolder = ILCreateFromPathW(wFolderPath.c_str());
+                
+                if (pidlFolder) {
+                    // Create array of child PIDLs for the files
+                    std::vector<LPITEMIDLIST> filePidls;
+                    filePidls.reserve(validPaths.size());
+                    
+                    // Get PIDLs for all files
+                    for (const QString& filePath : validPaths) {
+                        QString nativePath = QDir::toNativeSeparators(filePath);
+                        std::wstring wPath = nativePath.toStdWString();
+                        LPITEMIDLIST pidlFile = ILCreateFromPathW(wPath.c_str());
+                        if (pidlFile) {
+                            filePidls.push_back(pidlFile);
+                        }
+                    }
+                    
+                    if (!filePidls.empty()) {
+                        // Create array of relative PIDLs (child items)
+                        std::vector<LPCITEMIDLIST> relativePidls;
+                        relativePidls.reserve(filePidls.size());
+                        
+                        for (LPITEMIDLIST filePidl : filePidls) {
+                            // Get the last part of the PIDL (the file name)
+                            LPCITEMIDLIST relativePidl = ILFindLastID(filePidl);
+                            if (relativePidl) {
+                                relativePidls.push_back(relativePidl);
+                            }
+                        }
+                        
+                        // Open Explorer and select all the files
+                        HRESULT hr = SHOpenFolderAndSelectItems(
+                            pidlFolder, 
+                            static_cast<UINT>(relativePidls.size()),
+                            relativePidls.data(),
+                            0
+                        );
+                        
+                        if (SUCCEEDED(hr)) {
+                            qDebug() << "Operations_VP_Shows: Successfully opened Explorer with" 
+                                     << filePidls.size() << "files selected";
+                            explorerOpened = true;
+                        } else {
+                            qWarning() << "Operations_VP_Shows: SHOpenFolderAndSelectItems failed for multiple files with HRESULT:" << hr;
+                        }
+                        
+                        // Clean up file PIDLs
+                        for (LPITEMIDLIST pidl : filePidls) {
+                            ILFree(pidl);
+                        }
+                    }
+                    
+                    ILFree(pidlFolder);
+                }
+            } else {
+                // Files are in different folders - just open the first file's folder
+                qDebug() << "Operations_VP_Shows: Selected files are in different folders, opening first file's folder";
+                QString nativePath = QDir::toNativeSeparators(folderPath);
+                QString explorerCommand = "explorer.exe";
+                QStringList args;
+                args << nativePath;
+                
+                if (QProcess::startDetached(explorerCommand, args)) {
+                    qDebug() << "Operations_VP_Shows: Opened Explorer showing folder:" << folderPath;
+                    explorerOpened = true;
+                }
             }
         }
         
-        // Method 2: Fallback to explorer.exe command if Shell API fails
-        if (!explorerOpened) {
+        if (result != S_FALSE) {
+            CoUninitialize();
+        }
+    }
+    
+    // Method 2: Fallback to explorer.exe command if Shell API fails
+    if (!explorerOpened) {
+        if (validPaths.size() == 1) {
+            // Single file - use /select parameter
+            QString filePath = validPaths.first();
+            QString nativePath = QDir::toNativeSeparators(filePath);
             QString explorerCommand = "explorer.exe";
             QStringList args;
             args << "/select," + nativePath;
@@ -366,25 +455,22 @@ void Operations_VP_Shows::showEpisodesInFileExplorer()
                                     "Could not open File Explorer to show the file.\n\n" +
                                     filePath);
             }
-        }
-    } else {
-        // Multiple files - open the folder containing them
-        // Get the parent folder (they should all be in the same folder)
-        QFileInfo fileInfo(validPaths.first());
-        QString folderPath = fileInfo.absolutePath();
-        QString nativePath = QDir::toNativeSeparators(folderPath);
-        
-        // Open the folder
-        QString explorerCommand = "explorer.exe";
-        QStringList args;
-        args << nativePath;
-        
-        if (QProcess::startDetached(explorerCommand, args)) {
-            qDebug() << "Operations_VP_Shows: Opened Explorer showing folder for multiple files:" << folderPath;
         } else {
-            QMessageBox::warning(m_mainWindow, "Failed to Open Explorer",
-                                "Could not open File Explorer to show the folder.\n\n" +
-                                folderPath);
+            // Multiple files - open the folder
+            QFileInfo fileInfo(validPaths.first());
+            QString folderPath = fileInfo.absolutePath();
+            QString nativePath = QDir::toNativeSeparators(folderPath);
+            QString explorerCommand = "explorer.exe";
+            QStringList args;
+            args << nativePath;
+            
+            if (QProcess::startDetached(explorerCommand, args)) {
+                qDebug() << "Operations_VP_Shows: Opened Explorer showing folder for multiple files:" << folderPath;
+            } else {
+                QMessageBox::warning(m_mainWindow, "Failed to Open Explorer",
+                                    "Could not open File Explorer to show the folder.\n\n" +
+                                    folderPath);
+            }
         }
     }
 #else
