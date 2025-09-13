@@ -6,6 +6,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QMouseEvent>
 #include "CustomWidgets/videoplayer/qlist_VP_ShowsList.h"
 #include <QRandomGenerator>
 #include "VP_Shows_Videoplayer.h"
@@ -378,6 +379,28 @@ bool Operations_VP_Shows::eventFilter(QObject* watched, QEvent* event)
                 
                 if (currentIndex == 1) {  // We're on the display page
                     qDebug() << "Operations_VP_Shows: Escape key pressed on display page, returning to list";
+                    
+                    // Switch back to the list page (index 0)
+                    m_mainWindow->ui->stackedWidget_VP_Shows->setCurrentIndex(0);
+                    
+                    // Event was handled
+                    return true;
+                }
+            }
+        }
+    }
+    // Check if this is a mouse button press event
+    else if (event->type() == QEvent::MouseButtonPress) {
+        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+        
+        // Check if mouse button 4 (XButton1 - typically the "back" button) was pressed
+        if (mouseEvent->button() == Qt::XButton1) {
+            // Check if we're currently on the display page (index 1)
+            if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->stackedWidget_VP_Shows) {
+                int currentIndex = m_mainWindow->ui->stackedWidget_VP_Shows->currentIndex();
+                
+                if (currentIndex == 1) {  // We're on the display page
+                    qDebug() << "Operations_VP_Shows: Mouse button 4 (back) pressed on display page, returning to list";
                     
                     // Switch back to the list page (index 0)
                     m_mainWindow->ui->stackedWidget_VP_Shows->setCurrentIndex(0);
