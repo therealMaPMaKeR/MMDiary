@@ -5480,9 +5480,18 @@ void Operations_VP_Shows::performExportWithWorker(const QString& showFolderPath,
         // Sanitize filename
         outputFileName.replace(QRegularExpression("[<>:\"|?*]"), "_");
         
-        // Add extension
-        QFileInfo sourceInfo(sourceFilePath);
-        outputFileName += "." + sourceInfo.suffix();
+        // Add extension from original filename in metadata
+        QString originalExtension;
+        if (!metadata.filename.isEmpty()) {
+            QFileInfo originalFileInfo(metadata.filename);
+            originalExtension = originalFileInfo.suffix();
+        }
+        if (!originalExtension.isEmpty()) {
+            outputFileName += "." + originalExtension;
+        } else {
+            // Fallback to .mp4 if no extension found
+            outputFileName += ".mp4";
+        }
         
         QString outputFilePath = QDir(episodeFolderPath).absoluteFilePath(outputFileName);
         
