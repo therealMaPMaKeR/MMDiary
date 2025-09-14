@@ -2746,45 +2746,80 @@ QPixmap Operations_VP_Shows::addNewEpisodeIndicator(const QPixmap& originalPoste
     int posterWidth = result.width();
     int posterHeight = result.height();
     
-    // Indicator size - make it proportional to poster size
-    int indicatorWidth = posterWidth * 0.35;  // 35% of poster width
-    int indicatorHeight = posterHeight * 0.12; // 12% of poster height
+    // Icon size - make it proportional to poster size
+    int iconSize = posterHeight * 0.15; // 15% of poster height
     
-    // Minimum and maximum sizes for readability
-    indicatorWidth = qMax(60, qMin(indicatorWidth, 120));
-    indicatorHeight = qMax(25, qMin(indicatorHeight, 40));
+    // Minimum and maximum sizes for visibility
+    iconSize = qMax(30, qMin(iconSize, 60));
     
     // Position in top-right corner with small margin
     int margin = 5;
-    int x = posterWidth - indicatorWidth - margin;
+    int x = posterWidth - iconSize - margin;
     int y = margin;
     
-    // Draw a semi-transparent background for the indicator
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(255, 0, 0, 200)); // Red with some transparency
+    // Load the custom new episode icon from resources
+    QPixmap newEpisodeIcon(":/icons/newepavailable.png");
     
-    // Draw rounded rectangle
-    int cornerRadius = indicatorHeight / 4;
-    painter.drawRoundedRect(x, y, indicatorWidth, indicatorHeight, cornerRadius, cornerRadius);
-    
-    // Draw text
-    painter.setPen(Qt::white);
-    QFont font = painter.font();
-    font.setBold(true);
-    font.setPixelSize(indicatorHeight * 0.6); // Font size proportional to indicator height
-    painter.setFont(font);
-    
-    // Prepare text
-    QString text;
-    if (newEpisodeCount > 1) {
-        text = QString("NEW (%1)").arg(newEpisodeCount);
+    if (!newEpisodeIcon.isNull()) {
+        // Scale the icon to the desired size
+        QPixmap scaledIcon = newEpisodeIcon.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        
+        // Draw the scaled icon
+        painter.drawPixmap(x, y, scaledIcon);
+        
+        // If there's more than one new episode, add a count badge
+        if (newEpisodeCount > 1) {
+            // Draw count badge in the bottom-right corner of the icon
+            int badgeSize = iconSize * 0.4;
+            int badgeX = x + iconSize - badgeSize + 2;
+            int badgeY = y + iconSize - badgeSize + 2;
+            
+            // Draw badge background circle
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(220, 20, 60, 230));  // Crimson color
+            painter.drawEllipse(badgeX, badgeY, badgeSize, badgeSize);
+            
+            // Draw count text
+            painter.setPen(Qt::white);
+            QFont font = painter.font();
+            font.setBold(true);
+            font.setPixelSize(badgeSize * 0.6);
+            painter.setFont(font);
+            
+            QString countText = QString::number(newEpisodeCount);
+            if (newEpisodeCount > 99) {
+                countText = "99+";
+            }
+            
+            QRect textRect(badgeX, badgeY, badgeSize, badgeSize);
+            painter.drawText(textRect, Qt::AlignCenter, countText);
+        }
     } else {
-        text = "NEW";
+        // Fallback if icon not found - just draw a simple circle indicator
+        qDebug() << "Operations_VP_Shows: Warning - newepavailable.png not found in resources";
+        
+        // Draw a simple red circle as fallback
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(255, 0, 0, 200));  // Red with transparency
+        painter.drawEllipse(x, y, iconSize, iconSize);
+        
+        // If multiple episodes, show count
+        if (newEpisodeCount > 1) {
+            painter.setPen(Qt::white);
+            QFont font = painter.font();
+            font.setBold(true);
+            font.setPixelSize(iconSize * 0.5);
+            painter.setFont(font);
+            
+            QString countText = QString::number(newEpisodeCount);
+            if (newEpisodeCount > 99) {
+                countText = "99+";
+            }
+            
+            QRect textRect(x, y, iconSize, iconSize);
+            painter.drawText(textRect, Qt::AlignCenter, countText);
+        }
     }
-    
-    // Draw text centered in the indicator
-    QRect textRect(x, y, indicatorWidth, indicatorHeight);
-    painter.drawText(textRect, Qt::AlignCenter, text);
     
     painter.end();
     
