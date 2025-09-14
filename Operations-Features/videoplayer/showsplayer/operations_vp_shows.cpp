@@ -2751,7 +2751,7 @@ QPixmap Operations_VP_Shows::loadShowImage(const QString& showFolderPath)
     return pixmap;
 }
 
-QPixmap Operations_VP_Shows::addNewEpisodeIndicator(const QPixmap& originalPoster, int newEpisodeCount)
+QPixmap Operations_VP_Shows::addNewEpisodeIndicator(const QPixmap& originalPoster, int newEpisodeCount, bool compactMode)
 {
     if (originalPoster.isNull() || newEpisodeCount <= 0) {
         return originalPoster;
@@ -2765,7 +2765,7 @@ QPixmap Operations_VP_Shows::addNewEpisodeIndicator(const QPixmap& originalPoste
     painter.setRenderHint(QPainter::Antialiasing);
 
     // Use the helper function to draw the badge
-    drawNewEpisodeBadge(painter, result.size(), newEpisodeCount);
+    drawNewEpisodeBadge(painter, result.size(), newEpisodeCount, compactMode);
 
     painter.end();
 
@@ -10340,25 +10340,23 @@ void Operations_VP_Shows::refreshShowPosterWithNotification()
 }
 
 
-void Operations_VP_Shows::drawNewEpisodeBadge(QPainter& painter, const QSize& posterSize, int newEpisodeCount)
+void Operations_VP_Shows::drawNewEpisodeBadge(QPainter& painter, const QSize& posterSize, int newEpisodeCount, bool compactMode)
 {
     // Check if notifications are disabled for this show
     if (!m_currentShowSettings.DisplayNewEpNotif) {
         qDebug() << "Operations_VP_Shows: New episode notifications disabled for this show";
         return;
     }
-    
+
     if (newEpisodeCount <= 0) {
         return;
     }
 
     // Badge configuration - EDIT THESE VALUES TO CUSTOMIZE
-    int badgeHeight = 13;  // Height of the badge
-    int margin = 0;       // Margin from edges
-    int cornerRadius = 3;  // Corner radius (3 = rectangular, badgeHeight/2 = pill-shaped)
-    int fontSize = 9;     // Font size for the count text
-    //QColor badgeColor(220, 20, 60, 230);  // Crimson with transparency
-    //QColor badgeColor(34, 139, 34, 230); // Forest green
+    int badgeHeight = compactMode ? 13 : 13;
+    int margin = 0;       // Small margin from edges
+    int cornerRadius = 3;  // Corner radius
+    int fontSize = compactMode ? 8 : 9;     // Smaller font for compact mode
     QColor badgeColor(57, 255, 20, 200); // Vivid neon green
     QColor textColor = Qt::black;         // Text color
 
@@ -10367,18 +10365,41 @@ void Operations_VP_Shows::drawNewEpisodeBadge(QPainter& painter, const QSize& po
     if (newEpisodeCount > 999) {
         countText = "999";
     }
-    //countText = "+" + countText;
-    if (countText.toInt() > 1){
-        countText = countText + " New Episodes Available";
+
+    // In compact mode, just show the number
+    if (!compactMode) {
+        if (countText.toInt() > 1){
+            countText = countText + " New Episodes Available";
+        }
+        else
+        {
+            countText = countText + " New Episode Available";
+        }
     }
     else
     {
-        countText = countText + " New Episode Available";
+        if (countText.toInt() > 1){
+            countText = "New Episodes Available";
+        }
+        else
+        {
+            countText = "New Episode Available";
+        }
     }
-    // Calculate badge width based on text length
-    int badgeWidth = (countText.length() == 1) ? 12 :
-                     (countText.length() == 2) ? 18 : 127;
 
+    int badgeWidth = compactMode ? 100 : 127;
+
+    /*
+    // Calculate badge width based on text length
+    if (compactMode) {
+        badgeWidth = (countText.length() == 1) ? 24 :
+                     (countText.length() == 2) ? 30 :
+                     (countText.length() == 3) ? 36 : 45;
+    } else {
+        badgeWidth = (countText.length() == 1) ? 12 :
+                     (countText.length() == 2) ? 18 : 127;
+    }
+    */
     // Calculate position (top-right corner)
     int x = posterSize.width() - badgeWidth - margin;
     int y = margin;

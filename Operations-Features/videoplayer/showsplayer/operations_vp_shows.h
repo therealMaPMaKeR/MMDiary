@@ -114,7 +114,7 @@ private:
     void refreshShowPosterWithNotification();
 
     // Helper function for drawing new episode badge
-    void drawNewEpisodeBadge(QPainter& painter, const QSize& posterSize, int newEpisodeCount);
+    void drawNewEpisodeBadge(QPainter& painter, const QSize& posterSize, int newEpisodeCount, bool compactMode = false);
 
     WatchState getItemWatchState(QTreeWidgetItem* item);
     void countWatchedEpisodes(QTreeWidgetItem* item, int& watchedCount, int& totalCount);
@@ -159,7 +159,7 @@ public:
     QPixmap loadShowImage(const QString& showFolderPath);
     
     // Add "NEW" indicator overlay to show poster
-    QPixmap addNewEpisodeIndicator(const QPixmap& originalPoster, int newEpisodeCount);
+    QPixmap addNewEpisodeIndicator(const QPixmap& originalPoster, int newEpisodeCount, bool compactMode = true);
     
     // Display show details page
     void displayShowDetails(const QString& showName, const QString& folderPath = QString());
