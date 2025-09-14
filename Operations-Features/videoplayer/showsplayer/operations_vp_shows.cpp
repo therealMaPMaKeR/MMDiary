@@ -2731,118 +2731,22 @@ QPixmap Operations_VP_Shows::loadShowImage(const QString& showFolderPath)
 
 QPixmap Operations_VP_Shows::addNewEpisodeIndicator(const QPixmap& originalPoster, int newEpisodeCount)
 {
-    if (originalPoster.isNull()) {
+    if (originalPoster.isNull() || newEpisodeCount <= 0) {
         return originalPoster;
     }
-    
+
     // Create a copy of the original poster to draw on
     QPixmap result = originalPoster;
-    
-    // Create a painter to draw the indicator
+
+    // Create a painter to draw the badge
     QPainter painter(&result);
     painter.setRenderHint(QPainter::Antialiasing);
-    
-    // Calculate dimensions for the indicator
-    int posterWidth = result.width();
-    int posterHeight = result.height();
-    
-    // Icon size - make it proportional to poster size
-    int iconSize = posterHeight * 0.15; // 15% of poster height
-    
-    // Minimum and maximum sizes for visibility
-    iconSize = qMax(30, qMin(iconSize, 60));
-    
-    // Position in top-right corner with small margin
-    int margin = 5;
-    int x = posterWidth - iconSize - margin;
-    int y = margin;
-    
-    // Load the custom new episode icon from resources
-    // Try multiple methods to ensure we load the icon
-    QPixmap newEpisodeIcon;
-    
-    // Method 1: Direct QPixmap load
-    newEpisodeIcon.load(":/icons/newepavailable.png");
-    
-    // Method 2: If that fails, try via QIcon
-    if (newEpisodeIcon.isNull()) {
-        qDebug() << "Operations_VP_Shows: Direct QPixmap load failed, trying QIcon method";
-        QIcon icon(":/icons/newepavailable.png");
-        if (!icon.isNull()) {
-            newEpisodeIcon = icon.pixmap(iconSize, iconSize);
-        }
-    }
-    
-    // Method 3: Try without the colon prefix in case it's different
-    if (newEpisodeIcon.isNull()) {
-        qDebug() << "Operations_VP_Shows: QIcon method failed, trying alternate path";
-        newEpisodeIcon.load("icons/newepavailable.png");
-    }
-    
-    if (!newEpisodeIcon.isNull()) {
-        qDebug() << "Operations_VP_Shows: Successfully loaded newepavailable.png icon";
-        // Scale the icon to the desired size
-        QPixmap scaledIcon = newEpisodeIcon.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        
-        // Draw the scaled icon
-        painter.drawPixmap(x, y, scaledIcon);
-        
-        // If there's more than one new episode, add a count badge
-        if (newEpisodeCount > 1) {
-            // Draw count badge in the bottom-right corner of the icon
-            int badgeSize = iconSize * 0.4;
-            int badgeX = x + iconSize - badgeSize + 2;
-            int badgeY = y + iconSize - badgeSize + 2;
-            
-            // Draw badge background circle
-            painter.setPen(Qt::NoPen);
-            painter.setBrush(QColor(220, 20, 60, 230));  // Crimson color
-            painter.drawEllipse(badgeX, badgeY, badgeSize, badgeSize);
-            
-            // Draw count text
-            painter.setPen(Qt::white);
-            QFont font = painter.font();
-            font.setBold(true);
-            font.setPixelSize(badgeSize * 0.6);
-            painter.setFont(font);
-            
-            QString countText = QString::number(newEpisodeCount);
-            if (newEpisodeCount > 99) {
-                countText = "99+";
-            }
-            
-            QRect textRect(badgeX, badgeY, badgeSize, badgeSize);
-            painter.drawText(textRect, Qt::AlignCenter, countText);
-        }
-    } else {
-        // Fallback if icon not found - just draw a simple circle indicator
-        qDebug() << "Operations_VP_Shows: Warning - newepavailable.png not found in resources";
-        
-        // Draw a simple red circle as fallback
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(255, 0, 0, 200));  // Red with transparency
-        painter.drawEllipse(x, y, iconSize, iconSize);
-        
-        // If multiple episodes, show count
-        if (newEpisodeCount > 1) {
-            painter.setPen(Qt::white);
-            QFont font = painter.font();
-            font.setBold(true);
-            font.setPixelSize(iconSize * 0.5);
-            painter.setFont(font);
-            
-            QString countText = QString::number(newEpisodeCount);
-            if (newEpisodeCount > 99) {
-                countText = "99+";
-            }
-            
-            QRect textRect(x, y, iconSize, iconSize);
-            painter.drawText(textRect, Qt::AlignCenter, countText);
-        }
-    }
-    
+
+    // Use the helper function to draw the badge
+    drawNewEpisodeBadge(painter, result.size(), newEpisodeCount);
+
     painter.end();
-    
+
     return result;
 }
 
@@ -4972,97 +4876,16 @@ void Operations_VP_Shows::displayNewEpisodeIndicator(bool hasNewEpisodes, int ne
     QPixmap modifiedPoster = currentPixmap;
 
     if (hasNewEpisodes && newEpisodeCount > 0) {
-        // Add the new episode indicator
+        // Add the new episode badge
         QPainter painter(&modifiedPoster);
         painter.setRenderHint(QPainter::Antialiasing);
 
-        // Calculate position for top-right corner
-        int iconSize = 32;  // Size of the indicator
-        int margin = 10;
-        int x = modifiedPoster.width() - iconSize - margin;
-        int y = margin;
-
-        // Load the custom new episode icon from resources
-        QPixmap newEpisodeIcon;
-        
-        // Try to load the icon from resources
-        newEpisodeIcon.load(":/icons/newepavailable.png");
-        
-        // If direct load fails, try via QIcon
-        if (newEpisodeIcon.isNull()) {
-            qDebug() << "Operations_VP_Shows: Direct QPixmap load failed, trying QIcon method";
-            QIcon icon(":/icons/newepavailable.png");
-            if (!icon.isNull()) {
-                newEpisodeIcon = icon.pixmap(iconSize, iconSize);
-            }
-        }
-        
-        // If still null, try without the colon prefix
-        if (newEpisodeIcon.isNull()) {
-            qDebug() << "Operations_VP_Shows: QIcon method failed, trying alternate path";
-            newEpisodeIcon.load("icons/newepavailable.png");
-        }
-        
-        if (!newEpisodeIcon.isNull()) {
-            qDebug() << "Operations_VP_Shows: Successfully loaded newepavailable.png icon";
-            // Scale the icon to the desired size
-            QPixmap scaledIcon = newEpisodeIcon.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            
-            // Draw the scaled icon
-            painter.drawPixmap(x, y, scaledIcon);
-        } else {
-            qDebug() << "Operations_VP_Shows: Failed to load newepavailable.png, using fallback";
-            // Fallback: Draw a simple colored circle with "NEW" text
-            painter.setPen(Qt::NoPen);
-            QColor bgColor(255, 69, 0, 200);  // Orange-red with transparency
-            painter.setBrush(bgColor);
-            painter.drawEllipse(x, y, iconSize, iconSize);
-            
-            // Draw "NEW" text in the circle
-            painter.setPen(Qt::white);
-            QFont font = painter.font();
-            font.setBold(true);
-            font.setPixelSize(iconSize * 0.3);
-            painter.setFont(font);
-            
-            QRect textRect(x, y, iconSize, iconSize);
-            painter.drawText(textRect, Qt::AlignCenter, "NEW");
-        }
-
-        // If there's more than one new episode, add a count badge
-        if (newEpisodeCount > 1) {
-            // Draw count badge below the icon circle
-            int badgeWidth = 24;
-            int badgeHeight = 16;
-            int badgeX = x + (iconSize - badgeWidth) / 2;
-            int badgeY = y + iconSize - 5;
-
-            // Draw badge background
-            painter.setPen(Qt::NoPen);
-            painter.setBrush(QColor(220, 20, 60, 230));  // Crimson color
-            painter.drawRoundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 3, 3);
-
-            // Draw count text
-            painter.setPen(Qt::white);
-            QFont font = painter.font();
-            font.setBold(true);
-            font.setPixelSize(11);
-            painter.setFont(font);
-
-            QString countText = QString::number(newEpisodeCount);
-            if (newEpisodeCount > 99) {
-                countText = "99+";
-            }
-
-            QRect textRect(badgeX, badgeY, badgeWidth, badgeHeight);
-            painter.drawText(textRect, Qt::AlignCenter, countText);
-        }
+        // Use the helper function to draw the badge
+        drawNewEpisodeBadge(painter, modifiedPoster.size(), newEpisodeCount);
 
         painter.end();
-
         qDebug() << "Operations_VP_Shows: Added new episode indicator to poster";
     }
-    // If hasNewEpisodes is false, we just use the unmodified poster (already in modifiedPoster)
 
     // Update the label with the modified poster
     m_mainWindow->ui->label_VP_Shows_Display_Image->setPixmap(modifiedPoster);
@@ -10441,4 +10264,52 @@ void Operations_VP_Shows::refreshShowPosterWithNotification()
         // Clear any notification if TMDB is disabled
         displayNewEpisodeIndicator(false, 0);
     }
+}
+
+
+void Operations_VP_Shows::drawNewEpisodeBadge(QPainter& painter, const QSize& posterSize, int newEpisodeCount)
+{
+    if (newEpisodeCount <= 0) {
+        return;
+    }
+
+    // Badge configuration - EDIT THESE VALUES TO CUSTOMIZE
+    int badgeHeight = 13;  // Height of the badge
+    int margin = 2;       // Margin from edges
+    int cornerRadius = 3;  // Corner radius (3 = rectangular, badgeHeight/2 = pill-shaped)
+    int fontSize = 10;     // Font size for the count text
+    //QColor badgeColor(220, 20, 60, 230);  // Crimson with transparency
+    //QColor badgeColor(34, 139, 34, 230); // Forest green
+    QColor badgeColor(57, 255, 20, 200); // Vivid neon green
+    QColor textColor = Qt::black;         // Text color
+
+    // Prepare the text to display
+    QString countText = QString::number(newEpisodeCount);
+    if (newEpisodeCount > 999) {
+        countText = "999";
+    }
+    //countText = "+" + countText;
+    countText = "NEW";
+    // Calculate badge width based on text length
+    int badgeWidth = (countText.length() == 1) ? 12 :
+                     (countText.length() == 2) ? 18 : 24;
+
+    // Calculate position (top-right corner)
+    int x = posterSize.width() - badgeWidth - margin;
+    int y = margin;
+
+    // Draw badge background with rounded corners
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(badgeColor);
+    painter.drawRoundedRect(x, y, badgeWidth, badgeHeight, cornerRadius, cornerRadius);
+
+    // Draw the count text
+    painter.setPen(textColor);
+    QFont font = painter.font();
+    font.setBold(true);
+    font.setPixelSize(fontSize);
+    painter.setFont(font);
+
+    QRect textRect(x, y, badgeWidth, badgeHeight);
+    painter.drawText(textRect, Qt::AlignCenter, countText);
 }

@@ -113,6 +113,9 @@ private:
 
     void refreshShowPosterWithNotification();
 
+    // Helper function for drawing new episode badge
+    void drawNewEpisodeBadge(QPainter& painter, const QSize& posterSize, int newEpisodeCount);
+
     WatchState getItemWatchState(QTreeWidgetItem* item);
     void countWatchedEpisodes(QTreeWidgetItem* item, int& watchedCount, int& totalCount);
     void setWatchedStateForItem(QTreeWidgetItem* item, bool watched);
