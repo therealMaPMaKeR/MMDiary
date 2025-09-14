@@ -4772,6 +4772,18 @@ void Operations_VP_Shows::setupPosterContextMenu()
     connect(m_mainWindow->ui->label_VP_Shows_Display_Image, &QLabel::customContextMenuRequested,
             this, &Operations_VP_Shows::showPosterContextMenu);
     
+    // Also setup context menu for the show name label
+    if (m_mainWindow->ui->label_VP_Shows_Display_Name) {
+        qDebug() << "Operations_VP_Shows: Setting up context menu for show name label";
+        m_mainWindow->ui->label_VP_Shows_Display_Name->setContextMenuPolicy(Qt::CustomContextMenu);
+        
+        // Connect the context menu signal for the name label
+        connect(m_mainWindow->ui->label_VP_Shows_Display_Name, &QLabel::customContextMenuRequested,
+                this, &Operations_VP_Shows::showPosterContextMenu);
+        
+        qDebug() << "Operations_VP_Shows: Show name label context menu setup complete";
+    }
+    
     qDebug() << "Operations_VP_Shows: Poster context menu setup complete";
 }
 
@@ -4905,8 +4917,17 @@ void Operations_VP_Shows::showPosterContextMenu(const QPoint& pos)
     QAction* showInExplorerAction = contextMenu->addAction(tr("Show in File Explorer"));
     connect(showInExplorerAction, &QAction::triggered, this, &Operations_VP_Shows::showInFileExplorer);
     
-    // Show the menu at the cursor position
-    contextMenu->exec(m_mainWindow->ui->label_VP_Shows_Display_Image->mapToGlobal(pos));
+    // Determine which widget triggered the context menu
+    // The sender() will be the widget that emitted the signal
+    QWidget* senderWidget = qobject_cast<QWidget*>(sender());
+    
+    // Show the menu at the cursor position relative to the widget that triggered it
+    if (senderWidget) {
+        contextMenu->exec(senderWidget->mapToGlobal(pos));
+    } else {
+        // Fallback to using the image label if sender is not available
+        contextMenu->exec(m_mainWindow->ui->label_VP_Shows_Display_Image->mapToGlobal(pos));
+    }
     
     // Clean up
     contextMenu->deleteLater();
@@ -4918,9 +4939,12 @@ void Operations_VP_Shows::showPosterContextMenu(const QPoint& pos)
     // This fixes the bug where context menu reopens after dialogs are cancelled
     QCoreApplication::processEvents();
     
-    // Also remove any posted customContextMenuRequested events for the label
+    // Also remove any posted customContextMenuRequested events for both labels
     if (m_mainWindow->ui->label_VP_Shows_Display_Image) {
         QCoreApplication::removePostedEvents(m_mainWindow->ui->label_VP_Shows_Display_Image, QEvent::ContextMenu);
+    }
+    if (m_mainWindow->ui->label_VP_Shows_Display_Name) {
+        QCoreApplication::removePostedEvents(m_mainWindow->ui->label_VP_Shows_Display_Name, QEvent::ContextMenu);
     }
 }
 
