@@ -5056,6 +5056,11 @@ void Operations_VP_Shows::setupPosterContextMenu()
         return;
     }
     
+    // CRITICAL: Disconnect any existing connections first to prevent duplicate signals
+    // This fixes the bug where context menu becomes hard to close after multiple setups
+    disconnect(m_mainWindow->ui->label_VP_Shows_Display_Image, &QLabel::customContextMenuRequested,
+               this, &Operations_VP_Shows::showPosterContextMenu);
+    
     // Enable context menu for the poster label
     m_mainWindow->ui->label_VP_Shows_Display_Image->setContextMenuPolicy(Qt::CustomContextMenu);
     
@@ -5066,6 +5071,11 @@ void Operations_VP_Shows::setupPosterContextMenu()
     // Also setup context menu for the show name label
     if (m_mainWindow->ui->label_VP_Shows_Display_Name) {
         qDebug() << "Operations_VP_Shows: Setting up context menu for show name label";
+        
+        // CRITICAL: Disconnect any existing connections first
+        disconnect(m_mainWindow->ui->label_VP_Shows_Display_Name, &QLabel::customContextMenuRequested,
+                   this, &Operations_VP_Shows::showPosterContextMenu);
+        
         m_mainWindow->ui->label_VP_Shows_Display_Name->setContextMenuPolicy(Qt::CustomContextMenu);
         
         // Connect the context menu signal for the name label
