@@ -10275,9 +10275,9 @@ void Operations_VP_Shows::drawNewEpisodeBadge(QPainter& painter, const QSize& po
 
     // Badge configuration - EDIT THESE VALUES TO CUSTOMIZE
     int badgeHeight = 13;  // Height of the badge
-    int margin = 2;       // Margin from edges
+    int margin = 0;       // Margin from edges
     int cornerRadius = 3;  // Corner radius (3 = rectangular, badgeHeight/2 = pill-shaped)
-    int fontSize = 10;     // Font size for the count text
+    int fontSize = 9;     // Font size for the count text
     //QColor badgeColor(220, 20, 60, 230);  // Crimson with transparency
     //QColor badgeColor(34, 139, 34, 230); // Forest green
     QColor badgeColor(57, 255, 20, 200); // Vivid neon green
@@ -10289,10 +10289,16 @@ void Operations_VP_Shows::drawNewEpisodeBadge(QPainter& painter, const QSize& po
         countText = "999";
     }
     //countText = "+" + countText;
-    countText = "NEW";
+    if (countText.toInt() > 1){
+        countText = countText + " New Episodes Available";
+    }
+    else
+    {
+        countText = countText + " New Episode Available";
+    }
     // Calculate badge width based on text length
     int badgeWidth = (countText.length() == 1) ? 12 :
-                     (countText.length() == 2) ? 18 : 24;
+                     (countText.length() == 2) ? 18 : 127;
 
     // Calculate position (top-right corner)
     int x = posterSize.width() - badgeWidth - margin;
@@ -10301,7 +10307,7 @@ void Operations_VP_Shows::drawNewEpisodeBadge(QPainter& painter, const QSize& po
     // Draw badge background with rounded corners
     painter.setPen(Qt::NoPen);
     painter.setBrush(badgeColor);
-    painter.drawRoundedRect(x, y, badgeWidth, badgeHeight, cornerRadius, cornerRadius);
+    painter.drawRect(x, y, badgeWidth, badgeHeight);
 
     // Draw the count text
     painter.setPen(textColor);
