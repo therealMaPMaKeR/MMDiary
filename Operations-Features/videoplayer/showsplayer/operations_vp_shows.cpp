@@ -684,8 +684,13 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
     
     if (selectionDialog.exec() != QDialog::Accepted || selectedType == None) {
         qDebug() << "Operations_VP_Shows: Import method selection cancelled";
+        // Clear any pending events after dialog closes
+        QCoreApplication::processEvents();
         return;
     }
+    
+    // Clear any pending events after dialog closes
+    QCoreApplication::processEvents();
     
     QStringList selectedFiles;
     QString folderPath;
@@ -705,8 +710,13 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
         
         if (selectedFiles.isEmpty()) {
             qDebug() << "Operations_VP_Shows: No files selected for adding episodes";
+            // Clear any pending events after file dialog closes
+            QCoreApplication::processEvents();
             return;
         }
+        
+        // Clear any pending events after file dialog closes
+        QCoreApplication::processEvents();
         
         qDebug() << "Operations_VP_Shows: Selected" << selectedFiles.size() << "files";
         
@@ -723,8 +733,13 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
         
         if (folderPath.isEmpty()) {
             qDebug() << "Operations_VP_Shows: No folder selected";
+            // Clear any pending events after folder dialog closes
+            QCoreApplication::processEvents();
             return;
         }
+        
+        // Clear any pending events after folder dialog closes
+        QCoreApplication::processEvents();
         
         qDebug() << "Operations_VP_Shows: Selected folder:" << folderPath;
         
@@ -735,6 +750,8 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
             QMessageBox::warning(m_mainWindow,
                                tr("No Video Files Found"),
                                tr("The selected folder does not contain any compatible video files."));
+            // Clear any pending events after message box closes
+            QCoreApplication::processEvents();
             return;
         }
         
@@ -752,8 +769,13 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
     
     if (addDialog.exec() != QDialog::Accepted) {
         qDebug() << "Operations_VP_Shows: Add episodes dialog cancelled";
+        // Clear any pending events after dialog closes
+        QCoreApplication::processEvents();
         return;
     }
+    
+    // Clear any pending events after dialog closes
+    QCoreApplication::processEvents();
     
     // Get the show details from the dialog
     QString showName = addDialog.getShowName();
@@ -4891,6 +4913,15 @@ void Operations_VP_Shows::showPosterContextMenu(const QPoint& pos)
     
     // Clear context menu data after use to prevent stale references
     clearContextMenuData();
+    
+    // CRITICAL: Clear any pending events to prevent context menu from re-triggering
+    // This fixes the bug where context menu reopens after dialogs are cancelled
+    QCoreApplication::processEvents();
+    
+    // Also remove any posted customContextMenuRequested events for the label
+    if (m_mainWindow->ui->label_VP_Shows_Display_Image) {
+        QCoreApplication::removePostedEvents(m_mainWindow->ui->label_VP_Shows_Display_Image, QEvent::ContextMenu);
+    }
 }
 
 void Operations_VP_Shows::addEpisodesToShow()
@@ -5216,8 +5247,13 @@ void Operations_VP_Shows::decryptAndExportShow()
     
     if (exportPath.isEmpty()) {
         qDebug() << "Operations_VP_Shows: No export folder selected";
+        // Clear any pending events after folder dialog closes
+        QCoreApplication::processEvents();
         return;
     }
+    
+    // Clear any pending events after folder dialog closes
+    QCoreApplication::processEvents();
     
     // Estimate the size needed
     qint64 estimatedSize = estimateDecryptedSize(m_contextMenuShowPath);
@@ -5254,6 +5290,8 @@ void Operations_VP_Shows::decryptAndExportShow()
                               "Please free up some space and try again.")
                            .arg(formatSize(estimatedSize))
                            .arg(formatSize(availableSpace)));
+        // Clear any pending events after message box closes
+        QCoreApplication::processEvents();
         return;
     }
     
@@ -5317,8 +5355,13 @@ void Operations_VP_Shows::decryptAndExportShow()
     
     if (result != QMessageBox::Yes) {
         qDebug() << "Operations_VP_Shows: Export cancelled by user";
+        // Clear any pending events after message box closes
+        QCoreApplication::processEvents();
         return;
     }
+    
+    // Clear any pending events after message box closes
+    QCoreApplication::processEvents();
     
     // Prepare the export using the worker and progress dialog
     performExportWithWorker(m_contextMenuShowPath, exportPath, m_contextMenuShowName);
@@ -5346,8 +5389,13 @@ void Operations_VP_Shows::deleteShow()
     
     if (firstResult != QMessageBox::Yes) {
         qDebug() << "Operations_VP_Shows: Deletion cancelled at first confirmation";
+        // Clear any pending events after message box closes
+        QCoreApplication::processEvents();
         return;
     }
+    
+    // Clear any pending events after message box closes
+    QCoreApplication::processEvents();
     
     // Second confirmation dialog
     QString secondMessage = tr("Are you really sure you want to delete \"%1\"?\n\n"
@@ -5368,8 +5416,13 @@ void Operations_VP_Shows::deleteShow()
     
     if (secondConfirm.clickedButton() != deleteButton) {
         qDebug() << "Operations_VP_Shows: Deletion cancelled at second confirmation";
+        // Clear any pending events after message box closes
+        QCoreApplication::processEvents();
         return;
     }
+    
+    // Clear any pending events after message box closes
+    QCoreApplication::processEvents();
     
     qDebug() << "Operations_VP_Shows: User confirmed deletion, proceeding";
     
@@ -5395,6 +5448,8 @@ void Operations_VP_Shows::deleteShow()
             QMessageBox::warning(m_mainWindow,
                                tr("Partial Deletion"),
                                tr("The show files were deleted but the folder could not be removed."));
+            // Clear any pending events after message box closes
+            QCoreApplication::processEvents();
         } else {
             qDebug() << "Operations_VP_Shows: Show folder deleted successfully";
         }
@@ -5402,6 +5457,8 @@ void Operations_VP_Shows::deleteShow()
         QMessageBox::warning(m_mainWindow,
                            tr("Deletion Error"),
                            tr("Some files could not be deleted. The show may be partially removed."));
+        // Clear any pending events after message box closes
+        QCoreApplication::processEvents();
     }
     
     // Refresh the shows list
