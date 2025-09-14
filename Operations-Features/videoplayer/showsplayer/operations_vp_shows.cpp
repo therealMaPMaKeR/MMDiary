@@ -1866,6 +1866,14 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
     }
     
     refreshTVShowsList();
+    
+    // Check if we need to reload the episode tree for the currently displayed show
+    // This happens when adding episodes via context menu from the display page
+    if (m_isUpdatingExistingShow && !m_currentImportOutputPath.isEmpty() && 
+        !m_currentShowFolder.isEmpty() && m_currentImportOutputPath == m_currentShowFolder) {
+        qDebug() << "Operations_VP_Shows: Added episodes to currently displayed show, reloading episode tree";
+        loadShowEpisodes(m_currentShowFolder);
+    }
 
     // Clear the stored output path
     m_currentImportOutputPath.clear();
