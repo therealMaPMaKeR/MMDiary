@@ -4840,6 +4840,155 @@ void Operations_VP_Shows::clearContextMenuData()
     qDebug() << "Operations_VP_Shows: Context menu data cleared";
 }
 
+void Operations_VP_Shows::checkAndDisplayNewEpisodes(const QString& showFolderPath, int tmdbShowId)
+{
+    qDebug() << "Operations_VP_Shows: Checking for new episodes with TMDB ID:" << tmdbShowId;
+    
+    // Reset state
+    m_currentShowHasNewEpisodes = false;
+    m_currentShowNewEpisodeCount = 0;
+    
+    // Check if episode detector is available
+    if (!m_episodeDetector) {
+        qDebug() << "Operations_VP_Shows: Episode detector not available";
+        displayNewEpisodeIndicator(false, 0);
+        return;
+    }
+    
+    // Check if TMDB is enabled globally
+    if (!VP_ShowsConfig::isTMDBEnabled()) {
+        qDebug() << "Operations_VP_Shows: TMDB is disabled globally";
+        displayNewEpisodeIndicator(false, 0);
+        return;
+    }
+    
+    // Check if we have a valid TMDB ID
+    if (tmdbShowId <= 0) {
+        qDebug() << "Operations_VP_Shows: Invalid TMDB ID:" << tmdbShowId;
+        displayNewEpisodeIndicator(false, 0);
+        return;
+    }
+    
+    // Use the episode detector to check for new episodes
+    VP_ShowsEpisodeDetector::NewEpisodeInfo newEpisodeInfo = 
+        m_episodeDetector->checkForNewEpisodes(showFolderPath, tmdbShowId);
+    
+    if (newEpisodeInfo.hasNewEpisodes) {
+        m_currentShowHasNewEpisodes = true;
+        m_currentShowNewEpisodeCount = newEpisodeInfo.newEpisodeCount;
+        
+        qDebug() << "Operations_VP_Shows: Found" << m_currentShowNewEpisodeCount 
+                 << "new episode(s) for show";
+        qDebug() << "Operations_VP_Shows: Latest new episode: S" << newEpisodeInfo.latestSeason 
+                 << "E" << newEpisodeInfo.latestEpisode 
+                 << "-" << newEpisodeInfo.latestNewEpisodeName;
+        
+        // Display the indicator
+        displayNewEpisodeIndicator(true, m_currentShowNewEpisodeCount);
+    } else {
+        qDebug() << "Operations_VP_Shows: No new episodes detected";
+        displayNewEpisodeIndicator(false, 0);
+    }
+}
+
+void Operations_VP_Shows::displayNewEpisodeIndicator(bool hasNewEpisodes, int newEpisodeCount)
+{
+    qDebug() << "Operations_VP_Shows: Displaying new episode indicator - Has new:" << hasNewEpisodes 
+             << "Count:" << newEpisodeCount;
+    
+    // Check if we have the image label
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->label_VP_Shows_Display_Image) {
+        qDebug() << "Operations_VP_Shows: Image label not available";
+        return;
+    }
+    
+    // Get the current pixmap from the label
+    QPixmap currentPixmap = m_mainWindow->ui->label_VP_Shows_Display_Image->pixmap();
+    if (currentPixmap.isNull()) {
+        qDebug() << "Operations_VP_Shows: No poster currently displayed";
+        return;
+    }
+    
+    // Create a copy of the current pixmap to modify
+    QPixmap modifiedPoster = currentPixmap;
+    
+    if (hasNewEpisodes && newEpisodeCount > 0) {
+        // Add the new episode indicator
+        QPainter painter(&modifiedPoster);
+        painter.setRenderHint(QPainter::Antialiasing);
+        
+        // Calculate position for top-right corner
+        int iconSize = 32;  // Size of the indicator
+        int margin = 10;
+        int x = modifiedPoster.width() - iconSize - margin;
+        int y = margin;
+        
+        // Draw a semi-transparent background circle for the icon
+        painter.setPen(Qt::NoPen);
+        QColor bgColor(255, 69, 0, 200);  // Orange-red with transparency
+        painter.setBrush(bgColor);
+        painter.drawEllipse(x, y, iconSize, iconSize);
+        
+        // Get the "new" icon from Qt's standard icons
+        QIcon newIcon = m_mainWindow->style()->standardIcon(QStyle::SP_FileDialogNewFolder);
+        
+        // Draw the icon (white colored)
+        QPixmap iconPixmap = newIcon.pixmap(iconSize * 0.6, iconSize * 0.6);
+        
+        // Create a white version of the icon
+        QPixmap whiteIcon(iconPixmap.size());
+        whiteIcon.fill(Qt::transparent);
+        QPainter iconPainter(&whiteIcon);
+        iconPainter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+        iconPainter.drawPixmap(0, 0, iconPixmap);
+        iconPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        iconPainter.fillRect(whiteIcon.rect(), Qt::white);
+        iconPainter.end();
+        
+        // Draw the white icon centered in the circle
+        int iconX = x + (iconSize - whiteIcon.width()) / 2;
+        int iconY = y + (iconSize - whiteIcon.height()) / 2;
+        painter.drawPixmap(iconX, iconY, whiteIcon);
+        
+        // If there's more than one new episode, add a count badge
+        if (newEpisodeCount > 1) {
+            // Draw count badge below the icon circle
+            int badgeWidth = 24;
+            int badgeHeight = 16;
+            int badgeX = x + (iconSize - badgeWidth) / 2;
+            int badgeY = y + iconSize - 5;
+            
+            // Draw badge background
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(220, 20, 60, 230));  // Crimson color
+            painter.drawRoundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 3, 3);
+            
+            // Draw count text
+            painter.setPen(Qt::white);
+            QFont font = painter.font();
+            font.setBold(true);
+            font.setPixelSize(11);
+            painter.setFont(font);
+            
+            QString countText = QString::number(newEpisodeCount);
+            if (newEpisodeCount > 99) {
+                countText = "99+";
+            }
+            
+            QRect textRect(badgeX, badgeY, badgeWidth, badgeHeight);
+            painter.drawText(textRect, Qt::AlignCenter, countText);
+        }
+        
+        painter.end();
+        
+        qDebug() << "Operations_VP_Shows: Added new episode indicator to poster";
+    }
+    // If hasNewEpisodes is false, we just use the unmodified poster (already in modifiedPoster)
+    
+    // Update the label with the modified poster
+    m_mainWindow->ui->label_VP_Shows_Display_Image->setPixmap(modifiedPoster);
+}
+
 void Operations_VP_Shows::onPlayContinueClicked()
 {
     qDebug() << "Operations_VP_Shows: Play/Continue button clicked";
