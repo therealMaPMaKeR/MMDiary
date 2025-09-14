@@ -847,7 +847,7 @@
            <attribute name="title">
             <string>Shows</string>
            </attribute>
-           <layout class="QHBoxLayout" name="horizontalLayout_23">
+           <layout class="QVBoxLayout" name="verticalLayout_28">
             <item>
              <widget class="QStackedWidget" name="stackedWidget_VP_Shows">
               <property name="font">
@@ -886,6 +886,13 @@
                     </property>
                     <property name="clearButtonEnabled">
                      <bool>true</bool>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="pushButton_CheckForNewEP">
+                    <property name="text">
+                     <string>Check All Shows for New Episodes</string>
                     </property>
                    </widget>
                   </item>
