@@ -1884,11 +1884,18 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
     refreshTVShowsList();
     
     // Check if we need to reload the episode tree for the currently displayed show
-    // This happens when adding episodes via context menu from the display page
-    if (m_isUpdatingExistingShow && !m_currentImportOutputPath.isEmpty() && 
-        !m_currentShowFolder.isEmpty() && m_currentImportOutputPath == m_currentShowFolder) {
+    // This happens when adding episodes via context menu from either the display page or show list
+    if (!m_currentImportOutputPath.isEmpty() && !m_currentShowFolder.isEmpty() && 
+        m_currentImportOutputPath == m_currentShowFolder) {
         qDebug() << "Operations_VP_Shows: Added episodes to currently displayed show, reloading episode tree";
         loadShowEpisodes(m_currentShowFolder);
+        
+        // Check and update new episode notification after adding episodes
+        if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && 
+            getShowIdAsInt(m_currentShowSettings.showId) > 0) {
+            qDebug() << "Operations_VP_Shows: Refreshing new episode notification after adding episodes";
+            checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
+        }
     }
 
     // Clear the stored output path
@@ -4896,30 +4903,51 @@ void Operations_VP_Shows::displayNewEpisodeIndicator(bool hasNewEpisodes, int ne
     qDebug() << "Operations_VP_Shows: Displaying new episode indicator - Has new:" << hasNewEpisodes 
              << "Count:" << newEpisodeCount;
     
+    // Update the member variables
+    m_currentShowHasNewEpisodes = hasNewEpisodes;
+    m_currentShowNewEpisodeCount = newEpisodeCount;
+    
     // Check if we have the image label
     if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->label_VP_Shows_Display_Image) {
         qDebug() << "Operations_VP_Shows: Image label not available";
         return;
     }
     
-    // Get the current pixmap from the label
-    QPixmap currentPixmap = m_mainWindow->ui->label_VP_Shows_Display_Image->pixmap();
-    if (currentPixmap.isNull()) {
-        qDebug() << "Operations_VP_Shows: No poster currently displayed";
+    // Check if we have a current show folder
+    if (m_currentShowFolder.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No current show folder";
         return;
     }
     
-    // Create a copy of the current pixmap to modify
-    QPixmap modifiedPoster = currentPixmap;
+    // Load the original poster from disk
+    QPixmap showImage = loadShowImage(m_currentShowFolder);
     
+    if (showImage.isNull()) {
+        // Set a placeholder text if no image is available
+        m_mainWindow->ui->label_VP_Shows_Display_Image->setText(tr("No Image Available"));
+        qDebug() << "Operations_VP_Shows: No image available for show";
+        return;
+    }
+    
+    // Get the actual size of the label widget
+    QSize labelSize = m_mainWindow->ui->label_VP_Shows_Display_Image->size();
+    qDebug() << "Operations_VP_Shows: Label size for image scaling:" << labelSize.width() << "x" << labelSize.height();
+    
+    // Scale the image to fit the label
+    QPixmap scaledImage = showImage.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    
+    // Add "NEW" indicator if new episodes are available
     if (hasNewEpisodes && newEpisodeCount > 0) {
-        // Add the new episode indicator
-        QPainter painter(&modifiedPoster);
-        painter.setRenderHint(QPainter::Antialiasing);
-        
-        // Calculate position for top-right corner
-        int iconSize = 32;  // Size of the indicator
-        int margin = 10;
+        scaledImage = addNewEpisodeIndicator(scaledImage, newEpisodeCount);
+        qDebug() << "Operations_VP_Shows: Added NEW indicator to show poster with" << newEpisodeCount << "new episodes";
+    } else {
+        qDebug() << "Operations_VP_Shows: No new episodes, displaying poster without indicator";
+    }
+    
+    // Set the final pixmap to the label
+    m_mainWindow->ui->label_VP_Shows_Display_Image->setPixmap(scaledImage);
+    
+    qDebug() << "Operations_VP_Shows: Poster updated successfully"; = 10;
         int x = modifiedPoster.width() - iconSize - margin;
         int y = margin;
         
@@ -6864,6 +6892,13 @@ void Operations_VP_Shows::deleteBrokenVideosFromCategory()
         } else {
             // Some episodes remain, just refresh the episode list
             loadShowEpisodes(m_currentShowFolder);
+            
+            // Check and update new episode notification after deleting broken files
+            if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && 
+                getShowIdAsInt(m_currentShowSettings.showId) > 0) {
+                qDebug() << "Operations_VP_Shows: Refreshing new episode notification after deleting broken files";
+                checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
+            }
         }
     } else if (successCount > 0) {
         // Just refresh if we don't have the current show folder
@@ -7033,6 +7068,13 @@ void Operations_VP_Shows::repairBrokenVideo()
         
         // Refresh the episode list to reflect the repaired file
         loadShowEpisodes(m_currentShowFolder);
+        
+        // Check and update new episode notification after repair
+        if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && 
+            getShowIdAsInt(m_currentShowSettings.showId) > 0) {
+            qDebug() << "Operations_VP_Shows: Refreshing new episode notification after repair";
+            checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
+        }
         
         QMessageBox::information(m_mainWindow, tr("Repair Successful"),
                                tr("The video file has been successfully repaired."));
@@ -7695,6 +7737,13 @@ void Operations_VP_Shows::reacquireTMDBFromContextMenu()
         qDebug() << "Operations_VP_Shows: Refreshing episode tree after TMDB update";
         loadShowEpisodes(m_currentShowFolder);
         
+        // Check and update new episode notification after TMDB update
+        if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && 
+            getShowIdAsInt(m_currentShowSettings.showId) > 0) {
+            qDebug() << "Operations_VP_Shows: Refreshing new episode notification after TMDB update";
+            checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
+        }
+        
     } else {
         // Multiple episodes - call the existing multiple episodes function
         qDebug() << "Operations_VP_Shows: Multiple episodes TMDB re-acquisition for" << m_contextMenuEpisodePaths.size() << "files";
@@ -7705,6 +7754,13 @@ void Operations_VP_Shows::reacquireTMDBFromContextMenu()
         // Refresh the episode tree to show updated metadata
         qDebug() << "Operations_VP_Shows: Refreshing episode tree after TMDB updates";
         loadShowEpisodes(m_currentShowFolder);
+        
+        // Check and update new episode notification after TMDB updates
+        if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && 
+            getShowIdAsInt(m_currentShowSettings.showId) > 0) {
+            qDebug() << "Operations_VP_Shows: Refreshing new episode notification after TMDB updates";
+            checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
+        }
     }
 }
 
@@ -8565,6 +8621,13 @@ void Operations_VP_Shows::deleteEpisodeFromContextMenu()
             } else {
                 // Some episodes remain, just refresh the episode list
                 loadShowEpisodes(m_currentShowFolder);
+                
+                // Check and update new episode notification after deletion
+                if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && 
+                    getShowIdAsInt(m_currentShowSettings.showId) > 0) {
+                    qDebug() << "Operations_VP_Shows: Refreshing new episode notification after deletion";
+                    checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
+                }
             }
         }
     }

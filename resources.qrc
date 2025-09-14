@@ -2,6 +2,6 @@
     <qresource prefix="/">
         <file>icons/icon_tray.png</file>
         <file>icons/AppImage.png</file>
-
+        <file>icons/newepavailable.png</file>
     </qresource>
 </RCC>
