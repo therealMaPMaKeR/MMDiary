@@ -379,6 +379,7 @@ SOURCES += \
     Operations-Features/videoplayer/showsplayer/vp_shows_watchhistory.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_playback_tracker.cpp \
     Operations-Features/videoplayer/showsplayer/vp_shows_favourites.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_episode_detector.cpp \
     Operations-Features/videoplayer/vp_metadata_lock_manager.cpp \
     Operations-Features/videoplayer/vp_vlcplayer.cpp \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.cpp \
@@ -446,6 +447,7 @@ HEADERS += \
     Operations-Features/videoplayer/showsplayer/vp_shows_watchhistory.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_playback_tracker.h \
     Operations-Features/videoplayer/showsplayer/vp_shows_favourites.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_episode_detector.h \
     Operations-Features/videoplayer/vp_metadata_lock_manager.h \
     Operations-Features/videoplayer/vp_vlcplayer.h \
     Operations-Features/encrypteddata/encrypteddata_encryptedfilemetadata.h \

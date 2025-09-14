@@ -79,18 +79,28 @@
 #include <QProcess>
 #endif
 
+// Helper function to convert showId QString to int
+int getShowIdAsInt(const QString& showId) {
+    if (showId.isEmpty() || showId == "error") {
+        return 0;
+    }
+    bool ok = false;
+    int id = showId.toInt(&ok);
+    return ok ? id : 0;
+}
+
 Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     : QObject(mainWindow)
     , m_mainWindow(mainWindow)
     , m_encryptionDialog(nullptr)
     , m_watchHistory(nullptr)
     , m_playbackTracker(nullptr)
+    , m_episodeDetector(nullptr)
     , m_searchDebounceTimer(nullptr)
     , m_isAutoplayInProgress(false)
     , m_episodeWasNearCompletion(false)
-    , m_pendingAutoplayIsRandom(false)
     , m_isDecrypting(false)
-    , m_episodeDetector(nullptr)
+    , m_pendingAutoplayIsRandom(false)
 {
     qDebug() << "Operations_VP_Shows: Constructor called";
     qDebug() << "Operations_VP_Shows: Autoplay system initialized";
@@ -2931,15 +2941,17 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName, const QStr
         VP_ShowsSettings::ShowSettings settings;
         
         if (settingsManager.loadShowSettings(showFolderPath, settings)) {
+            // Check if show ID is valid (not empty and not "error") and TMDB is enabled for this show
             if (!settings.showId.isEmpty() && settings.showId != "error" && settings.useTMDB) {
+                // Convert QString showId to integer
                 bool idOk = false;
-                int showId = settings.showId.toInt(&idOk);
+                int tmdbShowId = settings.showId.toInt(&idOk);
                 
-                if (idOk && showId > 0) {
-                    qDebug() << "Operations_VP_Shows: Checking for new episodes with TMDB ID:" << showId;
+                if (idOk && tmdbShowId > 0) {
+                    qDebug() << "Operations_VP_Shows: Checking for new episodes with TMDB ID:" << tmdbShowId;
                     
                     VP_ShowsEpisodeDetector::NewEpisodeInfo newEpisodeInfo = 
-                        m_episodeDetector->checkForNewEpisodes(showFolderPath, showId);
+                        m_episodeDetector->checkForNewEpisodes(showFolderPath, tmdbShowId);
                     
                     if (newEpisodeInfo.hasNewEpisodes) {
                         m_currentShowHasNewEpisodes = true;
@@ -3004,8 +3016,10 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName, const QStr
     loadShowSettings(showFolderPath);
     
     // Check for new episodes if TMDB is enabled
-    if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && m_currentShowSettings.showTmdbId > 0) {
-        checkAndDisplayNewEpisodes(showFolderPath, m_currentShowSettings.showTmdbId);
+    int tmdbId = getShowIdAsInt(m_currentShowSettings.showId);
+
+    if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && tmdbId > 0) {
+        checkAndDisplayNewEpisodes(showFolderPath, tmdbId);
     } else {
         // Clear any previous new episode indicator
         displayNewEpisodeIndicator(false, 0);
