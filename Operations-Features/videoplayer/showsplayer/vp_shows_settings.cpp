@@ -76,7 +76,7 @@ bool VP_ShowsSettings::loadShowSettings(const QString& showFolderPath, ShowSetti
              << settings.skipIntro << "SkipOutro:" << settings.skipOutro 
              << "Autoplay:" << settings.autoplay << "AutoplayRandom:" << settings.autoplayRandom
              << "UseTMDB:" << settings.useTMDB << "AutoFullscreen:" << settings.autoFullscreen
-             << "DisplayFileNames:" << settings.displayFileNames;
+             << "DisplayFileNames:" << settings.displayFileNames << "DisplayNewEpNotif:" << settings.DisplayNewEpNotif;
     return true;
 }
 
@@ -89,7 +89,7 @@ bool VP_ShowsSettings::saveShowSettings(const QString& showFolderPath, const Sho
              << "SkipOutro:" << settings.skipOutro 
              << "Autoplay:" << settings.autoplay << "AutoplayRandom:" << settings.autoplayRandom
              << "UseTMDB:" << settings.useTMDB << "AutoFullscreen:" << settings.autoFullscreen
-             << "DisplayFileNames:" << settings.displayFileNames;
+             << "DisplayFileNames:" << settings.displayFileNames << "DisplayNewEpNotif:" << settings.DisplayNewEpNotif;
     
     // Validate folder path
     if (showFolderPath.isEmpty()) {
@@ -217,6 +217,10 @@ void VP_ShowsSettings::convertMapToSettings(const QMap<QString, QVariant>& setti
         settings.displayFileNames = settingsMap["displayFileNames"].toBool();
     }
     
+    if (settingsMap.contains("DisplayNewEpNotif")) {
+        settings.DisplayNewEpNotif = settingsMap["DisplayNewEpNotif"].toBool();
+    }
+    
     qDebug() << "VP_ShowsSettings: Conversion completed - converted" << settingsMap.size() << "fields";
 }
 
@@ -236,6 +240,7 @@ void VP_ShowsSettings::convertSettingsToMap(const ShowSettings& settings, QMap<Q
     settingsMap["useTMDB"] = settings.useTMDB;
     settingsMap["autoFullscreen"] = settings.autoFullscreen;
     settingsMap["displayFileNames"] = settings.displayFileNames;
+    settingsMap["DisplayNewEpNotif"] = settings.DisplayNewEpNotif;
     
     qDebug() << "VP_ShowsSettings: Conversion completed - created" << settingsMap.size() << "fields";
 }

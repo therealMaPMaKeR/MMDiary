@@ -50,6 +50,7 @@ void DataStorage_FieldDefinitions::registerTVShowSettingsFields()
     tvShowFields.append(FieldDefinition("useTMDB", Boolean, true, true));  // Default to enabled
     tvShowFields.append(FieldDefinition("autoFullscreen", Boolean, true, true));  // Default true to match ShowSettings
     tvShowFields.append(FieldDefinition("displayFileNames", Boolean, false, true));  // Display file names instead of episode names
+    tvShowFields.append(FieldDefinition("DisplayNewEpNotif", Boolean, true, true));  // Display new episode notification
     
     m_fieldRegistry[TVShowSettings] = tvShowFields;
     

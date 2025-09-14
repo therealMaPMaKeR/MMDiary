@@ -2579,6 +2579,7 @@ void Operations_VP_Shows::openShowSettings()
         
         // Refresh the TV shows list to reflect any changes
         refreshTVShowsList();
+        refreshShowPosterWithNotification();
     } else {
         qDebug() << "Operations_VP_Shows: Show settings dialog cancelled";
     }

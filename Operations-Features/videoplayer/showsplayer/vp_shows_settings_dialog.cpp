@@ -1443,6 +1443,7 @@ void VP_ShowsSettingsDialog::loadShowSettings()
     ui->checkBox_UseTMDB->setChecked(m_currentSettings.useTMDB);
     ui->checkBox_AutoFullscreen->setChecked(m_currentSettings.autoFullscreen);
     ui->checkBox_DisplayFileNames->setChecked(m_currentSettings.displayFileNames);
+    ui->checkBox_DisplayNewEpNotif->setChecked(m_currentSettings.DisplayNewEpNotif);
     
     // Initialize the selected show ID from loaded settings
     if (!m_currentSettings.showId.isEmpty() && m_currentSettings.showId != "error") {
@@ -1461,6 +1462,7 @@ void VP_ShowsSettingsDialog::loadShowSettings()
              << "UseTMDB:" << m_currentSettings.useTMDB
              << "AutoFullscreen:" << m_currentSettings.autoFullscreen
              << "DisplayFileNames:" << m_currentSettings.displayFileNames
+             << "DisplayNewEpNotif:" << m_currentSettings.DisplayNewEpNotif
              << "ShowId:" << m_currentSettings.showId;
 }
 
@@ -1516,6 +1518,7 @@ void VP_ShowsSettingsDialog::saveShowSettings()
     m_currentSettings.useTMDB = ui->checkBox_UseTMDB->isChecked();
     m_currentSettings.autoFullscreen = ui->checkBox_AutoFullscreen->isChecked();
     m_currentSettings.displayFileNames = ui->checkBox_DisplayFileNames->isChecked();
+    m_currentSettings.DisplayNewEpNotif = ui->checkBox_DisplayNewEpNotif->isChecked();
     
     // Update the show ID if we have a valid selection from TMDB
     if (m_selectedShowId > 0) {
@@ -1532,6 +1535,7 @@ void VP_ShowsSettingsDialog::saveShowSettings()
              << "UseTMDB:" << m_currentSettings.useTMDB
              << "AutoFullscreen:" << m_currentSettings.autoFullscreen
              << "DisplayFileNames:" << m_currentSettings.displayFileNames
+             << "DisplayNewEpNotif:" << m_currentSettings.DisplayNewEpNotif
              << "ShowId:" << m_currentSettings.showId;
     
     // Create settings manager

@@ -86,6 +86,13 @@
       </widget>
      </item>
      <item>
+      <widget class="QCheckBox" name="checkBox_DisplayNewEpNotif">
+       <property name="text">
+        <string>Display New Episode Notification</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QPushButton" name="pushButton_ResetWatchHistory">
        <property name="text">
         <string>Reset Watch History</string>
