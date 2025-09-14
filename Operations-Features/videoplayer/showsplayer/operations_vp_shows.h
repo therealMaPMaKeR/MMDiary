@@ -111,7 +111,7 @@ private:
         PartiallyWatched = 2
     };
 
-
+    void refreshShowPosterWithNotification();
 
     WatchState getItemWatchState(QTreeWidgetItem* item);
     void countWatchedEpisodes(QTreeWidgetItem* item, int& watchedCount, int& totalCount);

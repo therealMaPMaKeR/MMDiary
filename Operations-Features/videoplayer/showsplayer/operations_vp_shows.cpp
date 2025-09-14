@@ -1889,13 +1889,7 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
         m_currentImportOutputPath == m_currentShowFolder) {
         qDebug() << "Operations_VP_Shows: Added episodes to currently displayed show, reloading episode tree";
         loadShowEpisodes(m_currentShowFolder);
-        
-        // Check and update new episode notification after adding episodes
-        if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && 
-            getShowIdAsInt(m_currentShowSettings.showId) > 0) {
-            qDebug() << "Operations_VP_Shows: Refreshing new episode notification after adding episodes";
-            checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
-        }
+
     }
 
     // Clear the stored output path
@@ -3856,6 +3850,9 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
     }
 
     qDebug() << "Operations_VP_Shows: Finished loading episodes. Total language versions:" << languageKeys.size();
+
+    //Refresh the new available episode notification
+    refreshShowPosterWithNotification();
 }
 
 void Operations_VP_Shows::onEpisodeDoubleClicked(QTreeWidgetItem* item, int column)
@@ -4900,69 +4897,48 @@ void Operations_VP_Shows::checkAndDisplayNewEpisodes(const QString& showFolderPa
 
 void Operations_VP_Shows::displayNewEpisodeIndicator(bool hasNewEpisodes, int newEpisodeCount)
 {
-    qDebug() << "Operations_VP_Shows: Displaying new episode indicator - Has new:" << hasNewEpisodes 
+    qDebug() << "Operations_VP_Shows: Displaying new episode indicator - Has new:" << hasNewEpisodes
              << "Count:" << newEpisodeCount;
-    
-    // Update the member variables
-    m_currentShowHasNewEpisodes = hasNewEpisodes;
-    m_currentShowNewEpisodeCount = newEpisodeCount;
-    
+
     // Check if we have the image label
     if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->label_VP_Shows_Display_Image) {
         qDebug() << "Operations_VP_Shows: Image label not available";
         return;
     }
-    
-    // Check if we have a current show folder
-    if (m_currentShowFolder.isEmpty()) {
-        qDebug() << "Operations_VP_Shows: No current show folder";
+
+    // Get the current pixmap from the label
+    QPixmap currentPixmap = m_mainWindow->ui->label_VP_Shows_Display_Image->pixmap();
+    if (currentPixmap.isNull()) {
+        qDebug() << "Operations_VP_Shows: No poster currently displayed";
         return;
     }
-    
-    // Load the original poster from disk
-    QPixmap showImage = loadShowImage(m_currentShowFolder);
-    
-    if (showImage.isNull()) {
-        // Set a placeholder text if no image is available
-        m_mainWindow->ui->label_VP_Shows_Display_Image->setText(tr("No Image Available"));
-        qDebug() << "Operations_VP_Shows: No image available for show";
-        return;
-    }
-    
-    // Get the actual size of the label widget
-    QSize labelSize = m_mainWindow->ui->label_VP_Shows_Display_Image->size();
-    qDebug() << "Operations_VP_Shows: Label size for image scaling:" << labelSize.width() << "x" << labelSize.height();
-    
-    // Scale the image to fit the label
-    QPixmap scaledImage = showImage.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-    
-    // Add "NEW" indicator if new episodes are available
+
+    // Create a copy of the current pixmap to modify
+    QPixmap modifiedPoster = currentPixmap;
+
     if (hasNewEpisodes && newEpisodeCount > 0) {
-        scaledImage = addNewEpisodeIndicator(scaledImage, newEpisodeCount);
-        qDebug() << "Operations_VP_Shows: Added NEW indicator to show poster with" << newEpisodeCount << "new episodes";
-    } else {
-        qDebug() << "Operations_VP_Shows: No new episodes, displaying poster without indicator";
-    }
-    
-    // Set the final pixmap to the label
-    m_mainWindow->ui->label_VP_Shows_Display_Image->setPixmap(scaledImage);
-    
-    qDebug() << "Operations_VP_Shows: Poster updated successfully"; = 10;
+        // Add the new episode indicator
+        QPainter painter(&modifiedPoster);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        // Calculate position for top-right corner
+        int iconSize = 32;  // Size of the indicator
+        int margin = 10;
         int x = modifiedPoster.width() - iconSize - margin;
         int y = margin;
-        
+
         // Draw a semi-transparent background circle for the icon
         painter.setPen(Qt::NoPen);
         QColor bgColor(255, 69, 0, 200);  // Orange-red with transparency
         painter.setBrush(bgColor);
         painter.drawEllipse(x, y, iconSize, iconSize);
-        
+
         // Get the "new" icon from Qt's standard icons
         QIcon newIcon = m_mainWindow->style()->standardIcon(QStyle::SP_FileDialogNewFolder);
-        
+
         // Draw the icon (white colored)
         QPixmap iconPixmap = newIcon.pixmap(iconSize * 0.6, iconSize * 0.6);
-        
+
         // Create a white version of the icon
         QPixmap whiteIcon(iconPixmap.size());
         whiteIcon.fill(Qt::transparent);
@@ -4972,12 +4948,12 @@ void Operations_VP_Shows::displayNewEpisodeIndicator(bool hasNewEpisodes, int ne
         iconPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
         iconPainter.fillRect(whiteIcon.rect(), Qt::white);
         iconPainter.end();
-        
+
         // Draw the white icon centered in the circle
         int iconX = x + (iconSize - whiteIcon.width()) / 2;
         int iconY = y + (iconSize - whiteIcon.height()) / 2;
         painter.drawPixmap(iconX, iconY, whiteIcon);
-        
+
         // If there's more than one new episode, add a count badge
         if (newEpisodeCount > 1) {
             // Draw count badge below the icon circle
@@ -4985,34 +4961,34 @@ void Operations_VP_Shows::displayNewEpisodeIndicator(bool hasNewEpisodes, int ne
             int badgeHeight = 16;
             int badgeX = x + (iconSize - badgeWidth) / 2;
             int badgeY = y + iconSize - 5;
-            
+
             // Draw badge background
             painter.setPen(Qt::NoPen);
             painter.setBrush(QColor(220, 20, 60, 230));  // Crimson color
             painter.drawRoundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 3, 3);
-            
+
             // Draw count text
             painter.setPen(Qt::white);
             QFont font = painter.font();
             font.setBold(true);
             font.setPixelSize(11);
             painter.setFont(font);
-            
+
             QString countText = QString::number(newEpisodeCount);
             if (newEpisodeCount > 99) {
                 countText = "99+";
             }
-            
+
             QRect textRect(badgeX, badgeY, badgeWidth, badgeHeight);
             painter.drawText(textRect, Qt::AlignCenter, countText);
         }
-        
+
         painter.end();
-        
+
         qDebug() << "Operations_VP_Shows: Added new episode indicator to poster";
     }
     // If hasNewEpisodes is false, we just use the unmodified poster (already in modifiedPoster)
-    
+
     // Update the label with the modified poster
     m_mainWindow->ui->label_VP_Shows_Display_Image->setPixmap(modifiedPoster);
 }
@@ -6892,13 +6868,7 @@ void Operations_VP_Shows::deleteBrokenVideosFromCategory()
         } else {
             // Some episodes remain, just refresh the episode list
             loadShowEpisodes(m_currentShowFolder);
-            
-            // Check and update new episode notification after deleting broken files
-            if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && 
-                getShowIdAsInt(m_currentShowSettings.showId) > 0) {
-                qDebug() << "Operations_VP_Shows: Refreshing new episode notification after deleting broken files";
-                checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
-            }
+
         }
     } else if (successCount > 0) {
         // Just refresh if we don't have the current show folder
@@ -7068,13 +7038,7 @@ void Operations_VP_Shows::repairBrokenVideo()
         
         // Refresh the episode list to reflect the repaired file
         loadShowEpisodes(m_currentShowFolder);
-        
-        // Check and update new episode notification after repair
-        if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && 
-            getShowIdAsInt(m_currentShowSettings.showId) > 0) {
-            qDebug() << "Operations_VP_Shows: Refreshing new episode notification after repair";
-            checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
-        }
+
         
         QMessageBox::information(m_mainWindow, tr("Repair Successful"),
                                tr("The video file has been successfully repaired."));
@@ -7503,7 +7467,7 @@ void Operations_VP_Shows::editEpisodeMetadata()
         
         // Refresh the tree widget to show updated metadata
         loadShowEpisodes(m_currentShowFolder);
-        
+
         // Try to find and expand to the edited episode
         if (!videoFilePath.isEmpty()) {
             // Search for the episode in the refreshed tree by file path
@@ -7736,13 +7700,7 @@ void Operations_VP_Shows::reacquireTMDBFromContextMenu()
         // Refresh the episode tree to show updated metadata
         qDebug() << "Operations_VP_Shows: Refreshing episode tree after TMDB update";
         loadShowEpisodes(m_currentShowFolder);
-        
-        // Check and update new episode notification after TMDB update
-        if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && 
-            getShowIdAsInt(m_currentShowSettings.showId) > 0) {
-            qDebug() << "Operations_VP_Shows: Refreshing new episode notification after TMDB update";
-            checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
-        }
+
         
     } else {
         // Multiple episodes - call the existing multiple episodes function
@@ -7754,13 +7712,7 @@ void Operations_VP_Shows::reacquireTMDBFromContextMenu()
         // Refresh the episode tree to show updated metadata
         qDebug() << "Operations_VP_Shows: Refreshing episode tree after TMDB updates";
         loadShowEpisodes(m_currentShowFolder);
-        
-        // Check and update new episode notification after TMDB updates
-        if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && 
-            getShowIdAsInt(m_currentShowSettings.showId) > 0) {
-            qDebug() << "Operations_VP_Shows: Refreshing new episode notification after TMDB updates";
-            checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
-        }
+
     }
 }
 
@@ -8621,13 +8573,7 @@ void Operations_VP_Shows::deleteEpisodeFromContextMenu()
             } else {
                 // Some episodes remain, just refresh the episode list
                 loadShowEpisodes(m_currentShowFolder);
-                
-                // Check and update new episode notification after deletion
-                if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && 
-                    getShowIdAsInt(m_currentShowSettings.showId) > 0) {
-                    qDebug() << "Operations_VP_Shows: Refreshing new episode notification after deletion";
-                    checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
-                }
+
             }
         }
     }
@@ -10394,4 +10340,30 @@ void Operations_VP_Shows::updateFavouriteIndicators()
     }
     
     qDebug() << "Operations_VP_Shows: Updated favourite indicators in tree widget";
+}
+
+
+void Operations_VP_Shows::refreshShowPosterWithNotification()
+{
+    qDebug() << "Operations_VP_Shows: Refreshing show poster with notification check";
+
+    // First reload the poster image
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->label_VP_Shows_Display_Image) {
+        QPixmap showImage = loadShowImage(m_currentShowFolder);
+        if (!showImage.isNull()) {
+            QSize labelSize = m_mainWindow->ui->label_VP_Shows_Display_Image->size();
+            QPixmap scaledImage = showImage.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            m_mainWindow->ui->label_VP_Shows_Display_Image->setPixmap(scaledImage);
+        }
+    }
+
+    // Then check and display new episode notification
+    if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB &&
+        getShowIdAsInt(m_currentShowSettings.showId) > 0) {
+        qDebug() << "Operations_VP_Shows: Checking for new episodes";
+        checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
+    } else {
+        // Clear any notification if TMDB is disabled
+        displayNewEpisodeIndicator(false, 0);
+    }
 }
