@@ -4982,32 +4982,52 @@ void Operations_VP_Shows::displayNewEpisodeIndicator(bool hasNewEpisodes, int ne
         int x = modifiedPoster.width() - iconSize - margin;
         int y = margin;
 
-        // Draw a semi-transparent background circle for the icon
-        painter.setPen(Qt::NoPen);
-        QColor bgColor(255, 69, 0, 200);  // Orange-red with transparency
-        painter.setBrush(bgColor);
-        painter.drawEllipse(x, y, iconSize, iconSize);
-
-        // Get the "new" icon from Qt's standard icons
-        QIcon newIcon = m_mainWindow->style()->standardIcon(QStyle::SP_FileDialogNewFolder);
-
-        // Draw the icon (white colored)
-        QPixmap iconPixmap = newIcon.pixmap(iconSize * 0.6, iconSize * 0.6);
-
-        // Create a white version of the icon
-        QPixmap whiteIcon(iconPixmap.size());
-        whiteIcon.fill(Qt::transparent);
-        QPainter iconPainter(&whiteIcon);
-        iconPainter.setCompositionMode(QPainter::CompositionMode_SourceOver);
-        iconPainter.drawPixmap(0, 0, iconPixmap);
-        iconPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-        iconPainter.fillRect(whiteIcon.rect(), Qt::white);
-        iconPainter.end();
-
-        // Draw the white icon centered in the circle
-        int iconX = x + (iconSize - whiteIcon.width()) / 2;
-        int iconY = y + (iconSize - whiteIcon.height()) / 2;
-        painter.drawPixmap(iconX, iconY, whiteIcon);
+        // Load the custom new episode icon from resources
+        QPixmap newEpisodeIcon;
+        
+        // Try to load the icon from resources
+        newEpisodeIcon.load(":/icons/newepavailable.png");
+        
+        // If direct load fails, try via QIcon
+        if (newEpisodeIcon.isNull()) {
+            qDebug() << "Operations_VP_Shows: Direct QPixmap load failed, trying QIcon method";
+            QIcon icon(":/icons/newepavailable.png");
+            if (!icon.isNull()) {
+                newEpisodeIcon = icon.pixmap(iconSize, iconSize);
+            }
+        }
+        
+        // If still null, try without the colon prefix
+        if (newEpisodeIcon.isNull()) {
+            qDebug() << "Operations_VP_Shows: QIcon method failed, trying alternate path";
+            newEpisodeIcon.load("icons/newepavailable.png");
+        }
+        
+        if (!newEpisodeIcon.isNull()) {
+            qDebug() << "Operations_VP_Shows: Successfully loaded newepavailable.png icon";
+            // Scale the icon to the desired size
+            QPixmap scaledIcon = newEpisodeIcon.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            
+            // Draw the scaled icon
+            painter.drawPixmap(x, y, scaledIcon);
+        } else {
+            qDebug() << "Operations_VP_Shows: Failed to load newepavailable.png, using fallback";
+            // Fallback: Draw a simple colored circle with "NEW" text
+            painter.setPen(Qt::NoPen);
+            QColor bgColor(255, 69, 0, 200);  // Orange-red with transparency
+            painter.setBrush(bgColor);
+            painter.drawEllipse(x, y, iconSize, iconSize);
+            
+            // Draw "NEW" text in the circle
+            painter.setPen(Qt::white);
+            QFont font = painter.font();
+            font.setBold(true);
+            font.setPixelSize(iconSize * 0.3);
+            painter.setFont(font);
+            
+            QRect textRect(x, y, iconSize, iconSize);
+            painter.drawText(textRect, Qt::AlignCenter, "NEW");
+        }
 
         // If there's more than one new episode, add a count badge
         if (newEpisodeCount > 1) {
