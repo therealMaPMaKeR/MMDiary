@@ -18,6 +18,7 @@
 #include <QKeyEvent>
 #include "vp_shows_settings.h"
 #include "vp_shows_metadata.h"
+#include "vp_shows_episode_detector.h"
 #include "../../../Operations-Global/ThreadSafeContainers.h"
 
 // Forward declarations
@@ -42,6 +43,7 @@ private:
     std::unique_ptr<VP_ShowsWatchHistory> m_watchHistory;     // Direct watch history access (for non-playback queries)
     std::unique_ptr<VP_ShowsPlaybackTracker> m_playbackTracker; // Playback tracking and integration
     std::unique_ptr<VP_ShowsFavourites> m_showFavourites;     // Favourites management for current show
+    std::unique_ptr<VP_ShowsEpisodeDetector> m_episodeDetector; // Episode detector for new episodes
     
     // Store mapping between show names and their folder paths - Thread-safe
     ThreadSafeMap<QString, QString> m_showFolderMapping;
@@ -152,6 +154,9 @@ public:
     
     // Load show image from encrypted file
     QPixmap loadShowImage(const QString& showFolderPath);
+    
+    // Add "NEW" indicator overlay to show poster
+    QPixmap addNewEpisodeIndicator(const QPixmap& originalPoster, int newEpisodeCount);
     
     // Display show details page
     void displayShowDetails(const QString& showName, const QString& folderPath = QString());
@@ -323,6 +328,14 @@ public:
     // Cleanup functions
     void cleanupEmptyShowFolder(const QString& folderPath);  // Clean up a single empty show folder
     void cleanupIncompleteShowFolders();  // Clean up all incomplete show folders on startup
+    
+    // New episode detection
+    void checkAndDisplayNewEpisodes(const QString& showFolderPath, int tmdbShowId);
+    void displayNewEpisodeIndicator(bool hasNewEpisodes, int newEpisodeCount);
+    
+    // Track new episode status for current show
+    bool m_currentShowHasNewEpisodes = false;
+    int m_currentShowNewEpisodeCount = 0;
 
 protected:
     // Event filter for handling escape key on display page

@@ -1,5 +1,6 @@
 #include "operations_vp_shows.h"
 #include "mainwindow.h"
+#include <QPainter>
 #include "ui_mainwindow.h"
 #include <QDialog>
 #include <QVBoxLayout>
@@ -89,6 +90,7 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     , m_episodeWasNearCompletion(false)
     , m_pendingAutoplayIsRandom(false)
     , m_isDecrypting(false)
+    , m_episodeDetector(nullptr)
 {
     qDebug() << "Operations_VP_Shows: Constructor called";
     qDebug() << "Operations_VP_Shows: Autoplay system initialized";
@@ -106,6 +108,10 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
         OperationsFiles::setUsername(m_mainWindow->user_Username);
         qDebug() << "Operations_VP_Shows: Set username for operations_files:" << m_mainWindow->user_Username;
     }
+    
+    // Initialize episode detector
+    m_episodeDetector = std::make_unique<VP_ShowsEpisodeDetector>(m_mainWindow);
+    qDebug() << "Operations_VP_Shows: Initialized episode detector";
     
     // Connect the Add Show button if it exists
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->pushButton_VP_List_AddShow) {
@@ -2712,6 +2718,68 @@ QPixmap Operations_VP_Shows::loadShowImage(const QString& showFolderPath)
     return pixmap;
 }
 
+QPixmap Operations_VP_Shows::addNewEpisodeIndicator(const QPixmap& originalPoster, int newEpisodeCount)
+{
+    if (originalPoster.isNull()) {
+        return originalPoster;
+    }
+    
+    // Create a copy of the original poster to draw on
+    QPixmap result = originalPoster;
+    
+    // Create a painter to draw the indicator
+    QPainter painter(&result);
+    painter.setRenderHint(QPainter::Antialiasing);
+    
+    // Calculate dimensions for the indicator
+    int posterWidth = result.width();
+    int posterHeight = result.height();
+    
+    // Indicator size - make it proportional to poster size
+    int indicatorWidth = posterWidth * 0.35;  // 35% of poster width
+    int indicatorHeight = posterHeight * 0.12; // 12% of poster height
+    
+    // Minimum and maximum sizes for readability
+    indicatorWidth = qMax(60, qMin(indicatorWidth, 120));
+    indicatorHeight = qMax(25, qMin(indicatorHeight, 40));
+    
+    // Position in top-right corner with small margin
+    int margin = 5;
+    int x = posterWidth - indicatorWidth - margin;
+    int y = margin;
+    
+    // Draw a semi-transparent background for the indicator
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(255, 0, 0, 200)); // Red with some transparency
+    
+    // Draw rounded rectangle
+    int cornerRadius = indicatorHeight / 4;
+    painter.drawRoundedRect(x, y, indicatorWidth, indicatorHeight, cornerRadius, cornerRadius);
+    
+    // Draw text
+    painter.setPen(Qt::white);
+    QFont font = painter.font();
+    font.setBold(true);
+    font.setPixelSize(indicatorHeight * 0.6); // Font size proportional to indicator height
+    painter.setFont(font);
+    
+    // Prepare text
+    QString text;
+    if (newEpisodeCount > 1) {
+        text = QString("NEW (%1)").arg(newEpisodeCount);
+    } else {
+        text = "NEW";
+    }
+    
+    // Draw text centered in the indicator
+    QRect textRect(x, y, indicatorWidth, indicatorHeight);
+    painter.drawText(textRect, Qt::AlignCenter, text);
+    
+    painter.end();
+    
+    return result;
+}
+
 void Operations_VP_Shows::displayShowDetails(const QString& showName, const QString& folderPath)
 {
     qDebug() << "Operations_VP_Shows: Displaying details for show:" << showName;
@@ -2853,6 +2921,43 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName, const QStr
         m_mainWindow->ui->label_VP_Shows_Display_Name->setText(actualShowName);
     }
     
+    // Check for new episodes if TMDB is enabled and we have a valid show ID
+    m_currentShowHasNewEpisodes = false;
+    m_currentShowNewEpisodeCount = 0;
+    
+    if (m_episodeDetector && VP_ShowsConfig::isTMDBEnabled()) {
+        // Load settings to get the show ID
+        VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+        VP_ShowsSettings::ShowSettings settings;
+        
+        if (settingsManager.loadShowSettings(showFolderPath, settings)) {
+            if (!settings.showId.isEmpty() && settings.showId != "error" && settings.useTMDB) {
+                bool idOk = false;
+                int showId = settings.showId.toInt(&idOk);
+                
+                if (idOk && showId > 0) {
+                    qDebug() << "Operations_VP_Shows: Checking for new episodes with TMDB ID:" << showId;
+                    
+                    VP_ShowsEpisodeDetector::NewEpisodeInfo newEpisodeInfo = 
+                        m_episodeDetector->checkForNewEpisodes(showFolderPath, showId);
+                    
+                    if (newEpisodeInfo.hasNewEpisodes) {
+                        m_currentShowHasNewEpisodes = true;
+                        m_currentShowNewEpisodeCount = newEpisodeInfo.newEpisodeCount;
+                        
+                        qDebug() << "Operations_VP_Shows: Found" << m_currentShowNewEpisodeCount 
+                                 << "new episode(s) for show";
+                        qDebug() << "Operations_VP_Shows: Latest new episode: S" << newEpisodeInfo.latestSeason 
+                                 << "E" << newEpisodeInfo.latestEpisode 
+                                 << "-" << newEpisodeInfo.latestNewEpisodeName;
+                    } else {
+                        qDebug() << "Operations_VP_Shows: No new episodes detected";
+                    }
+                }
+            }
+        }
+    }
+    
     // Load and display the show image
     if (m_mainWindow->ui->label_VP_Shows_Display_Image) {
         QPixmap showImage = loadShowImage(showFolderPath);
@@ -2864,6 +2969,13 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName, const QStr
             
             // Scale the image to fit the label using its actual size
             QPixmap scaledImage = showImage.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            
+            // Add "NEW" indicator if new episodes are available
+            if (m_currentShowHasNewEpisodes) {
+                scaledImage = addNewEpisodeIndicator(scaledImage, m_currentShowNewEpisodeCount);
+                qDebug() << "Operations_VP_Shows: Added NEW indicator to show poster";
+            }
+            
             m_mainWindow->ui->label_VP_Shows_Display_Image->setPixmap(scaledImage);
             
             qDebug() << "Operations_VP_Shows: Scaled image from" << showImage.size() << "to" << scaledImage.size();
@@ -2890,6 +3002,14 @@ void Operations_VP_Shows::displayShowDetails(const QString& showName, const QStr
     
     // Load show-specific settings first so they're available for episode display
     loadShowSettings(showFolderPath);
+    
+    // Check for new episodes if TMDB is enabled
+    if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB && m_currentShowSettings.showTmdbId > 0) {
+        checkAndDisplayNewEpisodes(showFolderPath, m_currentShowSettings.showTmdbId);
+    } else {
+        // Clear any previous new episode indicator
+        displayNewEpisodeIndicator(false, 0);
+    }
     
     // Load and display the episode list (now using the correct settings)
     loadShowEpisodes(showFolderPath);
