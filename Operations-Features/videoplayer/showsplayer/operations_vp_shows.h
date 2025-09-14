@@ -339,6 +339,10 @@ public:
     // Track new episode status for current show
     bool m_currentShowHasNewEpisodes = false;
     int m_currentShowNewEpisodeCount = 0;
+    
+    // Helper function to determine and store the last available episode
+    QString determineLastAvailableEpisode(const QStringList& allVideoFiles, VP_ShowsMetadata& metadataManager);
+    void updateLastAvailableEpisode(const QString& showFolderPath);
 
 protected:
     // Event filter for handling escape key on display page

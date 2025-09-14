@@ -221,6 +221,19 @@ void VP_ShowsSettings::convertMapToSettings(const QMap<QString, QVariant>& setti
         settings.DisplayNewEpNotif = settingsMap["DisplayNewEpNotif"].toBool();
     }
     
+    // New episode tracking fields
+    if (settingsMap.contains("NewEPCheckDate")) {
+        settings.NewEPCheckDate = settingsMap["NewEPCheckDate"].toString();
+    }
+    
+    if (settingsMap.contains("NewAvailableEPCount")) {
+        settings.NewAvailableEPCount = settingsMap["NewAvailableEPCount"].toInt();
+    }
+    
+    if (settingsMap.contains("LastAvailableEP")) {
+        settings.LastAvailableEP = settingsMap["LastAvailableEP"].toString();
+    }
+    
     qDebug() << "VP_ShowsSettings: Conversion completed - converted" << settingsMap.size() << "fields";
 }
 
@@ -241,6 +254,11 @@ void VP_ShowsSettings::convertSettingsToMap(const ShowSettings& settings, QMap<Q
     settingsMap["autoFullscreen"] = settings.autoFullscreen;
     settingsMap["displayFileNames"] = settings.displayFileNames;
     settingsMap["DisplayNewEpNotif"] = settings.DisplayNewEpNotif;
+    
+    // New episode tracking fields
+    settingsMap["NewEPCheckDate"] = settings.NewEPCheckDate;
+    settingsMap["NewAvailableEPCount"] = settings.NewAvailableEPCount;
+    settingsMap["LastAvailableEP"] = settings.LastAvailableEP;
     
     qDebug() << "VP_ShowsSettings: Conversion completed - created" << settingsMap.size() << "fields";
 }

@@ -70,6 +70,7 @@
 #include <QIcon>
 #include <algorithm>
 #include <functional>
+#include <QDate>
 
 // Windows-specific includes for file explorer
 #ifdef Q_OS_WIN
@@ -3811,7 +3812,7 @@ void Operations_VP_Shows::loadShowEpisodes(const QString& showFolderPath)
 
     qDebug() << "Operations_VP_Shows: Finished loading episodes. Total language versions:" << languageKeys.size();
 
-    //Refresh the new available episode notification
+    updateLastAvailableEpisode(showFolderPath);
     refreshShowPosterWithNotification();
 }
 
@@ -10256,20 +10257,66 @@ void Operations_VP_Shows::refreshShowPosterWithNotification()
         }
     }
 
-    // Then check and display new episode notification
-    // Check if TMDB is enabled globally, for this show, and if notifications are enabled
-    if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB &&
-        m_currentShowSettings.DisplayNewEpNotif &&
-        getShowIdAsInt(m_currentShowSettings.showId) > 0) {
-        qDebug() << "Operations_VP_Shows: Checking for new episodes (notifications enabled)";
-        checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
-    } else {
-        // Clear any notification if TMDB is disabled or notifications are disabled
-        qDebug() << "Operations_VP_Shows: Clearing notification - TMDB enabled:" << VP_ShowsConfig::isTMDBEnabled()
-                 << "Show uses TMDB:" << m_currentShowSettings.useTMDB
-                 << "Notifications enabled:" << m_currentShowSettings.DisplayNewEpNotif;
+    // Check if notifications are disabled for this show
+    if (!m_currentShowSettings.DisplayNewEpNotif) {
+        qDebug() << "Operations_VP_Shows: New episode notifications disabled for this show";
         displayNewEpisodeIndicator(false, 0);
+        return;
     }
+
+    // Check if TMDB is enabled globally and for this show
+    if (!VP_ShowsConfig::isTMDBEnabled() || !m_currentShowSettings.useTMDB ||
+        getShowIdAsInt(m_currentShowSettings.showId) <= 0) {
+        qDebug() << "Operations_VP_Shows: TMDB disabled or invalid ID";
+        displayNewEpisodeIndicator(false, 0);
+        return;
+    }
+
+    int tmdbShowId = getShowIdAsInt(m_currentShowSettings.showId);
+
+    // Check if we already checked today
+    QString todayStr = QDate::currentDate().toString(Qt::ISODate);
+    if (m_currentShowSettings.NewEPCheckDate == todayStr) {
+        qDebug() << "Operations_VP_Shows: Already checked today, using cached data";
+        qDebug() << "Operations_VP_Shows: Cached count:" << m_currentShowSettings.NewAvailableEPCount;
+
+        // Use cached data
+        m_currentShowHasNewEpisodes = (m_currentShowSettings.NewAvailableEPCount > 0);
+        m_currentShowNewEpisodeCount = m_currentShowSettings.NewAvailableEPCount;
+
+        displayNewEpisodeIndicator(m_currentShowHasNewEpisodes, m_currentShowNewEpisodeCount);
+        return;
+    }
+
+    // We need to check for new episodes
+    qDebug() << "Operations_VP_Shows: Checking for new episodes (last check:" << m_currentShowSettings.NewEPCheckDate << ")";
+
+    // First, update the LastAvailableEP to current state
+    updateLastAvailableEpisode(m_currentShowFolder);
+
+    // Use the episode detector to check for new episodes
+    VP_ShowsEpisodeDetector::NewEpisodeInfo newEpisodeInfo =
+        m_episodeDetector->checkForNewEpisodes(m_currentShowFolder, tmdbShowId);
+
+    // Update cached data
+    m_currentShowSettings.NewEPCheckDate = todayStr;
+    m_currentShowSettings.NewAvailableEPCount = newEpisodeInfo.hasNewEpisodes ? newEpisodeInfo.newEpisodeCount : 0;
+
+    // Save the updated settings with cached data
+    VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    settingsManager.saveShowSettings(m_currentShowFolder, m_currentShowSettings);
+
+    // Update current state and display
+    m_currentShowHasNewEpisodes = newEpisodeInfo.hasNewEpisodes;
+    m_currentShowNewEpisodeCount = newEpisodeInfo.newEpisodeCount;
+
+    if (newEpisodeInfo.hasNewEpisodes) {
+        qDebug() << "Operations_VP_Shows: Found" << m_currentShowNewEpisodeCount << "new episode(s)";
+    } else {
+        qDebug() << "Operations_VP_Shows: No new episodes detected";
+    }
+
+    displayNewEpisodeIndicator(m_currentShowHasNewEpisodes, m_currentShowNewEpisodeCount);
 }
 
 
@@ -10330,4 +10377,111 @@ void Operations_VP_Shows::drawNewEpisodeBadge(QPainter& painter, const QSize& po
 
     QRect textRect(x, y, badgeWidth, badgeHeight);
     painter.drawText(textRect, Qt::AlignCenter, countText);
+}
+
+// Helper function to determine the last available episode from the list of video files
+QString Operations_VP_Shows::determineLastAvailableEpisode(const QStringList& allVideoFiles, VP_ShowsMetadata& metadataManager)
+{
+    qDebug() << "Operations_VP_Shows: Determining last available episode from" << allVideoFiles.size() << "files";
+
+    if (allVideoFiles.isEmpty()) {
+        return QString();
+    }
+
+    int highestSeason = 0;
+    int highestEpisode = 0;
+    int highestAbsolute = 0;
+    bool hasAbsoluteNumbering = false;
+
+    // Process each video file to find the highest episode
+    for (const QString& videoPath : allVideoFiles) {
+        VP_ShowsMetadata::ShowMetadata metadata;
+        if (!metadataManager.readMetadataFromFile(videoPath, metadata)) {
+            continue;
+        }
+
+        // Skip non-regular episodes (Movies, OVAs, Extras)
+        if (metadata.contentType != VP_ShowsMetadata::Regular) {
+            continue;
+        }
+
+        int seasonNum = metadata.season.toInt();
+        int episodeNum = metadata.episode.toInt();
+
+        // If metadata doesn't have valid numbers, try to parse from filename
+        if (seasonNum == 0 && episodeNum == 0) {
+            VP_ShowsTMDB::parseEpisodeFromFilename(metadata.filename, seasonNum, episodeNum);
+        }
+
+        // Check if this is absolute numbering (season 0)
+        if (seasonNum == 0 && episodeNum > 0) {
+            hasAbsoluteNumbering = true;
+            if (episodeNum > highestAbsolute) {
+                highestAbsolute = episodeNum;
+            }
+        } else if (seasonNum > 0 && episodeNum > 0) {
+            // Traditional season/episode numbering
+            if (seasonNum > highestSeason ||
+                (seasonNum == highestSeason && episodeNum > highestEpisode)) {
+                highestSeason = seasonNum;
+                highestEpisode = episodeNum;
+            }
+        }
+    }
+
+    // Format the result based on what we found
+    QString lastAvailable;
+    if (hasAbsoluteNumbering && highestAbsolute > 0) {
+        lastAvailable = QString("E%1").arg(highestAbsolute);
+    } else if (highestSeason > 0 && highestEpisode > 0) {
+        lastAvailable = QString("S%1E%2")
+            .arg(highestSeason, 2, 10, QChar('0'))
+            .arg(highestEpisode, 2, 10, QChar('0'));
+    }
+
+    return lastAvailable;
+}
+
+// Update the stored LastAvailableEP in settings
+void Operations_VP_Shows::updateLastAvailableEpisode(const QString& showFolderPath)
+{
+    qDebug() << "Operations_VP_Shows: Updating last available episode for show";
+
+    if (showFolderPath.isEmpty()) {
+        return;
+    }
+
+    QDir showDir(showFolderPath);
+    if (!showDir.exists()) {
+        return;
+    }
+
+    QStringList videoExtensions;
+    videoExtensions << "*.mmvid";
+    showDir.setNameFilters(videoExtensions);
+    QStringList videoFiles = showDir.entryList(QDir::Files);
+
+    // Convert to absolute paths
+    QStringList absolutePaths;
+    for (const QString& file : videoFiles) {
+        absolutePaths.append(showDir.absoluteFilePath(file));
+    }
+
+    // Create metadata manager
+    VP_ShowsMetadata metadataManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+
+    // Determine the last available episode
+    QString lastAvailable = determineLastAvailableEpisode(absolutePaths, metadataManager);
+
+    if (lastAvailable.isEmpty()) {
+        return;
+    }
+
+    // Update and save the settings
+    m_currentShowSettings.LastAvailableEP = lastAvailable;
+
+    VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    settingsManager.saveShowSettings(showFolderPath, m_currentShowSettings);
+
+    qDebug() << "Operations_VP_Shows: Updated LastAvailableEP to:" << lastAvailable;
 }

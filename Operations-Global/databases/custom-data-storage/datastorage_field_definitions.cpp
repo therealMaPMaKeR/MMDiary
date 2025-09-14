@@ -52,6 +52,11 @@ void DataStorage_FieldDefinitions::registerTVShowSettingsFields()
     tvShowFields.append(FieldDefinition("displayFileNames", Boolean, false, true));  // Display file names instead of episode names
     tvShowFields.append(FieldDefinition("DisplayNewEpNotif", Boolean, true, true));  // Display new episode notification
     
+    // New episode tracking fields for caching
+    tvShowFields.append(FieldDefinition("NewEPCheckDate", String, QString(""), true));  // Last date new episodes were checked (ISO format)
+    tvShowFields.append(FieldDefinition("NewAvailableEPCount", Integer, 0, true));  // Cached count of new available episodes
+    tvShowFields.append(FieldDefinition("LastAvailableEP", String, QString(""), true));  // Last available episode (S##E## or E## format)
+    
     m_fieldRegistry[TVShowSettings] = tvShowFields;
     
     qDebug() << "DataStorage_FieldDefinitions: Registered" << tvShowFields.size() 

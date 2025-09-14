@@ -20,6 +20,11 @@ public:
         bool displayFileNames = false; // Display file names instead of episode names in the tree widget
         bool DisplayNewEpNotif = true; // Display new episode notification
         
+        // New episode tracking fields for caching
+        QString NewEPCheckDate;      // Last date new episodes were checked (ISO format)
+        int NewAvailableEPCount = 0;  // Cached count of new available episodes
+        QString LastAvailableEP;      // Last available episode (S##E## or E## format)
+        
         // Additional settings can be added here in the future
         // For example:
         // int introSkipSeconds = 0;
