@@ -10257,12 +10257,17 @@ void Operations_VP_Shows::refreshShowPosterWithNotification()
     }
 
     // Then check and display new episode notification
+    // Check if TMDB is enabled globally, for this show, and if notifications are enabled
     if (VP_ShowsConfig::isTMDBEnabled() && m_currentShowSettings.useTMDB &&
+        m_currentShowSettings.DisplayNewEpNotif &&
         getShowIdAsInt(m_currentShowSettings.showId) > 0) {
-        qDebug() << "Operations_VP_Shows: Checking for new episodes";
+        qDebug() << "Operations_VP_Shows: Checking for new episodes (notifications enabled)";
         checkAndDisplayNewEpisodes(m_currentShowFolder, getShowIdAsInt(m_currentShowSettings.showId));
     } else {
-        // Clear any notification if TMDB is disabled
+        // Clear any notification if TMDB is disabled or notifications are disabled
+        qDebug() << "Operations_VP_Shows: Clearing notification - TMDB enabled:" << VP_ShowsConfig::isTMDBEnabled()
+                 << "Show uses TMDB:" << m_currentShowSettings.useTMDB
+                 << "Notifications enabled:" << m_currentShowSettings.DisplayNewEpNotif;
         displayNewEpisodeIndicator(false, 0);
     }
 }
@@ -10270,6 +10275,12 @@ void Operations_VP_Shows::refreshShowPosterWithNotification()
 
 void Operations_VP_Shows::drawNewEpisodeBadge(QPainter& painter, const QSize& posterSize, int newEpisodeCount)
 {
+    // Check if notifications are disabled for this show
+    if (!m_currentShowSettings.DisplayNewEpNotif) {
+        qDebug() << "Operations_VP_Shows: New episode notifications disabled for this show";
+        return;
+    }
+    
     if (newEpisodeCount <= 0) {
         return;
     }
