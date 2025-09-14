@@ -2157,18 +2157,26 @@ void Operations_VP_Shows::loadTVShowsList()
         
         // Add the show to the list if we have a valid name
         if (!showName.isEmpty()) {
+            // Load settings for this show to check for new episodes
+            VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+            VP_ShowsSettings::ShowSettings settings;
+            settingsManager.loadShowSettings(folderPath, settings);
+
             // Add the show name to the list widget
             QListWidgetItem* item = new QListWidgetItem();
-            
+
             // Store the folder path as user data for later use (when playing videos)
             item->setData(Qt::UserRole, folderPath);
-            
+
+            // Store additional data for new episode count (for sorting/filtering if needed)
+            item->setData(Qt::UserRole + 1, settings.NewAvailableEPCount);
+
             // Store the mapping in RAM for quick access (thread-safe)
             m_showFolderMapping.insert(showName, folderPath);
-            
+
             // Set up the item based on current view mode
             refreshShowListItem(item, showName, folderPath);
-            
+
             m_mainWindow->ui->listWidget_VP_List_List->addItem(item);
         }
     }
@@ -2336,46 +2344,58 @@ void Operations_VP_Shows::refreshShowListItem(QListWidgetItem* item, const QStri
         qDebug() << "Operations_VP_Shows: Invalid item provided to refreshShowListItem";
         return;
     }
-    
+
     qDebug() << "Operations_VP_Shows: Refreshing item for show:" << showName;
-    
+
     // Always set the text
     item->setText(showName);
-    
+
     if (m_isIconViewMode) {
+        // Load the show settings to check for new episodes
+        VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+        VP_ShowsSettings::ShowSettings settings;
+        settingsManager.loadShowSettings(folderPath, settings);
+
         // Load and set the poster icon
         QSize iconSize = m_mainWindow->ui->listWidget_VP_List_List->iconSize();
         QPixmap poster = loadShowPoster(folderPath, iconSize);
-        
+
         if (!poster.isNull()) {
+            // Add new episode indicator if needed
+            if (settings.DisplayNewEpNotif && settings.NewAvailableEPCount > 0) {
+                poster = addNewEpisodeIndicator(poster, settings.NewAvailableEPCount);
+                qDebug() << "Operations_VP_Shows: Added new episode badge for" << showName
+                         << "with" << settings.NewAvailableEPCount << "new episodes";
+            }
+
             item->setIcon(QIcon(poster));
             qDebug() << "Operations_VP_Shows: Set poster icon for show:" << showName;
         } else {
             // Set a placeholder icon
             QPixmap placeholder(iconSize);
             placeholder.fill(Qt::darkGray);
-            
+
             // Draw text on placeholder
             QPainter painter(&placeholder);
             painter.setPen(Qt::white);
             painter.setFont(QFont("Arial", 10, QFont::Bold));
             painter.drawText(placeholder.rect(), Qt::AlignCenter | Qt::TextWordWrap, "No\nPoster");
-            
+
             item->setIcon(QIcon(placeholder));
             qDebug() << "Operations_VP_Shows: Set placeholder icon for show:" << showName;
         }
-        
+
         // Set text alignment for icon mode
         item->setTextAlignment(Qt::AlignHCenter | Qt::AlignTop);
     } else {
         // In list mode, clear the icon or set a small one
         item->setIcon(QIcon());  // Clear icon in list mode
         item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-        
+
         // Reset size hint to default for list mode to prevent large gaps
         item->setSizeHint(QSize());
     }
-    
+
     // Force layout update after changing item properties
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->listWidget_VP_List_List) {
         m_mainWindow->ui->listWidget_VP_List_List->doItemsLayout();
