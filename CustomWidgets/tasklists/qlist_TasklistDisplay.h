@@ -239,19 +239,29 @@ protected:
 
     // Additional drag and drop event handlers for more control if needed
     void dragEnterEvent(QDragEnterEvent *event) override {
-        // Accept both internal moves and external task drops
-        if (event->mimeData()->hasFormat("application/x-task-data")) {
-            event->ignore();  // Don't accept task drops back into the same list
+        // Check if this is an internal drag (reordering within the same list)
+        if (event->source() == this) {
+            // Internal drag - allow reordering
+            QListWidget::dragEnterEvent(event);
+        } else if (event->mimeData()->hasFormat("application/x-task-data")) {
+            // External drag with task data - reject to prevent duplication
+            event->ignore();
         } else {
+            // Other drag types - let base class handle
             QListWidget::dragEnterEvent(event);
         }
     }
 
     void dragMoveEvent(QDragMoveEvent *event) override {
-        // Accept both internal moves and external task drops
-        if (event->mimeData()->hasFormat("application/x-task-data")) {
-            event->ignore();  // Don't accept task drops back into the same list
+        // Check if this is an internal drag (reordering within the same list)
+        if (event->source() == this) {
+            // Internal drag - allow reordering
+            QListWidget::dragMoveEvent(event);
+        } else if (event->mimeData()->hasFormat("application/x-task-data")) {
+            // External drag with task data - reject to prevent duplication
+            event->ignore();
         } else {
+            // Other drag types - let base class handle
             QListWidget::dragMoveEvent(event);
         }
     }
