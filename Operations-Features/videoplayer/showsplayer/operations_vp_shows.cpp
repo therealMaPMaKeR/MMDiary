@@ -2758,9 +2758,29 @@ QPixmap Operations_VP_Shows::addNewEpisodeIndicator(const QPixmap& originalPoste
     int y = margin;
     
     // Load the custom new episode icon from resources
-    QPixmap newEpisodeIcon(":/icons/newepavailable.png");
+    // Try multiple methods to ensure we load the icon
+    QPixmap newEpisodeIcon;
+    
+    // Method 1: Direct QPixmap load
+    newEpisodeIcon.load(":/icons/newepavailable.png");
+    
+    // Method 2: If that fails, try via QIcon
+    if (newEpisodeIcon.isNull()) {
+        qDebug() << "Operations_VP_Shows: Direct QPixmap load failed, trying QIcon method";
+        QIcon icon(":/icons/newepavailable.png");
+        if (!icon.isNull()) {
+            newEpisodeIcon = icon.pixmap(iconSize, iconSize);
+        }
+    }
+    
+    // Method 3: Try without the colon prefix in case it's different
+    if (newEpisodeIcon.isNull()) {
+        qDebug() << "Operations_VP_Shows: QIcon method failed, trying alternate path";
+        newEpisodeIcon.load("icons/newepavailable.png");
+    }
     
     if (!newEpisodeIcon.isNull()) {
+        qDebug() << "Operations_VP_Shows: Successfully loaded newepavailable.png icon";
         // Scale the icon to the desired size
         QPixmap scaledIcon = newEpisodeIcon.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         
