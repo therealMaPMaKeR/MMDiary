@@ -20,6 +20,7 @@
 #include "vp_shows_metadata.h"
 #include "vp_shows_episode_detector.h"
 #include "../../../Operations-Global/ThreadSafeContainers.h"
+#include "vp_shows_newepisode_checker.h"
 
 // Forward declarations
 class MainWindow;
@@ -110,6 +111,15 @@ private:
         Watched = 1,
         PartiallyWatched = 2
     };
+
+    // New episode checker for background checking
+    std::unique_ptr<VP_ShowsNewEpisodeCheckerManager> m_episodeCheckerManager;
+
+    // Update show poster in list with new episode badge
+    void updateShowPosterInList(const QString& folderPath, int newEpisodeCount);
+
+    // Start background checking for new episodes
+    void startBackgroundEpisodeCheck();
 
     void refreshShowPosterWithNotification();
 

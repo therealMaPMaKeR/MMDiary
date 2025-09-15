@@ -124,6 +124,26 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     m_episodeDetector = std::make_unique<VP_ShowsEpisodeDetector>(m_mainWindow);
     qDebug() << "Operations_VP_Shows: Initialized episode detector";
     
+    // Initialize new episode checker manager
+    m_episodeCheckerManager = std::make_unique<VP_ShowsNewEpisodeCheckerManager>(m_mainWindow, this);
+
+    // Connect signals for new episode detection
+    connect(m_episodeCheckerManager.get(), &VP_ShowsNewEpisodeCheckerManager::newEpisodesFound,
+            this, [this](const QString& folderPath, int newEpisodeCount) {
+                qDebug() << "Operations_VP_Shows: New episodes found for" << folderPath
+                         << "Count:" << newEpisodeCount;
+
+                // Update the poster for this show in the list
+                updateShowPosterInList(folderPath, newEpisodeCount);
+            });
+
+    connect(m_episodeCheckerManager.get(), &VP_ShowsNewEpisodeCheckerManager::checkingFinished,
+            this, [](int showsChecked, int showsWithNewEpisodes) {
+                qDebug() << "Operations_VP_Shows: Episode checking completed."
+                         << "Checked:" << showsChecked
+                         << "Shows with new episodes:" << showsWithNewEpisodes;
+            });
+
     // Connect the Add Show button if it exists
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->pushButton_VP_List_AddShow) {
         connect(m_mainWindow->ui->pushButton_VP_List_AddShow, &QPushButton::clicked,
@@ -288,6 +308,12 @@ Operations_VP_Shows::~Operations_VP_Shows()
 {
     qDebug() << "Operations_VP_Shows: Destructor called";
     
+    // Cancel any ongoing episode checking
+    if (m_episodeCheckerManager && m_episodeCheckerManager->isChecking()) {
+        qDebug() << "Operations_VP_Shows: Cancelling episode checking";
+        m_episodeCheckerManager->cancelChecking();
+    }
+
     // Reset autoplay flags to prevent stuck state
     if (m_isAutoplayInProgress) {
         qDebug() << "Operations_VP_Shows: WARNING - Destructor called while autoplay in progress, resetting flag";
@@ -376,6 +402,7 @@ Operations_VP_Shows::~Operations_VP_Shows()
     }
     
     // Playback speeds are now handled globally in BaseVideoPlayer
+
 }
 
 // ============================================================================
@@ -2188,6 +2215,9 @@ void Operations_VP_Shows::loadTVShowsList()
     
     qDebug() << "Operations_VP_Shows: Finished loading shows. Total shows:" 
              << safeGetListItemCount(m_mainWindow->ui->listWidget_VP_List_List);
+
+    // Start background checking for new episodes
+    startBackgroundEpisodeCheck();
 }
 
 void Operations_VP_Shows::refreshTVShowsList()
@@ -10525,4 +10555,118 @@ void Operations_VP_Shows::updateLastAvailableEpisode(const QString& showFolderPa
     settingsManager.saveShowSettings(showFolderPath, m_currentShowSettings);
 
     qDebug() << "Operations_VP_Shows: Updated LastAvailableEP to:" << lastAvailable;
+}
+
+void Operations_VP_Shows::updateShowPosterInList(const QString& folderPath, int newEpisodeCount)
+{
+    qDebug() << "Operations_VP_Shows: Updating poster for show at" << folderPath
+             << "with" << newEpisodeCount << "new episodes";
+
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->listWidget_VP_List_List) {
+        qDebug() << "Operations_VP_Shows: UI elements not available";
+        return;
+    }
+
+    // Find the list item for this show
+    int itemCount = safeGetListItemCount(m_mainWindow->ui->listWidget_VP_List_List);
+    for (int i = 0; i < itemCount; ++i) {
+        QListWidgetItem* item = safeGetListItem(m_mainWindow->ui->listWidget_VP_List_List, i);
+        if (item) {
+            QString itemFolderPath = item->data(Qt::UserRole).toString();
+
+            if (itemFolderPath == folderPath) {
+                qDebug() << "Operations_VP_Shows: Found list item for show, updating poster";
+
+                // Get the show name
+                QString showName = item->text();
+
+                // Load the poster
+                QPixmap poster = loadShowPoster(folderPath, QSize(200, 300));
+
+                if (!poster.isNull() && newEpisodeCount > 0) {
+                    // Add the new episode indicator
+                    poster = addNewEpisodeIndicator(poster, newEpisodeCount);
+                    qDebug() << "Operations_VP_Shows: Added new episode badge to poster";
+                }
+
+                // Update the icon
+                if (!poster.isNull()) {
+                    item->setIcon(QIcon(poster));
+                }
+
+                break;
+            }
+        }
+    }
+}
+
+void Operations_VP_Shows::startBackgroundEpisodeCheck()
+{
+    qDebug() << "Operations_VP_Shows: Starting background episode check";
+
+    if (!m_episodeCheckerManager) {
+        qDebug() << "Operations_VP_Shows: Episode checker manager not initialized";
+        return;
+    }
+
+    // Check if TMDB is enabled globally
+    if (!VP_ShowsConfig::isTMDBEnabled()) {
+        qDebug() << "Operations_VP_Shows: TMDB disabled globally, skipping episode check";
+        return;
+    }
+
+    // Collect all shows information
+    QList<VP_ShowsNewEpisodeChecker::ShowInfo> showsList;
+
+    // Iterate through the show folder mapping to get all shows
+    m_showFolderMapping.safeIterate([this, &showsList](const QString& showName, const QString& folderPath) {
+        VP_ShowsNewEpisodeChecker::ShowInfo showInfo;
+        showInfo.showName = showName;
+        showInfo.folderPath = folderPath;
+
+        // Load settings for this show
+        VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+        VP_ShowsSettings::ShowSettings settings;
+
+        if (settingsManager.loadShowSettings(folderPath, settings)) {
+            // Get TMDB ID
+            bool idOk = false;
+            int tmdbId = settings.showId.toInt(&idOk);
+
+            if (idOk && tmdbId > 0) {
+                showInfo.tmdbId = tmdbId;
+            } else {
+                showInfo.tmdbId = 0;
+            }
+
+            showInfo.useTMDB = settings.useTMDB;
+            showInfo.displayNewEpNotif = settings.DisplayNewEpNotif;
+            showInfo.currentNewEPCount = settings.NewAvailableEPCount;
+
+            qDebug() << "Operations_VP_Shows: Added show to check list:" << showName
+                     << "TMDB ID:" << showInfo.tmdbId
+                     << "Use TMDB:" << showInfo.useTMDB
+                     << "Display notif:" << showInfo.displayNewEpNotif
+                     << "Current new count:" << showInfo.currentNewEPCount;
+        } else {
+            qDebug() << "Operations_VP_Shows: Failed to load settings for" << showName;
+            // Still add the show but with default values
+            showInfo.tmdbId = 0;
+            showInfo.useTMDB = false;
+            showInfo.displayNewEpNotif = true;
+            showInfo.currentNewEPCount = 0;
+        }
+
+        showsList.append(showInfo);
+    });
+
+    if (showsList.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No shows to check";
+        return;
+    }
+
+    qDebug() << "Operations_VP_Shows: Starting background check for" << showsList.size() << "shows";
+
+    // Start the background checking
+    m_episodeCheckerManager->startChecking(showsList);
 }

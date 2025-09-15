@@ -359,6 +359,7 @@ SOURCES += \
     Operations-Features/settings/operations_settings.cpp \
     Operations-Features/tasklists/operations_tasklists.cpp \
     Operations-Features/videoplayer/BaseVideoPlayer.cpp \
+    Operations-Features/videoplayer/showsplayer/vp_shows_newepisode_checker.cpp \
     Operations-Features/videoplayer/vrplayer/vr_openvr_manager.cpp \
     Operations-Features/videoplayer/vrplayer/vr_video_renderer.cpp \
     Operations-Features/videoplayer/vrplayer/vr_video_player.cpp \
@@ -428,6 +429,7 @@ HEADERS += \
     Operations-Features/settings/operations_settings.h \
     Operations-Features/tasklists/operations_tasklists.h \
     Operations-Features/videoplayer/BaseVideoPlayer.h \
+    Operations-Features/videoplayer/showsplayer/vp_shows_newepisode_checker.h \
     Operations-Features/videoplayer/vrplayer/vr_openvr_manager.h \
     Operations-Features/videoplayer/vrplayer/vr_video_renderer.h \
     Operations-Features/videoplayer/vrplayer/vr_video_player.h \
