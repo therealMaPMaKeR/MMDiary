@@ -25,18 +25,38 @@ VOLUME:
 -------
 • Up Arrow               - Increase volume by 5%
 • Down Arrow             - Decrease volume by 5%
+• M                      - Toggle mute/unmute
 • Mouse Wheel Up         - Increase volume
 • Mouse Wheel Down       - Decrease volume
 
 PLAYBACK SPEED:
 ---------------
-• Ctrl + Up Arrow        - Increase playback speed (next preset)
-• Ctrl + Down Arrow      - Decrease playback speed (previous preset)
+• Ctrl + Up Arrow        - Increase playback speed by 0.1x
+• Ctrl + Down Arrow      - Decrease playback speed by 0.1x
+• Ctrl + Mouse Wheel Up  - Increase playback speed by 0.1x
+• Ctrl + Mouse Wheel Down - Decrease playback speed by 0.1x
 
 DISPLAY:
 --------
 • F11                    - Toggle fullscreen mode
-• Escape                 - Exit fullscreen mode
+• Double-click video     - Toggle fullscreen mode
+• Escape                 - Exit fullscreen mode (or close player if not fullscreen)
+
+
+========================================================================
+                    SHOWS VIDEO PLAYER KEYBINDS
+========================================================================
+
+The Shows Video Player has all the standard video player keybinds plus these
+additional shortcuts for TV show/episode navigation:
+
+SEEKING (SHOWS-SPECIFIC):
+-------------------------
+• Ctrl + Left Arrow      - Jump to beginning of video
+• Ctrl + Right Arrow     - Jump to end of video (1 second before end)
+
+Note: These override the standard Ctrl+Left/Right behavior when using the
+Shows Video Player for TV episodes.
 
 
 ========================================================================
@@ -124,10 +144,11 @@ CONTROLLER NOTES:
 ========================================================================
 
 1. The Standard Video Player is used for regular video playback
-2. The VR Video Player is specifically for VR/360/180-degree videos
-3. In fullscreen mode, moving the mouse will show/hide controls
-4. Controls auto-hide after 3 seconds of inactivity in fullscreen
-5. Volume can be adjusted up to 200% in the Standard Video Player
-6. VR mode requires SteamVR to be installed and running
+2. The Shows Video Player is used for TV show episodes with episode tracking
+3. The VR Video Player is specifically for VR/360/180-degree videos
+4. In fullscreen mode, moving the mouse will show/hide controls
+5. Controls auto-hide after 3 seconds of inactivity in fullscreen
+6. Volume can be adjusted up to 200% in the Standard and Shows Video Players
+7. VR mode requires SteamVR to be installed and running
 
 ========================================================================
