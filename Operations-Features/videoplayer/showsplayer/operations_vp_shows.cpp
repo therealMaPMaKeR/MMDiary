@@ -1147,6 +1147,9 @@ void Operations_VP_Shows::importTVShow()
     
     // Show the add show dialog
     VP_ShowsAddDialog addDialog(folderName, m_mainWindow);
+    // Pass MainWindow settings to the dialog
+    addDialog.setDefaultSettings(m_mainWindow->setting_VP_Shows_UseTMDB,
+                                m_mainWindow->setting_VP_Shows_FileFolderParsing);
     if (addDialog.exec() != QDialog::Accepted) {
         qDebug() << "Operations_VP_Shows: Add show dialog cancelled";
         return;
@@ -5428,6 +5431,10 @@ void Operations_VP_Shows::addEpisodesToShow()
     // Show the add episodes dialog with the show name pre-filled and disabled
     VP_ShowsAddDialog addDialog(showName, m_mainWindow);
     
+    // Pass MainWindow settings to the dialog
+    addDialog.setDefaultSettings(m_mainWindow->setting_VP_Shows_UseTMDB,
+                                m_mainWindow->setting_VP_Shows_FileFolderParsing);
+
     // Set the show name field as read-only since we're adding to an existing show
     addDialog.setShowNameReadOnly(true);
     addDialog.setWindowTitle(tr("Add Episodes to %1").arg(showName));
@@ -5435,6 +5442,7 @@ void Operations_VP_Shows::addEpisodesToShow()
     // Initialize with existing show data (poster and description)
     addDialog.initializeForExistingShow(showPath, m_mainWindow->user_Key, m_mainWindow->user_Username);
     
+
     if (addDialog.exec() != QDialog::Accepted) {
         qDebug() << "Operations_VP_Shows: Add episodes dialog cancelled";
         return;

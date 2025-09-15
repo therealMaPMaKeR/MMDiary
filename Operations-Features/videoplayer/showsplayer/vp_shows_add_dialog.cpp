@@ -72,6 +72,8 @@ VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     ui->textBrowser_ShowDescription->clear();  // Clear any default HTML
     ui->textBrowser_ShowDescription->setPlainText(m_originalDescription);
     
+
+    
     // Connect signals
     connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &VP_ShowsAddDialog::on_buttonBox_accepted);
     connect(ui->buttonBox, &QDialogButtonBox::rejected, this, &VP_ShowsAddDialog::on_buttonBox_rejected);
@@ -162,6 +164,25 @@ VP_ShowsAddDialog::~VP_ShowsAddDialog()
     }
     
     delete ui;
+}
+
+void VP_ShowsAddDialog::setDefaultSettings(bool useTMDB, int fileFolderParsing)
+{
+    qDebug() << "VP_ShowsAddDialog: Setting default settings - UseTMDB:" << useTMDB
+             << "FileFolderParsing:" << fileFolderParsing;
+
+    // Set TMDB checkbox
+    ui->checkBox_UseTMDB->setChecked(useTMDB);
+
+    // Set parsing mode radio buttons
+    // 0 = Folder Name, 1 = File Name
+    if (fileFolderParsing == 0) {
+        ui->radioButton_FolderName->setChecked(true);
+        ui->radioButton_FileName->setChecked(false);
+    } else {
+        ui->radioButton_FolderName->setChecked(false);
+        ui->radioButton_FileName->setChecked(true);
+    }
 }
 
 QString VP_ShowsAddDialog::getShowName() const
@@ -475,11 +496,12 @@ void VP_ShowsAddDialog::loadShowSettings(const QString& showPath, const QByteArr
         m_existingSkipOutro = settings.skipOutro;
         m_existingUseTMDB = settings.useTMDB;
     } else {
-        qDebug() << "VP_ShowsAddDialog: No settings file found or failed to load, using defaults";
-        // Keep default values (Autoplay on, Skip Intro/Outro off, TMDB on)
-        ui->checkBox_UseTMDB->setChecked(true);
+        qDebug() << "VP_ShowsAddDialog: No settings file found or failed to load, will use defaults from MainWindow";
+        // Note: MainWindow will pass its settings via setDefaultSettings() after construction
         m_settingsLoaded = false;
     }
+    
+    // Note: Parsing mode (Folder vs File) is not stored per-show, so we keep the MainWindow setting
 }
 
 void VP_ShowsAddDialog::setupAutofillUI()

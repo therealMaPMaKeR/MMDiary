@@ -27,6 +27,9 @@ public:
     QString getLanguage() const;
     QString getTranslationMode() const;
     
+    // Set default settings from MainWindow
+    void setDefaultSettings(bool useTMDB, int fileFolderParsing);
+
     // Getters for custom poster and description
     QPixmap getCustomPoster() const;
     QString getCustomDescription() const;
