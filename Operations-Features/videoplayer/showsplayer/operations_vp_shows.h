@@ -304,11 +304,8 @@ public:
     VP_ShowsSettings::ShowSettings m_currentShowSettings;
     
     // Dialog settings stored for later use
-    bool m_dialogAutoplay;
-    bool m_dialogSkipIntro;
-    bool m_dialogSkipOutro;
-    bool m_dialogUseTMDB;
-    QString m_dialogShowName;
+    bool m_dialogUseTMDB;  // Whether to use TMDB (from add dialog)
+    QString m_dialogShowName;  // Show name from add dialog
     int m_dialogShowId = 0;  // Store the selected TMDB show ID
 
     // Store the import output path for use in onEncryptionComplete

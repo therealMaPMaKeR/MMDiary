@@ -1704,10 +1704,29 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                 }
                 // For existing shows, showId is already preserved from loading
                 
-                settings.autoplay = m_dialogAutoplay;
-                settings.skipIntro = m_dialogSkipIntro;
-                settings.skipOutro = m_dialogSkipOutro;
-                settings.useTMDB = m_dialogUseTMDB;
+                // Use the customizable settings from mainwindow as default values for new shows
+                if (!m_isUpdatingExistingShow) {
+                    // For new shows, use the settings from mainwindow
+                    settings.autoplay = m_mainWindow->setting_VP_Shows_Autoplay;
+                    settings.autoplayRandom = m_mainWindow->setting_VP_Shows_AutoplayRand;
+                    settings.useTMDB = m_dialogUseTMDB;  // Use the dialog choice, not mainwindow default
+                    settings.displayFileNames = m_mainWindow->setting_VP_Shows_DisplayFilenames;
+                    settings.DisplayNewEpNotif = m_mainWindow->setting_VP_Shows_CheckNewEP;
+                    
+                    // Skip intro/outro default to false (these aren't in the mainwindow settings)
+                    settings.skipIntro = false;
+                    settings.skipOutro = false;
+                    
+                    qDebug() << "Operations_VP_Shows: Using mainwindow default settings for new show:";
+                    qDebug() << "  Autoplay:" << settings.autoplay;
+                    qDebug() << "  AutoplayRandom:" << settings.autoplayRandom;
+                    qDebug() << "  UseTMDB:" << settings.useTMDB << "(from dialog choice)";
+                    qDebug() << "  DisplayFileNames:" << settings.displayFileNames;
+                    qDebug() << "  DisplayNewEpNotif:" << settings.DisplayNewEpNotif;
+                } else {
+                    // For existing shows, preserve current settings (already loaded above)
+                    qDebug() << "Operations_VP_Shows: Preserving existing show settings";
+                }
                 
                 qDebug() << "Operations_VP_Shows: Final settings - ShowID:" << settings.showId 
                          << "UseTMDB:" << settings.useTMDB << "ShowName:" << settings.showName;
