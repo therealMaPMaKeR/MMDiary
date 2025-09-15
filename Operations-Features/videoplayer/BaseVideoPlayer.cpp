@@ -111,6 +111,7 @@ BaseVideoPlayer::BaseVideoPlayer(QWidget *parent, int initialVolume)
     , m_playButton(nullptr)
     , m_stopButton(nullptr)
     , m_fullScreenButton(nullptr)
+    , m_muteButton(nullptr)
     , m_positionSlider(nullptr)
     , m_volumeSlider(nullptr)
     , m_positionLabel(nullptr)
@@ -122,6 +123,8 @@ BaseVideoPlayer::BaseVideoPlayer(QWidget *parent, int initialVolume)
     , m_sliderLayout(nullptr)
     , m_isSliderBeingMoved(false)
     , m_isFullScreen(false)
+    , m_isMuted(false)
+    , m_volumeBeforeMute(70)
     , m_isClosing(false)
     , m_playbackStartedEmitted(false)
     , m_cursorTimer(nullptr)
@@ -327,6 +330,12 @@ void BaseVideoPlayer::createControls()
     m_fullScreenButton->setToolTip(tr("Full Screen (F11)"));
     m_fullScreenButton->setFocusPolicy(Qt::NoFocus);
     
+    // Mute button
+    m_muteButton = new QPushButton(this);
+    m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolume));
+    m_muteButton->setToolTip(tr("Mute (M)"));
+    m_muteButton->setFocusPolicy(Qt::NoFocus);
+    
     // Position slider - use custom clickable slider
     m_positionSlider = createClickableSlider();
     m_positionSlider->setRange(0, 0);
@@ -393,6 +402,7 @@ void BaseVideoPlayer::createLayouts()
     m_sliderLayout->addWidget(m_positionSlider, 1);
     m_sliderLayout->addWidget(m_durationLabel);
     m_sliderLayout->addSpacing(20);
+    m_sliderLayout->addWidget(m_muteButton);
     m_sliderLayout->addWidget(m_volumeLabel);
     m_sliderLayout->addWidget(m_volumeSlider);
     m_sliderLayout->addSpacing(20);
@@ -434,6 +444,11 @@ void BaseVideoPlayer::connectSignals()
     if (m_fullScreenButton) {
         connect(m_fullScreenButton, &QPushButton::clicked,
                 this, &BaseVideoPlayer::on_fullScreenButton_clicked);
+    }
+    
+    if (m_muteButton) {
+        connect(m_muteButton, &QPushButton::clicked,
+                this, &BaseVideoPlayer::on_muteButton_clicked);
     }
     
     // Slider signals - check pointers before connecting
@@ -640,8 +655,20 @@ void BaseVideoPlayer::setVolume(int volume)
         m_volumeSlider->setValue(volume);
     }
     
-    // Save volume for next session
-    s_lastVolume = volume;
+    // If we're setting a non-zero volume and we're muted, unmute
+    if (volume > 0 && m_isMuted) {
+        m_isMuted = false;
+        if (m_muteButton) {
+            m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolume));
+            m_muteButton->setToolTip(tr("Mute (M)"));
+        }
+    }
+    
+    // Save volume for next session (but not if we're muted)
+    if (!m_isMuted) {
+        s_lastVolume = volume;
+        m_volumeBeforeMute = volume;  // Update the pre-mute volume
+    }
     
     emit volumeChanged(volume);
 }
@@ -694,6 +721,60 @@ void BaseVideoPlayer::setPlaybackSpeed(qreal speed)
     s_lastPlaybackSpeed = speed;
     
     emit playbackSpeedChanged(speed);
+}
+
+void BaseVideoPlayer::toggleMute()
+{
+    qDebug() << "BaseVideoPlayer: Toggle mute called, current mute state:" << m_isMuted;
+    
+    if (m_isMuted) {
+        // Unmute - restore previous volume
+        qDebug() << "BaseVideoPlayer: Unmuting, restoring volume to" << m_volumeBeforeMute << "%";
+        m_isMuted = false;
+        
+        // Restore the previous volume
+        if (m_mediaPlayer) {
+            m_mediaPlayer->setVolume(m_volumeBeforeMute);
+        }
+        
+        // Update UI
+        if (m_volumeSlider) {
+            m_volumeSlider->setValue(m_volumeBeforeMute);
+        }
+        if (m_volumeLabel) {
+            m_volumeLabel->setText(tr("Vol (%1%):").arg(m_volumeBeforeMute));
+        }
+        if (m_muteButton) {
+            m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolume));
+            m_muteButton->setToolTip(tr("Mute (M)"));
+        }
+        
+        emit volumeChanged(m_volumeBeforeMute);
+    } else {
+        // Mute - save current volume and set to 0
+        m_volumeBeforeMute = volume();
+        qDebug() << "BaseVideoPlayer: Muting, saving current volume" << m_volumeBeforeMute << "%";
+        m_isMuted = true;
+        
+        // Set volume to 0
+        if (m_mediaPlayer) {
+            m_mediaPlayer->setVolume(0);
+        }
+        
+        // Update UI
+        if (m_volumeSlider) {
+            m_volumeSlider->setValue(0);
+        }
+        if (m_volumeLabel) {
+            m_volumeLabel->setText(tr("Vol (0%):"));
+        }
+        if (m_muteButton) {
+            m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolumeMuted));
+            m_muteButton->setToolTip(tr("Unmute (M)"));
+        }
+        
+        emit volumeChanged(0);
+    }
 }
 
 void BaseVideoPlayer::toggleFullScreen()
@@ -852,6 +933,11 @@ int BaseVideoPlayer::volume() const
     return m_mediaPlayer ? m_mediaPlayer->volume() : 0;
 }
 
+bool BaseVideoPlayer::isMuted() const
+{
+    return m_isMuted;
+}
+
 qreal BaseVideoPlayer::playbackSpeed() const
 {
     return m_mediaPlayer ? static_cast<qreal>(m_mediaPlayer->playbackRate()) : 1.0;
@@ -918,6 +1004,15 @@ void BaseVideoPlayer::on_fullScreenButton_clicked()
 {
     qDebug() << "BaseVideoPlayer: Fullscreen button clicked";
     toggleFullScreen();
+    
+    // Return focus to main widget for keyboard shortcuts
+    ensureKeyboardFocus();
+}
+
+void BaseVideoPlayer::on_muteButton_clicked()
+{
+    qDebug() << "BaseVideoPlayer: Mute button clicked";
+    toggleMute();
     
     // Return focus to main widget for keyboard shortcuts
     ensureKeyboardFocus();
@@ -1089,6 +1184,15 @@ void BaseVideoPlayer::closeEvent(QCloseEvent *event)
         s_lastUsedScreen = getCurrentScreen();
         s_hasStoredSettings = true;
         
+        // Save the correct volume (pre-mute volume if currently muted)
+        if (m_isMuted) {
+            qDebug() << "BaseVideoPlayer: Player is muted, saving pre-mute volume:" << m_volumeBeforeMute;
+            s_lastVolume = m_volumeBeforeMute;
+        } else {
+            qDebug() << "BaseVideoPlayer: Saving current volume:" << volume();
+            s_lastVolume = volume();
+        }
+        
         // Get final position before stopping
         qint64 finalPosition = m_mediaPlayer ? m_mediaPlayer->position() : 0;
         
@@ -1151,6 +1255,12 @@ void BaseVideoPlayer::keyPressEvent(QKeyEvent *event)
     switch (event->key()) {
         case Qt::Key_Space:
             on_playButton_clicked();
+            event->accept();
+            break;
+            
+        case Qt::Key_M:
+            // M key for mute/unmute
+            toggleMute();
             event->accept();
             break;
             

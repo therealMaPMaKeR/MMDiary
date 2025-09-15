@@ -50,6 +50,7 @@ public:
     virtual void setVolume(int volume);
     virtual void setPosition(qint64 position);
     virtual void setPlaybackSpeed(qreal speed);
+    virtual void toggleMute();  // Toggle mute state
     
     // Fullscreen management
     virtual void toggleFullScreen();
@@ -63,6 +64,7 @@ public:
     qint64 duration() const;
     qint64 position() const;
     int volume() const;
+    bool isMuted() const;  // Query mute state
     qreal playbackSpeed() const;
     QString currentVideoPath() const;
     
@@ -94,6 +96,7 @@ protected slots:
     virtual void on_volumeSlider_sliderMoved(int position);
     virtual void on_speedSpinBox_valueChanged(double value);
     virtual void on_fullScreenButton_clicked();
+    virtual void on_muteButton_clicked();  // Mute button handler
     
     // Media player slots
     virtual void updatePosition(qint64 position);
@@ -146,6 +149,7 @@ protected:
     QPointer<QPushButton> m_playButton;
     QPointer<QPushButton> m_stopButton;
     QPointer<QPushButton> m_fullScreenButton;
+    QPointer<QPushButton> m_muteButton;  // Mute button
     QPointer<QSlider> m_positionSlider;
     QPointer<QSlider> m_volumeSlider;
     QPointer<QDoubleSpinBox> m_speedSpinBox;
@@ -164,6 +168,8 @@ protected:
     QString m_currentVideoPath;
     bool m_isSliderBeingMoved;
     bool m_isFullScreen;
+    bool m_isMuted;  // Track mute state
+    int m_volumeBeforeMute;  // Remember volume before muting
     QRect m_normalGeometry;
     QMargins m_normalMargins;
     bool m_isClosing;
