@@ -2037,6 +2037,10 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
         // Refresh the poster to update the badge
         qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
         refreshShowPosterWithNotification();
+        
+        // Also update the poster in the TV shows list
+        qDebug() << "Operations_VP_Shows: Updating poster in TV shows list";
+        updateShowPosterInList(m_currentShowFolder, m_currentShowNewEpisodeCount);
     }
 
     // Clear the stored output path
@@ -7752,6 +7756,10 @@ void Operations_VP_Shows::editEpisodeMetadata()
         // Refresh the poster to update the badge
         qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
         refreshShowPosterWithNotification();
+        
+        // Also update the poster in the TV shows list
+        qDebug() << "Operations_VP_Shows: Updating poster in TV shows list";
+        updateShowPosterInList(m_currentShowFolder, m_currentShowNewEpisodeCount);
     } else {
         qDebug() << "Operations_VP_Shows: User cancelled metadata editing";
     }
@@ -7824,6 +7832,10 @@ void Operations_VP_Shows::editMultipleEpisodesMetadata()
         // Refresh the poster to update the badge
         qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
         refreshShowPosterWithNotification();
+        
+        // Also update the poster in the TV shows list
+        qDebug() << "Operations_VP_Shows: Updating poster in TV shows list";
+        updateShowPosterInList(m_currentShowFolder, m_currentShowNewEpisodeCount);
     } else {
         qDebug() << "Operations_VP_Shows: User cancelled multiple metadata editing";
     }
@@ -7917,6 +7929,10 @@ void Operations_VP_Shows::reacquireTMDBFromContextMenu()
         qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
         refreshShowPosterWithNotification();
         
+        // Also update the poster in the TV shows list
+        qDebug() << "Operations_VP_Shows: Updating poster in TV shows list";
+        updateShowPosterInList(m_currentShowFolder, m_currentShowNewEpisodeCount);
+        
     } else {
         // Multiple episodes - call the existing multiple episodes function
         qDebug() << "Operations_VP_Shows: Multiple episodes TMDB re-acquisition for" << m_contextMenuEpisodePaths.size() << "files";
@@ -7935,6 +7951,10 @@ void Operations_VP_Shows::reacquireTMDBFromContextMenu()
         // Refresh the poster to update the badge
         qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
         refreshShowPosterWithNotification();
+        
+        // Also update the poster in the TV shows list
+        qDebug() << "Operations_VP_Shows: Updating poster in TV shows list";
+        updateShowPosterInList(m_currentShowFolder, m_currentShowNewEpisodeCount);
     }
 }
 
@@ -8803,6 +8823,10 @@ void Operations_VP_Shows::deleteEpisodeFromContextMenu()
                 // Refresh the poster to update the badge
                 qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
                 refreshShowPosterWithNotification();
+                
+                // Also update the poster in the TV shows list
+                qDebug() << "Operations_VP_Shows: Updating poster in TV shows list";
+                updateShowPosterInList(m_currentShowFolder, m_currentShowNewEpisodeCount);
             }
         }
     }
@@ -10846,6 +10870,11 @@ void Operations_VP_Shows::updateShowPosterInList(const QString& folderPath, int 
         return;
     }
 
+    // Load show settings to check DisplayNewEpNotif
+    VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    VP_ShowsSettings::ShowSettings settings;
+    settingsManager.loadShowSettings(folderPath, settings);
+
     // Find the list item for this show
     int itemCount = safeGetListItemCount(m_mainWindow->ui->listWidget_VP_List_List);
     for (int i = 0; i < itemCount; ++i) {
@@ -10862,13 +10891,16 @@ void Operations_VP_Shows::updateShowPosterInList(const QString& folderPath, int 
                 // Load the poster
                 QPixmap poster = loadShowPoster(folderPath, QSize(200, 300));
 
-                if (!poster.isNull() && newEpisodeCount > 0) {
+                // Only add badge if DisplayNewEpNotif is enabled and we have new episodes
+                if (!poster.isNull() && newEpisodeCount > 0 && settings.DisplayNewEpNotif) {
                     // Add the new episode indicator
                     poster = addNewEpisodeIndicator(poster, newEpisodeCount);
                     qDebug() << "Operations_VP_Shows: Added new episode badge to poster";
+                } else if (!settings.DisplayNewEpNotif && newEpisodeCount > 0) {
+                    qDebug() << "Operations_VP_Shows: New episodes available but notifications disabled for this show";
                 }
 
-                // Update the icon
+                // Update the icon (always update even without badge to clear old badges)
                 if (!poster.isNull()) {
                     item->setIcon(QIcon(poster));
                 }
