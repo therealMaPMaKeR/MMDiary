@@ -351,6 +351,7 @@ public:
     // New episode detection
     void checkAndDisplayNewEpisodes(const QString& showFolderPath, int tmdbShowId);
     void displayNewEpisodeIndicator(bool hasNewEpisodes, int newEpisodeCount);
+    void checkCurrentShowForNewEpisodes(bool forceCheck = false);  // Add force parameter to bypass daily check
     
     // Track new episode status for current show
     bool m_currentShowHasNewEpisodes = false;

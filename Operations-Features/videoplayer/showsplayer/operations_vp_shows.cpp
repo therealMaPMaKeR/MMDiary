@@ -2029,6 +2029,10 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
         m_currentImportOutputPath == m_currentShowFolder) {
         qDebug() << "Operations_VP_Shows: Added episodes to currently displayed show, reloading episode tree";
         loadShowEpisodes(m_currentShowFolder);
+        
+        // Force check for new episodes after adding episodes (bypass daily check)
+        qDebug() << "Operations_VP_Shows: Force checking for new episodes after adding episodes";
+        checkCurrentShowForNewEpisodes(true);
     }
 
     // Clear the stored output path
@@ -5072,6 +5076,75 @@ void Operations_VP_Shows::checkAndDisplayNewEpisodes(const QString& showFolderPa
         qDebug() << "Operations_VP_Shows: No new episodes detected";
         displayNewEpisodeIndicator(false, 0);
     }
+}
+
+void Operations_VP_Shows::checkCurrentShowForNewEpisodes(bool forceCheck)
+{
+    qDebug() << "Operations_VP_Shows: Checking current show for new episodes (force:" << forceCheck << ")";
+
+    // Check if we have a current show loaded
+    if (m_currentShowFolder.isEmpty()) {
+        qDebug() << "Operations_VP_Shows: No current show loaded";
+        return;
+    }
+
+    // Check basic requirements
+    if (!VP_ShowsConfig::isTMDBEnabled() || !m_currentShowSettings.useTMDB ||
+        getShowIdAsInt(m_currentShowSettings.showId) <= 0) {
+        qDebug() << "Operations_VP_Shows: TMDB disabled or invalid ID";
+        displayNewEpisodeIndicator(false, 0);
+        return;
+    }
+
+    int tmdbShowId = getShowIdAsInt(m_currentShowSettings.showId);
+
+    // Check if we already checked today (unless force check is enabled)
+    QString todayStr = QDate::currentDate().toString(Qt::ISODate);
+    if (!forceCheck && m_currentShowSettings.NewEPCheckDate == todayStr) {
+        qDebug() << "Operations_VP_Shows: Already checked today, using cached data";
+        qDebug() << "Operations_VP_Shows: Cached count:" << m_currentShowSettings.NewAvailableEPCount;
+
+        // Use cached data
+        m_currentShowHasNewEpisodes = (m_currentShowSettings.NewAvailableEPCount > 0);
+        m_currentShowNewEpisodeCount = m_currentShowSettings.NewAvailableEPCount;
+
+        displayNewEpisodeIndicator(m_currentShowHasNewEpisodes, m_currentShowNewEpisodeCount);
+        return;
+    }
+
+    // We need to check for new episodes
+    if (forceCheck) {
+        qDebug() << "Operations_VP_Shows: Force checking for new episodes (bypassing daily limit)";
+    } else {
+        qDebug() << "Operations_VP_Shows: Checking for new episodes (last check:" << m_currentShowSettings.NewEPCheckDate << ")";
+    }
+
+    // First, update the LastAvailableEP to current state
+    updateLastAvailableEpisode(m_currentShowFolder);
+
+    // Use the episode detector to check for new episodes
+    VP_ShowsEpisodeDetector::NewEpisodeInfo newEpisodeInfo =
+        m_episodeDetector->checkForNewEpisodes(m_currentShowFolder, tmdbShowId);
+
+    // Update cached data
+    m_currentShowSettings.NewEPCheckDate = todayStr;
+    m_currentShowSettings.NewAvailableEPCount = newEpisodeInfo.hasNewEpisodes ? newEpisodeInfo.newEpisodeCount : 0;
+
+    // Save the updated settings with cached data
+    VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
+    settingsManager.saveShowSettings(m_currentShowFolder, m_currentShowSettings);
+
+    // Update current state and display
+    m_currentShowHasNewEpisodes = newEpisodeInfo.hasNewEpisodes;
+    m_currentShowNewEpisodeCount = newEpisodeInfo.newEpisodeCount;
+
+    if (newEpisodeInfo.hasNewEpisodes) {
+        qDebug() << "Operations_VP_Shows: Found" << m_currentShowNewEpisodeCount << "new episode(s)";
+    } else {
+        qDebug() << "Operations_VP_Shows: No new episodes detected";
+    }
+
+    displayNewEpisodeIndicator(m_currentShowHasNewEpisodes, m_currentShowNewEpisodeCount);
 }
 
 void Operations_VP_Shows::displayNewEpisodeIndicator(bool hasNewEpisodes, int newEpisodeCount)
@@ -8688,7 +8761,10 @@ void Operations_VP_Shows::deleteEpisodeFromContextMenu()
             } else {
                 // Some episodes remain, just refresh the episode list
                 loadShowEpisodes(m_currentShowFolder);
-
+                
+                // Force check for new episodes after deleting episodes (bypass daily check)
+                qDebug() << "Operations_VP_Shows: Force checking for new episodes after deleting episodes";
+                checkCurrentShowForNewEpisodes(true);
             }
         }
     }
