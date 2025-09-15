@@ -105,7 +105,7 @@ private:
     bool m_isPressed;
 };
 
-BaseVideoPlayer::BaseVideoPlayer(QWidget *parent)
+BaseVideoPlayer::BaseVideoPlayer(QWidget *parent, int initialVolume)
     : QWidget(parent, Qt::Window)  // Always create as a window
     , m_videoWidget(nullptr)
     , m_playButton(nullptr)
@@ -143,6 +143,11 @@ BaseVideoPlayer::BaseVideoPlayer(QWidget *parent)
         move(screenGeometry.center() - rect().center());
     }
     
+    if (!s_hasStoredSettings) {
+        s_lastVolume = initialVolume;
+        qDebug() << "BaseVideoPlayer: Setting initial volume to" << initialVolume << "%";
+    }
+
     // Initialize the player
     initializePlayer();
 }

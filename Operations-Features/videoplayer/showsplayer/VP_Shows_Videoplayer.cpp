@@ -8,8 +8,8 @@
 #include <QDateTime>
 #include <QWindowStateChangeEvent>
 
-VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent)
-    : BaseVideoPlayer(parent)
+VP_Shows_Videoplayer::VP_Shows_Videoplayer(QWidget *parent, int initialVolume)
+    : BaseVideoPlayer(parent, initialVolume)
     , m_watchHistory(nullptr)
     , m_progressSaveTimer(nullptr)
     , m_lastSavedPosition(0)

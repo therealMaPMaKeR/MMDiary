@@ -10,7 +10,7 @@ class VP_Shows_Videoplayer : public BaseVideoPlayer
     Q_OBJECT
 
 public:
-    explicit VP_Shows_Videoplayer(QWidget *parent = nullptr);
+    explicit VP_Shows_Videoplayer(QWidget *parent = nullptr, int initialVolume = 70);
     ~VP_Shows_Videoplayer();
 
     // Override video control functions that need show-specific behavior

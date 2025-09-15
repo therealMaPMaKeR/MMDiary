@@ -1224,7 +1224,11 @@ void Operations_EncryptedData::onTempDecryptionFinished(bool success, const QStr
                     qDebug() << "Operations_EncryptedData: Opening with BaseVideoPlayer:" << tempFilePath;
 
                     // Create BaseVideoPlayer instance without parent for independent window
-                    BaseVideoPlayer* player = new BaseVideoPlayer(nullptr);
+                    // Get the default volume from MainWindow settings
+                    int defaultVolume = m_mainWindow ? m_mainWindow->setting_VP_Shows_DefaultVolume : 100;
+                    qDebug() << "Operations_EncryptedData: Using default volume:" << defaultVolume << "%";
+
+                    BaseVideoPlayer* player = new BaseVideoPlayer(nullptr, defaultVolume);
                     
                     // Set auto-delete for this instance since it's not managed by a smart pointer
                     player->setAttribute(Qt::WA_DeleteOnClose);

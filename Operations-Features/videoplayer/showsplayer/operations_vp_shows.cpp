@@ -4466,7 +4466,12 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
     // Create video player if not exists
     if (!m_episodePlayer) {
         qDebug() << "Operations_VP_Shows: Creating new VP_Shows_Videoplayer instance for episode playback";
-        m_episodePlayer = std::make_unique<VP_Shows_Videoplayer>();
+
+        // Get the default volume from MainWindow settings
+        int defaultVolume = m_mainWindow ? m_mainWindow->setting_VP_Shows_DefaultVolume : 100;
+        qDebug() << "Operations_VP_Shows: Using default volume:" << defaultVolume << "%";
+
+        m_episodePlayer = std::make_unique<VP_Shows_Videoplayer>(nullptr, defaultVolume);
 
         // Set the target screen to the same screen as the main window
         if (m_mainWindow) {

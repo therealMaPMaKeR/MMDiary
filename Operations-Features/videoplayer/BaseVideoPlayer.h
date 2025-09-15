@@ -38,7 +38,7 @@ class BaseVideoPlayer : public QWidget
     Q_OBJECT
 
 public:
-    explicit BaseVideoPlayer(QWidget *parent = nullptr);
+    explicit BaseVideoPlayer(QWidget *parent = nullptr, int initialVolume = 70);
     virtual ~BaseVideoPlayer();
 
     // Core video control functions
