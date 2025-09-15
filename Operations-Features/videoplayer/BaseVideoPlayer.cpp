@@ -188,33 +188,49 @@ BaseVideoPlayer::~BaseVideoPlayer()
 void BaseVideoPlayer::initializePlayer()
 {
     qDebug() << "BaseVideoPlayer: Initializing player";
-    
+
     // Enable mouse tracking for auto-hide cursor functionality
     setMouseTracking(true);
-    
+
     // Create VLC player instance
     m_mediaPlayer = std::make_unique<VP_VLCPlayer>(this);
-    
+
     if (!m_mediaPlayer->initialize()) {
         qDebug() << "BaseVideoPlayer: Failed to initialize VLC player";
         emit errorOccurred(tr("Failed to initialize video player"));
         return;
     }
-    
+
     // Setup UI
     setupUI();
-    
+
     // Connect signals
     connectSignals();
-    
+
     // Initialize cursor timers for fullscreen auto-hide
     m_cursorTimer = new QTimer(this);
     m_cursorTimer->setSingleShot(true);
     connect(m_cursorTimer, &QTimer::timeout, this, &BaseVideoPlayer::hideCursor);
-    
+
     m_mouseCheckTimer = new QTimer(this);
     m_mouseCheckTimer->setInterval(100);
     connect(m_mouseCheckTimer, &QTimer::timeout, this, &BaseVideoPlayer::checkMouseMovement);
+
+    // Initialize volume
+    // Always use s_lastVolume which contains the actual volume value
+    qDebug() << "BaseVideoPlayer: Setting initial volume to" << s_lastVolume;
+    if (m_mediaPlayer) {
+        m_mediaPlayer->setVolume(s_lastVolume);
+    }
+    if (m_volumeSlider) {
+        m_volumeSlider->setValue(s_lastVolume);
+    }
+    if (m_volumeLabel) {
+        m_volumeLabel->setText(tr("Vol (%1%):").arg(s_lastVolume));
+    }
+
+    // Initialize m_volumeBeforeMute with the actual volume
+    m_volumeBeforeMute = s_lastVolume;
     
     // Initialize from previous settings if available
     initializeFromPreviousSettings();
@@ -638,38 +654,35 @@ void BaseVideoPlayer::unloadVideo()
 void BaseVideoPlayer::setVolume(int volume)
 {
     qDebug() << "BaseVideoPlayer: Setting volume to" << volume << "%";
-    
+
     // Clamp volume to valid range
     volume = qBound(0, volume, 200);
-    
+
     if (m_mediaPlayer) {
         m_mediaPlayer->setVolume(volume);
     }
-    
+
     if (m_volumeLabel) {
         m_volumeLabel->setText(tr("Vol (%1%):").arg(volume));
     }
-    
+
     // Update slider position if not being moved by user
     if (m_volumeSlider && m_volumeSlider->value() != volume && !m_volumeSlider->isSliderDown()) {
         m_volumeSlider->setValue(volume);
     }
-    
-    // If we're setting a non-zero volume and we're muted, unmute
-    if (volume > 0 && m_isMuted) {
-        m_isMuted = false;
-        if (m_muteButton) {
-            m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolume));
-            m_muteButton->setToolTip(tr("Mute (M)"));
-        }
-    }
-    
-    // Save volume for next session (but not if we're muted)
+
+    // REMOVED THE AUTOMATIC UNMUTE LOGIC HERE
+    // The mute state should be controlled only by toggleMute()
+
+    // Save volume for next session
+    // Always save the actual volume value, regardless of mute state
+    s_lastVolume = volume;
+
+    // Only update m_volumeBeforeMute if we're not currently muted
     if (!m_isMuted) {
-        s_lastVolume = volume;
-        m_volumeBeforeMute = volume;  // Update the pre-mute volume
+        m_volumeBeforeMute = volume;
     }
-    
+
     emit volumeChanged(volume);
 }
 
@@ -726,17 +739,17 @@ void BaseVideoPlayer::setPlaybackSpeed(qreal speed)
 void BaseVideoPlayer::toggleMute()
 {
     qDebug() << "BaseVideoPlayer: Toggle mute called, current mute state:" << m_isMuted;
-    
+
     if (m_isMuted) {
         // Unmute - restore previous volume
         qDebug() << "BaseVideoPlayer: Unmuting, restoring volume to" << m_volumeBeforeMute << "%";
         m_isMuted = false;
-        
+
         // Restore the previous volume
         if (m_mediaPlayer) {
             m_mediaPlayer->setVolume(m_volumeBeforeMute);
         }
-        
+
         // Update UI
         if (m_volumeSlider) {
             m_volumeSlider->setValue(m_volumeBeforeMute);
@@ -748,19 +761,22 @@ void BaseVideoPlayer::toggleMute()
             m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolume));
             m_muteButton->setToolTip(tr("Mute (M)"));
         }
-        
+
+        // Update s_lastVolume to the restored volume
+        s_lastVolume = m_volumeBeforeMute;
+
         emit volumeChanged(m_volumeBeforeMute);
     } else {
         // Mute - save current volume and set to 0
-        m_volumeBeforeMute = volume();
+        m_volumeBeforeMute = m_mediaPlayer ? m_mediaPlayer->volume() : s_lastVolume;
         qDebug() << "BaseVideoPlayer: Muting, saving current volume" << m_volumeBeforeMute << "%";
         m_isMuted = true;
-        
+
         // Set volume to 0
         if (m_mediaPlayer) {
             m_mediaPlayer->setVolume(0);
         }
-        
+
         // Update UI
         if (m_volumeSlider) {
             m_volumeSlider->setValue(0);
@@ -772,7 +788,9 @@ void BaseVideoPlayer::toggleMute()
             m_muteButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolumeMuted));
             m_muteButton->setToolTip(tr("Unmute (M)"));
         }
-        
+
+        // Don't change s_lastVolume when muting - keep the actual volume value
+
         emit volumeChanged(0);
     }
 }
@@ -1183,15 +1201,6 @@ void BaseVideoPlayer::closeEvent(QCloseEvent *event)
         
         s_lastUsedScreen = getCurrentScreen();
         s_hasStoredSettings = true;
-        
-        // Save the correct volume (pre-mute volume if currently muted)
-        if (m_isMuted) {
-            qDebug() << "BaseVideoPlayer: Player is muted, saving pre-mute volume:" << m_volumeBeforeMute;
-            s_lastVolume = m_volumeBeforeMute;
-        } else {
-            qDebug() << "BaseVideoPlayer: Saving current volume:" << volume();
-            s_lastVolume = volume();
-        }
         
         // Get final position before stopping
         qint64 finalPosition = m_mediaPlayer ? m_mediaPlayer->position() : 0;
