@@ -1,12 +1,10 @@
 #include "vp_shows_newepisode_checker.h"
-#include "ui_mainwindow.h"
 #include "vp_shows_episode_detector.h"
 #include "vp_shows_settings.h"
 #include "vp_shows_config.h"
 #include "vp_shows_tmdb.h"
 #include "../../../MainWindow.h"
 #include "../../../Operations-Global/SafeTimer.h"
-#include "../../../Operations-Global/operations.h"
 #include <QThread>
 #include <QDebug>
 #include <QDate>
@@ -28,6 +26,7 @@ VP_ShowsNewEpisodeChecker::VP_ShowsNewEpisodeChecker(QPointer<MainWindow> mainWi
     , m_showsWithNewEpisodes(0)
     , m_showsSkipped(0)
     , m_rateLimitRetries(0)
+    , m_isOnVideoPlayerTabCallback(nullptr)
 {
     qDebug() << "VP_ShowsNewEpisodeChecker: Constructor called in thread" << QThread::currentThreadId();
     
@@ -309,19 +308,13 @@ void VP_ShowsNewEpisodeChecker::updateShowSettings(const QString& folderPath, in
 
 bool VP_ShowsNewEpisodeChecker::isOnVideoPlayerTab() const
 {
-    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->tabWidget_Main) {
-        return false;
+    // Use the callback if provided
+    if (m_isOnVideoPlayerTabCallback) {
+        return m_isOnVideoPlayerTabCallback();
     }
     
-    // Get the actual index of the Video Player tab (it can change)
-    int videoPlayerIndex = Operations::GetIndexFromText("Video Player", m_mainWindow->ui->tabWidget_Main);
-    if (videoPlayerIndex == -1) {
-        qDebug() << "VP_ShowsNewEpisodeChecker: Could not find Video Player tab";
-        return false;
-    }
-    
-    // Check if we're on the video player tab
-    return m_mainWindow->ui->tabWidget_Main->currentIndex() == videoPlayerIndex;
+    // Default to false if no callback
+    return false;
 }
 
 void VP_ShowsNewEpisodeChecker::updateStatusBar(const QString& message)
@@ -358,6 +351,7 @@ VP_ShowsNewEpisodeCheckerManager::VP_ShowsNewEpisodeCheckerManager(QPointer<Main
     , m_worker(nullptr)
     , m_workerThread(nullptr)
     , m_statusBarTimer(nullptr)
+    , m_tabCheckCallback(nullptr)
 {
     qDebug() << "VP_ShowsNewEpisodeCheckerManager: Constructor called";
     
@@ -367,11 +361,8 @@ VP_ShowsNewEpisodeCheckerManager::VP_ShowsNewEpisodeCheckerManager(QPointer<Main
     connect(m_statusBarTimer, &QTimer::timeout, this, [this]() {
         if (m_mainWindow && m_mainWindow->statusBar() && !m_lastStatusMessage.isEmpty()) {
             // Only update if on video player tab
-            if (m_mainWindow->ui && m_mainWindow->ui->tabWidget_Main) {
-                int videoPlayerIndex = Operations::GetIndexFromText("Video Player", m_mainWindow->ui->tabWidget_Main);
-                if (videoPlayerIndex != -1 && m_mainWindow->ui->tabWidget_Main->currentIndex() == videoPlayerIndex) {
-                    m_mainWindow->statusBar()->showMessage(m_lastStatusMessage);
-                }
+            if (m_tabCheckCallback && m_tabCheckCallback()) {
+                m_mainWindow->statusBar()->showMessage(m_lastStatusMessage);
             }
         }
     });
@@ -393,6 +384,11 @@ void VP_ShowsNewEpisodeCheckerManager::startChecking(const QList<VP_ShowsNewEpis
     // Create worker and thread
     m_worker = new VP_ShowsNewEpisodeChecker(m_mainWindow);
     m_workerThread = new QThread();
+    
+    // Pass the tab check callback to the worker
+    if (m_tabCheckCallback) {
+        m_worker->setTabCheckCallback(m_tabCheckCallback);
+    }
     
     // Set shows list
     m_worker->setShowsList(shows);
@@ -484,11 +480,8 @@ void VP_ShowsNewEpisodeCheckerManager::onCheckingFinished(int showsChecked, int 
     m_lastStatusMessage.clear();
     if (m_mainWindow && m_mainWindow->statusBar()) {
         // Only clear if on video player tab
-        if (m_mainWindow->ui && m_mainWindow->ui->tabWidget_Main) {
-            int videoPlayerIndex = Operations::GetIndexFromText("Video Player", m_mainWindow->ui->tabWidget_Main);
-            if (videoPlayerIndex != -1 && m_mainWindow->ui->tabWidget_Main->currentIndex() == videoPlayerIndex) {
-                m_mainWindow->statusBar()->clearMessage();
-            }
+        if (m_tabCheckCallback && m_tabCheckCallback()) {
+            m_mainWindow->statusBar()->clearMessage();
         }
     }
     

@@ -9,6 +9,7 @@
 #include <QPushButton>
 #include <QMouseEvent>
 #include "CustomWidgets/videoplayer/qlist_VP_ShowsList.h"
+#include "operations.h"  // For GetIndexFromText
 #include <QRandomGenerator>
 #include "VP_Shows_Videoplayer.h"
 #include "vp_shows_progressdialogs.h"
@@ -127,6 +128,22 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
     // Initialize new episode checker manager
     m_episodeCheckerManager = std::make_unique<VP_ShowsNewEpisodeCheckerManager>(m_mainWindow, this);
 
+    // Set callback to check if on video player tab (we have access to ui as a friend class)
+    m_episodeCheckerManager->setTabCheckCallback([this]() -> bool {
+        if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->tabWidget_Main) {
+            return false;
+        }
+
+        // Get the actual index of the Video Player tab (it can change)
+        int videoPlayerIndex = Operations::GetIndexFromText("Video Player", m_mainWindow->ui->tabWidget_Main);
+        if (videoPlayerIndex == -1) {
+            return false;
+        }
+
+        // Check if we're on the video player tab
+        return m_mainWindow->ui->tabWidget_Main->currentIndex() == videoPlayerIndex;
+    });
+
     // Connect signals for new episode detection
     connect(m_episodeCheckerManager.get(), &VP_ShowsNewEpisodeCheckerManager::newEpisodesFound,
             this, [this](const QString& folderPath, int newEpisodeCount) {
@@ -138,7 +155,7 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
             });
 
     connect(m_episodeCheckerManager.get(), &VP_ShowsNewEpisodeCheckerManager::checkingFinished,
-            this, [](int showsChecked, int showsWithNewEpisodes) {
+            this, [this](int showsChecked, int showsWithNewEpisodes) {
                 qDebug() << "Operations_VP_Shows: Episode checking completed."
                          << "Checked:" << showsChecked
                          << "Shows with new episodes:" << showsWithNewEpisodes;

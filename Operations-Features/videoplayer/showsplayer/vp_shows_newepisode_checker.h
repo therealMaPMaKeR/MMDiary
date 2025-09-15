@@ -8,6 +8,7 @@
 #include <QStringList>
 #include <QMutex>
 #include <QAtomicInt>
+#include <functional>
 #include "../../../Operations-Global/ThreadSafeContainers.h"
 
 class MainWindow;
@@ -40,6 +41,9 @@ public:
     
     explicit VP_ShowsNewEpisodeChecker(QPointer<MainWindow> mainWindow, QObject* parent = nullptr);
     ~VP_ShowsNewEpisodeChecker();
+    
+    // Set callback to check if on video player tab
+    void setTabCheckCallback(std::function<bool()> callback) { m_isOnVideoPlayerTabCallback = callback; }
     
     // Set the list of shows to check
     void setShowsList(const QList<ShowInfo>& shows);
@@ -99,6 +103,9 @@ private:
     bool isOnVideoPlayerTab() const;
     void updateStatusBar(const QString& message);
     void clearStatusBar();
+    
+    // Callback to check if on video player tab
+    std::function<bool()> m_isOnVideoPlayerTabCallback;
 };
 
 /**
@@ -114,6 +121,9 @@ class VP_ShowsNewEpisodeCheckerManager : public QObject
 public:
     explicit VP_ShowsNewEpisodeCheckerManager(QPointer<MainWindow> mainWindow, QObject* parent = nullptr);
     ~VP_ShowsNewEpisodeCheckerManager();
+    
+    // Set callback to check if on video player tab
+    void setTabCheckCallback(std::function<bool()> callback) { m_tabCheckCallback = callback; }
     
     // Start checking for new episodes
     void startChecking(const QList<VP_ShowsNewEpisodeChecker::ShowInfo>& shows);
@@ -145,6 +155,9 @@ private:
     // Timer for status bar updates
     SafeTimer* m_statusBarTimer;
     QString m_lastStatusMessage;
+    
+    // Callback to check if on video player tab
+    std::function<bool()> m_tabCheckCallback;
 };
 
 #endif // VP_SHOWS_NEWEPISODE_CHECKER_H
