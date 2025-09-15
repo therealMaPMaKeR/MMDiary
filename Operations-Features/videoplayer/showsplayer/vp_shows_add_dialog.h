@@ -9,6 +9,7 @@
 #include <QNetworkReply>
 #include <memory>
 #include "vp_shows_tmdb.h"
+#include "../../../Operations-Global/ThreadSafeContainers.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class VP_ShowsAddDialog; }
@@ -135,7 +136,7 @@ private:
     
     // Current search state
     QString m_currentSearchText;
-    QList<VP_ShowsTMDB::ShowInfo> m_currentSuggestions;
+    ThreadSafeList<VP_ShowsTMDB::ShowInfo> m_currentSuggestions;  // Thread-safe for concurrent access
     
     // Image cache with scaled posters
     struct CachedPoster {
@@ -144,8 +145,8 @@ private:
         qint64 sizeInBytes;     // Approximate memory size
     };
     
-    QMap<QString, CachedPoster> m_posterCache;  // Key is poster path
-    QList<QString> m_cacheAccessOrder;          // Track access order for LRU
+    ThreadSafeMap<QString, CachedPoster> m_posterCache;  // Thread-safe cache (key is poster path)
+    ThreadSafeList<QString> m_cacheAccessOrder;          // Thread-safe LRU tracking
     qint64 m_currentCacheSize;                  // Current cache size in bytes
     
     // Cache management

@@ -304,10 +304,25 @@ void VP_ShowsSettingsDialog::onShowNameTextChanged(const QString& text)
     // Clear current suggestions if text is too short
     if (text.trimmed().length() < 2) {
         qDebug() << "VP_ShowsSettingsDialog: Text too short (< 2 chars), clearing suggestions";
+        
+        // CRITICAL: Stop any pending search timer to prevent stale searches
+        if (m_searchTimer && m_searchTimer->isActive()) {
+            m_searchTimer->stop();
+            qDebug() << "VP_ShowsSettingsDialog: Stopped search timer due to empty text";
+        }
+        
+        // Clear the search text to prevent stale searches
+        m_currentSearchText.clear();
+        
+        // Clear and hide suggestions
         if (m_isShowingSuggestions) {
             clearSuggestions();
             hideSuggestions(false);  // false = restore original values
         }
+        
+        // Clear the suggestions data structure to prevent accessing stale data
+        m_currentSuggestions.clear();
+        
         return;
     }
     
@@ -330,6 +345,14 @@ void VP_ShowsSettingsDialog::onSearchTimerTimeout()
 {
     qDebug() << "VP_ShowsSettingsDialog: Search timer timeout, performing search for:" << m_currentSearchText;
     
+    // Double-check the current text field value to ensure it hasn't been cleared
+    QString currentFieldText = ui->lineEdit_ShowName->text().trimmed();
+    if (currentFieldText.isEmpty() || currentFieldText.length() < 2) {
+        qDebug() << "VP_ShowsSettingsDialog: Field text is now empty/too short, aborting search";
+        m_currentSearchText.clear();
+        return;
+    }
+    
     if (m_currentSearchText.isEmpty() || m_currentSearchText.length() < 2) {
         return;
     }
@@ -341,6 +364,13 @@ void VP_ShowsSettingsDialog::performTMDBSearch(const QString& searchText)
 {
     if (!m_tmdbApi) {
         qDebug() << "VP_ShowsSettingsDialog: TMDB API not initialized";
+        return;
+    }
+    
+    // Final safety check: Verify the line edit still contains valid text
+    QString currentText = ui->lineEdit_ShowName->text().trimmed();
+    if (currentText.isEmpty() || currentText.length() < 2) {
+        qDebug() << "VP_ShowsSettingsDialog: Line edit is now empty, aborting TMDB search";
         return;
     }
     
@@ -475,7 +505,10 @@ void VP_ShowsSettingsDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowIn
 void VP_ShowsSettingsDialog::clearSuggestions()
 {
     if (m_suggestionsList) {
+        // Disconnect any signals temporarily to prevent events during clearing
+        m_suggestionsList->blockSignals(true);
         m_suggestionsList->clear();
+        m_suggestionsList->blockSignals(false);
     }
     // Don't clear m_currentSuggestions here as it may be passed by reference to displaySuggestions
     // m_currentSuggestions.clear();  // REMOVED - this was causing the bug
@@ -2084,6 +2117,11 @@ bool VP_ShowsSettingsDialog::eventFilter(QObject* obj, QEvent* event)
     // Handle events on the suggestions list viewport for better mouse tracking
     if (m_suggestionsList && obj == m_suggestionsList->viewport()) {
         if (event->type() == QEvent::MouseMove) {
+            // Safety check: Ensure suggestions list is visible and has items
+            if (!m_isShowingSuggestions || m_suggestionsList->count() == 0) {
+                return false;
+            }
+            
             QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
             QPoint pos = mouseEvent->pos();
             QListWidgetItem* item = m_suggestionsList->itemAt(pos);
@@ -2097,11 +2135,18 @@ bool VP_ShowsSettingsDialog::eventFilter(QObject* obj, QEvent* event)
             
             if (item) {
                 int index = m_suggestionsList->row(item);
-                if (index != m_hoveredItemIndex) {
-                    m_hoveredItemIndex = index;
-                    m_suggestionsList->setCurrentItem(item);  // This will trigger the hover style
-                    qDebug() << "VP_ShowsSettingsDialog: Hovering item" << index << ":" << item->text();
-                    onSuggestionItemHovered();
+                
+                // Validate index before using it
+                if (index >= 0 && index < m_currentSuggestions.size()) {
+                    if (index != m_hoveredItemIndex) {
+                        m_hoveredItemIndex = index;
+                        m_suggestionsList->setCurrentItem(item);  // This will trigger the hover style
+                        qDebug() << "VP_ShowsSettingsDialog: Hovering item" << index << ":" << item->text();
+                        onSuggestionItemHovered();
+                    }
+                } else {
+                    qDebug() << "VP_ShowsSettingsDialog: Invalid item index:" << index 
+                             << "(suggestions size:" << m_currentSuggestions.size() << ")";
                 }
             } else {
                 // Clear selection if not over any item

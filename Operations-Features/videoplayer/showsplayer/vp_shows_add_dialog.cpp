@@ -838,10 +838,25 @@ void VP_ShowsAddDialog::onShowNameTextChanged(const QString& text)
     // Clear current suggestions if text is too short
     if (text.trimmed().length() < 2) {
         qDebug() << "VP_ShowsAddDialog: Text too short (< 2 chars), clearing suggestions";
+        
+        // CRITICAL: Stop any pending search timer to prevent stale searches
+        if (m_searchTimer && m_searchTimer->isActive()) {
+            m_searchTimer->stop();
+            qDebug() << "VP_ShowsAddDialog: Stopped search timer due to empty text";
+        }
+        
+        // Clear the search text to prevent stale searches
+        m_currentSearchText.clear();
+        
+        // Clear and hide suggestions
         if (m_isShowingSuggestions) {
             clearSuggestions();
             hideSuggestions(false);
         }
+        
+        // Clear the suggestions data structure to prevent accessing stale data
+        m_currentSuggestions.clear();
+        
         return;
     }
     
@@ -859,6 +874,14 @@ void VP_ShowsAddDialog::onShowNameTextChanged(const QString& text)
 void VP_ShowsAddDialog::onSearchTimerTimeout()
 {
     qDebug() << "VP_ShowsAddDialog: Search timer timeout, performing search for:" << m_currentSearchText;
+    
+    // Double-check the current text field value to ensure it hasn't been cleared
+    QString currentFieldText = ui->lineEdit_ShowName->text().trimmed();
+    if (currentFieldText.isEmpty() || currentFieldText.length() < 2) {
+        qDebug() << "VP_ShowsAddDialog: Field text is now empty/too short, aborting search";
+        m_currentSearchText.clear();
+        return;
+    }
     
     if (m_currentSearchText.isEmpty() || m_currentSearchText.length() < 2) {
         return;
@@ -900,6 +923,13 @@ void VP_ShowsAddDialog::performTMDBSearch(const QString& searchText)
 {
     if (!m_tmdbApi) {
         qDebug() << "VP_ShowsAddDialog: TMDB API not initialized";
+        return;
+    }
+    
+    // Final safety check: Verify the line edit still contains valid text
+    QString currentText = ui->lineEdit_ShowName->text().trimmed();
+    if (currentText.isEmpty() || currentText.length() < 2) {
+        qDebug() << "VP_ShowsAddDialog: Line edit is now empty, aborting TMDB search";
         return;
     }
     
@@ -1007,7 +1037,10 @@ void VP_ShowsAddDialog::displaySuggestions(const QList<VP_ShowsTMDB::ShowInfo>& 
 void VP_ShowsAddDialog::clearSuggestions()
 {
     if (m_suggestionsList) {
+        // Disconnect any signals temporarily to prevent events during clearing
+        m_suggestionsList->blockSignals(true);
         m_suggestionsList->clear();
+        m_suggestionsList->blockSignals(false);
     }
     // Note: We do NOT clear m_currentSuggestions here - it needs to persist
     // until after a selection is made or the suggestions are hidden
@@ -1400,6 +1433,11 @@ bool VP_ShowsAddDialog::eventFilter(QObject* obj, QEvent* event)
     
     // Handle mouse move events on the suggestions list viewport
     if (obj == m_suggestionsList->viewport() && event->type() == QEvent::MouseMove) {
+        // Safety check: Ensure suggestions list is visible and has items
+        if (!m_isShowingSuggestions || m_suggestionsList->count() == 0) {
+            return false;
+        }
+        
         QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
         QPoint pos = mouseEvent->pos();
         
@@ -1408,18 +1446,24 @@ bool VP_ShowsAddDialog::eventFilter(QObject* obj, QEvent* event)
         if (item) {
             int itemIndex = m_suggestionsList->row(item);
             
-            // Only update if we're hovering over a different item
-            if (itemIndex != m_hoveredItemIndex && itemIndex < m_currentSuggestions.size()) {
-                m_hoveredItemIndex = itemIndex;
-                
-                // Display the hovered show's information
-                const VP_ShowsTMDB::ShowInfo& hoveredShow = m_currentSuggestions[itemIndex];
-                displayShowInfo(hoveredShow);
-                
-                // Mark that we're showing TMDB data
-                m_hasTMDBData = true;
-                
-                qDebug() << "VP_ShowsAddDialog: Hovering over:" << hoveredShow.showName;
+            // Validate index before accessing m_currentSuggestions
+            if (itemIndex >= 0 && itemIndex < m_currentSuggestions.size()) {
+                // Only update if we're hovering over a different item
+                if (itemIndex != m_hoveredItemIndex) {
+                    m_hoveredItemIndex = itemIndex;
+                    
+                    // Display the hovered show's information
+                    const VP_ShowsTMDB::ShowInfo& hoveredShow = m_currentSuggestions[itemIndex];
+                    displayShowInfo(hoveredShow);
+                    
+                    // Mark that we're showing TMDB data
+                    m_hasTMDBData = true;
+                    
+                    qDebug() << "VP_ShowsAddDialog: Hovering over:" << hoveredShow.showName;
+                }
+            } else {
+                qDebug() << "VP_ShowsAddDialog: Invalid item index:" << itemIndex 
+                         << "(suggestions size:" << m_currentSuggestions.size() << ")";
             }
         }
         return false;
