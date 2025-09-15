@@ -903,6 +903,26 @@ bool DatabaseSettingsManager::migrateToV4()
     }
     qDebug() << "DatabaseSettingsManager: Table renamed successfully";
 
+    // Now set default values for the new VideoPlayer settings columns
+    qDebug() << "DatabaseSettingsManager: Setting default values for VideoPlayer settings...";
+    
+    // Ensure settings record exists
+    if (!ensureSettingsRecord()) {
+        qCritical() << "DatabaseSettingsManager: FAILED to ensure settings record exists for v4 migration";
+        return false;
+    }
+    
+    // Set default values for VideoPlayer settings using the Default_UserSettings function
+    // This will properly encrypt and store the default values
+    if (!Default_UserSettings::SetDefault_VideoPlayerSettings(m_currentUsername, m_encryptionKey)) {
+        qCritical() << "DatabaseSettingsManager: FAILED to set default VideoPlayer settings during v4 migration";
+        // Don't fail the migration if defaults couldn't be set - the columns exist now
+        // and can be populated later
+        qDebug() << "DatabaseSettingsManager: Continuing migration despite default values not being set";
+    } else {
+        qDebug() << "DatabaseSettingsManager: VideoPlayer default values set successfully";
+    }
+
     qDebug() << "========================================";
     qDebug() << "DatabaseSettingsManager: Migration to v4 COMPLETED SUCCESSFULLY";
     qDebug() << "========================================";
