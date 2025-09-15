@@ -7921,9 +7921,7 @@ void Operations_VP_Shows::reacquireTMDBFromContextMenu()
         qDebug() << "Operations_VP_Shows: Refreshing episode tree after TMDB update";
         loadShowEpisodes(m_currentShowFolder);
         
-        // Force check for new episodes after TMDB update (bypass daily check)
-        qDebug() << "Operations_VP_Shows: Force checking for new episodes after TMDB update";
-        checkCurrentShowForNewEpisodes(true);
+        // Note: Not checking for new episodes after TMDB update as it doesn't change season/episode values
         
         // Refresh the poster to update the badge
         qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
@@ -7944,9 +7942,7 @@ void Operations_VP_Shows::reacquireTMDBFromContextMenu()
         qDebug() << "Operations_VP_Shows: Refreshing episode tree after TMDB updates";
         loadShowEpisodes(m_currentShowFolder);
         
-        // Force check for new episodes after TMDB updates (bypass daily check)
-        qDebug() << "Operations_VP_Shows: Force checking for new episodes after TMDB updates";
-        checkCurrentShowForNewEpisodes(true);
+        // Note: Not checking for new episodes after TMDB update as it doesn't change season/episode values
         
         // Refresh the poster to update the badge
         qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
