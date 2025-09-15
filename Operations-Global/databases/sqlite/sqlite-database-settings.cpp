@@ -912,15 +912,36 @@ bool DatabaseSettingsManager::migrateToV4()
         return false;
     }
     
-    // Set default values for VideoPlayer settings using the Default_UserSettings function
-    // This will properly encrypt and store the default values
-    if (!Default_UserSettings::SetDefault_VideoPlayerSettings(m_currentUsername, m_encryptionKey)) {
-        qCritical() << "DatabaseSettingsManager: FAILED to set default VideoPlayer settings during v4 migration";
-        // Don't fail the migration if defaults couldn't be set - the columns exist now
-        // and can be populated later
-        qDebug() << "DatabaseSettingsManager: Continuing migration despite default values not being set";
+    // Set default values for VideoPlayer settings directly within the migration transaction
+    // We cannot call SetDefault_VideoPlayerSettings because it tries to begin its own transaction
+    // and we're already inside a migration transaction
+    bool success = true;
+    
+    // Set each VideoPlayer default value directly
+    success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_Autoplay, 
+                                       Default_UserSettings::DEFAULT_VP_SHOWS_AUTOPLAY);
+    success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_AutoplayRand, 
+                                       Default_UserSettings::DEFAULT_VP_SHOWS_AUTOPLAY_RAND);
+    success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_UseTMDB, 
+                                       Default_UserSettings::DEFAULT_VP_SHOWS_USE_TMDB);
+    success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_DisplayFilenames, 
+                                       Default_UserSettings::DEFAULT_VP_SHOWS_DISPLAY_FILENAMES);
+    success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_CheckNewEP, 
+                                       Default_UserSettings::DEFAULT_VP_SHOWS_CHECK_NEW_EP);
+    success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_FileFolderParsing, 
+                                       Default_UserSettings::DEFAULT_VP_SHOWS_FILE_FOLDER_PARSING);
+    success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_AutoDelete, 
+                                       Default_UserSettings::DEFAULT_VP_SHOWS_AUTO_DELETE);
+    success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_DefaultVolume, 
+                                       Default_UserSettings::DEFAULT_VP_SHOWS_DEFAULT_VOLUME);
+    success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_CheckNewEPStartup, 
+                                       Default_UserSettings::DEFAULT_VP_SHOWS_CHECK_NEW_EP_STARTUP);
+    
+    if (!success) {
+        qWarning() << "DatabaseSettingsManager: Some VideoPlayer default values may not have been set during v4 migration";
+        // Don't fail the migration - the columns exist and can be populated later
     } else {
-        qDebug() << "DatabaseSettingsManager: VideoPlayer default values set successfully";
+        qDebug() << "DatabaseSettingsManager: All VideoPlayer default values set successfully";
     }
 
     qDebug() << "========================================";
