@@ -23,6 +23,8 @@
 #include <QInputDialog>
 #include <QImageReader>
 #include <QUuid>
+#include <QMutex>
+#include <QMutexLocker>
 
 VP_ShowsAddDialog::VP_ShowsAddDialog(const QString& folderName, QWidget *parent)
     : QDialog(parent)
@@ -944,7 +946,7 @@ void VP_ShowsAddDialog::performTMDBSearch(const QString& searchText)
     // Don't reset m_hasTMDBData here - we're about to load new TMDB data
     // But do reset selection flags since this is a new search
     // UNLESS the user has manually selected something and the search text matches their selection
-    QString currentText = ui->lineEdit_ShowName ? ui->lineEdit_ShowName->text() : "";
+    currentText = ui->lineEdit_ShowName ? ui->lineEdit_ShowName->text() : "";
     if (!m_userSelectedFromDropdown || currentText != searchText) {
         qDebug() << "VP_ShowsAddDialog: Resetting selection for new search";
         m_userSelectedFromDropdown = false;
@@ -1256,24 +1258,27 @@ void VP_ShowsAddDialog::downloadAndDisplayPoster(const QString& posterPath)
     QSize labelSize = ui->label_ShowPoster->size();
     qDebug() << "VP_ShowsAddDialog: Label size for poster:" << labelSize;
     
-    // Check if we already have this poster in cache
-    if (m_posterCache.contains(posterPath)) {
-        qDebug() << "VP_ShowsAddDialog: Using cached poster for:" << posterPath;
-        
-        // Update access order for LRU
-        m_cacheAccessOrder.removeAll(posterPath);
-        m_cacheAccessOrder.append(posterPath);
-        
-        // Display the pre-scaled poster from cache
-        ui->label_ShowPoster->setPixmap(m_posterCache[posterPath].scaledPixmap);
-        
-        // If we're selecting from TMDB, update the original poster
-        if (m_itemJustSelected) {
-            m_originalPoster = m_posterCache[posterPath].scaledPixmap;
-            qDebug() << "VP_ShowsAddDialog: Updated original poster from TMDB cache";
+    // Check if we already have this poster in cache (thread-safe)
+    {
+        QMutexLocker locker(&m_cacheMutex);
+        if (m_posterCache.contains(posterPath)) {
+            qDebug() << "VP_ShowsAddDialog: Using cached poster for:" << posterPath;
+            
+            // Update access order for LRU
+            m_cacheAccessOrder.removeAll(posterPath);
+            m_cacheAccessOrder.append(posterPath);
+            
+            // Display the pre-scaled poster from cache
+            ui->label_ShowPoster->setPixmap(m_posterCache[posterPath].scaledPixmap);
+            
+            // If we're selecting from TMDB, update the original poster
+            if (m_itemJustSelected) {
+                m_originalPoster = m_posterCache[posterPath].scaledPixmap;
+                qDebug() << "VP_ShowsAddDialog: Updated original poster from TMDB cache";
+            }
+            
+            return;
         }
-        
-        return;
     }
     
     qDebug() << "VP_ShowsAddDialog: Poster not in cache, downloading:" << posterPath;
@@ -1383,7 +1388,10 @@ void VP_ShowsAddDialog::addToCache(const QString& posterPath, const QPixmap& sca
     // Estimate size of this pixmap
     qint64 pixmapSize = estimatePixmapSize(scaledPixmap);
     
-    // Check if we need to make room
+    // Thread-safe cache operations
+    QMutexLocker locker(&m_cacheMutex);
+    
+    // Check if we need to make room (while holding the lock)
     enforeCacheLimits();
     
     // Add to cache
@@ -1401,6 +1409,7 @@ void VP_ShowsAddDialog::addToCache(const QString& posterPath, const QPixmap& sca
 
 void VP_ShowsAddDialog::enforeCacheLimits()
 {
+    // Note: This should be called while holding m_cacheMutex lock
     // Remove items if we exceed the cache limits
     while ((m_posterCache.size() >= MAX_CACHE_ITEMS || m_currentCacheSize >= MAX_CACHE_SIZE) && !m_cacheAccessOrder.isEmpty()) {
         // Remove least recently used item

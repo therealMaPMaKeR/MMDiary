@@ -6,6 +6,8 @@
 #include <QListWidget>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QMutex>
+#include <QMutexLocker>
 #include <memory>
 #include "vp_shows_tmdb.h"
 #include "vp_shows_settings.h"
@@ -108,13 +110,14 @@ private:
     QString m_currentSearchText;
     QList<VP_ShowsTMDB::ShowInfo> m_currentSuggestions;
     
-    // Image cache with scaled posters
+    // Image cache with scaled posters - protected by mutex
     struct CachedPoster {
         QPixmap scaledPixmap;  // Pre-scaled to label size
         QString posterPath;     // Original poster path (for cache key)
         qint64 sizeInBytes;     // Approximate memory size
     };
     
+    mutable QMutex m_cacheMutex;                // Mutex for thread-safe cache access
     QMap<QString, CachedPoster> m_posterCache;  // Key is poster path
     QList<QString> m_cacheAccessOrder;          // Track access order for LRU
     qint64 m_currentCacheSize;                  // Current cache size in bytes

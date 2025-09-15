@@ -43,6 +43,8 @@
 #include <QThread>
 #include <QApplication>
 #include <QUuid>
+#include <QMutex>
+#include <QMutexLocker>
 
 VP_ShowsSettingsDialog::VP_ShowsSettingsDialog(const QString& showName, const QString& showPath, QWidget *parent)
     : QDialog(parent)
@@ -767,17 +769,20 @@ void VP_ShowsSettingsDialog::downloadAndDisplayPoster(const QString& posterPath)
     QSize labelSize = ui->label_ShowPoster->size();
     qDebug() << "VP_ShowsSettingsDialog: Label size for poster:" << labelSize;
     
-    // Check if we already have this poster in cache
-    if (m_posterCache.contains(posterPath)) {
-        qDebug() << "VP_ShowsSettingsDialog: Using cached poster for:" << posterPath;
-        
-        // Update access order for LRU
-        m_cacheAccessOrder.removeAll(posterPath);
-        m_cacheAccessOrder.append(posterPath);
-        
-        // Display the pre-scaled poster from cache
-        ui->label_ShowPoster->setPixmap(m_posterCache[posterPath].scaledPixmap);
-        return;
+    // Check if we already have this poster in cache (thread-safe)
+    {
+        QMutexLocker locker(&m_cacheMutex);
+        if (m_posterCache.contains(posterPath)) {
+            qDebug() << "VP_ShowsSettingsDialog: Using cached poster for:" << posterPath;
+            
+            // Update access order for LRU
+            m_cacheAccessOrder.removeAll(posterPath);
+            m_cacheAccessOrder.append(posterPath);
+            
+            // Display the pre-scaled poster from cache
+            ui->label_ShowPoster->setPixmap(m_posterCache[posterPath].scaledPixmap);
+            return;
+        }
     }
     
     qDebug() << "VP_ShowsSettingsDialog: Poster not in cache, downloading:" << posterPath;
@@ -871,6 +876,9 @@ void VP_ShowsSettingsDialog::addToCache(const QString& posterPath, const QPixmap
     qDebug() << "VP_ShowsSettingsDialog: Adding poster to cache:" << posterPath 
              << "Size:" << pixmapSize << "bytes";
     
+    // Thread-safe cache operations
+    QMutexLocker locker(&m_cacheMutex);
+    
     // Create cache entry
     CachedPoster cachedPoster;
     cachedPoster.scaledPixmap = scaledPixmap;
@@ -885,7 +893,7 @@ void VP_ShowsSettingsDialog::addToCache(const QString& posterPath, const QPixmap
     m_cacheAccessOrder.removeAll(posterPath);
     m_cacheAccessOrder.append(posterPath);
     
-    // Enforce cache limits
+    // Enforce cache limits (while holding the lock)
     enforeCacheLimits();
     
     qDebug() << "VP_ShowsSettingsDialog: Cache now contains" << m_posterCache.size() 
@@ -894,6 +902,7 @@ void VP_ShowsSettingsDialog::addToCache(const QString& posterPath, const QPixmap
 
 void VP_ShowsSettingsDialog::enforeCacheLimits()
 {
+    // Note: This should be called while holding m_cacheMutex lock
     // Remove items if we exceed the item count limit or size limit
     while ((m_posterCache.size() > MAX_CACHE_ITEMS || m_currentCacheSize > MAX_CACHE_SIZE) 
            && !m_cacheAccessOrder.isEmpty()) {
