@@ -40,7 +40,7 @@ const QString DBSettings_Type_Diary = "Diary";
 const QString DBSettings_Type_Tasklists = "Tasklists";
 const QString DBSettings_Type_PWManager = "PWManager";
 const QString DBSettings_Type_EncryptedData = "ENCRYPTEDDATA";
-const QString DBSettings_Type_VideoPlayer = "VideoPlayer";
+const QString DBSettings_Type_VPShows = "VPShows";
 // User Database
 const QString DBPath_User = "Data/users.db";
 // User Database Table Indexes - User Info

@@ -34,6 +34,7 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
     UpdateButtonStates(Constants::DBSettings_Type_Tasklists);
     UpdateButtonStates(Constants::DBSettings_Type_PWManager);
     UpdateButtonStates(Constants::DBSettings_Type_EncryptedData);
+    UpdateButtonStates(Constants::DBSettings_Type_VPShows);
 
     m_previousSettingsTabIndex = m_mainWindow->ui->tabWidget_Settings->currentIndex();
     m_previousMainTabIndex = m_mainWindow->ui->tabWidget_Main->currentIndex();
@@ -82,6 +83,34 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
     connect(m_mainWindow->ui->checkBox_DataENC_HideTags, &QCheckBox::stateChanged,
             [this]() { Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData); });
 
+
+    // Connect VideoPlayer settings UI signals
+    connect(m_mainWindow->ui->checkBox_VP_Shows_Autoplay, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
+
+    connect(m_mainWindow->ui->checkBox_VP_Shows_AutoplayRand, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
+
+    connect(m_mainWindow->ui->checkBox_VP_Shows_UseTMDB, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
+
+    connect(m_mainWindow->ui->checkBox_VP_Shows_DisplayFilenames, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
+
+    connect(m_mainWindow->ui->checkBox_VP_Shows_CheckNewEP, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
+
+    connect(m_mainWindow->ui->comboBox_VP_Shows_FileFolderParsing, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
+
+    connect(m_mainWindow->ui->comboBox_VP_Shows_AutoDelete, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
+
+    connect(m_mainWindow->ui->spinBox_VP_Shows_DefaultVolume, QOverload<int>::of(&QSpinBox::valueChanged),
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
+
+    connect(m_mainWindow->ui->checkBox_VP_Shows_CheckNewEPStartup, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
 
     InitializeCustomCheckboxes();
 }
@@ -601,7 +630,75 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
     }
 
+    // ------- Load VideoPlayer Settings -------
+    if (settingsType == Constants::DBSettings_Type_ALL || settingsType == Constants::DBSettings_Type_VPShows)
+    {
+        // Autoplay
+        QString autoplay = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_Autoplay);
+        if (autoplay != Constants::ErrorMessage_Default) {
+            m_mainWindow->ui->checkBox_VP_Shows_Autoplay->setChecked(autoplay == "1");
+            m_mainWindow->setting_VP_Shows_Autoplay = (autoplay == "1");
+        }
 
+        // Autoplay Random
+        QString autoplayRand = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_AutoplayRand);
+        if (autoplayRand != Constants::ErrorMessage_Default) {
+            m_mainWindow->ui->checkBox_VP_Shows_AutoplayRand->setChecked(autoplayRand == "1");
+            m_mainWindow->setting_VP_Shows_AutoplayRand = (autoplayRand == "1");
+        }
+
+        // Use TMDB
+        QString useTMDB = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_UseTMDB);
+        if (useTMDB != Constants::ErrorMessage_Default) {
+            m_mainWindow->ui->checkBox_VP_Shows_UseTMDB->setChecked(useTMDB == "1");
+            m_mainWindow->setting_VP_Shows_UseTMDB = (useTMDB == "1");
+        }
+
+        // Display Filenames
+        QString displayFilenames = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_DisplayFilenames);
+        if (displayFilenames != Constants::ErrorMessage_Default) {
+            m_mainWindow->ui->checkBox_VP_Shows_DisplayFilenames->setChecked(displayFilenames == "1");
+            m_mainWindow->setting_VP_Shows_DisplayFilenames = (displayFilenames == "1");
+        }
+
+        // Check New Episodes
+        QString checkNewEP = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_CheckNewEP);
+        if (checkNewEP != Constants::ErrorMessage_Default) {
+            m_mainWindow->ui->checkBox_VP_Shows_CheckNewEP->setChecked(checkNewEP == "1");
+            m_mainWindow->setting_VP_Shows_CheckNewEP = (checkNewEP == "1");
+        }
+
+        // File/Folder Parsing
+        QString fileFolderParsing = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_FileFolderParsing);
+        if (fileFolderParsing != Constants::ErrorMessage_Default) {
+            int index = fileFolderParsing.toInt();
+            m_mainWindow->ui->comboBox_VP_Shows_FileFolderParsing->setCurrentIndex(index);
+            m_mainWindow->setting_VP_Shows_FileFolderParsing = index;
+        }
+
+        // Auto Delete
+        QString autoDelete = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_AutoDelete);
+        if (autoDelete != Constants::ErrorMessage_Default) {
+            int index = autoDelete.toInt();
+            m_mainWindow->ui->comboBox_VP_Shows_AutoDelete->setCurrentIndex(index);
+            m_mainWindow->setting_VP_Shows_AutoDelete = index;
+        }
+
+        // Default Volume
+        QString defaultVolume = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_DefaultVolume);
+        if (defaultVolume != Constants::ErrorMessage_Default) {
+            int volume = defaultVolume.toInt();
+            m_mainWindow->ui->spinBox_VP_Shows_DefaultVolume->setValue(volume);
+            m_mainWindow->setting_VP_Shows_DefaultVolume = volume;
+        }
+
+        // Check New Episodes on Startup
+        QString checkNewEPStartup = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_CheckNewEPStartup);
+        if (checkNewEPStartup != Constants::ErrorMessage_Default) {
+            m_mainWindow->ui->checkBox_VP_Shows_CheckNewEPStartup->setChecked(checkNewEPStartup == "1");
+            m_mainWindow->setting_VP_Shows_CheckNewEPStartup = (checkNewEPStartup == "1");
+        }
+    }
 
     // Update button states after loading
     UpdateButtonStates(settingsType);
@@ -833,6 +930,64 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         m_mainWindow->refreshEncryptedDataDisplay();
 
         qDebug() << "Refreshed encrypted data display after settings change";
+    }
+
+    // ------- Save VideoPlayer Settings -------
+    if (settingsType == Constants::DBSettings_Type_ALL || settingsType == Constants::DBSettings_Type_VPShows)
+    {
+        // Autoplay
+        bool autoplay = m_mainWindow->ui->checkBox_VP_Shows_Autoplay->isChecked();
+        QString autoplayStr = autoplay ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_Autoplay, autoplayStr);
+        m_mainWindow->setting_VP_Shows_Autoplay = autoplay;
+
+        // Autoplay Random
+        bool autoplayRand = m_mainWindow->ui->checkBox_VP_Shows_AutoplayRand->isChecked();
+        QString autoplayRandStr = autoplayRand ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_AutoplayRand, autoplayRandStr);
+        m_mainWindow->setting_VP_Shows_AutoplayRand = autoplayRand;
+
+        // Use TMDB
+        bool useTMDB = m_mainWindow->ui->checkBox_VP_Shows_UseTMDB->isChecked();
+        QString useTMDBStr = useTMDB ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_UseTMDB, useTMDBStr);
+        m_mainWindow->setting_VP_Shows_UseTMDB = useTMDB;
+
+        // Display Filenames
+        bool displayFilenames = m_mainWindow->ui->checkBox_VP_Shows_DisplayFilenames->isChecked();
+        QString displayFilenamesStr = displayFilenames ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_DisplayFilenames, displayFilenamesStr);
+        m_mainWindow->setting_VP_Shows_DisplayFilenames = displayFilenames;
+
+        // Check New Episodes
+        bool checkNewEP = m_mainWindow->ui->checkBox_VP_Shows_CheckNewEP->isChecked();
+        QString checkNewEPStr = checkNewEP ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_CheckNewEP, checkNewEPStr);
+        m_mainWindow->setting_VP_Shows_CheckNewEP = checkNewEP;
+
+        // File/Folder Parsing
+        int fileFolderParsing = m_mainWindow->ui->comboBox_VP_Shows_FileFolderParsing->currentIndex();
+        QString fileFolderParsingStr = QString::number(fileFolderParsing);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_FileFolderParsing, fileFolderParsingStr);
+        m_mainWindow->setting_VP_Shows_FileFolderParsing = fileFolderParsing;
+
+        // Auto Delete
+        int autoDelete = m_mainWindow->ui->comboBox_VP_Shows_AutoDelete->currentIndex();
+        QString autoDeleteStr = QString::number(autoDelete);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_AutoDelete, autoDeleteStr);
+        m_mainWindow->setting_VP_Shows_AutoDelete = autoDelete;
+
+        // Default Volume
+        int defaultVolume = m_mainWindow->ui->spinBox_VP_Shows_DefaultVolume->value();
+        QString defaultVolumeStr = QString::number(defaultVolume);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_DefaultVolume, defaultVolumeStr);
+        m_mainWindow->setting_VP_Shows_DefaultVolume = defaultVolume;
+
+        // Check New Episodes on Startup
+        bool checkNewEPStartup = m_mainWindow->ui->checkBox_VP_Shows_CheckNewEPStartup->isChecked();
+        QString checkNewEPStartupStr = checkNewEPStartup ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_CheckNewEPStartup, checkNewEPStartupStr);
+        m_mainWindow->setting_VP_Shows_CheckNewEPStartup = checkNewEPStartup;
     }
 
     // Update button states after saving
@@ -1252,6 +1407,81 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         m_mainWindow->ui->pushButton_DataENC_Cancel->setStyleSheet(matchesDatabase ? disabledStyle : enabledStyle);
         m_mainWindow->ui->pushButton_DataENC_RDefault->setStyleSheet(matchesDefault ? disabledStyle : enabledStyle);
     }
+
+    // ------- VideoPlayer Settings Button States -------
+    else if (settingsType == Constants::DBSettings_Type_VPShows)
+    {
+        bool matchesDatabase = true;
+        bool matchesDefault = true;
+
+        // Check each setting against database and defaults
+        // Autoplay
+        QString dbAutoplay = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_Autoplay);
+        QString uiAutoplay = m_mainWindow->ui->checkBox_VP_Shows_Autoplay->isChecked() ? "1" : "0";
+        if (dbAutoplay != uiAutoplay) matchesDatabase = false;
+        if (uiAutoplay != Default_UserSettings::DEFAULT_VP_SHOWS_AUTOPLAY) matchesDefault = false;
+
+        // Autoplay Random
+        QString dbAutoplayRand = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_AutoplayRand);
+        QString uiAutoplayRand = m_mainWindow->ui->checkBox_VP_Shows_AutoplayRand->isChecked() ? "1" : "0";
+        if (dbAutoplayRand != uiAutoplayRand) matchesDatabase = false;
+        if (uiAutoplayRand != Default_UserSettings::DEFAULT_VP_SHOWS_AUTOPLAY_RAND) matchesDefault = false;
+
+        // Use TMDB
+        QString dbUseTMDB = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_UseTMDB);
+        QString uiUseTMDB = m_mainWindow->ui->checkBox_VP_Shows_UseTMDB->isChecked() ? "1" : "0";
+        if (dbUseTMDB != uiUseTMDB) matchesDatabase = false;
+        if (uiUseTMDB != Default_UserSettings::DEFAULT_VP_SHOWS_USE_TMDB) matchesDefault = false;
+
+        // Display Filenames
+        QString dbDisplayFilenames = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_DisplayFilenames);
+        QString uiDisplayFilenames = m_mainWindow->ui->checkBox_VP_Shows_DisplayFilenames->isChecked() ? "1" : "0";
+        if (dbDisplayFilenames != uiDisplayFilenames) matchesDatabase = false;
+        if (uiDisplayFilenames != Default_UserSettings::DEFAULT_VP_SHOWS_DISPLAY_FILENAMES) matchesDefault = false;
+
+        // Check New Episodes
+        QString dbCheckNewEP = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_CheckNewEP);
+        QString uiCheckNewEP = m_mainWindow->ui->checkBox_VP_Shows_CheckNewEP->isChecked() ? "1" : "0";
+        if (dbCheckNewEP != uiCheckNewEP) matchesDatabase = false;
+        if (uiCheckNewEP != Default_UserSettings::DEFAULT_VP_SHOWS_CHECK_NEW_EP) matchesDefault = false;
+
+        // File/Folder Parsing
+        QString dbFileFolderParsing = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_FileFolderParsing);
+        QString uiFileFolderParsing = QString::number(m_mainWindow->ui->comboBox_VP_Shows_FileFolderParsing->currentIndex());
+        if (dbFileFolderParsing != uiFileFolderParsing) matchesDatabase = false;
+        if (uiFileFolderParsing != Default_UserSettings::DEFAULT_VP_SHOWS_FILE_FOLDER_PARSING) matchesDefault = false;
+
+        // Auto Delete
+        QString dbAutoDelete = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_AutoDelete);
+        QString uiAutoDelete = QString::number(m_mainWindow->ui->comboBox_VP_Shows_AutoDelete->currentIndex());
+        if (dbAutoDelete != uiAutoDelete) matchesDatabase = false;
+        if (uiAutoDelete != Default_UserSettings::DEFAULT_VP_SHOWS_AUTO_DELETE) matchesDefault = false;
+
+        // Default Volume
+        QString dbDefaultVolume = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_DefaultVolume);
+        QString uiDefaultVolume = QString::number(m_mainWindow->ui->spinBox_VP_Shows_DefaultVolume->value());
+        if (dbDefaultVolume != uiDefaultVolume) matchesDatabase = false;
+        if (uiDefaultVolume != Default_UserSettings::DEFAULT_VP_SHOWS_DEFAULT_VOLUME) matchesDefault = false;
+
+        // Check New Episodes on Startup
+        QString dbCheckNewEPStartup = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_CheckNewEPStartup);
+        QString uiCheckNewEPStartup = m_mainWindow->ui->checkBox_VP_Shows_CheckNewEPStartup->isChecked() ? "1" : "0";
+        if (dbCheckNewEPStartup != uiCheckNewEPStartup) matchesDatabase = false;
+        if (uiCheckNewEPStartup != Default_UserSettings::DEFAULT_VP_SHOWS_CHECK_NEW_EP_STARTUP) matchesDefault = false;
+
+        // Update button states
+        m_mainWindow->ui->pushButton_VP_Shows_Save->setEnabled(!matchesDatabase);
+        m_mainWindow->ui->pushButton_VP_Shows_Cancel->setEnabled(!matchesDatabase);
+        m_mainWindow->ui->pushButton_VP_Shows_RDefault->setEnabled(!matchesDefault);
+
+        // Apply styling
+        QString enabledStyle = "";
+        QString disabledStyle = "QPushButton { color: gray; }";
+        m_mainWindow->ui->pushButton_VP_Shows_Save->setStyleSheet(matchesDatabase ? disabledStyle : enabledStyle);
+        m_mainWindow->ui->pushButton_VP_Shows_Cancel->setStyleSheet(matchesDatabase ? disabledStyle : enabledStyle);
+        m_mainWindow->ui->pushButton_VP_Shows_RDefault->setStyleSheet(matchesDefault ? disabledStyle : enabledStyle);
+    }
+
 }
 
 void Operations_Settings::InitializeCustomCheckboxes()
@@ -1787,6 +2017,34 @@ void Operations_Settings::SetupSettingDescriptions()
     m_settingNames[m_mainWindow->ui->checkBox_OpenOnSettings] = "Open on Settings Tab";
     m_settingDescriptions[m_mainWindow->ui->checkBox_OpenOnSettings] = "When enabled, the application will always open on the Settings tab.\n\nThis applies both when launching the app and when showing it from the system tray.\n\nUseful if you frequently access settings or want quick access to configuration options.";
 
+    // VideoPlayer Settings
+    m_settingNames[m_mainWindow->ui->checkBox_VP_Shows_Autoplay] = "Autoplay";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_VP_Shows_Autoplay] = "Automatically play the next episode when the current one finishes.";
+
+    m_settingNames[m_mainWindow->ui->checkBox_VP_Shows_AutoplayRand] = "Autoplay Random Episode";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_VP_Shows_AutoplayRand] = "When autoplay is enabled, play a random episode instead of the next one in sequence.";
+
+    m_settingNames[m_mainWindow->ui->checkBox_VP_Shows_UseTMDB] = "Use TMDB";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_VP_Shows_UseTMDB] = "Use The Movie Database (TMDB) to automatically retrieve show information, episode names, and artwork.";
+
+    m_settingNames[m_mainWindow->ui->checkBox_VP_Shows_DisplayFilenames] = "Display Filenames";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_VP_Shows_DisplayFilenames] = "Display the actual filename instead of the episode name retrieved from TMDB.";
+
+    m_settingNames[m_mainWindow->ui->checkBox_VP_Shows_CheckNewEP] = "Check for New Episodes";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_VP_Shows_CheckNewEP] = "Automatically check for new episodes when opening a show. Also affects checking for new episodes on startup.";
+
+    m_settingNames[m_mainWindow->ui->comboBox_VP_Shows_FileFolderParsing] = "Season/Content Type Parsing";
+    m_settingDescriptions[m_mainWindow->ui->comboBox_VP_Shows_FileFolderParsing] = "Choose whether to determine the season or content type from the folder name or the file name.\n\nFolder Name: Use the folder structure to determine seasons\nFile Name: Parse the file name for season information. If unable to parse from folder name, it will default to filename.";
+
+    m_settingNames[m_mainWindow->ui->comboBox_VP_Shows_AutoDelete] = "Auto Delete on Import";
+    m_settingDescriptions[m_mainWindow->ui->comboBox_VP_Shows_AutoDelete] = "Choose what happens to original files after importing them.\n\nAlways Ask: Prompt each time\nKeep Files: Never delete originals\nDelete: Normal deletion\nSecure Delete: Overwrite before deletion";
+
+    m_settingNames[m_mainWindow->ui->spinBox_VP_Shows_DefaultVolume] = "Default Volume";
+    m_settingDescriptions[m_mainWindow->ui->spinBox_VP_Shows_DefaultVolume] = "The default volume level (0-150) when starting video playback for the first time after app launch. Afterwards it uses the volume value of the last opened player.";
+
+    m_settingNames[m_mainWindow->ui->checkBox_VP_Shows_CheckNewEPStartup] = "Check for New Episodes on Startup";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_VP_Shows_CheckNewEPStartup] = "Automatically check all shows for new episodes when the application starts.";
+
     // Install event filters on all UI controls
     QMap<QObject*, QString>::iterator it;
     for (it = m_settingNames.begin(); it != m_settingNames.end(); ++it) {
@@ -1968,6 +2226,20 @@ void Operations_Settings::Slot_ButtonPressed(const QString button)
             }
         }
     }
+
+    // --- VideoPlayer Settings Buttons ---
+    else if (button == Constants::SettingsButton_SaveVPShows) {
+        SaveSettings(Constants::DBSettings_Type_VPShows);
+    }
+    else if (button == Constants::SettingsButton_CancelVPShows) {
+        LoadSettings(Constants::DBSettings_Type_VPShows);
+    }
+    else if (button == Constants::SettingsButton_ResetVPShows) {
+        if (Default_UserSettings::SetDefault_VideoPlayerSettings(username, encryptionKey)) {
+            LoadSettings(Constants::DBSettings_Type_VPShows);
+        }
+    }
+
     else {
         qDebug() << "Unknown settings button:" << button;
     }

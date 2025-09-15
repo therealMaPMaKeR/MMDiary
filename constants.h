@@ -40,7 +40,7 @@ extern const QString DBSettings_Type_Diary;
 extern const QString DBSettings_Type_Tasklists;
 extern const QString DBSettings_Type_PWManager;
 extern const QString DBSettings_Type_EncryptedData;
-extern const QString DBSettings_Type_VideoPlayer;
+extern const QString DBSettings_Type_VPShows;
 // User Database
 extern const QString DBPath_User;
 // Users Database Table Indexes - User Info

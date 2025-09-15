@@ -809,7 +809,7 @@ bool DatabaseManager::migrateDatabase(int latestVersion,
                                       std::function<bool(int)> migrationCallback,
                                       std::function<bool(int)> rollbackCallback) {
     QMutexLocker locker(&m_mutex);
-    
+
     if (!m_db.isOpen()) {
         m_lastError = "Database not connected";
         qWarning() << "DatabaseManager: Cannot migrate database - database not connected";
@@ -820,7 +820,7 @@ bool DatabaseManager::migrateDatabase(int latestVersion,
     locker.unlock();
     int currentVersion = getCurrentVersion();
     locker.relock();
-    
+
     qInfo() << "DatabaseManager: Current database version:" << currentVersion;
 
     // Initialize the versioning system if needed
@@ -845,7 +845,7 @@ bool DatabaseManager::migrateDatabase(int latestVersion,
         qWarning() << "DatabaseManager: Failed to start transaction for migration";
         return false;
     }
-    
+
     bool success = true;
 
     // Apply migrations in order
@@ -856,7 +856,7 @@ bool DatabaseManager::migrateDatabase(int latestVersion,
         locker.unlock();
         bool migrationSuccess = migrationCallback(version);
         locker.relock();
-        
+
         if (!migrationSuccess) {
             qWarning() << "DatabaseManager: Failed to migrate to version" << version;
             success = false;
@@ -867,7 +867,7 @@ bool DatabaseManager::migrateDatabase(int latestVersion,
         locker.unlock();
         bool updateSuccess = updateVersion(version);
         locker.relock();
-        
+
         if (!updateSuccess) {
             qWarning() << "DatabaseManager: Failed to update version to" << version;
             success = false;

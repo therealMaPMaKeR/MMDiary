@@ -772,14 +772,18 @@ bool DatabaseSettingsManager::rollbackFromV3()
 bool DatabaseSettingsManager::migrateToV4()
 {
     // Migration to version 4: Add VideoPlayer settings columns
-    qDebug() << "DatabaseSettingsManager: Migrating settings database to v4 - adding video player settings";
-    
+    qDebug() << "========================================";
+    qDebug() << "DatabaseSettingsManager: Starting migration to v4";
+    qDebug() << "========================================";
+
+    // Check current table structure first
+    QString checkQuery = "PRAGMA table_info(settings)";
+    qDebug() << "DatabaseSettingsManager: Checking current table structure...";
+    if (m_dbManager.executeQuery(checkQuery)) {
+        qDebug() << "DatabaseSettingsManager: Current settings table structure checked";
+    }
+
     // SQLite doesn't support adding multiple columns efficiently, so we'll use the table recreation approach
-    // 1. Create a new table with all columns including the new VideoPlayer settings
-    // 2. Copy data from old table
-    // 3. Drop old table
-    // 4. Rename new table
-    
     QMap<QString, QString> settingsTableColumns;
     settingsTableColumns["id"] = "INTEGER PRIMARY KEY";
 
@@ -814,8 +818,9 @@ bool DatabaseSettingsManager::migrateToV4()
     settingsTableColumns[Constants::SettingsT_Index_DataENC_Hidden_Tags] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_DataENC_Hide_Categories] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_DataENC_Hide_Tags] = "TEXT";
-    
+
     // NEW VideoPlayer Settings
+    qDebug() << "DatabaseSettingsManager: Adding VideoPlayer columns to schema...";
     settingsTableColumns[Constants::SettingsT_Index_VP_Shows_Autoplay] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_VP_Shows_AutoplayRand] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_VP_Shows_UseTMDB] = "TEXT";
@@ -825,64 +830,76 @@ bool DatabaseSettingsManager::migrateToV4()
     settingsTableColumns[Constants::SettingsT_Index_VP_Shows_AutoDelete] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_VP_Shows_DefaultVolume] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_VP_Shows_CheckNewEPStartup] = "TEXT";
+    qDebug() << "DatabaseSettingsManager: Total columns in new schema:" << settingsTableColumns.size();
 
     // Create temporary table with new schema
+    qDebug() << "DatabaseSettingsManager: Creating temporary table with v4 schema...";
     if (!m_dbManager.createTable("settings_temp", settingsTableColumns)) {
-        qWarning() << "Failed to create temporary settings table for v4 migration:" << m_dbManager.lastError();
+        qCritical() << "DatabaseSettingsManager: FAILED to create temporary settings table for v4 migration:" << m_dbManager.lastError();
         return false;
     }
+    qDebug() << "DatabaseSettingsManager: Temporary table created successfully";
 
     // Build column list for data migration (only columns that exist in the old table)
     QStringList existingColumns;
     existingColumns << "id"
-                   << Constants::SettingsT_Index_Displayname
-                   << Constants::SettingsT_Index_DisplaynameColor
-                   << Constants::SettingsT_Index_MinToTray
-                   << Constants::SettingsT_Index_AskPWAfterMinToTray
-                   << Constants::SettingsT_Index_ReqPWDelay
-                   << Constants::SettingsT_Index_OpenOnSettings
-                   << Constants::SettingsT_Index_Diary_TextSize
-                   << Constants::SettingsT_Index_Diary_TStampTimer
-                   << Constants::SettingsT_Index_Diary_TStampCounter
-                   << Constants::SettingsT_Index_Diary_CanEditRecent
-                   << Constants::SettingsT_Index_Diary_ShowTManLogs
-                   << Constants::SettingsT_Index_TLists_TextSize
-                   << Constants::SettingsT_Index_PWMan_DefSortingMethod
-                   << Constants::SettingsT_Index_PWMan_ReqPassword
-                   << Constants::SettingsT_Index_PWMan_HidePasswords
-                   << Constants::SettingsT_Index_DataENC_ReqPassword
-                   << Constants::SettingsT_Index_DataENC_HideThumbnails_Image
-                   << Constants::SettingsT_Index_DataENC_HideThumbnails_Video
-                   << Constants::SettingsT_Index_DataENC_Hidden_Categories
-                   << Constants::SettingsT_Index_DataENC_Hidden_Tags
-                   << Constants::SettingsT_Index_DataENC_Hide_Categories
-                   << Constants::SettingsT_Index_DataENC_Hide_Tags;
+                    << Constants::SettingsT_Index_Displayname
+                    << Constants::SettingsT_Index_DisplaynameColor
+                    << Constants::SettingsT_Index_MinToTray
+                    << Constants::SettingsT_Index_AskPWAfterMinToTray
+                    << Constants::SettingsT_Index_ReqPWDelay
+                    << Constants::SettingsT_Index_OpenOnSettings
+                    << Constants::SettingsT_Index_Diary_TextSize
+                    << Constants::SettingsT_Index_Diary_TStampTimer
+                    << Constants::SettingsT_Index_Diary_TStampCounter
+                    << Constants::SettingsT_Index_Diary_CanEditRecent
+                    << Constants::SettingsT_Index_Diary_ShowTManLogs
+                    << Constants::SettingsT_Index_TLists_TextSize
+                    << Constants::SettingsT_Index_PWMan_DefSortingMethod
+                    << Constants::SettingsT_Index_PWMan_ReqPassword
+                    << Constants::SettingsT_Index_PWMan_HidePasswords
+                    << Constants::SettingsT_Index_DataENC_ReqPassword
+                    << Constants::SettingsT_Index_DataENC_HideThumbnails_Image
+                    << Constants::SettingsT_Index_DataENC_HideThumbnails_Video
+                    << Constants::SettingsT_Index_DataENC_Hidden_Categories
+                    << Constants::SettingsT_Index_DataENC_Hidden_Tags
+                    << Constants::SettingsT_Index_DataENC_Hide_Categories
+                    << Constants::SettingsT_Index_DataENC_Hide_Tags;
 
     QString columnList = existingColumns.join(", ");
+    qDebug() << "DatabaseSettingsManager: Copying" << existingColumns.size() << "columns from old table";
 
     // Copy data from old table to new table
     QString copyQuery = QString("INSERT INTO settings_temp (%1) SELECT %1 FROM settings").arg(columnList);
+    qDebug() << "DatabaseSettingsManager: Executing copy query...";
     if (!m_dbManager.executeQuery(copyQuery)) {
-        qWarning() << "Failed to copy data to temporary table for v4 migration:" << m_dbManager.lastError();
+        qCritical() << "DatabaseSettingsManager: FAILED to copy data to temporary table for v4 migration:" << m_dbManager.lastError();
         m_dbManager.dropTable("settings_temp");
         return false;
     }
+    qDebug() << "DatabaseSettingsManager: Data copied successfully";
 
     // Drop old table
+    qDebug() << "DatabaseSettingsManager: Dropping old settings table...";
     if (!m_dbManager.dropTable("settings")) {
-        qWarning() << "Failed to drop old settings table for v4 migration:" << m_dbManager.lastError();
+        qCritical() << "DatabaseSettingsManager: FAILED to drop old settings table for v4 migration:" << m_dbManager.lastError();
         m_dbManager.dropTable("settings_temp");
         return false;
     }
+    qDebug() << "DatabaseSettingsManager: Old table dropped successfully";
 
     // Rename temporary table to settings
     QString renameQuery = "ALTER TABLE settings_temp RENAME TO settings";
+    qDebug() << "DatabaseSettingsManager: Renaming temporary table to settings...";
     if (!m_dbManager.executeQuery(renameQuery)) {
-        qWarning() << "Failed to rename temporary table for v4 migration:" << m_dbManager.lastError();
+        qCritical() << "DatabaseSettingsManager: FAILED to rename temporary table for v4 migration:" << m_dbManager.lastError();
         return false;
     }
+    qDebug() << "DatabaseSettingsManager: Table renamed successfully";
 
-    qDebug() << "Successfully migrated settings database to version 4 (added video player settings)";
+    qDebug() << "========================================";
+    qDebug() << "DatabaseSettingsManager: Migration to v4 COMPLETED SUCCESSFULLY";
+    qDebug() << "========================================";
     return true;
 }
 

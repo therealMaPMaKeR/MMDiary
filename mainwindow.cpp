@@ -531,7 +531,7 @@ void MainWindow::FinishInitialization()
     // Initialize persistent settings manager
     m_persistentSettingsManager = &DatabasePersistentSettingsManager::instance();
 
-    // NEW: Start grace period since user just successfully authenticated during login
+    // Start grace period since user just successfully authenticated during login
     if (!user_Username.isEmpty()) {
         PasswordValidation::recordSuccessfulValidation(user_Username);
         qDebug() << "Started password grace period for user after login:" << user_Username;
@@ -604,6 +604,8 @@ void MainWindow::FinishInitialization()
                 Operations_EncryptedData_ptr, &Operations_EncryptedData::onSortTypeChanged);
         //trayIcon->showMessage("Title", "This is a notification message.", QSystemTrayIcon::Information, 3000);
         
+
+
         // SECURITY: Only show tray icon after successful initialization
         if (trayIcon && !trayIcon->isVisible()) {
             trayIcon->show();
@@ -1822,6 +1824,27 @@ void MainWindow::on_pushButton_PWMan_RDefault_clicked()
     }
 }
 
+void MainWindow::on_pushButton_VP_Shows_Save_clicked()
+{
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SaveVPShows);
+    }
+}
+
+void MainWindow::on_pushButton_VP_Shows_Cancel_clicked()
+{
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelVPShows);
+    }
+}
+
+void MainWindow::on_pushButton_VP_Shows_RDefault_clicked()
+{
+    if (Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_ResetVPShows);
+    }
+}
+
 //----Settings Value Changed Signals----//
 
 //Global
@@ -1963,6 +1986,80 @@ void MainWindow::on_checkBox_DataENC_HideThumbnails_Video_stateChanged(int arg1)
 {
     if (initFinished && Operations_Settings_ptr) {
         Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_EncryptedData);
+    }
+}
+
+//Video Player - Shows
+// Value changed handlers
+void MainWindow::on_checkBox_VP_Shows_Autoplay_stateChanged(int arg1)
+{
+    Q_UNUSED(arg1)
+    if (initFinished && Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_VPShows);
+    }
+}
+
+void MainWindow::on_checkBox_VP_Shows_AutoplayRand_stateChanged(int arg1)
+{
+    Q_UNUSED(arg1)
+    if (initFinished && Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_VPShows);
+    }
+}
+
+void MainWindow::on_checkBox_VP_Shows_UseTMDB_stateChanged(int arg1)
+{
+    Q_UNUSED(arg1)
+    if (initFinished && Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_VPShows);
+    }
+}
+
+void MainWindow::on_checkBox_VP_Shows_DisplayFilenames_stateChanged(int arg1)
+{
+    Q_UNUSED(arg1)
+    if (initFinished && Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_VPShows);
+    }
+}
+
+void MainWindow::on_checkBox_VP_Shows_CheckNewEP_stateChanged(int arg1)
+{
+    Q_UNUSED(arg1)
+    if (initFinished && Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_VPShows);
+    }
+}
+
+void MainWindow::on_comboBox_VP_Shows_FileFolderParsing_currentIndexChanged(int index)
+{
+    Q_UNUSED(index)
+    if (initFinished && Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_VPShows);
+    }
+}
+
+void MainWindow::on_comboBox_VP_Shows_AutoDelete_currentIndexChanged(int index)
+{
+    Q_UNUSED(index)
+    if (initFinished && Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_VPShows);
+    }
+}
+
+void MainWindow::on_spinBox_VP_Shows_DefaultVolume_valueChanged(int arg1)
+{
+    Q_UNUSED(arg1)
+    if (initFinished && Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_VPShows);
+    }
+}
+
+void MainWindow::on_checkBox_VP_Shows_CheckNewEPStartup_stateChanged(int arg1)
+{
+    Q_UNUSED(arg1)
+    if (initFinished && Operations_Settings_ptr) {
+        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_VPShows);
     }
 }
 
