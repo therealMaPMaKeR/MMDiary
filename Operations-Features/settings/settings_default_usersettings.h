@@ -42,12 +42,24 @@ const QString DEFAULT_DATAENC_HIDDEN_TAGS = "";
 const QString DEFAULT_DATAENC_HIDE_CATEGORIES = "0";
 const QString DEFAULT_DATAENC_HIDE_TAGS = "0";
 
+// VideoPlayer Settings
+const QString DEFAULT_VP_SHOWS_AUTOPLAY = "1";
+const QString DEFAULT_VP_SHOWS_AUTOPLAY_RAND = "0";
+const QString DEFAULT_VP_SHOWS_USE_TMDB = "1";
+const QString DEFAULT_VP_SHOWS_DISPLAY_FILENAMES = "0";
+const QString DEFAULT_VP_SHOWS_CHECK_NEW_EP = "1";
+const QString DEFAULT_VP_SHOWS_FILE_FOLDER_PARSING = "0";
+const QString DEFAULT_VP_SHOWS_AUTO_DELETE = "0";
+const QString DEFAULT_VP_SHOWS_DEFAULT_VOLUME = "100";
+const QString DEFAULT_VP_SHOWS_CHECK_NEW_EP_STARTUP = "0";
+
 // SECURITY: Pass QString by const reference to avoid unnecessary copies
 bool SetDefault_GlobalSettings(const QString& username, const QByteArray& encryptionKey);
 bool SetDefault_DiarySettings(const QString& username, const QByteArray& encryptionKey);
 bool SetDefault_TasklistsSettings(const QString& username, const QByteArray& encryptionKey);
 bool SetDefault_PWManagerSettings(const QString& username, const QByteArray& encryptionKey);
 bool SetDefault_EncryptedDataSettings(const QString& username, const QByteArray& encryptionKey);
+bool SetDefault_VideoPlayerSettings(const QString& username, const QByteArray& encryptionKey);
 bool SetAllDefaults(const QString& username, const QByteArray& encryptionKey);
 };
 

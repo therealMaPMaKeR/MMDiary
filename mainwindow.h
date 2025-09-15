@@ -165,6 +165,17 @@ private:
     QString setting_DataENC_Hidden_Tags = "";
     bool setting_DataENC_Hide_Categories = false;
     bool setting_DataENC_Hide_Tags = false;
+    
+    // VideoPlayer Settings
+    bool setting_VP_Shows_Autoplay = true;
+    bool setting_VP_Shows_AutoplayRand = false;
+    bool setting_VP_Shows_UseTMDB = true;
+    bool setting_VP_Shows_DisplayFilenames = false;
+    bool setting_VP_Shows_CheckNewEP = true;
+    int setting_VP_Shows_FileFolderParsing = 0;  // 0 = Folder Name, 1 = File Name
+    int setting_VP_Shows_AutoDelete = 0;  // 0 = Always Ask, 1 = Keep Files, 2 = Delete, 3 = Secure Delete
+    int setting_VP_Shows_DefaultVolume = 100;
+    bool setting_VP_Shows_CheckNewEPStartup = false;
 
     //Member Classes
     Operations_Diary* Operations_Diary_ptr = nullptr;
@@ -274,6 +285,20 @@ private slots:
     void on_spinBox_ReqPWDelay_valueChanged(int arg1);
 
     void on_checkBox_OpenOnSettings_stateChanged(int arg1);
+    
+    // VideoPlayer Settings
+    void on_pushButton_VP_Shows_Save_clicked();
+    void on_pushButton_VP_Shows_Cancel_clicked();
+    void on_pushButton_VP_Shows_RDefault_clicked();
+    void on_checkBox_VP_Shows_Autoplay_stateChanged(int arg1);
+    void on_checkBox_VP_Shows_AutoplayRand_stateChanged(int arg1);
+    void on_checkBox_VP_Shows_UseTMDB_stateChanged(int arg1);
+    void on_checkBox_VP_Shows_DisplayFilenames_stateChanged(int arg1);
+    void on_checkBox_VP_Shows_CheckNewEP_stateChanged(int arg1);
+    void on_comboBox_VP_Shows_FileFolderParsing_currentIndexChanged(int index);
+    void on_comboBox_VP_Shows_AutoDelete_currentIndexChanged(int index);
+    void on_spinBox_VP_Shows_DefaultVolume_valueChanged(int arg1);
+    void on_checkBox_VP_Shows_CheckNewEPStartup_stateChanged(int arg1);
 
 private:
     void UpdateTasklistTextSize();

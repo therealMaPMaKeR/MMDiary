@@ -25,6 +25,9 @@ const QString SettingsButton_ResetPWManager = "ResetPWManager";
 const QString SettingsButton_SaveEncryptedData = "SaveENCRYPTEDDATA";
 const QString SettingsButton_CancelEncryptedData = "CancelENCRYPTEDDATA";
 const QString SettingsButton_ResetEncryptedData = "ResetENCRYPTEDDATA";
+const QString SettingsButton_SaveVPShows = "SaveVPShows";
+const QString SettingsButton_CancelVPShows = "CancelVPShows";
+const QString SettingsButton_ResetVPShows = "ResetVPShows";
 // Data Types
 const QString DataType_QString = "QString";
 const QString DataType_QByteArray = "QByteArray";
@@ -37,6 +40,7 @@ const QString DBSettings_Type_Diary = "Diary";
 const QString DBSettings_Type_Tasklists = "Tasklists";
 const QString DBSettings_Type_PWManager = "PWManager";
 const QString DBSettings_Type_EncryptedData = "ENCRYPTEDDATA";
+const QString DBSettings_Type_VideoPlayer = "VideoPlayer";
 // User Database
 const QString DBPath_User = "Data/users.db";
 // User Database Table Indexes - User Info
@@ -101,6 +105,16 @@ const QString SettingsT_Index_DataENC_Hidden_Categories = "ENCRYPTEDDATA_Hidden_
 const QString SettingsT_Index_DataENC_Hidden_Tags = "ENCRYPTEDDATA_Hidden_Tags";
 const QString SettingsT_Index_DataENC_Hide_Categories = "ENCRYPTEDDATA_Hide_Categories";
 const QString SettingsT_Index_DataENC_Hide_Tags = "ENCRYPTEDDATA_Hide_Tags";
+// Settings Database Table Indexes - VideoPlayer Settings
+const QString SettingsT_Index_VP_Shows_Autoplay = "VP_Shows_Autoplay";
+const QString SettingsT_Index_VP_Shows_AutoplayRand = "VP_Shows_AutoplayRand";
+const QString SettingsT_Index_VP_Shows_UseTMDB = "VP_Shows_UseTMDB";
+const QString SettingsT_Index_VP_Shows_DisplayFilenames = "VP_Shows_DisplayFilenames";
+const QString SettingsT_Index_VP_Shows_CheckNewEP = "VP_Shows_CheckNewEP";
+const QString SettingsT_Index_VP_Shows_FileFolderParsing = "VP_Shows_FileFolderParsing";
+const QString SettingsT_Index_VP_Shows_AutoDelete = "VP_Shows_AutoDelete";
+const QString SettingsT_Index_VP_Shows_DefaultVolume = "VP_Shows_DefaultVolume";
+const QString SettingsT_Index_VP_Shows_CheckNewEPStartup = "VP_Shows_CheckNewEPStartup";
 // User Database Table Indexes - Backup Management
 const QString UserT_Index_BackupDeletionMode = "backup_deletion_mode";
 const QString UserT_Index_BackupDeletionDate = "backup_deletion_date";

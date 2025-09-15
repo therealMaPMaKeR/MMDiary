@@ -25,6 +25,9 @@ extern const QString SettingsButton_ResetPWManager;
 extern const QString SettingsButton_SaveEncryptedData;
 extern const QString SettingsButton_CancelEncryptedData;
 extern const QString SettingsButton_ResetEncryptedData;
+extern const QString SettingsButton_SaveVPShows;
+extern const QString SettingsButton_CancelVPShows;
+extern const QString SettingsButton_ResetVPShows;
 // Data Types
 extern const QString DataType_QString;
 extern const QString DataType_QByteArray;
@@ -37,6 +40,7 @@ extern const QString DBSettings_Type_Diary;
 extern const QString DBSettings_Type_Tasklists;
 extern const QString DBSettings_Type_PWManager;
 extern const QString DBSettings_Type_EncryptedData;
+extern const QString DBSettings_Type_VideoPlayer;
 // User Database
 extern const QString DBPath_User;
 // Users Database Table Indexes - User Info
@@ -77,6 +81,16 @@ extern const QString SettingsT_Index_DataENC_Hidden_Categories;
 extern const QString SettingsT_Index_DataENC_Hidden_Tags;
 extern const QString SettingsT_Index_DataENC_Hide_Categories;
 extern const QString SettingsT_Index_DataENC_Hide_Tags;
+// Settings Database Table Indexes - VideoPlayer Settings
+extern const QString SettingsT_Index_VP_Shows_Autoplay;
+extern const QString SettingsT_Index_VP_Shows_AutoplayRand;
+extern const QString SettingsT_Index_VP_Shows_UseTMDB;
+extern const QString SettingsT_Index_VP_Shows_DisplayFilenames;
+extern const QString SettingsT_Index_VP_Shows_CheckNewEP;
+extern const QString SettingsT_Index_VP_Shows_FileFolderParsing;
+extern const QString SettingsT_Index_VP_Shows_AutoDelete;
+extern const QString SettingsT_Index_VP_Shows_DefaultVolume;
+extern const QString SettingsT_Index_VP_Shows_CheckNewEPStartup;
 // User Database Table Indexes - Backup Management
 extern const QString UserT_Index_BackupDeletionMode;
 extern const QString UserT_Index_BackupDeletionDate;

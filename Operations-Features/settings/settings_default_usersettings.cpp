@@ -237,13 +237,69 @@ bool SetDefault_EncryptedDataSettings(const QString& username, const QByteArray&
     return success;
 }
 
+bool SetDefault_VideoPlayerSettings(const QString& username, const QByteArray& encryptionKey)
+{
+    // SECURITY: Validate username before any operations
+    if(username.isEmpty()){
+        qDebug() << "settings_default_usersettings: Unable to set default settings for VideoPlayer - username is empty";
+        return false;
+    }
+    
+    // SECURITY: Validate username format to prevent injection
+    InputValidation::ValidationResult usernameResult = InputValidation::validateInput(
+        username, InputValidation::InputType::Username, 20);
+    if (!usernameResult.isValid) {
+        qDebug() << "settings_default_usersettings: Invalid username:" << usernameResult.errorMessage;
+        return false;
+    }
+
+    DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
+
+    // Ensure database connection
+    if (!db.isConnected()) {
+        if (!db.connect(username, encryptionKey)) {
+            qDebug() << "settings_default_usersettings: Failed to connect to settings database for VideoPlayer defaults";
+            return false;
+        }
+    }
+
+    // Start transaction
+    if (!db.beginTransaction()) {
+        qDebug() << "settings_default_usersettings: Failed to begin transaction for VideoPlayer defaults";
+        return false;
+    }
+
+    // Set all video player defaults
+    bool success = true;
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_Autoplay, DEFAULT_VP_SHOWS_AUTOPLAY);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_AutoplayRand, DEFAULT_VP_SHOWS_AUTOPLAY_RAND);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_UseTMDB, DEFAULT_VP_SHOWS_USE_TMDB);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_DisplayFilenames, DEFAULT_VP_SHOWS_DISPLAY_FILENAMES);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_CheckNewEP, DEFAULT_VP_SHOWS_CHECK_NEW_EP);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_FileFolderParsing, DEFAULT_VP_SHOWS_FILE_FOLDER_PARSING);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_AutoDelete, DEFAULT_VP_SHOWS_AUTO_DELETE);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_DefaultVolume, DEFAULT_VP_SHOWS_DEFAULT_VOLUME);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_CheckNewEPStartup, DEFAULT_VP_SHOWS_CHECK_NEW_EP_STARTUP);
+
+    if (success) {
+        db.commitTransaction();
+        qDebug() << "settings_default_usersettings: VideoPlayer settings reset to defaults successfully";
+    } else {
+        db.rollbackTransaction();
+        qDebug() << "settings_default_usersettings: Failed to reset VideoPlayer settings to defaults";
+    }
+
+    return success;
+}
+
 bool SetAllDefaults(const QString& username, const QByteArray& encryptionKey)
 {
     if(SetDefault_GlobalSettings(username, encryptionKey) &&
         SetDefault_DiarySettings(username, encryptionKey) &&
         SetDefault_TasklistsSettings(username, encryptionKey) &&
         SetDefault_PWManagerSettings(username, encryptionKey) &&
-        SetDefault_EncryptedDataSettings(username, encryptionKey))
+        SetDefault_EncryptedDataSettings(username, encryptionKey) &&
+        SetDefault_VideoPlayerSettings(username, encryptionKey))
     {
         return true;
     }

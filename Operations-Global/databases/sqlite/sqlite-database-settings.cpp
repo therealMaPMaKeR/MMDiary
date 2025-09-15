@@ -221,6 +221,17 @@ bool DatabaseSettingsManager::IndexIsValid(QString index, QString type)
         columnTypes[Constants::SettingsT_Index_DataENC_Hidden_Tags] = Constants::DataType_QString;
         columnTypes[Constants::SettingsT_Index_DataENC_Hide_Categories] = Constants::DataType_QString;
         columnTypes[Constants::SettingsT_Index_DataENC_Hide_Tags] = Constants::DataType_QString;
+        
+        // VideoPlayer Settings columns
+        columnTypes[Constants::SettingsT_Index_VP_Shows_Autoplay] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_VP_Shows_AutoplayRand] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_VP_Shows_UseTMDB] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_VP_Shows_DisplayFilenames] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_VP_Shows_CheckNewEP] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_VP_Shows_FileFolderParsing] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_VP_Shows_AutoDelete] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_VP_Shows_DefaultVolume] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_VP_Shows_CheckNewEPStartup] = Constants::DataType_QString;
     }
 
     // Check if the column exists in our map
@@ -446,6 +457,8 @@ bool DatabaseSettingsManager::settingsMigrationCallback(int version)
         return migrateToV2();
     case 3:
         return migrateToV3();
+    case 4:
+        return migrateToV4();
     default:
         qWarning() << "No settings migration defined for version" << version;
         return false;
@@ -459,6 +472,8 @@ bool DatabaseSettingsManager::settingsRollbackCallback(int version)
         return rollbackFromV2();
     case 3:
         return rollbackFromV3();
+    case 4:
+        return rollbackFromV4();
     default:
         qWarning() << "No settings rollback defined for version" << version;
         return false;
@@ -751,6 +766,224 @@ bool DatabaseSettingsManager::rollbackFromV3()
     }
 
     qDebug() << "Successfully rolled back settings database from version 3";
+    return true;
+}
+
+bool DatabaseSettingsManager::migrateToV4()
+{
+    // Migration to version 4: Add VideoPlayer settings columns
+    qDebug() << "DatabaseSettingsManager: Migrating settings database to v4 - adding video player settings";
+    
+    // SQLite doesn't support adding multiple columns efficiently, so we'll use the table recreation approach
+    // 1. Create a new table with all columns including the new VideoPlayer settings
+    // 2. Copy data from old table
+    // 3. Drop old table
+    // 4. Rename new table
+    
+    QMap<QString, QString> settingsTableColumns;
+    settingsTableColumns["id"] = "INTEGER PRIMARY KEY";
+
+    // Global Settings
+    settingsTableColumns[Constants::SettingsT_Index_Displayname] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DisplaynameColor] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_MinToTray] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_AskPWAfterMinToTray] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_ReqPWDelay] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_OpenOnSettings] = "TEXT";
+
+    // Diary Settings
+    settingsTableColumns[Constants::SettingsT_Index_Diary_TextSize] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_TStampTimer] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_TStampCounter] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_CanEditRecent] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_ShowTManLogs] = "TEXT";
+
+    // Tasklists Settings
+    settingsTableColumns[Constants::SettingsT_Index_TLists_TextSize] = "TEXT";
+
+    // Password Manager Settings
+    settingsTableColumns[Constants::SettingsT_Index_PWMan_DefSortingMethod] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_PWMan_ReqPassword] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_PWMan_HidePasswords] = "TEXT";
+
+    // Encrypted Data Settings
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_ReqPassword] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_HideThumbnails_Image] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_HideThumbnails_Video] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hidden_Categories] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hidden_Tags] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hide_Categories] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hide_Tags] = "TEXT";
+    
+    // NEW VideoPlayer Settings
+    settingsTableColumns[Constants::SettingsT_Index_VP_Shows_Autoplay] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_VP_Shows_AutoplayRand] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_VP_Shows_UseTMDB] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_VP_Shows_DisplayFilenames] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_VP_Shows_CheckNewEP] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_VP_Shows_FileFolderParsing] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_VP_Shows_AutoDelete] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_VP_Shows_DefaultVolume] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_VP_Shows_CheckNewEPStartup] = "TEXT";
+
+    // Create temporary table with new schema
+    if (!m_dbManager.createTable("settings_temp", settingsTableColumns)) {
+        qWarning() << "Failed to create temporary settings table for v4 migration:" << m_dbManager.lastError();
+        return false;
+    }
+
+    // Build column list for data migration (only columns that exist in the old table)
+    QStringList existingColumns;
+    existingColumns << "id"
+                   << Constants::SettingsT_Index_Displayname
+                   << Constants::SettingsT_Index_DisplaynameColor
+                   << Constants::SettingsT_Index_MinToTray
+                   << Constants::SettingsT_Index_AskPWAfterMinToTray
+                   << Constants::SettingsT_Index_ReqPWDelay
+                   << Constants::SettingsT_Index_OpenOnSettings
+                   << Constants::SettingsT_Index_Diary_TextSize
+                   << Constants::SettingsT_Index_Diary_TStampTimer
+                   << Constants::SettingsT_Index_Diary_TStampCounter
+                   << Constants::SettingsT_Index_Diary_CanEditRecent
+                   << Constants::SettingsT_Index_Diary_ShowTManLogs
+                   << Constants::SettingsT_Index_TLists_TextSize
+                   << Constants::SettingsT_Index_PWMan_DefSortingMethod
+                   << Constants::SettingsT_Index_PWMan_ReqPassword
+                   << Constants::SettingsT_Index_PWMan_HidePasswords
+                   << Constants::SettingsT_Index_DataENC_ReqPassword
+                   << Constants::SettingsT_Index_DataENC_HideThumbnails_Image
+                   << Constants::SettingsT_Index_DataENC_HideThumbnails_Video
+                   << Constants::SettingsT_Index_DataENC_Hidden_Categories
+                   << Constants::SettingsT_Index_DataENC_Hidden_Tags
+                   << Constants::SettingsT_Index_DataENC_Hide_Categories
+                   << Constants::SettingsT_Index_DataENC_Hide_Tags;
+
+    QString columnList = existingColumns.join(", ");
+
+    // Copy data from old table to new table
+    QString copyQuery = QString("INSERT INTO settings_temp (%1) SELECT %1 FROM settings").arg(columnList);
+    if (!m_dbManager.executeQuery(copyQuery)) {
+        qWarning() << "Failed to copy data to temporary table for v4 migration:" << m_dbManager.lastError();
+        m_dbManager.dropTable("settings_temp");
+        return false;
+    }
+
+    // Drop old table
+    if (!m_dbManager.dropTable("settings")) {
+        qWarning() << "Failed to drop old settings table for v4 migration:" << m_dbManager.lastError();
+        m_dbManager.dropTable("settings_temp");
+        return false;
+    }
+
+    // Rename temporary table to settings
+    QString renameQuery = "ALTER TABLE settings_temp RENAME TO settings";
+    if (!m_dbManager.executeQuery(renameQuery)) {
+        qWarning() << "Failed to rename temporary table for v4 migration:" << m_dbManager.lastError();
+        return false;
+    }
+
+    qDebug() << "Successfully migrated settings database to version 4 (added video player settings)";
+    return true;
+}
+
+bool DatabaseSettingsManager::rollbackFromV4()
+{
+    // Rollback from version 4: Remove VideoPlayer settings columns
+    qDebug() << "DatabaseSettingsManager: Rolling back from v4 - removing video player settings";
+    
+    // Create table with v3 schema (without VideoPlayer settings)
+    QMap<QString, QString> settingsTableColumns;
+    settingsTableColumns["id"] = "INTEGER PRIMARY KEY";
+
+    // Global Settings
+    settingsTableColumns[Constants::SettingsT_Index_Displayname] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DisplaynameColor] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_MinToTray] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_AskPWAfterMinToTray] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_ReqPWDelay] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_OpenOnSettings] = "TEXT";
+
+    // Diary Settings
+    settingsTableColumns[Constants::SettingsT_Index_Diary_TextSize] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_TStampTimer] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_TStampCounter] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_CanEditRecent] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_Diary_ShowTManLogs] = "TEXT";
+
+    // Tasklists Settings
+    settingsTableColumns[Constants::SettingsT_Index_TLists_TextSize] = "TEXT";
+
+    // Password Manager Settings
+    settingsTableColumns[Constants::SettingsT_Index_PWMan_DefSortingMethod] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_PWMan_ReqPassword] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_PWMan_HidePasswords] = "TEXT";
+
+    // Encrypted Data Settings
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_ReqPassword] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_HideThumbnails_Image] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_HideThumbnails_Video] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hidden_Categories] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hidden_Tags] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hide_Categories] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_DataENC_Hide_Tags] = "TEXT";
+    
+    // Create temporary table with v3 schema
+    if (!m_dbManager.createTable("settings_temp", settingsTableColumns)) {
+        qWarning() << "Failed to create temporary settings table for v4 rollback:" << m_dbManager.lastError();
+        return false;
+    }
+
+    // Build column list for data migration (only columns that exist in v3)
+    QStringList v3Columns;
+    v3Columns << "id"
+              << Constants::SettingsT_Index_Displayname
+              << Constants::SettingsT_Index_DisplaynameColor
+              << Constants::SettingsT_Index_MinToTray
+              << Constants::SettingsT_Index_AskPWAfterMinToTray
+              << Constants::SettingsT_Index_ReqPWDelay
+              << Constants::SettingsT_Index_OpenOnSettings
+              << Constants::SettingsT_Index_Diary_TextSize
+              << Constants::SettingsT_Index_Diary_TStampTimer
+              << Constants::SettingsT_Index_Diary_TStampCounter
+              << Constants::SettingsT_Index_Diary_CanEditRecent
+              << Constants::SettingsT_Index_Diary_ShowTManLogs
+              << Constants::SettingsT_Index_TLists_TextSize
+              << Constants::SettingsT_Index_PWMan_DefSortingMethod
+              << Constants::SettingsT_Index_PWMan_ReqPassword
+              << Constants::SettingsT_Index_PWMan_HidePasswords
+              << Constants::SettingsT_Index_DataENC_ReqPassword
+              << Constants::SettingsT_Index_DataENC_HideThumbnails_Image
+              << Constants::SettingsT_Index_DataENC_HideThumbnails_Video
+              << Constants::SettingsT_Index_DataENC_Hidden_Categories
+              << Constants::SettingsT_Index_DataENC_Hidden_Tags
+              << Constants::SettingsT_Index_DataENC_Hide_Categories
+              << Constants::SettingsT_Index_DataENC_Hide_Tags;
+
+    QString columnList = v3Columns.join(", ");
+
+    // Copy data from current table to temporary table (excluding VideoPlayer columns)
+    QString copyQuery = QString("INSERT INTO settings_temp (%1) SELECT %1 FROM settings").arg(columnList);
+    if (!m_dbManager.executeQuery(copyQuery)) {
+        qWarning() << "Failed to copy data for v4 rollback:" << m_dbManager.lastError();
+        m_dbManager.dropTable("settings_temp");
+        return false;
+    }
+
+    // Drop current table
+    if (!m_dbManager.dropTable("settings")) {
+        qWarning() << "Failed to drop settings table during v4 rollback:" << m_dbManager.lastError();
+        m_dbManager.dropTable("settings_temp");
+        return false;
+    }
+
+    // Rename temporary table to settings
+    QString renameQuery = "ALTER TABLE settings_temp RENAME TO settings";
+    if (!m_dbManager.executeQuery(renameQuery)) {
+        qWarning() << "Failed to rename temporary table during v4 rollback:" << m_dbManager.lastError();
+        return false;
+    }
+
+    qDebug() << "Successfully rolled back settings database from version 4";
     return true;
 }
 
