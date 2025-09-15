@@ -478,7 +478,16 @@ void MainWindow::FinishInitialization()
         Operations_VP_Shows_ptr = nullptr;
     }
     
+
     // Create new objects
+
+    Operations_Settings_ptr = new Operations_Settings(this);
+    if (!Operations_Settings_ptr) {
+        qCritical() << "MainWindow: Failed to create Operations_Settings";
+        this->close();
+        return;
+    }
+
     Operations_Diary_ptr = new Operations_Diary(this);
     if (!Operations_Diary_ptr) {
         qCritical() << "MainWindow: Failed to create Operations_Diary";
@@ -496,13 +505,6 @@ void MainWindow::FinishInitialization()
     Operations_TaskLists_ptr = new Operations_TaskLists(this);
     if (!Operations_TaskLists_ptr) {
         qCritical() << "MainWindow: Failed to create Operations_TaskLists";
-        this->close();
-        return;
-    }
-    
-    Operations_Settings_ptr = new Operations_Settings(this);
-    if (!Operations_Settings_ptr) {
-        qCritical() << "MainWindow: Failed to create Operations_Settings";
         this->close();
         return;
     }

@@ -1655,30 +1655,30 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
     qDebug() << "Operations_VP_Shows: Message:" << message;
     qDebug() << "Operations_VP_Shows: Successful files:" << successfulFiles.size();
     qDebug() << "Operations_VP_Shows: Failed files:" << failedFiles.size();
-    
+
     // Clear context menu data after operation completes
     m_contextMenuShowName.clear();
     m_contextMenuShowPath.clear();
     m_contextMenuEpisodePaths.clear();
     m_contextMenuEpisodePath.clear();
-    
+
     if (success && !successfulFiles.isEmpty()) {
         // After successful encryption, create or update settings file
         if (!successfulFiles.isEmpty()) {
             // Use the stored output path (the encrypted folder in Data/username/Videoplayer/Shows/)
             // NOT the source folder path
             QString showFolderPath = m_currentImportOutputPath;
-            
+
             if (showFolderPath.isEmpty()) {
                 qDebug() << "Operations_VP_Shows: Warning - No output path stored, cannot save settings";
             } else {
                 qDebug() << "Operations_VP_Shows: Saving settings to encrypted folder:" << showFolderPath;
-                
+
                 // Create settings manager
                 VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
-                
+
                 VP_ShowsSettings::ShowSettings settings;
-                
+
                 // If updating existing show, load existing settings first to preserve show ID and other settings
                 if (m_isUpdatingExistingShow) {
                     // Load existing settings to preserve values not changed by the dialog
@@ -1691,10 +1691,10 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                     // New show - start with defaults
                     settings = VP_ShowsSettings::ShowSettings();
                 }
-                
+
                 // Update settings with values from dialog (stored when dialog was accepted)
                 settings.showName = m_dialogShowName;  // Save the show name
-                
+
                 // Only update show ID if we have a valid one from dialog (from TMDB selection)
                 // Otherwise preserve existing ID (for existing shows) or set to "error" (for new shows)
                 if (m_dialogShowId > 0) {
@@ -1706,7 +1706,7 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                     qDebug() << "Operations_VP_Shows: No TMDB selection for new show, setting show ID to 'error'";
                 }
                 // For existing shows, showId is already preserved from loading
-                
+
                 // Use the customizable settings from mainwindow as default values for new shows
                 if (!m_isUpdatingExistingShow) {
                     // For new shows, use the settings from mainwindow
@@ -1715,11 +1715,11 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                     settings.useTMDB = m_dialogUseTMDB;  // Use the dialog choice, not mainwindow default
                     settings.displayFileNames = m_mainWindow->setting_VP_Shows_DisplayFilenames;
                     settings.DisplayNewEpNotif = m_mainWindow->setting_VP_Shows_CheckNewEP;
-                    
+
                     // Skip intro/outro default to false (these aren't in the mainwindow settings)
                     settings.skipIntro = false;
                     settings.skipOutro = false;
-                    
+
                     qDebug() << "Operations_VP_Shows: Using mainwindow default settings for new show:";
                     qDebug() << "  Autoplay:" << settings.autoplay;
                     qDebug() << "  AutoplayRandom:" << settings.autoplayRandom;
@@ -1730,10 +1730,10 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                     // For existing shows, preserve current settings (already loaded above)
                     qDebug() << "Operations_VP_Shows: Preserving existing show settings";
                 }
-                
-                qDebug() << "Operations_VP_Shows: Final settings - ShowID:" << settings.showId 
+
+                qDebug() << "Operations_VP_Shows: Final settings - ShowID:" << settings.showId
                          << "UseTMDB:" << settings.useTMDB << "ShowName:" << settings.showName;
-                
+
                 // Save the settings file
                 if (settingsManager.saveShowSettings(showFolderPath, settings)) {
                     qDebug() << "Operations_VP_Shows: Settings file created/updated successfully";
@@ -1742,52 +1742,143 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                 }
             }
         }
-        
-        // This is always a new show import now
-        QString successMessage = tr("TV show imported successfully!\n%1").arg(message);
-        
-        // Show enhanced success dialog with options for handling original files
-        QMessageBox msgBox(m_mainWindow);
-        msgBox.setWindowTitle(tr("Import Successful"));
-        msgBox.setIcon(QMessageBox::Information);
-        msgBox.setText(successMessage + "\n\nChoose how to handle the original video files:");
-        
-        QPushButton* keepButton = msgBox.addButton(tr("Keep Files"), QMessageBox::RejectRole);
-        QPushButton* deleteButton = msgBox.addButton(tr("Delete Files"), QMessageBox::ActionRole);
-        QPushButton* secureDeleteButton = msgBox.addButton(tr("Securely Delete Files"), QMessageBox::ActionRole);
-        msgBox.setDefaultButton(keepButton);  // Safe default option
-        
-        msgBox.exec();
-        
-        // Handle user's choice for original files
-        if (msgBox.clickedButton() == deleteButton || msgBox.clickedButton() == secureDeleteButton) {
-            bool useSecureDeletion = (msgBox.clickedButton() == secureDeleteButton);
-            
+
+        // Prepare success message
+        QString successMessage;
+        if (m_isUpdatingExistingShow) {
+            successMessage = tr("Successfully added %1 new episode(s) to %2")
+                           .arg(successfulFiles.size())
+                           .arg(m_dialogShowName);
+        } else {
+            successMessage = tr("TV show imported successfully!\n%1").arg(message);
+        }
+
+        // Check auto-delete setting to determine how to handle original files
+        int autoDeleteSetting = m_mainWindow->setting_VP_Shows_AutoDelete;
+        qDebug() << "Operations_VP_Shows: Auto-delete setting:" << autoDeleteSetting;
+
+        bool shouldDelete = false;
+        bool useSecureDeletion = false;
+
+        switch (autoDeleteSetting) {
+            case 0: // Always Ask
+            {
+                qDebug() << "Operations_VP_Shows: Auto-delete = Always Ask, showing dialog";
+
+                QMessageBox msgBox(m_mainWindow);
+                msgBox.setWindowTitle(tr("Import Successful"));
+                msgBox.setIcon(QMessageBox::Information);
+                msgBox.setText(successMessage + "\n\nChoose how to handle the original video files:");
+
+                QPushButton* keepButton = msgBox.addButton(tr("Keep Files"), QMessageBox::RejectRole);
+                QPushButton* deleteButton = msgBox.addButton(tr("Delete Files"), QMessageBox::ActionRole);
+                QPushButton* secureDeleteButton = msgBox.addButton(tr("Securely Delete Files"), QMessageBox::ActionRole);
+                msgBox.setDefaultButton(keepButton);  // Safe default option
+
+                msgBox.exec();
+
+                if (msgBox.clickedButton() == deleteButton) {
+                    shouldDelete = true;
+                    useSecureDeletion = false;
+                } else if (msgBox.clickedButton() == secureDeleteButton) {
+                    shouldDelete = true;
+                    useSecureDeletion = true;
+                }
+                break;
+            }
+
+            case 1: // Keep Files
+            {
+                qDebug() << "Operations_VP_Shows: Auto-delete = Keep Files, not deleting";
+
+                // Show success message without delete options
+                QMessageBox::information(m_mainWindow,
+                                        tr("Import Successful"),
+                                        successMessage + tr("\n\nOriginal files have been kept."));
+                shouldDelete = false;
+                break;
+            }
+
+            case 2: // Delete
+            {
+                qDebug() << "Operations_VP_Shows: Auto-delete = Delete, performing regular deletion";
+                shouldDelete = true;
+                useSecureDeletion = false;
+
+                // Show success message
+                QMessageBox::information(m_mainWindow,
+                                        tr("Import Successful"),
+                                        successMessage + tr("\n\nOriginal files will be deleted."));
+                break;
+            }
+
+            case 3: // Secure Delete
+            {
+                qDebug() << "Operations_VP_Shows: Auto-delete = Secure Delete, performing secure deletion";
+                shouldDelete = true;
+                useSecureDeletion = true;
+
+                // Show success message
+                QMessageBox::information(m_mainWindow,
+                                        tr("Import Successful"),
+                                        successMessage + tr("\n\nOriginal files will be securely deleted."));
+                break;
+            }
+
+            default:
+            {
+                qDebug() << "Operations_VP_Shows: Unknown auto-delete setting:" << autoDeleteSetting << ", defaulting to Ask";
+                // Default to asking (same as case 0)
+                QMessageBox msgBox(m_mainWindow);
+                msgBox.setWindowTitle(tr("Import Successful"));
+                msgBox.setIcon(QMessageBox::Information);
+                msgBox.setText(successMessage + "\n\nChoose how to handle the original video files:");
+
+                QPushButton* keepButton = msgBox.addButton(tr("Keep Files"), QMessageBox::RejectRole);
+                QPushButton* deleteButton = msgBox.addButton(tr("Delete Files"), QMessageBox::ActionRole);
+                QPushButton* secureDeleteButton = msgBox.addButton(tr("Securely Delete Files"), QMessageBox::ActionRole);
+                msgBox.setDefaultButton(keepButton);
+
+                msgBox.exec();
+
+                if (msgBox.clickedButton() == deleteButton) {
+                    shouldDelete = true;
+                    useSecureDeletion = false;
+                } else if (msgBox.clickedButton() == secureDeleteButton) {
+                    shouldDelete = true;
+                    useSecureDeletion = true;
+                }
+                break;
+            }
+        }
+
+        // Handle deletion if needed
+        if (shouldDelete) {
             // The successfulFiles list already contains the source file paths that were successfully encrypted
             // We can directly use it for deletion
             QStringList filesToDelete = successfulFiles;
-            
+
             qDebug() << "Operations_VP_Shows: Files to delete:" << filesToDelete.size() << "files";
             for (const QString& file : filesToDelete) {
                 qDebug() << "Operations_VP_Shows:   Will delete:" << file;
             }
-            
+
             if (!filesToDelete.isEmpty()) {
                 QStringList deletedFiles;
                 QStringList deletionFailures;
-                
+
                 for (const QString& filePath : filesToDelete) {
                     bool deleted = false;
-                    
+
                     // Check if file exists before attempting deletion
                     if (!QFile::exists(filePath)) {
                         qDebug() << "Operations_VP_Shows: File doesn't exist (already deleted?):" << filePath;
                         deletedFiles.append(QFileInfo(filePath).fileName());
                         continue;
                     }
-                    
+
                     qDebug() << "Operations_VP_Shows: Attempting to delete:" << filePath;
-                    
+
                     if (useSecureDeletion) {
                         // Secure deletion with 3 passes, allow external files
                         qDebug() << "Operations_VP_Shows: Using secure deletion...";
@@ -1797,7 +1888,7 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                         qDebug() << "Operations_VP_Shows: Using regular deletion...";
                         deleted = QFile::remove(filePath);
                     }
-                    
+
                     if (deleted) {
                         deletedFiles.append(QFileInfo(filePath).fileName());
                         qDebug() << "Operations_VP_Shows: Successfully deleted original file:" << filePath;
@@ -1811,10 +1902,10 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                         qDebug() << "Operations_VP_Shows:   File writable:" << fileInfo.isWritable();
                     }
                 }
-                
+
                 // After deleting files, clean up empty directories (only for folder-based imports)
                 qDebug() << "Operations_VP_Shows: Checking if directory cleanup is needed";
-                
+
                 // Only perform cleanup if we have a valid source folder path
                 // This will only be set when importing a complete show via folder selection,
                 // not when adding individual episode files
@@ -1823,7 +1914,7 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                 } else {
                     qDebug() << "Operations_VP_Shows: Directory cleanup enabled (folder import mode)";
                     qDebug() << "Operations_VP_Shows: Cleanup boundary (original source folder):" << m_originalSourceFolderPath;
-                    
+
                     // Helper function to recursively find all subdirectories
                     std::function<void(const QString&, QSet<QString>&)> collectAllSubdirectories;
                     collectAllSubdirectories = [&collectAllSubdirectories](const QString& path, QSet<QString>& dirs) {
@@ -1836,21 +1927,21 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                             collectAllSubdirectories(subdirPath, dirs);
                         }
                     };
-                    
+
                     // Collect ALL subdirectories within the source folder
                     QSet<QString> allDirsToCheck;
                     collectAllSubdirectories(m_originalSourceFolderPath, allDirsToCheck);
-                    
+
                     // Also include the source folder itself
                     allDirsToCheck.insert(m_originalSourceFolderPath);
-                    
+
                     qDebug() << "Operations_VP_Shows: Found" << allDirsToCheck.size() << "directories to check for cleanup";
-                    
+
                     // Convert to list and sort by path length (longest first) to delete from deepest level up
                     QStringList sortedDirs = allDirsToCheck.values();
-                    std::sort(sortedDirs.begin(), sortedDirs.end(), 
+                    std::sort(sortedDirs.begin(), sortedDirs.end(),
                              [](const QString& a, const QString& b) { return a.length() > b.length(); });
-                    
+
                     // Try to remove empty directories
                     int removedDirCount = 0;
                     for (const QString& dirPath : sortedDirs) {
@@ -1860,7 +1951,7 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                             QStringList entries = dir.entryList(QDir::NoDotAndDotDot | QDir::AllEntries);
                             if (entries.isEmpty()) {
                                 qDebug() << "Operations_VP_Shows: Found empty directory:" << dirPath;
-                                
+
                                 // Try to remove the empty directory
                                 QString dirName = dir.dirName();
                                 if (dir.cdUp()) {
@@ -1876,23 +1967,23 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                             }
                         }
                     }
-                    
+
                     if (removedDirCount > 0) {
                         qDebug() << "Operations_VP_Shows: Cleaned up" << removedDirCount << "empty directories";
                     } else {
                         qDebug() << "Operations_VP_Shows: No empty directories found to clean up";
                     }
-                    
+
                     // Clear the stored path after cleanup
                     m_originalSourceFolderPath.clear();
                 }
-                
+
                 // Show deletion results if there were any failures
                 if (!deletionFailures.isEmpty()) {
                     QString deletionMessage = tr("Successfully deleted %1 file(s).\n\nFailed to delete:\n%2")
                         .arg(deletedFiles.size())
                         .arg(deletionFailures.join("\n"));
-                    
+
                     QMessageBox::warning(m_mainWindow,
                                        useSecureDeletion ? tr("Secure Deletion Results") : tr("Deletion Results"),
                                        deletionMessage);
@@ -1901,7 +1992,7 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
             }
         }
         // If keepButton was clicked, do nothing with the original files
-        
+
         // Refresh the show list in the UI
         refreshTVShowsList();
     } else if (!success) {
@@ -1913,18 +2004,18 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                 detailedMessage += "- " + fileInfo.fileName() + "\n";
             }
         }
-        
+
         QMessageBox::warning(m_mainWindow,
                            tr("Import Failed"),
                            detailedMessage);
-        
+
         // Clean up any partially created folders if all files failed
         if (successfulFiles.isEmpty() && !failedFiles.isEmpty()) {
             qDebug() << "Operations_VP_Shows: All files failed for new show, cleaning up created folders";
             cleanupEmptyShowFolder(m_currentImportOutputPath);
         }
     }
-    
+
     // Also check for cleanup on cancellation (when success is false and both lists are empty)
     if (!success && successfulFiles.isEmpty() && failedFiles.isEmpty()) {
         qDebug() << "Operations_VP_Shows: Import was cancelled, checking for cleanup";
@@ -1932,21 +2023,20 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
             cleanupEmptyShowFolder(m_currentImportOutputPath);
         }
     }
-    
+
     refreshTVShowsList();
-    
+
     // Check if we need to reload the episode tree for the currently displayed show
     // This happens when adding episodes via context menu from either the display page or show list
-    if (!m_currentImportOutputPath.isEmpty() && !m_currentShowFolder.isEmpty() && 
+    if (!m_currentImportOutputPath.isEmpty() && !m_currentShowFolder.isEmpty() &&
         m_currentImportOutputPath == m_currentShowFolder) {
         qDebug() << "Operations_VP_Shows: Added episodes to currently displayed show, reloading episode tree";
         loadShowEpisodes(m_currentShowFolder);
-
     }
 
     // Clear the stored output path
     m_currentImportOutputPath.clear();
-    
+
     // Reset the flags (though m_isUpdatingExistingShow is always false now)
     m_isUpdatingExistingShow = false;
     m_originalEpisodeCount = 0;
