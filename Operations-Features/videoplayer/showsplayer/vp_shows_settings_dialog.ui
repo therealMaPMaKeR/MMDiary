@@ -72,13 +72,6 @@
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="checkBox_AutoFullscreen">
-       <property name="text">
-        <string>Auto Fullscreen</string>
-       </property>
-      </widget>
-     </item>
-     <item>
       <widget class="QCheckBox" name="checkBox_DisplayFileNames">
        <property name="text">
         <string>Display file names instead of episode names</string>

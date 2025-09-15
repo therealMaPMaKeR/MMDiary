@@ -1391,7 +1391,7 @@ void VP_ShowsSettingsDialog::loadShowSettings()
         ui->checkBox_SkipIntro->setChecked(m_currentSettings.skipIntro);
         ui->checkBox_SkipOutro->setChecked(m_currentSettings.skipOutro);
         ui->checkBox_UseTMDB->setChecked(m_currentSettings.useTMDB);
-        ui->checkBox_AutoFullscreen->setChecked(m_currentSettings.autoFullscreen);
+        // REMOVED checkBox_AutoFullscreen - now using global setting_VP_Shows_AutoFullScreen
         return;
     }
     
@@ -1441,7 +1441,7 @@ void VP_ShowsSettingsDialog::loadShowSettings()
     ui->checkBox_SkipIntro->setChecked(m_currentSettings.skipIntro);
     ui->checkBox_SkipOutro->setChecked(m_currentSettings.skipOutro);
     ui->checkBox_UseTMDB->setChecked(m_currentSettings.useTMDB);
-    ui->checkBox_AutoFullscreen->setChecked(m_currentSettings.autoFullscreen);
+    // REMOVED checkBox_AutoFullscreen - now using global setting_VP_Shows_AutoFullScreen
     ui->checkBox_DisplayFileNames->setChecked(m_currentSettings.displayFileNames);
     ui->checkBox_DisplayNewEpNotif->setChecked(m_currentSettings.DisplayNewEpNotif);
     
@@ -1460,7 +1460,6 @@ void VP_ShowsSettingsDialog::loadShowSettings()
              << "SkipIntro:" << m_currentSettings.skipIntro
              << "SkipOutro:" << m_currentSettings.skipOutro
              << "UseTMDB:" << m_currentSettings.useTMDB
-             << "AutoFullscreen:" << m_currentSettings.autoFullscreen
              << "DisplayFileNames:" << m_currentSettings.displayFileNames
              << "DisplayNewEpNotif:" << m_currentSettings.DisplayNewEpNotif
              << "ShowId:" << m_currentSettings.showId;
@@ -1516,7 +1515,7 @@ void VP_ShowsSettingsDialog::saveShowSettings()
     m_currentSettings.skipIntro = ui->checkBox_SkipIntro->isChecked();
     m_currentSettings.skipOutro = ui->checkBox_SkipOutro->isChecked();
     m_currentSettings.useTMDB = ui->checkBox_UseTMDB->isChecked();
-    m_currentSettings.autoFullscreen = ui->checkBox_AutoFullscreen->isChecked();
+    // REMOVED autoFullscreen - now using global setting_VP_Shows_AutoFullScreen
     m_currentSettings.displayFileNames = ui->checkBox_DisplayFileNames->isChecked();
     m_currentSettings.DisplayNewEpNotif = ui->checkBox_DisplayNewEpNotif->isChecked();
     
@@ -1533,7 +1532,6 @@ void VP_ShowsSettingsDialog::saveShowSettings()
              << "SkipIntro:" << m_currentSettings.skipIntro
              << "SkipOutro:" << m_currentSettings.skipOutro
              << "UseTMDB:" << m_currentSettings.useTMDB
-             << "AutoFullscreen:" << m_currentSettings.autoFullscreen
              << "DisplayFileNames:" << m_currentSettings.displayFileNames
              << "DisplayNewEpNotif:" << m_currentSettings.DisplayNewEpNotif
              << "ShowId:" << m_currentSettings.showId;

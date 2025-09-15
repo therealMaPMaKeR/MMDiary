@@ -75,7 +75,7 @@ bool VP_ShowsSettings::loadShowSettings(const QString& showFolderPath, ShowSetti
              << settings.showName << "ShowId:" << settings.showId << "SkipIntro:" 
              << settings.skipIntro << "SkipOutro:" << settings.skipOutro 
              << "Autoplay:" << settings.autoplay << "AutoplayRandom:" << settings.autoplayRandom
-             << "UseTMDB:" << settings.useTMDB << "AutoFullscreen:" << settings.autoFullscreen
+             << "UseTMDB:" << settings.useTMDB
              << "DisplayFileNames:" << settings.displayFileNames << "DisplayNewEpNotif:" << settings.DisplayNewEpNotif;
     return true;
 }
@@ -88,7 +88,7 @@ bool VP_ShowsSettings::saveShowSettings(const QString& showFolderPath, const Sho
              << "SkipIntro:" << settings.skipIntro 
              << "SkipOutro:" << settings.skipOutro 
              << "Autoplay:" << settings.autoplay << "AutoplayRandom:" << settings.autoplayRandom
-             << "UseTMDB:" << settings.useTMDB << "AutoFullscreen:" << settings.autoFullscreen
+             << "UseTMDB:" << settings.useTMDB
              << "DisplayFileNames:" << settings.displayFileNames << "DisplayNewEpNotif:" << settings.DisplayNewEpNotif;
     
     // Validate folder path
@@ -209,9 +209,7 @@ void VP_ShowsSettings::convertMapToSettings(const QMap<QString, QVariant>& setti
         settings.useTMDB = settingsMap["useTMDB"].toBool();
     }
     
-    if (settingsMap.contains("autoFullscreen")) {
-        settings.autoFullscreen = settingsMap["autoFullscreen"].toBool();
-    }
+    // REMOVED autoFullscreen - now using global setting_VP_Shows_AutoFullScreen
     
     if (settingsMap.contains("displayFileNames")) {
         settings.displayFileNames = settingsMap["displayFileNames"].toBool();
@@ -251,7 +249,7 @@ void VP_ShowsSettings::convertSettingsToMap(const ShowSettings& settings, QMap<Q
     settingsMap["autoplay"] = settings.autoplay;
     settingsMap["autoplayRandom"] = settings.autoplayRandom;
     settingsMap["useTMDB"] = settings.useTMDB;
-    settingsMap["autoFullscreen"] = settings.autoFullscreen;
+    // REMOVED autoFullscreen - now using global setting_VP_Shows_AutoFullScreen
     settingsMap["displayFileNames"] = settings.displayFileNames;
     settingsMap["DisplayNewEpNotif"] = settings.DisplayNewEpNotif;
     

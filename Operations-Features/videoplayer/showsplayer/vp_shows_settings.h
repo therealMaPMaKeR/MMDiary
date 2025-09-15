@@ -16,7 +16,7 @@ public:
         bool autoplay = true;        // Changed default to true
         bool autoplayRandom = false; // Autoplay random episodes instead of sequential
         bool useTMDB = true;         // New field for TMDB usage
-        bool autoFullscreen = true;  // Auto fullscreen when playing episodes
+        // REMOVED autoFullscreen - now using global setting_VP_Shows_AutoFullScreen
         bool displayFileNames = false; // Display file names instead of episode names in the tree widget
         bool DisplayNewEpNotif = true; // Display new episode notification
         

@@ -48,7 +48,7 @@ void DataStorage_FieldDefinitions::registerTVShowSettingsFields()
     tvShowFields.append(FieldDefinition("autoplay", Boolean, true, true));  // Default true to match ShowSettings
     tvShowFields.append(FieldDefinition("autoplayRandom", Boolean, false, true));  // Random episode autoplay
     tvShowFields.append(FieldDefinition("useTMDB", Boolean, true, true));  // Default to enabled
-    tvShowFields.append(FieldDefinition("autoFullscreen", Boolean, true, true));  // Default true to match ShowSettings
+    // REMOVED autoFullscreen - now using global setting_VP_Shows_AutoFullScreen
     tvShowFields.append(FieldDefinition("displayFileNames", Boolean, false, true));  // Display file names instead of episode names
     tvShowFields.append(FieldDefinition("DisplayNewEpNotif", Boolean, true, true));  // Display new episode notification
     

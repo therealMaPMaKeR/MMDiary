@@ -54,7 +54,6 @@ void Operations_VP_Shows::loadShowSettings(const QString& showFolderPath)
     qDebug() << "Operations_VP_Shows: Finished loading show settings - Autoplay:" << settings.autoplay
              << "AutoplayRandom:" << settings.autoplayRandom
              << "SkipIntro:" << settings.skipIntro << "SkipOutro:" << settings.skipOutro << "UseTMDB:" << settings.useTMDB
-             << "AutoFullscreen:" << settings.autoFullscreen
              << "DisplayFileNames:" << settings.displayFileNames;
     
     // Checkboxes have been moved to the settings dialog

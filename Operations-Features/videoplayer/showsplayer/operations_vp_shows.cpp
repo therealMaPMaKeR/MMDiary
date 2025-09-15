@@ -4690,13 +4690,13 @@ void Operations_VP_Shows::decryptAndPlayEpisode(const QString& encryptedFilePath
         m_episodePlayer->raise();
         m_episodePlayer->activateWindow();
 
-        // Start in fullscreen mode if the setting is enabled AND this is manual play (not autoplay)
+        // Start in fullscreen mode if the global setting is enabled AND this is manual play (not autoplay)
         // During autoplay, window state is preserved from the previous episode
-        if (m_currentShowSettings.autoFullscreen && !m_isAutoplayInProgress) {
-            qDebug() << "Operations_VP_Shows: Manual play with auto-fullscreen enabled, starting in fullscreen mode";
+        if (m_mainWindow->setting_VP_Shows_AutoFullScreen && !m_isAutoplayInProgress) {
+            qDebug() << "Operations_VP_Shows: Manual play with global auto-fullscreen enabled, starting in fullscreen mode";
             m_episodePlayer->startInFullScreen();
         } else if (!m_isAutoplayInProgress) {
-            qDebug() << "Operations_VP_Shows: Manual play with auto-fullscreen disabled, starting in windowed mode";
+            qDebug() << "Operations_VP_Shows: Manual play with global auto-fullscreen disabled, starting in windowed mode";
         } else {
             qDebug() << "Operations_VP_Shows: Autoplay in progress, maintaining previous window state";
             // Window state restoration is handled by VP_Shows_Videoplayer::initializeFromPreviousSettings()
