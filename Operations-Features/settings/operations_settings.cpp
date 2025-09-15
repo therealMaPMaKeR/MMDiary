@@ -96,6 +96,9 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
     connect(m_mainWindow->ui->checkBox_VP_Shows_Autoplay, &QCheckBox::stateChanged,
             [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
 
+    connect(m_mainWindow->ui->checkBox_VP_Shows_AutoFullScreen, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
+
     connect(m_mainWindow->ui->checkBox_VP_Shows_UseTMDB, &QCheckBox::stateChanged,
             [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
 
@@ -645,6 +648,13 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
             m_mainWindow->setting_VP_Shows_Autoplay = (autoplay == "1");
         }
 
+        // Auto FullScreen
+        QString autoFullScreen = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_AutoFullScreen);
+        if (autoFullScreen != Constants::ErrorMessage_Default) {
+            m_mainWindow->ui->checkBox_VP_Shows_AutoFullScreen->setChecked(autoFullScreen == "1");
+            m_mainWindow->setting_VP_Shows_AutoFullScreen = (autoFullScreen == "1");
+        }
+
         // Use TMDB
         QString useTMDB = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_UseTMDB);
         if (useTMDB != Constants::ErrorMessage_Default) {
@@ -938,6 +948,12 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         QString autoplayStr = autoplay ? "1" : "0";
         db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_Autoplay, autoplayStr);
         m_mainWindow->setting_VP_Shows_Autoplay = autoplay;
+
+        // Auto FullScreen
+        bool autoFullScreen = m_mainWindow->ui->checkBox_VP_Shows_AutoFullScreen->isChecked();
+        QString autoFullScreenStr = autoFullScreen ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_AutoFullScreen, autoFullScreenStr);
+        m_mainWindow->setting_VP_Shows_AutoFullScreen = autoFullScreen;
 
         // Use TMDB
         bool useTMDB = m_mainWindow->ui->checkBox_VP_Shows_UseTMDB->isChecked();
@@ -1412,6 +1428,12 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         QString uiAutoplay = m_mainWindow->ui->checkBox_VP_Shows_Autoplay->isChecked() ? "1" : "0";
         if (dbAutoplay != uiAutoplay) matchesDatabase = false;
         if (uiAutoplay != Default_UserSettings::DEFAULT_VP_SHOWS_AUTOPLAY) matchesDefault = false;
+
+        // Auto FullScreen
+        QString dbAutoFullScreen = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_AutoFullScreen);
+        QString uiAutoFullScreen = m_mainWindow->ui->checkBox_VP_Shows_AutoFullScreen->isChecked() ? "1" : "0";
+        if (dbAutoFullScreen != uiAutoFullScreen) matchesDatabase = false;
+        if (uiAutoFullScreen != Default_UserSettings::DEFAULT_VP_SHOWS_AutoFullScreen) matchesDefault = false;
 
         // Use TMDB
         QString dbUseTMDB = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_UseTMDB);
@@ -2049,6 +2071,9 @@ void Operations_Settings::SetupSettingDescriptions()
 
     m_settingNames[m_mainWindow->ui->checkBox_VP_Shows_CheckNewEPStartup] = "Check for New Episodes on Startup";
     m_settingDescriptions[m_mainWindow->ui->checkBox_VP_Shows_CheckNewEPStartup] = "Automatically check all shows for new episodes when the application starts.";
+
+    m_settingNames[m_mainWindow->ui->checkBox_VP_Shows_AutoFullScreen] = "Auto FullScreen";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_VP_Shows_AutoFullScreen] = "Automatically enter fullscreen mode when starting video playback.\n\nWhen enabled, videos will start in fullscreen mode.\nYou can always exit fullscreen with ESC or F11.";
 
     // Install event filters on all UI controls
     QMap<QObject*, QString>::iterator it;
