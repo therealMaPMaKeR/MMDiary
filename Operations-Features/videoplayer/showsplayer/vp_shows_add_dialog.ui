@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>809</width>
-    <height>659</height>
+    <height>694</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -155,35 +155,35 @@
            <number>10</number>
           </property>
           <item>
-          <widget class="QCheckBox" name="checkBox_UseTMDB">
-          <property name="text">
-          <string>Use TMDB for show information</string>
-          </property>
-          <property name="checked">
-          <bool>true</bool>
-          </property>
-          </widget>
+           <widget class="QCheckBox" name="checkBox_UseTMDB">
+            <property name="text">
+             <string>Use TMDB for show information</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
           </item>
-         <item>
-          <widget class="QPushButton" name="pushButton_UseCustomPoster">
-           <property name="text">
-            <string>Use custom show poster</string>
-           </property>
-           <property name="enabled">
-            <bool>false</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="pushButton_UseCustomDescription">
-           <property name="text">
-            <string>Use custom show description</string>
-           </property>
-           <property name="enabled">
-            <bool>false</bool>
-           </property>
-          </widget>
-         </item>
+          <item>
+           <widget class="QPushButton" name="pushButton_UseCustomPoster">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="text">
+             <string>Use custom show poster</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="pushButton_UseCustomDescription">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="text">
+             <string>Use custom show description</string>
+            </property>
+           </widget>
+          </item>
          </layout>
         </widget>
        </item>
@@ -403,59 +403,6 @@ li.checked::marker { content: &quot;\2612&quot;; }
         </widget>
        </item>
       </layout>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="horizontalLayout_Settings">
-     <item>
-      <widget class="QCheckBox" name="checkBox_Autoplay">
-       <property name="text">
-        <string>Autoplay</string>
-       </property>
-       <property name="checked">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QCheckBox" name="checkBox_SkipIntro">
-       <property name="text">
-        <string>Skip Intro</string>
-       </property>
-       <property name="checked">
-        <bool>false</bool>
-       </property>
-       <property name="visible">
-        <bool>false</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QCheckBox" name="checkBox_SkipOutro">
-       <property name="text">
-        <string>Skip Outro</string>
-       </property>
-       <property name="checked">
-        <bool>false</bool>
-       </property>
-       <property name="visible">
-        <bool>false</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <spacer name="horizontalSpacer_Settings">
-       <property name="orientation">
-        <enum>Qt::Horizontal</enum>
-       </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>40</width>
-         <height>20</height>
-        </size>
-       </property>
-      </spacer>
      </item>
     </layout>
    </item>

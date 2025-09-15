@@ -966,22 +966,15 @@ void Operations_VP_Shows::on_pushButton_VP_List_AddEpisode_clicked()
         VP_ShowsEncryptionWorker::ParseFromFolder : 
         VP_ShowsEncryptionWorker::ParseFromFile;
     
-    // Get playback settings from the dialog
-    bool autoplay = addDialog.isAutoplayEnabled();
-    bool skipIntro = addDialog.isSkipIntroEnabled();
-    bool skipOutro = addDialog.isSkipOutroEnabled();
+
     
     // Store dialog settings for use in onEncryptionComplete
     m_dialogShowName = showName;
-    m_dialogAutoplay = autoplay;
-    m_dialogSkipIntro = skipIntro;
-    m_dialogSkipOutro = skipOutro;
     m_dialogUseTMDB = useTMDB;
     m_dialogShowId = addDialog.getSelectedShowId();  // Store the selected TMDB show ID
     
     qDebug() << "Operations_VP_Shows: Selected TMDB show ID:" << m_dialogShowId;
     
-    qDebug() << "Operations_VP_Shows: Dialog settings - Autoplay:" << autoplay << "SkipIntro:" << skipIntro << "SkipOutro:" << skipOutro;
     
     qDebug() << "Operations_VP_Shows: Dialog returned - Using TMDB:" << useTMDB;
     qDebug() << "Operations_VP_Shows: Checking for custom data...";
@@ -1169,21 +1162,12 @@ void Operations_VP_Shows::importTVShow()
     QPixmap customPoster;
     QString customDescription;
     
-    // Get playback settings from the dialog
-    bool autoplay = addDialog.isAutoplayEnabled();
-    bool skipIntro = addDialog.isSkipIntroEnabled();
-    bool skipOutro = addDialog.isSkipOutroEnabled();
-    
     // Store dialog settings for use in onEncryptionComplete
     m_dialogShowName = showName;
-    m_dialogAutoplay = autoplay;
-    m_dialogSkipIntro = skipIntro;
-    m_dialogSkipOutro = skipOutro;
     m_dialogUseTMDB = useTMDB;
     m_dialogShowId = addDialog.getSelectedShowId();  // Store the selected TMDB show ID
     
     qDebug() << "Operations_VP_Shows: Selected TMDB show ID:" << m_dialogShowId;
-    qDebug() << "Operations_VP_Shows: Dialog settings - Autoplay:" << autoplay << "SkipIntro:" << skipIntro << "SkipOutro:" << skipOutro;
     qDebug() << "Operations_VP_Shows: Dialog returned - Using TMDB:" << useTMDB;
     qDebug() << "Operations_VP_Shows: Checking for custom data...";
     
@@ -5514,10 +5498,6 @@ void Operations_VP_Shows::addEpisodesToShow()
     QPixmap customPoster;  // Empty pixmap (not used when adding to existing show)
     QString customDescription;  // Empty string
     
-    // Get playback settings from the dialog
-    bool autoplay = addDialog.isAutoplayEnabled();
-    bool skipIntro = addDialog.isSkipIntroEnabled();
-    bool skipOutro = addDialog.isSkipOutroEnabled();
     
     // Load existing show settings to preserve show ID and other settings
     VP_ShowsSettings settingsManager(m_mainWindow->user_Key, m_mainWindow->user_Username);
@@ -5540,12 +5520,8 @@ void Operations_VP_Shows::addEpisodesToShow()
     }
     
     // Store dialog settings for use in onEncryptionComplete
-    m_dialogAutoplay = autoplay;
-    m_dialogSkipIntro = skipIntro;
-    m_dialogSkipOutro = skipOutro;
     m_dialogUseTMDB = useTMDB;
     
-    qDebug() << "Operations_VP_Shows: Dialog settings - Autoplay:" << autoplay << "SkipIntro:" << skipIntro << "SkipOutro:" << skipOutro;
     
     // Get the parse mode from the dialog (default to ParseFromFile for adding episodes)
     VP_ShowsEncryptionWorker::ParseMode parseMode = VP_ShowsEncryptionWorker::ParseFromFile;

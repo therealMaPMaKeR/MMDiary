@@ -34,11 +34,6 @@ public:
     bool hasCustomDescription() const;
     bool isUsingTMDB() const;  // Check if TMDB checkbox is checked
     
-    // Getters for playback settings
-    bool isAutoplayEnabled() const;
-    bool isSkipIntroEnabled() const;
-    bool isSkipOutroEnabled() const;
-    
     // Get the selected show's TMDB ID (0 if not selected from TMDB)
     int getSelectedShowId() const { return m_selectedShowId; }
     

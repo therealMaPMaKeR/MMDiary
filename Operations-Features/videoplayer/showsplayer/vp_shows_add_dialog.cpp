@@ -186,26 +186,6 @@ bool VP_ShowsAddDialog::isUsingTMDB() const
     return usingTMDB;
 }
 
-bool VP_ShowsAddDialog::isAutoplayEnabled() const
-{
-    bool autoplay = ui->checkBox_Autoplay->isChecked();
-    qDebug() << "VP_ShowsAddDialog::isAutoplayEnabled() returning:" << autoplay;
-    return autoplay;
-}
-
-bool VP_ShowsAddDialog::isSkipIntroEnabled() const
-{
-    bool skipIntro = ui->checkBox_SkipIntro->isChecked();
-    qDebug() << "VP_ShowsAddDialog::isSkipIntroEnabled() returning:" << skipIntro;
-    return skipIntro;
-}
-
-bool VP_ShowsAddDialog::isSkipOutroEnabled() const
-{
-    bool skipOutro = ui->checkBox_SkipOutro->isChecked();
-    qDebug() << "VP_ShowsAddDialog::isSkipOutroEnabled() returning:" << skipOutro;
-    return skipOutro;
-}
 
 VP_ShowsAddDialog::ParseMode VP_ShowsAddDialog::getParseMode() const
 {
@@ -486,9 +466,6 @@ void VP_ShowsAddDialog::loadShowSettings(const QString& showPath, const QByteArr
         qDebug() << "VP_ShowsAddDialog: Autoplay:" << settings.autoplay << "SkipIntro:" << settings.skipIntro << "SkipOutro:" << settings.skipOutro << "UseTMDB:" << settings.useTMDB;
         
         // Update checkboxes with loaded settings
-        ui->checkBox_Autoplay->setChecked(settings.autoplay);
-        ui->checkBox_SkipIntro->setChecked(settings.skipIntro);
-        ui->checkBox_SkipOutro->setChecked(settings.skipOutro);
         ui->checkBox_UseTMDB->setChecked(settings.useTMDB);
         
         // Store that we loaded settings
@@ -500,9 +477,6 @@ void VP_ShowsAddDialog::loadShowSettings(const QString& showPath, const QByteArr
     } else {
         qDebug() << "VP_ShowsAddDialog: No settings file found or failed to load, using defaults";
         // Keep default values (Autoplay on, Skip Intro/Outro off, TMDB on)
-        ui->checkBox_Autoplay->setChecked(true);
-        ui->checkBox_SkipIntro->setChecked(false);
-        ui->checkBox_SkipOutro->setChecked(false);
         ui->checkBox_UseTMDB->setChecked(true);
         m_settingsLoaded = false;
     }
@@ -1850,9 +1824,6 @@ void VP_ShowsAddDialog::checkForExistingShow(const QString& showName)
         
         // Reset settings checkboxes to defaults since no existing show was found
         qDebug() << "VP_ShowsAddDialog: Resetting settings checkboxes to defaults";
-        ui->checkBox_Autoplay->setChecked(true);  // Default autoplay to true
-        ui->checkBox_SkipIntro->setChecked(false);  // Default skip intro to false
-        ui->checkBox_SkipOutro->setChecked(false);  // Default skip outro to false
         ui->checkBox_UseTMDB->setChecked(true);  // Default TMDB to true
         m_settingsLoaded = false;
     }
