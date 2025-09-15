@@ -2033,6 +2033,10 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
         // Force check for new episodes after adding episodes (bypass daily check)
         qDebug() << "Operations_VP_Shows: Force checking for new episodes after adding episodes";
         checkCurrentShowForNewEpisodes(true);
+        
+        // Refresh the poster to update the badge
+        qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
+        refreshShowPosterWithNotification();
     }
 
     // Clear the stored output path
@@ -7740,6 +7744,14 @@ void Operations_VP_Shows::editEpisodeMetadata()
         // Success message removed - lack of error dialog is sufficient
         // QMessageBox::information(m_mainWindow, tr("Success"),
         //                        tr("Metadata has been successfully updated."));
+        
+        // Force check for new episodes after metadata edit (bypass daily check)
+        qDebug() << "Operations_VP_Shows: Force checking for new episodes after metadata edit";
+        checkCurrentShowForNewEpisodes(true);
+        
+        // Refresh the poster to update the badge
+        qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
+        refreshShowPosterWithNotification();
     } else {
         qDebug() << "Operations_VP_Shows: User cancelled metadata editing";
     }
@@ -7804,6 +7816,14 @@ void Operations_VP_Shows::editMultipleEpisodesMetadata()
         // We just need to refresh the tree widget to show the updated metadata
         qDebug() << "Operations_VP_Shows: Refreshing episode tree after multiple metadata edit";
         loadShowEpisodes(m_currentShowFolder);
+        
+        // Force check for new episodes after metadata edit (bypass daily check)
+        qDebug() << "Operations_VP_Shows: Force checking for new episodes after multiple metadata edit";
+        checkCurrentShowForNewEpisodes(true);
+        
+        // Refresh the poster to update the badge
+        qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
+        refreshShowPosterWithNotification();
     } else {
         qDebug() << "Operations_VP_Shows: User cancelled multiple metadata editing";
     }
@@ -7888,7 +7908,14 @@ void Operations_VP_Shows::reacquireTMDBFromContextMenu()
         // Refresh the episode tree to show updated metadata
         qDebug() << "Operations_VP_Shows: Refreshing episode tree after TMDB update";
         loadShowEpisodes(m_currentShowFolder);
-
+        
+        // Force check for new episodes after TMDB update (bypass daily check)
+        qDebug() << "Operations_VP_Shows: Force checking for new episodes after TMDB update";
+        checkCurrentShowForNewEpisodes(true);
+        
+        // Refresh the poster to update the badge
+        qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
+        refreshShowPosterWithNotification();
         
     } else {
         // Multiple episodes - call the existing multiple episodes function
@@ -7900,7 +7927,14 @@ void Operations_VP_Shows::reacquireTMDBFromContextMenu()
         // Refresh the episode tree to show updated metadata
         qDebug() << "Operations_VP_Shows: Refreshing episode tree after TMDB updates";
         loadShowEpisodes(m_currentShowFolder);
-
+        
+        // Force check for new episodes after TMDB updates (bypass daily check)
+        qDebug() << "Operations_VP_Shows: Force checking for new episodes after TMDB updates";
+        checkCurrentShowForNewEpisodes(true);
+        
+        // Refresh the poster to update the badge
+        qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
+        refreshShowPosterWithNotification();
     }
 }
 
@@ -8765,6 +8799,10 @@ void Operations_VP_Shows::deleteEpisodeFromContextMenu()
                 // Force check for new episodes after deleting episodes (bypass daily check)
                 qDebug() << "Operations_VP_Shows: Force checking for new episodes after deleting episodes";
                 checkCurrentShowForNewEpisodes(true);
+                
+                // Refresh the poster to update the badge
+                qDebug() << "Operations_VP_Shows: Refreshing poster to update badge";
+                refreshShowPosterWithNotification();
             }
         }
     }
