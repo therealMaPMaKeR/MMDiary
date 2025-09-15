@@ -1708,7 +1708,7 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                 if (!m_isUpdatingExistingShow) {
                     // For new shows, use the settings from mainwindow
                     settings.autoplay = m_mainWindow->setting_VP_Shows_Autoplay;
-                    settings.autoplayRandom = m_mainWindow->setting_VP_Shows_AutoplayRand;
+                    settings.autoplayRandom = false;
                     settings.useTMDB = m_dialogUseTMDB;  // Use the dialog choice, not mainwindow default
                     settings.displayFileNames = m_mainWindow->setting_VP_Shows_DisplayFilenames;
                     settings.DisplayNewEpNotif = m_mainWindow->setting_VP_Shows_CheckNewEP;

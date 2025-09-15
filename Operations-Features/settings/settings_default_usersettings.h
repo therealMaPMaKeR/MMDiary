@@ -44,7 +44,7 @@ const QString DEFAULT_DATAENC_HIDE_TAGS = "0";
 
 // VideoPlayer Settings
 const QString DEFAULT_VP_SHOWS_AUTOPLAY = "1";
-const QString DEFAULT_VP_SHOWS_AutoFullScreen = "0";
+const QString DEFAULT_VP_SHOWS_AutoFullScreen = "1";
 const QString DEFAULT_VP_SHOWS_USE_TMDB = "1";
 const QString DEFAULT_VP_SHOWS_DISPLAY_FILENAMES = "0";
 const QString DEFAULT_VP_SHOWS_CHECK_NEW_EP = "1";

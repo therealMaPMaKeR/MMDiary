@@ -168,7 +168,7 @@ private:
     
     // VideoPlayer Settings
     bool setting_VP_Shows_Autoplay = true;
-    bool setting_VP_Shows_AutoplayRand = false;
+    bool setting_VP_Shows_AutoFullScreen = false;
     bool setting_VP_Shows_UseTMDB = true;
     bool setting_VP_Shows_DisplayFilenames = false;
     bool setting_VP_Shows_CheckNewEP = true;
