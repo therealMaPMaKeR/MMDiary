@@ -38,6 +38,7 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
 
     m_previousSettingsTabIndex = m_mainWindow->ui->tabWidget_Settings->currentIndex();
     m_previousMainTabIndex = m_mainWindow->ui->tabWidget_Main->currentIndex();
+    m_previousVideoPlayerSubTabIndex = m_mainWindow->ui->tab_Settings_VideoPlayer_tabWidget->currentIndex();
 
     // SECURITY: Connect tab widget signals with verification
     bool connected = connect(m_mainWindow->ui->tabWidget_Settings, &QTabWidget::currentChanged,
@@ -50,6 +51,13 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
             this, &Operations_Settings::onMainTabChanged);
     if (!connected) {
         qWarning() << "Operations_Settings: Failed to connect tabWidget_Main signal";
+    }
+
+    // Connect Video Player sub-tab widget signal for future expansion
+    connected = connect(m_mainWindow->ui->tab_Settings_VideoPlayer_tabWidget, &QTabWidget::currentChanged,
+            this, &Operations_Settings::onVideoPlayerSubTabChanged);
+    if (!connected) {
+        qWarning() << "Operations_Settings: Failed to connect tab_Settings_VideoPlayer_tabWidget signal";
     }
 
     // Connect the Hide Thumbnail Buttons Signals with verification
@@ -1799,12 +1807,21 @@ bool Operations_Settings::hasUnsavedChanges(const QString& settingsType)
     else if (settingsType == Constants::DBSettings_Type_EncryptedData) {
         return m_mainWindow->ui->pushButton_DataENC_Save->isEnabled();
     }
+    else if (settingsType == Constants::DBSettings_Type_VPShows) {
+        return m_mainWindow->ui->pushButton_VP_Shows_Save->isEnabled();
+    }
+    // Future Video Player sub-tabs can be added here:
+    // else if (settingsType == Constants::DBSettings_Type_VPMovies) {
+    //     return m_mainWindow->ui->pushButton_VP_Movies_Save->isEnabled();
+    // }
     else if (settingsType == Constants::DBSettings_Type_ALL) {
         return hasUnsavedChanges(Constants::DBSettings_Type_Diary) ||
                hasUnsavedChanges(Constants::DBSettings_Type_Tasklists) ||
                hasUnsavedChanges(Constants::DBSettings_Type_PWManager) ||
                hasUnsavedChanges(Constants::DBSettings_Type_Global) ||
-               hasUnsavedChanges(Constants::DBSettings_Type_EncryptedData);
+               hasUnsavedChanges(Constants::DBSettings_Type_EncryptedData) ||
+               hasUnsavedChanges(Constants::DBSettings_Type_VPShows);
+               // Add future VP sub-tabs to this check as well
     }
 
     return false;
@@ -1832,7 +1849,13 @@ bool Operations_Settings::handleUnsavedChanges(const QString& settingsType, int 
             categoryName = "account";
         } else if (settingsType == Constants::DBSettings_Type_EncryptedData) {
             categoryName = "encrypted data";
+        } else if (settingsType == Constants::DBSettings_Type_VPShows) {
+            categoryName = "TV shows";
         }
+        // Future Video Player sub-tabs can be added here:
+        // else if (settingsType == Constants::DBSettings_Type_VPMovies) {
+        //     categoryName = "movies";
+        // }
 
         message = QString("Unsaved changes for %1 settings.").arg(categoryName);
     }
@@ -1870,6 +1893,13 @@ bool Operations_Settings::handleUnsavedChanges(const QString& settingsType, int 
             if (hasUnsavedChanges(Constants::DBSettings_Type_EncryptedData)) {
                 SaveSettings(Constants::DBSettings_Type_EncryptedData);
             }
+            if (hasUnsavedChanges(Constants::DBSettings_Type_VPShows)) {
+                SaveSettings(Constants::DBSettings_Type_VPShows);
+            }
+            // Add future VP sub-tabs here:
+            // if (hasUnsavedChanges(Constants::DBSettings_Type_VPMovies)) {
+            //     SaveSettings(Constants::DBSettings_Type_VPMovies);
+            // }
         } else {
             // Just save the specific category
             SaveSettings(settingsType);
@@ -2106,6 +2136,51 @@ void Operations_Settings::ClearSettingDescription()
     m_mainWindow->ui->textBrowser_SettingDesc->clear();
 }
 
+void Operations_Settings::onVideoPlayerSubTabChanged(int newIndex)
+{
+    // Get the settings type for the previous sub-tab
+    QString previousSettingsType = getVideoPlayerSubTabSettingsType(m_previousVideoPlayerSubTabIndex);
+    
+    qDebug() << "Operations_Settings: Video Player sub-tab changed from index" << m_previousVideoPlayerSubTabIndex 
+             << "(" << previousSettingsType << ") to index" << newIndex;
+    
+    // Handle unsaved changes for the previous sub-tab
+    if (!handleUnsavedChanges(previousSettingsType, newIndex)) {
+        // Block the signal to prevent recursion when setting back the index
+        m_mainWindow->ui->tab_Settings_VideoPlayer_tabWidget->blockSignals(true);
+        m_mainWindow->ui->tab_Settings_VideoPlayer_tabWidget->setCurrentIndex(m_previousVideoPlayerSubTabIndex);
+        m_mainWindow->ui->tab_Settings_VideoPlayer_tabWidget->blockSignals(false);
+    } else {
+        // Update the previous index for next time
+        m_previousVideoPlayerSubTabIndex = newIndex;
+    }
+}
+
+QString Operations_Settings::getVideoPlayerSubTabSettingsType(int subTabIndex)
+{
+    // Get the widget at the specified index
+    QWidget* subTab = m_mainWindow->ui->tab_Settings_VideoPlayer_tabWidget->widget(subTabIndex);
+    
+    if (subTab) {
+        QString subTabObjectName = subTab->objectName();
+        
+        if (subTabObjectName == "tab_TvShows") {
+            return Constants::DBSettings_Type_VPShows;
+        }
+        // Future sub-tabs can be added here:
+        // else if (subTabObjectName == "tab_Movies") {
+        //     return Constants::DBSettings_Type_VPMovies;
+        // }
+        // else if (subTabObjectName == "tab_Music") {
+        //     return Constants::DBSettings_Type_VPMusic;
+        // }
+    }
+    
+    // Default to VPShows if we can't determine the sub-tab
+    qDebug() << "Operations_Settings: Could not determine Video Player sub-tab settings type for index" << subTabIndex;
+    return Constants::DBSettings_Type_VPShows;
+}
+
 QString Operations_Settings::getTabObjectNameByIndex(QTabWidget* tabWidget, int index)
 {
     if (!tabWidget || index < 0 || index >= tabWidget->count()) {
@@ -2133,6 +2208,26 @@ QString Operations_Settings::getSettingsTypeFromTabObjectName(const QString& tab
     }
     else if (tabObjectName == "tab_Settings_EncryptedData") {
         return Constants::DBSettings_Type_EncryptedData;
+    }
+    else if (tabObjectName == "tab_Settings_VideoPlayer") {
+        // For Video Player tab, we need to check which sub-tab is active
+        // Currently only TV Shows is implemented, but this structure allows for future expansion
+        int currentSubTabIndex = m_mainWindow->ui->tab_Settings_VideoPlayer_tabWidget->currentIndex();
+        QWidget* currentSubTab = m_mainWindow->ui->tab_Settings_VideoPlayer_tabWidget->widget(currentSubTabIndex);
+        
+        if (currentSubTab) {
+            QString subTabObjectName = currentSubTab->objectName();
+            if (subTabObjectName == "tab_TvShows") {
+                return Constants::DBSettings_Type_VPShows;
+            }
+            // Future sub-tabs can be added here:
+            // else if (subTabObjectName == "tab_Movies") {
+            //     return Constants::DBSettings_Type_VPMovies;
+            // }
+        }
+        
+        // Default to VPShows if we can't determine the sub-tab
+        return Constants::DBSettings_Type_VPShows;
     }
     else {
         qDebug() << "Unknown settings tab object name:" << tabObjectName;

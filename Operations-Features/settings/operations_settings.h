@@ -50,11 +50,14 @@ public:
 public slots:
     void onSettingsTabChanged(int newIndex);
     void onMainTabChanged(int newIndex);
+    void onVideoPlayerSubTabChanged(int newIndex);
 private:
     bool hasUnsavedChanges(const QString& settingsType);
     bool handleUnsavedChanges(const QString& settingsType, int newTabIndex);
     int m_previousSettingsTabIndex;
     int m_previousMainTabIndex;
+    int m_previousVideoPlayerSubTabIndex;
+    QString getVideoPlayerSubTabSettingsType(int subTabIndex);
     // New private methods for dialog management
     void showHiddenItemsDialog(const QString& itemType, QString& settingValue);
     QStringList parseItemList(const QString& itemString);

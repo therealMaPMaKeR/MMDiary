@@ -1498,7 +1498,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
            </size>
           </property>
           <property name="currentIndex">
-           <number>4</number>
+           <number>0</number>
           </property>
           <widget class="QWidget" name="tab_Settings_Diaries">
            <attribute name="title">
@@ -2055,7 +2055,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 <item>
                  <widget class="QGroupBox" name="groupBox_8">
                   <property name="title">
-                   <string>Add Show Default Values</string>
+                   <string>Add New Show Default Values</string>
                   </property>
                   <layout class="QVBoxLayout" name="verticalLayout_30">
                    <item>
