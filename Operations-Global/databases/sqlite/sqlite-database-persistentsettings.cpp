@@ -43,6 +43,10 @@ QString DatabasePersistentSettingsManager::getPersistentSettingsDatabasePath(con
 
 bool DatabasePersistentSettingsManager::connect(const QString& username, const QByteArray& encryptionKey)
 {
+    // BUG FIX: Previously, migrations were only run for new databases.
+    // Existing databases would never be migrated to newer versions.
+    // Now we always check for migrations after successful connection.
+    
     m_currentUsername = username;
     m_encryptionKey = encryptionKey;
 
@@ -85,6 +89,14 @@ bool DatabasePersistentSettingsManager::connect(const QString& username, const Q
             qDebug() << "DatabasePersistentSettingsManager: Persistent settings database corrupted, recreating silently";
             close();
             return createOrRecreatePersistentSettingsDatabase(username, encryptionKey);
+        }
+        
+        // CRITICAL FIX: Always check if migrations are needed for existing databases
+        // This was the bug - existing databases were never checked for migrations
+        qDebug() << "DatabasePersistentSettingsManager: Checking for pending migrations on existing database...";
+        if (!migratePersistentSettingsDatabase()) {
+            qWarning() << "DatabasePersistentSettingsManager: Failed to migrate existing persistent settings database";
+            return false;
         }
     }
 

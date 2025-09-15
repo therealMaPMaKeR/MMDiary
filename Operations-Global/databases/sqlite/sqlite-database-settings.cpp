@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QMessageBox>
+#include "settings_default_usersettings.h"
 
 DatabaseSettingsManager::DatabaseSettingsManager()
 {
@@ -71,6 +72,11 @@ bool DatabaseSettingsManager::connect(const QString& username, const QByteArray&
             QMessageBox::warning(nullptr, "Settings Database Error",
                                  "Encryption key doesn't match for the settings database. The settings database appears corrupted. It has been recreated with default settings.");
             return createOrRecreateSettingsDatabase(username, encryptionKey);
+        }
+        // Run migrations (CRITICAL: needed to update existing databases)
+        if (!migrateSettingsDatabase()) {
+            qWarning() << "Failed to migrate settings database";
+            return false;
         }
     }
 
