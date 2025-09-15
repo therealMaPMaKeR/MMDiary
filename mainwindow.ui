@@ -1498,7 +1498,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
            </size>
           </property>
           <property name="currentIndex">
-           <number>0</number>
+           <number>4</number>
           </property>
           <widget class="QWidget" name="tab_Settings_Diaries">
            <attribute name="title">
@@ -2033,6 +2033,249 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 </widget>
                </item>
               </layout>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="tab_Settings_VideoPlayer">
+           <attribute name="title">
+            <string>Video Player</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="verticalLayout_29">
+            <item>
+             <widget class="QTabWidget" name="tab_Settings_VideoPlayer_tabWidget">
+              <property name="currentIndex">
+               <number>0</number>
+              </property>
+              <widget class="QWidget" name="tab_TvShows">
+               <attribute name="title">
+                <string>Shows</string>
+               </attribute>
+               <layout class="QVBoxLayout" name="verticalLayout_31">
+                <item>
+                 <widget class="QGroupBox" name="groupBox_8">
+                  <property name="title">
+                   <string>Add Show Default Values</string>
+                  </property>
+                  <layout class="QVBoxLayout" name="verticalLayout_30">
+                   <item>
+                    <layout class="QFormLayout" name="formLayout_11">
+                     <item row="0" column="0">
+                      <widget class="QLabel" name="label_16">
+                       <property name="text">
+                        <string>Autoplay:</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="0" column="1">
+                      <widget class="QCheckBox" name="checkBox_VP_Shows_Autoplay">
+                       <property name="text">
+                        <string/>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="1" column="0">
+                      <widget class="QLabel" name="label_17">
+                       <property name="text">
+                        <string>Autoplay Random Episode: </string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="1" column="1">
+                      <widget class="QCheckBox" name="checkBox_VP_Shows_AutoplayRand">
+                       <property name="text">
+                        <string/>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="2" column="0">
+                      <widget class="QLabel" name="label_18">
+                       <property name="text">
+                        <string>Use TMDB to retrieve show data:</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="2" column="1">
+                      <widget class="QCheckBox" name="checkBox_VP_Shows_UseTMDB">
+                       <property name="text">
+                        <string/>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="3" column="0">
+                      <widget class="QLabel" name="label_19">
+                       <property name="text">
+                        <string>Display filenames instead of episode names:</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="3" column="1">
+                      <widget class="QCheckBox" name="checkBox_VP_Shows_DisplayFilenames">
+                       <property name="text">
+                        <string/>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="4" column="0">
+                      <widget class="QLabel" name="label_32">
+                       <property name="text">
+                        <string>Check for new episodes:</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="4" column="1">
+                      <widget class="QCheckBox" name="checkBox_VP_Shows_CheckNewEP">
+                       <property name="text">
+                        <string/>
+                       </property>
+                      </widget>
+                     </item>
+                    </layout>
+                   </item>
+                   <item>
+                    <widget class="Line" name="line_9">
+                     <property name="orientation">
+                      <enum>Qt::Horizontal</enum>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <layout class="QFormLayout" name="formLayout_12">
+                     <item row="0" column="0">
+                      <widget class="QLabel" name="label_33">
+                       <property name="text">
+                        <string>Season/Content Type Parsing:</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="0" column="1">
+                      <widget class="QComboBox" name="comboBox_VP_Shows_FileFolderParsing">
+                       <item>
+                        <property name="text">
+                         <string>Folder Name</string>
+                        </property>
+                       </item>
+                       <item>
+                        <property name="text">
+                         <string>File Name</string>
+                        </property>
+                       </item>
+                      </widget>
+                     </item>
+                     <item row="1" column="0">
+                      <widget class="QLabel" name="label_34">
+                       <property name="text">
+                        <string>Autodelete on import: </string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="1" column="1">
+                      <widget class="QComboBox" name="comboBox_VP_Shows_AutoDelete">
+                       <item>
+                        <property name="text">
+                         <string>Always Ask</string>
+                        </property>
+                       </item>
+                       <item>
+                        <property name="text">
+                         <string>Keep Files</string>
+                        </property>
+                       </item>
+                       <item>
+                        <property name="text">
+                         <string>Delete</string>
+                        </property>
+                       </item>
+                       <item>
+                        <property name="text">
+                         <string>Secure Delete</string>
+                        </property>
+                       </item>
+                      </widget>
+                     </item>
+                    </layout>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QGroupBox" name="formGroupBox">
+                  <property name="title">
+                   <string>Miscellaneous</string>
+                  </property>
+                  <layout class="QFormLayout" name="formLayout_6">
+                   <item row="0" column="0">
+                    <widget class="QLabel" name="label_5">
+                     <property name="text">
+                      <string>Default Volume Value:</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="0" column="1">
+                    <widget class="QSpinBox" name="spinBox_VP_Shows_DefaultVolume"/>
+                   </item>
+                   <item row="1" column="0">
+                    <widget class="QLabel" name="label_3">
+                     <property name="text">
+                      <string>Check for new episodes on startup:</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="1" column="1">
+                    <widget class="QCheckBox" name="checkBox_VP_Shows_CheckNewEPStartup">
+                     <property name="text">
+                      <string/>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="verticalSpacer_11">
+                  <property name="orientation">
+                   <enum>Qt::Vertical</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>20</width>
+                    <height>12</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+                <item>
+                 <widget class="QGroupBox" name="groupBox_6">
+                  <property name="title">
+                   <string/>
+                  </property>
+                  <layout class="QHBoxLayout" name="horizontalLayout_23">
+                   <item>
+                    <widget class="QPushButton" name="pushButton_VP_Shows_RDefault">
+                     <property name="text">
+                      <string>Reset to Defaults</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QPushButton" name="pushButton_VP_Shows_Cancel">
+                     <property name="text">
+                      <string>Cancel</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QPushButton" name="pushButton_VP_Shows_Save">
+                     <property name="text">
+                      <string>Save Settings</string>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
              </widget>
             </item>
            </layout>
