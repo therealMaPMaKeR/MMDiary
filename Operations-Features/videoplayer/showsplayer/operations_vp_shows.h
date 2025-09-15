@@ -120,6 +120,15 @@ private:
 
     // Start background checking for new episodes
     void startBackgroundEpisodeCheck();
+    
+    // Session flag to track if startup check has been done
+    bool m_startupCheckDone = false;
+    
+    // Timer for delayed startup check
+    SafeTimer* m_startupCheckTimer = nullptr;
+    
+    // Method to check new episodes after delay
+    void checkNewEpisodesAfterDelay();
 
     void refreshShowPosterWithNotification();
 

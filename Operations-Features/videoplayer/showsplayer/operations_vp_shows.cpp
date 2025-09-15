@@ -28,6 +28,7 @@
 #include "vp_shows_playback_tracker.h"  // Playback tracking integration
 #include "vp_shows_favourites.h"  // Favourites management
 #include "../vp_metadata_lock_manager.h"  // Metadata lock manager for concurrent access protection
+#include "SafeTimer.h"
 #include <QCheckBox>
 #include <QDataStream>
 #include <QDebug>
@@ -296,23 +297,11 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
                 this, &Operations_VP_Shows::openShowSettings);
         qDebug() << "Operations_VP_Shows: Connected show settings button";
     }
-    
-    // REMOVED - Checkbox connections moved to settings dialog
-    // Checkboxes are no longer on the display page
-    /*
-    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->checkBox_VP_Shows_Display_SkipContent) {
-        connect(m_mainWindow->ui->checkBox_VP_Shows_Display_SkipContent, &QCheckBox::stateChanged,
-                this, &Operations_VP_Shows::onSkipContentCheckboxChanged);
-        qDebug() << "Operations_VP_Shows: Connected skip intro/outro checkbox";
-    }
-    
-    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->checkBox_VP_Shows_Display_Autoplay) {
-        connect(m_mainWindow->ui->checkBox_VP_Shows_Display_Autoplay, &QCheckBox::stateChanged,
-                this, &Operations_VP_Shows::onAutoplayCheckboxChanged);
-        qDebug() << "Operations_VP_Shows: Connected autoplay checkbox";
-    }
-    */
-    
+        
+    // Initialize startup check timer
+    m_startupCheckTimer = new SafeTimer(this, "Operations_VP_Shows");
+    qDebug() << "Operations_VP_Shows: Initialized startup check timer";
+
     // Clean up any incomplete show folders from previous sessions (crashed imports, etc.)
     // This should happen before loading the shows list
     cleanupIncompleteShowFolders();
@@ -325,7 +314,15 @@ Operations_VP_Shows::Operations_VP_Shows(MainWindow* mainWindow)
 Operations_VP_Shows::~Operations_VP_Shows()
 {
     qDebug() << "Operations_VP_Shows: Destructor called";
-    
+
+    // Stop and clean up startup check timer
+    if (m_startupCheckTimer) {
+        m_startupCheckTimer->stop();
+        delete m_startupCheckTimer;
+        m_startupCheckTimer = nullptr;
+        qDebug() << "Operations_VP_Shows: Cleaned up startup check timer";
+    }
+
     // Cancel any ongoing episode checking
     if (m_episodeCheckerManager && m_episodeCheckerManager->isChecking()) {
         qDebug() << "Operations_VP_Shows: Cancelling episode checking";
@@ -2327,12 +2324,33 @@ void Operations_VP_Shows::loadTVShowsList()
         m_mainWindow->ui->listWidget_VP_List_List->sortItems(Qt::AscendingOrder);
     }
     
-    qDebug() << "Operations_VP_Shows: Finished loading shows. Total shows:" 
-             << safeGetListItemCount(m_mainWindow->ui->listWidget_VP_List_List);
+    qDebug() << "Operations_VP_Shows: Finished loading shows list. Total shows:"
+                 << safeGetListItemCount(m_mainWindow->ui->listWidget_VP_List_List);
 
-    // Start background checking for new episodes
-    startBackgroundEpisodeCheck();
-}
+        // Check if we should do the startup check (only once per session)
+        if (!m_startupCheckDone) {
+            // Check the setting
+            if (m_mainWindow->setting_VP_Shows_CheckNewEPStartup) {
+                qDebug() << "Operations_VP_Shows: CheckNewEPStartup is enabled, scheduling check in 5 seconds";
+
+                // Start a 5-second timer for the check
+                if (m_startupCheckTimer) {
+                    m_startupCheckTimer->stop(); // Stop any existing timer
+                    m_startupCheckTimer->singleShot(5000, this, [this]() {
+                        this->checkNewEpisodesAfterDelay();
+                    }, "Operations_VP_Shows");
+                }
+            } else {
+                qDebug() << "Operations_VP_Shows: CheckNewEPStartup is disabled, skipping automatic check";
+            }
+
+            // Mark that we've processed the startup check (whether we ran it or not)
+            m_startupCheckDone = true;
+            qDebug() << "Operations_VP_Shows: Startup check flag set to true (won't run again this session)";
+        } else {
+            qDebug() << "Operations_VP_Shows: Startup check already done this session, skipping";
+        }
+    }
 
 void Operations_VP_Shows::refreshTVShowsList()
 {
@@ -10811,4 +10829,38 @@ void Operations_VP_Shows::startBackgroundEpisodeCheck()
 
     // Start the background checking
     m_episodeCheckerManager->startChecking(showsList);
+}
+
+void Operations_VP_Shows::checkNewEpisodesAfterDelay()
+{
+    qDebug() << "Operations_VP_Shows: Timer fired, starting automatic new episode check";
+
+    // Double-check the setting in case it changed
+    if (!m_mainWindow->setting_VP_Shows_CheckNewEPStartup) {
+        qDebug() << "Operations_VP_Shows: CheckNewEPStartup setting is now disabled, aborting check";
+        return;
+    }
+
+    // Make sure we're still on the video player tab
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->tabWidget_Main) {
+        qDebug() << "Operations_VP_Shows: UI not available, aborting check";
+        return;
+    }
+
+    // Get the actual index of the Video Player tab
+    int videoPlayerIndex = Operations::GetIndexFromText("Video Player", m_mainWindow->ui->tabWidget_Main);
+    if (videoPlayerIndex == -1) {
+        qDebug() << "Operations_VP_Shows: Video Player tab not found, aborting check";
+        return;
+    }
+
+    // Only proceed if we're on the video player tab
+    if (m_mainWindow->ui->tabWidget_Main->currentIndex() != videoPlayerIndex) {
+        qDebug() << "Operations_VP_Shows: Not on Video Player tab, aborting automatic check";
+        return;
+    }
+
+    // Now start the background check
+    qDebug() << "Operations_VP_Shows: Starting background episode check from timer";
+    startBackgroundEpisodeCheck();
 }
