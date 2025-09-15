@@ -1,10 +1,12 @@
 #include "vp_shows_newepisode_checker.h"
+#include "ui_mainwindow.h"
 #include "vp_shows_episode_detector.h"
 #include "vp_shows_settings.h"
 #include "vp_shows_config.h"
 #include "vp_shows_tmdb.h"
 #include "../../../MainWindow.h"
 #include "../../../Operations-Global/SafeTimer.h"
+#include "../../../Operations-Global/operations.h"
 #include <QThread>
 #include <QDebug>
 #include <QDate>
@@ -67,12 +69,12 @@ void VP_ShowsNewEpisodeChecker::setShowsList(const QList<ShowInfo>& shows)
 void VP_ShowsNewEpisodeChecker::cancel()
 {
     qDebug() << "VP_ShowsNewEpisodeChecker: Cancellation requested";
-    m_cancelled.store(1);
+    m_cancelled = 1;
 }
 
 bool VP_ShowsNewEpisodeChecker::isRunning() const
 {
-    return m_isRunning.load() == 1;
+    return m_isRunning == 1;
 }
 
 void VP_ShowsNewEpisodeChecker::startChecking()
@@ -90,13 +92,13 @@ void VP_ShowsNewEpisodeChecker::startChecking()
     m_showsWithNewEpisodes = 0;
     m_showsSkipped = 0;
     m_rateLimitRetries = 0;
-    m_cancelled.store(0);
+    m_cancelled = 0;
     
     // Check if we have shows to check
     int showCount = m_showsList.size();
     if (showCount == 0) {
         qDebug() << "VP_ShowsNewEpisodeChecker: No shows to check";
-        m_isRunning.store(0);
+        m_isRunning = 0;
         emit checkingFinished(0, 0);
         return;
     }
@@ -108,7 +110,7 @@ void VP_ShowsNewEpisodeChecker::startChecking()
     int currentIndex = 0;
     m_showsList.safeIterate([this, &currentIndex](const ShowInfo& show) {
         // Check if cancelled
-        if (m_cancelled.load() == 1) {
+        if (m_cancelled == 1) {
             qDebug() << "VP_ShowsNewEpisodeChecker: Operation cancelled";
             return;
         }
@@ -146,7 +148,7 @@ void VP_ShowsNewEpisodeChecker::startChecking()
     clearStatusBar();
     
     // Mark as not running
-    m_isRunning.store(0);
+    m_isRunning = 0;
     
     // Emit completion signal
     qDebug() << "VP_ShowsNewEpisodeChecker: Checking completed. Checked:" << m_showsChecked
@@ -207,7 +209,7 @@ bool VP_ShowsNewEpisodeChecker::checkShowForNewEpisodes(const ShowInfo& show)
     int retryCount = 0;
     bool success = false;
     
-    while (retryCount <= 5 && !success && m_cancelled.load() == 0) {
+    while (retryCount <= 5 && !success && m_cancelled == 0) {
         // Try to check for new episodes
         newEpisodeInfo = m_episodeDetector->checkForNewEpisodes(show.folderPath, show.tmdbId);
         
@@ -239,7 +241,7 @@ bool VP_ShowsNewEpisodeChecker::checkShowForNewEpisodes(const ShowInfo& show)
                            .arg(5));
             
             // Wait 2 seconds before retry
-            for (int i = 0; i < 20 && m_cancelled.load() == 0; i++) {
+            for (int i = 0; i < 20 && m_cancelled == 0; i++) {
                 QThread::msleep(100);
                 QApplication::processEvents();
             }
@@ -311,8 +313,15 @@ bool VP_ShowsNewEpisodeChecker::isOnVideoPlayerTab() const
         return false;
     }
     
-    // Check if we're on the video player tab (index 4)
-    return m_mainWindow->ui->tabWidget_Main->currentIndex() == 4;
+    // Get the actual index of the Video Player tab (it can change)
+    int videoPlayerIndex = Operations::GetIndexFromText("Video Player", m_mainWindow->ui->tabWidget_Main);
+    if (videoPlayerIndex == -1) {
+        qDebug() << "VP_ShowsNewEpisodeChecker: Could not find Video Player tab";
+        return false;
+    }
+    
+    // Check if we're on the video player tab
+    return m_mainWindow->ui->tabWidget_Main->currentIndex() == videoPlayerIndex;
 }
 
 void VP_ShowsNewEpisodeChecker::updateStatusBar(const QString& message)
@@ -358,9 +367,11 @@ VP_ShowsNewEpisodeCheckerManager::VP_ShowsNewEpisodeCheckerManager(QPointer<Main
     connect(m_statusBarTimer, &QTimer::timeout, this, [this]() {
         if (m_mainWindow && m_mainWindow->statusBar() && !m_lastStatusMessage.isEmpty()) {
             // Only update if on video player tab
-            if (m_mainWindow->ui && m_mainWindow->ui->tabWidget_Main &&
-                m_mainWindow->ui->tabWidget_Main->currentIndex() == 4) {
-                m_mainWindow->statusBar()->showMessage(m_lastStatusMessage);
+            if (m_mainWindow->ui && m_mainWindow->ui->tabWidget_Main) {
+                int videoPlayerIndex = Operations::GetIndexFromText("Video Player", m_mainWindow->ui->tabWidget_Main);
+                if (videoPlayerIndex != -1 && m_mainWindow->ui->tabWidget_Main->currentIndex() == videoPlayerIndex) {
+                    m_mainWindow->statusBar()->showMessage(m_lastStatusMessage);
+                }
             }
         }
     });
@@ -473,9 +484,11 @@ void VP_ShowsNewEpisodeCheckerManager::onCheckingFinished(int showsChecked, int 
     m_lastStatusMessage.clear();
     if (m_mainWindow && m_mainWindow->statusBar()) {
         // Only clear if on video player tab
-        if (m_mainWindow->ui && m_mainWindow->ui->tabWidget_Main &&
-            m_mainWindow->ui->tabWidget_Main->currentIndex() == 4) {
-            m_mainWindow->statusBar()->clearMessage();
+        if (m_mainWindow->ui && m_mainWindow->ui->tabWidget_Main) {
+            int videoPlayerIndex = Operations::GetIndexFromText("Video Player", m_mainWindow->ui->tabWidget_Main);
+            if (videoPlayerIndex != -1 && m_mainWindow->ui->tabWidget_Main->currentIndex() == videoPlayerIndex) {
+                m_mainWindow->statusBar()->clearMessage();
+            }
         }
     }
     
