@@ -358,14 +358,6 @@ VP_ShowsNewEpisodeCheckerManager::VP_ShowsNewEpisodeCheckerManager(QPointer<Main
     // Create status bar update timer
     m_statusBarTimer = new SafeTimer(this, "VP_ShowsNewEpisodeCheckerManager");
     m_statusBarTimer->setInterval(100);  // Update every 100ms
-    connect(m_statusBarTimer, &QTimer::timeout, this, [this]() {
-        if (m_mainWindow && m_mainWindow->statusBar() && !m_lastStatusMessage.isEmpty()) {
-            // Only update if on video player tab
-            if (m_tabCheckCallback && m_tabCheckCallback()) {
-                m_mainWindow->statusBar()->showMessage(m_lastStatusMessage);
-            }
-        }
-    });
 }
 
 VP_ShowsNewEpisodeCheckerManager::~VP_ShowsNewEpisodeCheckerManager()
@@ -398,7 +390,7 @@ void VP_ShowsNewEpisodeCheckerManager::startChecking(const QList<VP_ShowsNewEpis
     
     // Connect signals
     connect(m_workerThread, &QThread::started, m_worker, &VP_ShowsNewEpisodeChecker::startChecking);
-    connect(m_workerThread, &QThread::finished, m_workerThread, &QThread::deleteLater);
+    // Don't use deleteLater on thread - we manage deletion in cleanup()
     
     connect(m_worker, &VP_ShowsNewEpisodeChecker::progressUpdated,
             this, &VP_ShowsNewEpisodeCheckerManager::onProgressUpdated);
@@ -419,8 +411,15 @@ void VP_ShowsNewEpisodeCheckerManager::startChecking(const QList<VP_ShowsNewEpis
     connect(m_worker, &VP_ShowsNewEpisodeChecker::checkingFinished,
             m_workerThread, &QThread::quit);
     
-    // Start status bar timer
-    m_statusBarTimer->start();
+    // Start status bar timer with callback
+    m_statusBarTimer->start([this]() {
+        if (m_mainWindow && m_mainWindow->statusBar() && !m_lastStatusMessage.isEmpty()) {
+            // Only update if on video player tab
+            if (m_tabCheckCallback && m_tabCheckCallback()) {
+                m_mainWindow->statusBar()->showMessage(m_lastStatusMessage);
+            }
+        }
+    });
     
     // Start the thread
     m_workerThread->start();
@@ -488,8 +487,10 @@ void VP_ShowsNewEpisodeCheckerManager::onCheckingFinished(int showsChecked, int 
     // Emit completion signal
     emit checkingFinished(showsChecked, showsWithNewEpisodes);
     
-    // Schedule cleanup
-    QTimer::singleShot(1000, this, &VP_ShowsNewEpisodeCheckerManager::cleanup);
+    // Schedule cleanup using SafeTimer for safety
+    SafeTimer::singleShot(1000, this, [this]() {
+        cleanup();
+    }, "VP_ShowsNewEpisodeCheckerManager::CleanupTimer");
 }
 
 void VP_ShowsNewEpisodeCheckerManager::cleanup()
@@ -503,20 +504,29 @@ void VP_ShowsNewEpisodeCheckerManager::cleanup()
     
     // Clean up worker thread
     if (m_workerThread) {
+        // First disconnect all signals to prevent any race conditions
+        disconnect(m_workerThread, nullptr, nullptr, nullptr);
+        
+        // Check if thread is still valid and running
         if (m_workerThread->isRunning()) {
+            qDebug() << "VP_ShowsNewEpisodeCheckerManager: Thread is running, requesting quit";
             m_workerThread->quit();
             if (!m_workerThread->wait(5000)) {
                 qWarning() << "VP_ShowsNewEpisodeCheckerManager: Worker thread didn't quit, terminating";
                 m_workerThread->terminate();
-                m_workerThread->wait();
+                m_workerThread->wait(2000);
             }
         }
+        
+        // Now safe to delete
         delete m_workerThread;
         m_workerThread = nullptr;
     }
     
     // Clean up worker
     if (m_worker) {
+        // Disconnect all signals from worker first
+        disconnect(m_worker, nullptr, nullptr, nullptr);
         m_worker->deleteLater();
         m_worker = nullptr;
     }

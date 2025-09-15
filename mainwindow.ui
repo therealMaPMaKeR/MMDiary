@@ -889,13 +889,6 @@
                     </property>
                    </widget>
                   </item>
-                  <item>
-                   <widget class="QPushButton" name="pushButton_CheckForNewEP">
-                    <property name="text">
-                     <string>Check All Shows for New Episodes</string>
-                    </property>
-                   </widget>
-                  </item>
                  </layout>
                 </item>
                 <item>

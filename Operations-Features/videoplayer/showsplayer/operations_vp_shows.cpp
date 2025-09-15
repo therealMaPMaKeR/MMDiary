@@ -58,6 +58,7 @@
 #include <QWindow>
 #include <QComboBox>
 #include <QListView>
+#include <QScrollBar>
 #include <QPainter>
 #include <QFont>
 #include <QLineEdit>
@@ -2352,6 +2353,37 @@ void Operations_VP_Shows::setupIconViewMode()
     listWidget->setDragDropMode(QAbstractItemView::NoDragDrop);
     listWidget->setMovement(QListView::Static);
     listWidget->setDragEnabled(false);
+    
+    // Fix scrollbar parameters for icon view mode
+    // When switching from list view, the scrollbar step values are still configured
+    // for small list items. We need to recalculate them for the larger grid items.
+    QScrollBar* vScrollBar = listWidget->verticalScrollBar();
+    if (vScrollBar) {
+        // Force the widget to recalculate its geometry and scrollbar range
+        listWidget->doItemsLayout();
+        
+        // Get the grid size for proper step calculation
+        QSize gridSize = listWidget->gridSize();
+        int gridHeight = gridSize.height();
+        
+        if (gridHeight > 0) {
+            // Set single step to one grid item height
+            vScrollBar->setSingleStep(gridHeight);
+            
+            // Set page step to approximately one page of items
+            int viewportHeight = listWidget->viewport()->height();
+            int itemsPerPage = viewportHeight / gridHeight;
+            vScrollBar->setPageStep(itemsPerPage * gridHeight);
+            
+            qDebug() << "Operations_VP_Shows: Icon view scrollbar configured - SingleStep:" << gridHeight 
+                     << "PageStep:" << (itemsPerPage * gridHeight);
+        } else {
+            // Fallback values if grid size is not yet calculated
+            vScrollBar->setSingleStep(50);
+            vScrollBar->setPageStep(200);
+            qDebug() << "Operations_VP_Shows: Using fallback scrollbar values for icon view";
+        }
+    }
     
     // Set the scroll speed multiplier for icon view (10x faster by default)
     // You can adjust this value to fine-tune the scrolling speed
