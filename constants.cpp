@@ -5,7 +5,7 @@
 namespace Constants
 {
 // Global
-const QString AppVer = "4.5.4";
+const QString AppVer = "4.5.5";
 // Error Messages
 const QString ErrorMessage_Default = "ERROR";
 const QString ErrorMessage_INVUSER = "ERROR - INVALID USER";
@@ -107,7 +107,7 @@ const QString SettingsT_Index_DataENC_Hide_Categories = "ENCRYPTEDDATA_Hide_Cate
 const QString SettingsT_Index_DataENC_Hide_Tags = "ENCRYPTEDDATA_Hide_Tags";
 // Settings Database Table Indexes - VideoPlayer Settings
 const QString SettingsT_Index_VP_Shows_Autoplay = "VP_Shows_Autoplay";
-const QString SettingsT_Index_VP_Shows_AutoplayRand = "VP_Shows_AutoplayRand";
+const QString SettingsT_Index_VP_Shows_AutoFullScreen = "VP_Shows_AutoFullScreen";
 const QString SettingsT_Index_VP_Shows_UseTMDB = "VP_Shows_UseTMDB";
 const QString SettingsT_Index_VP_Shows_DisplayFilenames = "VP_Shows_DisplayFilenames";
 const QString SettingsT_Index_VP_Shows_CheckNewEP = "VP_Shows_CheckNewEP";

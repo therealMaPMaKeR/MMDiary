@@ -96,9 +96,6 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
     connect(m_mainWindow->ui->checkBox_VP_Shows_Autoplay, &QCheckBox::stateChanged,
             [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
 
-    connect(m_mainWindow->ui->checkBox_VP_Shows_AutoplayRand, &QCheckBox::stateChanged,
-            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
-
     connect(m_mainWindow->ui->checkBox_VP_Shows_UseTMDB, &QCheckBox::stateChanged,
             [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
 
@@ -648,13 +645,6 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
             m_mainWindow->setting_VP_Shows_Autoplay = (autoplay == "1");
         }
 
-        // Autoplay Random
-        QString autoplayRand = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_AutoplayRand);
-        if (autoplayRand != Constants::ErrorMessage_Default) {
-            m_mainWindow->ui->checkBox_VP_Shows_AutoplayRand->setChecked(autoplayRand == "1");
-            m_mainWindow->setting_VP_Shows_AutoplayRand = (autoplayRand == "1");
-        }
-
         // Use TMDB
         QString useTMDB = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_UseTMDB);
         if (useTMDB != Constants::ErrorMessage_Default) {
@@ -948,12 +938,6 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         QString autoplayStr = autoplay ? "1" : "0";
         db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_Autoplay, autoplayStr);
         m_mainWindow->setting_VP_Shows_Autoplay = autoplay;
-
-        // Autoplay Random
-        bool autoplayRand = m_mainWindow->ui->checkBox_VP_Shows_AutoplayRand->isChecked();
-        QString autoplayRandStr = autoplayRand ? "1" : "0";
-        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_AutoplayRand, autoplayRandStr);
-        m_mainWindow->setting_VP_Shows_AutoplayRand = autoplayRand;
 
         // Use TMDB
         bool useTMDB = m_mainWindow->ui->checkBox_VP_Shows_UseTMDB->isChecked();
@@ -1428,12 +1412,6 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         QString uiAutoplay = m_mainWindow->ui->checkBox_VP_Shows_Autoplay->isChecked() ? "1" : "0";
         if (dbAutoplay != uiAutoplay) matchesDatabase = false;
         if (uiAutoplay != Default_UserSettings::DEFAULT_VP_SHOWS_AUTOPLAY) matchesDefault = false;
-
-        // Autoplay Random
-        QString dbAutoplayRand = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_AutoplayRand);
-        QString uiAutoplayRand = m_mainWindow->ui->checkBox_VP_Shows_AutoplayRand->isChecked() ? "1" : "0";
-        if (dbAutoplayRand != uiAutoplayRand) matchesDatabase = false;
-        if (uiAutoplayRand != Default_UserSettings::DEFAULT_VP_SHOWS_AUTOPLAY_RAND) matchesDefault = false;
 
         // Use TMDB
         QString dbUseTMDB = db.GetSettingsData_String(Constants::SettingsT_Index_VP_Shows_UseTMDB);
@@ -2050,9 +2028,6 @@ void Operations_Settings::SetupSettingDescriptions()
     // VideoPlayer Settings
     m_settingNames[m_mainWindow->ui->checkBox_VP_Shows_Autoplay] = "Autoplay";
     m_settingDescriptions[m_mainWindow->ui->checkBox_VP_Shows_Autoplay] = "Automatically play the next episode when the current one finishes.";
-
-    m_settingNames[m_mainWindow->ui->checkBox_VP_Shows_AutoplayRand] = "Autoplay Random Episode";
-    m_settingDescriptions[m_mainWindow->ui->checkBox_VP_Shows_AutoplayRand] = "When autoplay is enabled, play a random episode instead of the next one in sequence.";
 
     m_settingNames[m_mainWindow->ui->checkBox_VP_Shows_UseTMDB] = "Use TMDB";
     m_settingDescriptions[m_mainWindow->ui->checkBox_VP_Shows_UseTMDB] = "Use The Movie Database (TMDB) to automatically retrieve show information, episode names, and artwork.";

@@ -272,7 +272,7 @@ bool SetDefault_VideoPlayerSettings(const QString& username, const QByteArray& e
     // Set all video player defaults
     bool success = true;
     success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_Autoplay, DEFAULT_VP_SHOWS_AUTOPLAY);
-    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_AutoplayRand, DEFAULT_VP_SHOWS_AUTOPLAY_RAND);
+    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_AutoFullScreen, DEFAULT_VP_SHOWS_AutoFullScreen);
     success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_UseTMDB, DEFAULT_VP_SHOWS_USE_TMDB);
     success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_DisplayFilenames, DEFAULT_VP_SHOWS_DISPLAY_FILENAMES);
     success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_CheckNewEP, DEFAULT_VP_SHOWS_CHECK_NEW_EP);

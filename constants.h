@@ -83,7 +83,7 @@ extern const QString SettingsT_Index_DataENC_Hide_Categories;
 extern const QString SettingsT_Index_DataENC_Hide_Tags;
 // Settings Database Table Indexes - VideoPlayer Settings
 extern const QString SettingsT_Index_VP_Shows_Autoplay;
-extern const QString SettingsT_Index_VP_Shows_AutoplayRand;
+extern const QString SettingsT_Index_VP_Shows_AutoFullScreen;
 extern const QString SettingsT_Index_VP_Shows_UseTMDB;
 extern const QString SettingsT_Index_VP_Shows_DisplayFilenames;
 extern const QString SettingsT_Index_VP_Shows_CheckNewEP;

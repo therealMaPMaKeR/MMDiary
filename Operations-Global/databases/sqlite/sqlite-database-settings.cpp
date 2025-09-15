@@ -230,7 +230,7 @@ bool DatabaseSettingsManager::IndexIsValid(QString index, QString type)
         
         // VideoPlayer Settings columns
         columnTypes[Constants::SettingsT_Index_VP_Shows_Autoplay] = Constants::DataType_QString;
-        columnTypes[Constants::SettingsT_Index_VP_Shows_AutoplayRand] = Constants::DataType_QString;
+        columnTypes[Constants::SettingsT_Index_VP_Shows_AutoFullScreen] = Constants::DataType_QString;
         columnTypes[Constants::SettingsT_Index_VP_Shows_UseTMDB] = Constants::DataType_QString;
         columnTypes[Constants::SettingsT_Index_VP_Shows_DisplayFilenames] = Constants::DataType_QString;
         columnTypes[Constants::SettingsT_Index_VP_Shows_CheckNewEP] = Constants::DataType_QString;
@@ -828,7 +828,7 @@ bool DatabaseSettingsManager::migrateToV4()
     // NEW VideoPlayer Settings
     qDebug() << "DatabaseSettingsManager: Adding VideoPlayer columns to schema...";
     settingsTableColumns[Constants::SettingsT_Index_VP_Shows_Autoplay] = "TEXT";
-    settingsTableColumns[Constants::SettingsT_Index_VP_Shows_AutoplayRand] = "TEXT";
+    settingsTableColumns[Constants::SettingsT_Index_VP_Shows_AutoFullScreen] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_VP_Shows_UseTMDB] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_VP_Shows_DisplayFilenames] = "TEXT";
     settingsTableColumns[Constants::SettingsT_Index_VP_Shows_CheckNewEP] = "TEXT";
@@ -920,8 +920,8 @@ bool DatabaseSettingsManager::migrateToV4()
     // Set each VideoPlayer default value directly
     success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_Autoplay, 
                                        Default_UserSettings::DEFAULT_VP_SHOWS_AUTOPLAY);
-    success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_AutoplayRand, 
-                                       Default_UserSettings::DEFAULT_VP_SHOWS_AUTOPLAY_RAND);
+    success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_AutoFullScreen,
+                                       Default_UserSettings::DEFAULT_VP_SHOWS_AutoFullScreen);
     success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_UseTMDB, 
                                        Default_UserSettings::DEFAULT_VP_SHOWS_USE_TMDB);
     success &= UpdateSettingsData_TEXT(Constants::SettingsT_Index_VP_Shows_DisplayFilenames, 
