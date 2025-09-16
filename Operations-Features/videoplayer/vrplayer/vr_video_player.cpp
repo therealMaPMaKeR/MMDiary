@@ -305,9 +305,6 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     // Set up VR controller input timer (60Hz polling - separate from 90Hz render loop)
     if (controllerInputTimer) {
         controllerInputTimer->setInterval(16); // ~60 FPS for controller input
-        qDebug() << "VRVideoPlayer: Controller input timer created with interval:" << controllerInputTimer->interval() << "ms";
-    } else {
-        qDebug() << "VRVideoPlayer: ERROR - Failed to create controller input timer!";
     }
     
     // Set window flags for modal behavior and always on top
@@ -1107,28 +1104,12 @@ void VRVideoPlayer::enterVRMode()
     if (m_vrManager && m_vrManager->isControllerInputReady()) {
         SafeTimer* controllerInputTimer = m_timerManager.getTimer("controllerInputTimer");
         if (controllerInputTimer) {
-            qDebug() << "VRVideoPlayer: Controller timer found, interval:" << controllerInputTimer->interval() << "ms";
-            bool started = controllerInputTimer->start([this]() { 
-                qDebug() << "VRVideoPlayer: Controller timer fired - calling processControllerInput";
-                processControllerInput(); 
-            });
-            if (started) {
-                m_controllerInputActive = true;
-                qDebug() << "VRVideoPlayer: Successfully started VR controller input polling (60Hz)";
-                qDebug() << "VRVideoPlayer: Timer is active:" << controllerInputTimer->isActive();
-            } else {
-                qDebug() << "VRVideoPlayer: ERROR - Failed to start controller input timer";
-            }
-        } else {
-            qDebug() << "VRVideoPlayer: ERROR - Controller input timer not found in manager";
+            controllerInputTimer->start([this]() { processControllerInput(); });
+            m_controllerInputActive = true;
+            qDebug() << "VRVideoPlayer: Started VR controller input polling (60Hz)";
         }
     } else {
         qDebug() << "VRVideoPlayer: Controller input not available";
-        if (!m_vrManager) {
-            qDebug() << "VRVideoPlayer:   - VR manager is null";
-        } else if (!m_vrManager->isControllerInputReady()) {
-            qDebug() << "VRVideoPlayer:   - Controller input not ready";
-        }
     }
     
     emit vrStatusChanged(true);
@@ -1982,32 +1963,22 @@ void VRVideoPlayer::restoreFocusDelayed()
 
 void VRVideoPlayer::processControllerInput()
 {
-    static int callCount = 0;
-    if (++callCount % 60 == 0) { // Log once per second at 60Hz
-        qDebug() << "VRVideoPlayer::processControllerInput called" << callCount << "times";
-    }
-    
     if (!m_controllerInputActive || !m_vrManager || !m_vrManager->isControllerInputReady()) {
-        if (callCount == 1) { // Log once why we're returning
-            qDebug() << "VRVideoPlayer::processControllerInput early return - active:" << m_controllerInputActive
-                     << "vrManager:" << (m_vrManager != nullptr)
-                     << "controllerReady:" << (m_vrManager ? m_vrManager->isControllerInputReady() : false);
-        }
         return;
     }
     
     // Poll controller input state
     VROpenVRManager::VRControllerState state = m_vrManager->pollControllerInput();
     
-    // Process continuous recenter (menu button held)
+    // Process continuous recenter (trigger button held)
     if (state.recenterHeld) {
         if (!m_grabButtonHeld) {
-            qDebug() << "VRVideoPlayer: Controller menu button pressed - starting continuous recenter";
+            qDebug() << "VRVideoPlayer: Controller trigger button pressed - starting continuous recenter";
             m_grabButtonHeld = true;
         }
     } else {
         if (m_grabButtonHeld) {
-            qDebug() << "VRVideoPlayer: Controller menu button released - stopping continuous recenter";
+            qDebug() << "VRVideoPlayer: Controller trigger button released - stopping continuous recenter";
             m_grabButtonHeld = false;
         }
     }
@@ -2018,7 +1989,7 @@ void VRVideoPlayer::processControllerInput()
     }
     
     if (state.playPausePressed) {
-        qDebug() << "VRVideoPlayer: Controller trigger pressed - toggling play/pause";
+        qDebug() << "VRVideoPlayer: Controller menu button pressed - toggling play/pause";
         onPlayPauseClicked();
     }
     

@@ -667,12 +667,14 @@ bool VROpenVRManager::initializeControllerInput()
     qDebug() << "VROpenVRManager: Found" << controllersFound << "controller(s)";
     qDebug() << "VROpenVRManager: ";
     qDebug() << "VROpenVRManager: BUTTON MAPPINGS (Legacy Direct Input):";
-    qDebug() << "VROpenVRManager:   Menu/Application Button -> Recenter View (hold for continuous)";
-    qDebug() << "VROpenVRManager:   Trigger -> Play/Pause";
-    qDebug() << "VROpenVRManager:   Grip -> Zoom/Volume Modifier (hold)";
+    qDebug() << "VROpenVRManager:   Trigger -> Recenter View (hold for continuous)";
+    qDebug() << "VROpenVRManager:   Menu/Application Button -> Play/Pause";
+    qDebug() << "VROpenVRManager:   Grip -> Modifier (hold for combinations)";
     qDebug() << "VROpenVRManager:   Grip + Trigger -> Reduce Playback Speed";
     qDebug() << "VROpenVRManager:   Grip + Menu -> Increase Playback Speed";
-    qDebug() << "VROpenVRManager:   Trackpad/Joystick CLICK -> Seek (X) / Zoom (Y with Grip)";
+    qDebug() << "VROpenVRManager:   Trackpad/Joystick:";
+    qDebug() << "VROpenVRManager:     - Normal: X=Seek 10s, Y=Zoom";
+    qDebug() << "VROpenVRManager:     - With Grip: X=Seek 60s, Y=Volume";
     qDebug() << "VROpenVRManager: ";
     qDebug() << "VROpenVRManager: Legacy input ready - no SteamVR binding configuration needed!";
     
