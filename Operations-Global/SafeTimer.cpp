@@ -85,10 +85,18 @@ bool SafeTimer::start(std::function<void()> callback)
         return false;
     }
     
-    m_callback = callback;
-    m_timer->start();
+    // Get the current interval
+    int currentInterval = m_timer->interval();
+    if (currentInterval <= 0) {
+        qWarning() << m_debugPrefix << "Cannot start timer - interval is not set (" << currentInterval << "ms)";
+        return false;
+    }
     
-    qDebug() << m_debugPrefix << "Timer started with interval:" << m_timer->interval() << "ms";
+    m_callback = callback;
+    // Pass the interval explicitly to ensure it's used
+    m_timer->start(currentInterval);
+    
+    qDebug() << m_debugPrefix << "Timer started with interval:" << currentInterval << "ms";
     emit started();
     return true;
 }
@@ -109,7 +117,8 @@ bool SafeTimer::start(int msec, std::function<void()> callback)
     
     m_timer->setInterval(msec);
     m_callback = callback;
-    m_timer->start();
+    // Pass the interval explicitly to ensure it's used
+    m_timer->start(msec);
     
     qDebug() << m_debugPrefix << "Timer started with interval:" << msec << "ms";
     emit started();
