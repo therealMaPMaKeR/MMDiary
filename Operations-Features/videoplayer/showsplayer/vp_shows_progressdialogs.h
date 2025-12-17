@@ -7,6 +7,7 @@
 #include <QPushButton>
 #include <QThread>
 #include <QPixmap>
+#include "qapplication.h"
 #include "qtextedit.h"
 #include "vp_shows_encryptionworkers.h"
 

@@ -58,3 +58,5 @@ SavePersistentSettings_improved.txt
 tmdb_api_key.txt
 tmdb_api_key.h
 Operations-Features/videoplayer/vrplayer/VR_INTEGRATION_GUIDE.md
+/build
+tmdb_api_key_TEMPLATE.h

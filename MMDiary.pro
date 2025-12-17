@@ -58,13 +58,13 @@ win32 {
 
     CONFIG(debug, debug|release) {
         # Debug mode: Use system OpenSSL DLLs
-        message("Debug build: Using system OpenSSL at C:/Projects/OpenSSL-Win64")
+        message("Debug build: Using system OpenSSL at C:/OpenSSL-Win64")
 
         # Use system OpenSSL headers and libraries
-        INCLUDEPATH += "C:/Projects/OpenSSL-Win64/include"
+        INCLUDEPATH += "C:/OpenSSL-Win64/include"
         #LIBS += -L"C:/Projects/OpenSSL-Win64/lib" -llibssl -llibcrypto
         #LIBS += -L"C:/Projects/OpenSSL-Win64/lib" -lssl -lcrypto
-        LIBS += -L"C:/Projects/OpenSSL-Win64/lib/VC/x64/MDd" -llibssl -llibcrypto
+        LIBS += -L"C:/OpenSSL-Win64/lib/VC/x64/MDd" -llibssl -llibcrypto
 
         # Windows dependencies
         LIBS += -lUser32 -lAdvapi32 -lGdi32 -lCrypt32 -lWs2_32
