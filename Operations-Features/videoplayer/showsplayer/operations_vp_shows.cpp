@@ -4935,36 +4935,22 @@ void Operations_VP_Shows::cleanupTempFile()
     if (m_currentTempFile.isEmpty()) {
         return;
     }
-    
+
     qDebug() << "Operations_VP_Shows: Cleaning up temp file:" << m_currentTempFile;
-    
+
     // Check if file exists
     if (QFile::exists(m_currentTempFile)) {
-        // Ensure file permissions allow deletion (Windows fix)
-#ifdef Q_OS_WIN
-        QFile::setPermissions(m_currentTempFile, 
-                            QFile::ReadOwner | QFile::WriteOwner | 
-                            QFile::ReadUser | QFile::WriteUser);
-#endif
-        
         // Delete temp file
         if (QFile::remove(m_currentTempFile)) {
             qDebug() << "Operations_VP_Shows: Successfully deleted temp file";
         } else {
-            qDebug() << "Operations_VP_Shows: Failed to delete temp file, will retry";
-            // Schedule another attempt later
-            QTimer::singleShot(2000, this, [this]() {
-                if (!m_currentTempFile.isEmpty() && QFile::exists(m_currentTempFile)) {
-                    qDebug() << "Operations_VP_Shows: Retry deleting temp file";
-                    if (!QFile::remove(m_currentTempFile)) {
-                        qDebug() << "Operations_VP_Shows: Delete retry failed";
-                    }
-                }
-            });
+            qDebug() << "Operations_VP_Shows: Failed to delete temp file";
         }
     }
+
     m_currentTempFile.clear();
 }
+
 void Operations_VP_Shows::forceReleaseVideoFile()
 {
     if (m_episodePlayer) {
