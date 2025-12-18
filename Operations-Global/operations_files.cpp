@@ -771,92 +771,61 @@ bool checkTempDirectoryLimits(qint64 requiredSize, const QString& username) {
 
 bool cleanupOldTempFiles(const QString& username, qint64 targetSize) {
     QString user = username.isEmpty() ? g_username : username;
-    qDebug() << "operations_files: Starting cleanup of old temp files for user:" << user;
-    
-    if (targetSize > 0) {
-        qDebug() << "operations_files: Target size to free:" << targetSize << "bytes";
-    }
-    
-    // Build path to temp directory
-    QString dataPath = securePathJoin(QDir::current().absolutePath(), "Data");
-    if (dataPath.isEmpty()) {
-        qWarning() << "operations_files: Failed to create secure data path";
+
+    if (user.isEmpty()) {
+        qWarning() << "operations_files: Cannot cleanup temp files without username";
         return false;
     }
-    
-    QString userPath = securePathJoin(dataPath, user);
-    if (userPath.isEmpty()) {
-        qWarning() << "operations_files: Failed to create secure user path";
-        return false;
-    }
-    
-    QString tempPath = securePathJoin(userPath, "Temp");
-    if (tempPath.isEmpty()) {
-        qWarning() << "operations_files: Failed to create secure temp path";
-        return false;
-    }
-    
+
+    QString tempPath = QDir::cleanPath(QCoreApplication::applicationDirPath() +
+                                       "/Data/" + user + "/Temp");
+
     QDir tempDir(tempPath);
     if (!tempDir.exists()) {
-        qDebug() << "operations_files: Temp directory doesn't exist, nothing to clean";
-        return true;
+        qDebug() << "operations_files: Temp directory does not exist:" << tempPath;
+        return true; // Nothing to clean up
     }
-    
-    // Get list of all files with their modification times
-    struct FileInfo {
-        QString path;
-        QDateTime lastModified;
-        qint64 size;
-    };
-    
-    QList<FileInfo> fileList;
-    QDirIterator it(tempPath, QDir::Files | QDir::Hidden, QDirIterator::Subdirectories);
-    
-    while (it.hasNext()) {
-        it.next();
-        QFileInfo fileInfo(it.filePath());
-        
-        FileInfo info;
-        info.path = it.filePath();
-        info.lastModified = fileInfo.lastModified();
-        info.size = fileInfo.size();
-        fileList.append(info);
-    }
-    
+
+    qDebug() << "operations_files: Starting temp file cleanup in:" << tempPath;
+
+    // Get all files and sort by last modified (oldest first)
+    QFileInfoList fileList = tempDir.entryInfoList(QDir::Files | QDir::Hidden,
+                                                   QDir::Time | QDir::Reversed);
+
     if (fileList.isEmpty()) {
-        qDebug() << "operations_files: No files to clean in temp directory";
+        qDebug() << "operations_files: No temp files to cleanup";
         return true;
     }
-    
-    // Sort by modification time (oldest first)
-    std::sort(fileList.begin(), fileList.end(), 
-              [](const FileInfo& a, const FileInfo& b) {
-                  return a.lastModified < b.lastModified;
-              });
-    
-    qDebug() << "operations_files: Found" << fileList.size() << "files in temp directory";
-    
-    qint64 freedSpace = 0;
+
+    qDebug() << "operations_files: Found" << fileList.size() << "temp files";
+
+    // Build list of files with their info
+    struct TempFileInfo {
+        QString path;
+        qint64 size;
+        QDateTime lastModified;
+    };
+
+    QList<TempFileInfo> tempFiles;
+    for (const QFileInfo& info : fileList) {
+        tempFiles.append({info.absoluteFilePath(), info.size(), info.lastModified()});
+    }
+
+    // Delete oldest files until we reach target or run out of files
     int filesDeleted = 0;
     int filesFailed = 0;
-    
-    // Delete oldest files first until we reach target or run out of files
-    for (const FileInfo& info : fileList) {
-        // Check if file path is valid
-        if (!isWithinAllowedDirectory(info.path, "Data")) {
-            qWarning() << "operations_files: Skipping file outside allowed directory:" << info.path;
-            continue;
-        }
-        
-        qDebug() << "operations_files: Attempting to delete temp file:" << info.path 
+    qint64 freedSpace = 0;
+
+    for (const TempFileInfo& info : tempFiles) {
+        qDebug() << "operations_files: Attempting to delete temp file:" << info.path
                  << "Size:" << info.size << "Last modified:" << info.lastModified;
-        
-        // Use secureDelete with 1 pass for temp files
-        if (secureDelete(info.path, 1, false)) {
+
+        // Use QFile::remove() for temp files
+        if (QFile::remove(info.path)) {
             freedSpace += info.size;
             filesDeleted++;
             qDebug() << "operations_files: Successfully deleted temp file, freed:" << info.size << "bytes";
-            
+
             // If we have a target and reached it, stop
             if (targetSize > 0 && freedSpace >= targetSize) {
                 qDebug() << "operations_files: Reached target size, stopping cleanup";
@@ -867,10 +836,10 @@ bool cleanupOldTempFiles(const QString& username, qint64 targetSize) {
             qWarning() << "operations_files: Failed to delete temp file:" << info.path;
         }
     }
-    
-    qDebug() << "operations_files: Cleanup completed - Files deleted:" << filesDeleted 
+
+    qDebug() << "operations_files: Cleanup completed - Files deleted:" << filesDeleted
              << "Failed:" << filesFailed << "Space freed:" << freedSpace << "bytes";
-    
+
     return filesDeleted > 0 || filesFailed == 0; // Success if we deleted something or had no failures
 }
 
@@ -3159,7 +3128,7 @@ bool cleanupAllUserTempFolders() {
 
             // Use existing secureDelete function with allowExternalFiles = false
             // since these files are within our Data directory
-            bool deleteResult = secureDelete(filePath, 1, false); // Use 1 pass for performance
+            bool deleteResult = QFile::remove(filePath);
 
             if (deleteResult) {
                 totalFilesDeleted++;

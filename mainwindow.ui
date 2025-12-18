@@ -57,7 +57,7 @@
        </size>
       </property>
       <property name="currentIndex">
-       <number>5</number>
+       <number>3</number>
       </property>
       <property name="movable">
        <bool>true</bool>
@@ -797,13 +797,6 @@
               <widget class="QPushButton" name="pushButton_DataENC_Encrypt">
                <property name="text">
                 <string>Import and Encrypt File</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="pushButton_DataENC_SecureDel">
-               <property name="text">
-                <string>Secure Delete Unencrypted File</string>
                </property>
               </widget>
              </item>

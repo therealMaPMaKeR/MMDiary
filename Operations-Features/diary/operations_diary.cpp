@@ -2884,11 +2884,8 @@ void Operations_Diary::handleClipboardImage(const QImage& image, const QString& 
     QTimer::singleShot(5000, [tempFilePath]() {
         if (QFile::exists(tempFilePath)) {
             qDebug() << "Operations_Diary: Cleaning up temp file:" << tempFilePath;
-            // Use secure deletion if available (1 pass for temp files, allowExternalFiles=false)
-            if (!OperationsFiles::secureDelete(tempFilePath, 1, false)) {
-                // Fall back to regular deletion
                 QFile::remove(tempFilePath);
-            }
+
         }
     });
 }
@@ -3187,7 +3184,7 @@ bool Operations_Diary::openImageWithViewer(const QString& imagePath)
         tempFile.close();
 
         if (bytesWritten != decryptedData.size()) {
-            OperationsFiles::secureDelete(tempFilePath, 3, true); // Allow external files
+            QFile::remove(tempFilePath); // Allow external files
             QMessageBox::warning(m_mainWindow, "Error", "Failed to write temporary image file.");
             return false;
         }
@@ -3202,7 +3199,7 @@ bool Operations_Diary::openImageWithViewer(const QString& imagePath)
         bool loadSuccess = viewer->loadImage(tempFilePath);
 
         if (!loadSuccess) {
-            OperationsFiles::secureDelete(tempFilePath, 3, true); // Allow external files
+            QFile::remove(tempFilePath); // Allow external files
             delete viewer;
             QMessageBox::warning(m_mainWindow, "Error", "Failed to display image in viewer.");
             return false;
@@ -3222,7 +3219,7 @@ bool Operations_Diary::openImageWithViewer(const QString& imagePath)
             }
 
             // Clean up temporary file
-            bool deleteSuccess = OperationsFiles::secureDelete(tempFilePath, 3, true); // Allow external files
+            bool deleteSuccess = QFile::remove(tempFilePath); // Allow external files
             if (deleteSuccess) {
                 qDebug() << "Securely deleted temporary image file:" << tempFilePath;
             } else {
@@ -3484,7 +3481,7 @@ void Operations_Diary::deleteImageFiles(const QString& imageData, const QString&
 
             // Delete the thumbnail
             if (QFileInfo::exists(imagePath)) {
-                bool deleteSuccess = OperationsFiles::secureDelete(imagePath, 3, false);
+                bool deleteSuccess = QFile::remove(imagePath);
                 if (deleteSuccess) {
                     qDebug() << "Successfully deleted thumbnail file:" << imagePath;
                 } else {
@@ -3495,7 +3492,7 @@ void Operations_Diary::deleteImageFiles(const QString& imageData, const QString&
             // Find and delete the original image
             QString originalPath = getOriginalImagePath(imagePath, diaryDir);
             if (originalPath != imagePath && QFileInfo::exists(originalPath)) {
-                bool originalDeleteSuccess = OperationsFiles::secureDelete(originalPath, 3, false);
+                bool originalDeleteSuccess = QFile::remove(originalPath);
                 if (originalDeleteSuccess) {
                     qDebug() << "Successfully deleted original file:" << originalPath;
                 } else {
@@ -3507,7 +3504,7 @@ void Operations_Diary::deleteImageFiles(const QString& imageData, const QString&
 
             // Delete the original image
             if (QFileInfo::exists(imagePath)) {
-                bool deleteSuccess = OperationsFiles::secureDelete(imagePath, 3, false);
+                bool deleteSuccess = QFile::remove(imagePath);
                 if (deleteSuccess) {
                     qDebug() << "Successfully deleted original image file:" << imagePath;
                 } else {
@@ -3519,7 +3516,7 @@ void Operations_Diary::deleteImageFiles(const QString& imageData, const QString&
             QString thumbnailFilename = QFileInfo(imageFilename).completeBaseName() + ".thumb";
             QString thumbnailPath = QDir::cleanPath(diaryDir + "/" + thumbnailFilename);
             if (QFileInfo::exists(thumbnailPath)) {
-                bool thumbnailDeleteSuccess = OperationsFiles::secureDelete(thumbnailPath, 3, false);
+                bool thumbnailDeleteSuccess = QFile::remove(thumbnailPath);
                 if (thumbnailDeleteSuccess) {
                     qDebug() << "Successfully deleted thumbnail file:" << thumbnailPath;
                 } else {

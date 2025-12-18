@@ -837,21 +837,18 @@ void VP_ShowsSettingsDialog::downloadAndDisplayPoster(const QString& posterPath)
                 qDebug() << "VP_ShowsSettingsDialog: Updated original poster reference";
             }
             
-            // Clean up the temp file using secure delete from operations_files
-            // Use 1 pass for temp files and allow external files since it's in Data/username/temp
-            if (!OperationsFiles::secureDelete(tempFilePath, 1, false)) {
-                qDebug() << "VP_ShowsSettingsDialog: Failed to securely delete temp file:" << tempFilePath;
-                // Try regular delete as fallback
-                QFile::remove(tempFilePath);
+            if (!QFile::remove(tempFilePath)) {
+                qDebug() << "VP_ShowsSettingsDialog: Failed to delete temp file:" << tempFilePath;
             } else {
-                qDebug() << "VP_ShowsSettingsDialog: Securely deleted temp file:" << tempFilePath;
+                qDebug() << "VP_ShowsSettingsDialog: Deleted temp file:" << tempFilePath;
             }
+
         } else {
             qDebug() << "VP_ShowsSettingsDialog: Failed to load poster image from:" << tempFilePath;
             ui->label_ShowPoster->setText("Failed to Load");
             
             // Clean up the temp file
-            OperationsFiles::secureDelete(tempFilePath, 1, false);
+            QFile::remove(tempFilePath);
         }
     } else {
         qDebug() << "VP_ShowsSettingsDialog: Failed to download poster";
@@ -859,7 +856,7 @@ void VP_ShowsSettingsDialog::downloadAndDisplayPoster(const QString& posterPath)
         
         // Clean up any partial temp file
         if (QFile::exists(tempFilePath)) {
-            OperationsFiles::secureDelete(tempFilePath, 1, false);
+            QFile::remove(tempFilePath);
         }
     }
 }
@@ -1380,7 +1377,7 @@ bool VP_ShowsSettingsDialog::updateVideoMetadataWithTMDB(const VideoFileInfo& vi
                     }
                     
                     // Securely delete temp file (use 1 pass for temp files)
-                    OperationsFiles::secureDelete(tempThumbPath, 1, false);
+                    QFile::remove(tempThumbPath);
                 } else {
                     qDebug() << "VP_ShowsSettingsDialog: Failed to open temp thumb file";
                 }

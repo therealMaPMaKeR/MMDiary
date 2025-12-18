@@ -604,7 +604,7 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
     QFile tempFile(tempImagePath);
     if (!tempFile.open(QIODevice::ReadOnly)) {
         qDebug() << "VP_ShowsEncryptionWorker: Failed to open downloaded poster";
-        OperationsFiles::secureDelete(tempImagePath, 3);
+        QFile::remove(tempImagePath);
         return false;
     }
     
@@ -623,7 +623,7 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
     
     if (encryptedImage.isEmpty()) {
         qDebug() << "VP_ShowsEncryptionWorker: Failed to encrypt show image";
-        OperationsFiles::secureDelete(tempImagePath, 3);
+        QFile::remove(tempImagePath);
         return false;
     }
     
@@ -631,7 +631,7 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
     QFile encryptedFile(encryptedImagePath);
     if (!encryptedFile.open(QIODevice::WriteOnly)) {
         qDebug() << "VP_ShowsEncryptionWorker: Failed to create encrypted image file";
-        OperationsFiles::secureDelete(tempImagePath, 3);
+        QFile::remove(tempImagePath);
         return false;
     }
     
@@ -639,7 +639,7 @@ bool VP_ShowsEncryptionWorker::downloadAndEncryptShowImage(const QString& target
     encryptedFile.close();
     
     // Securely delete the temp file (set allowExternalFiles to true for temp files)
-    OperationsFiles::secureDelete(tempImagePath, 3, true);
+    QFile::remove(tempImagePath);
     
     // Thread-safe update of show image path
     {
@@ -961,7 +961,7 @@ VP_ShowsMetadata::ShowMetadata VP_ShowsEncryptionWorker::createMetadataWithTMDB(
                             }
                             
                             // Securely delete temp file
-                            OperationsFiles::secureDelete(tempThumbPath, 3);
+                            QFile::remove(tempThumbPath);
                         }
                     }
                 }

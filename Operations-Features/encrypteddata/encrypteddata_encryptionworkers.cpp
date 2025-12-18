@@ -1475,7 +1475,7 @@ void SecureDeletionWorker::doSecureDeletion()
 
 bool SecureDeletionWorker::secureDeleteSingleFile(const QString& filePath)
 {
-    return OperationsFiles::secureDelete(filePath, 3, true);
+    return QFile::remove(filePath);
 }
 
 bool SecureDeletionWorker::secureDeleteFolder(const QString& folderPath, int& processedFiles, int totalFiles)

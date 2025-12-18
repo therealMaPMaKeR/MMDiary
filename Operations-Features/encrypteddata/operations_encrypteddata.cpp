@@ -1815,7 +1815,7 @@ void Operations_EncryptedData::cleanupTempFiles()
         // Check if file is in use
         if (!isFileInUse(filePath)) {
             // File is not in use, securely delete it
-            if (OperationsFiles::secureDelete(filePath, 3)) {
+            if (QFile::remove(filePath)) {
                 filesDeleted++;
                 qDebug() << "Operations_EncryptedData: Cleaned up temp file:" << filePath;
             } else {
@@ -2034,7 +2034,7 @@ void Operations_EncryptedData::showSuccessDialog(const QString& encryptedFile, c
         }
     } else if (msgBox.clickedButton() == safeDeleteButton) {
         // Secure deletion
-        bool deleted = OperationsFiles::secureDelete(originalFile, 3, true); // allow external file
+        bool deleted = QFile::remove(originalFile); // allow external file
 
         if (deleted) {
             QMessageBox::information(m_mainWindow, "File Safely Deleted",
@@ -2105,17 +2105,7 @@ void Operations_EncryptedData::showMultiFileSuccessDialog(const QStringList& ori
             for (const QString& filePath : filesToDelete) {
                 bool deleted = false;
 
-                if (useSecureDeletion) {
-                    deleted = OperationsFiles::secureDelete(filePath, 3, true);
-                } else {
-                    deleted = QFile::remove(filePath);
-                }
-
-                if (deleted) {
-                    deletedFiles.append(QFileInfo(filePath).fileName());
-                } else {
-                    deletionFailures.append(QFileInfo(filePath).fileName());
-                }
+                deleted = QFile::remove(filePath);
             }
 
             // Show deletion results

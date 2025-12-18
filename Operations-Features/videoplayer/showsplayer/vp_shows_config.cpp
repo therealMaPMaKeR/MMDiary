@@ -130,8 +130,8 @@ void VP_ShowsConfig::cleanupTempDirectory(const QString& username)
     for (const QString& file : files) {
         QString filePath = QDir::cleanPath(tempPath + "/" + file);
         
-        // Securely delete each file (using 1 pass for temp files, allowExternalFiles=false since it's in our Data folder)
-        if (OperationsFiles::secureDelete(filePath, 1, false)) {
+        // Delete each file
+        if (QFile::remove(filePath)) {
             successCount++;
             qDebug() << "VP_ShowsConfig: Deleted temp file:" << file;
         } else {

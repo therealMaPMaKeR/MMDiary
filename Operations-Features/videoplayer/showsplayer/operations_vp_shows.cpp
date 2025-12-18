@@ -1876,15 +1876,9 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
 
                     qDebug() << "Operations_VP_Shows: Attempting to delete:" << filePath;
 
-                    if (useSecureDeletion) {
-                        // Secure deletion with 3 passes, allow external files
-                        qDebug() << "Operations_VP_Shows: Using secure deletion...";
-                        deleted = OperationsFiles::secureDelete(filePath, 3, true);
-                    } else {
-                        // Regular deletion
-                        qDebug() << "Operations_VP_Shows: Using regular deletion...";
-                        deleted = QFile::remove(filePath);
-                    }
+                    // Regular deletion
+                    qDebug() << "Operations_VP_Shows: Deleting file...";
+                    deleted = QFile::remove(filePath);
 
                     if (deleted) {
                         deletedFiles.append(QFileInfo(filePath).fileName());
@@ -4900,8 +4894,9 @@ bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, co
             source.close();
             target.close();
             // Use secure deletion for partially written temp file (1 pass for temp files, allowExternalFiles=false)
-            if (!OperationsFiles::secureDelete(actualTargetFile, 1, false)) {
-                qDebug() << "Operations_VP_Shows: Failed to securely delete partial temp file:" << actualTargetFile;
+            // Delete partially written temp file
+            if (!QFile::remove(actualTargetFile)) {
+                qDebug() << "Operations_VP_Shows: Failed to delete partial temp file:" << actualTargetFile;
             }
             return false;
         }
@@ -4913,8 +4908,9 @@ bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, co
             source.close();
             target.close();
             // Use secure deletion for partially written temp file (1 pass for temp files, allowExternalFiles=false)
-            if (!OperationsFiles::secureDelete(actualTargetFile, 1, false)) {
-                qDebug() << "Operations_VP_Shows: Failed to securely delete partial temp file:" << actualTargetFile;
+            // Delete partially written temp file
+            if (!QFile::remove(actualTargetFile)) {
+                qDebug() << "Operations_VP_Shows: Failed to delete partial temp file:" << actualTargetFile;
             }
             return false;
         }
@@ -4925,9 +4921,9 @@ bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, co
             qDebug() << "Operations_VP_Shows: Failed to decrypt chunk";
             source.close();
             target.close();
-            // Use secure deletion for partially written temp file (1 pass for temp files, allowExternalFiles=false)
-            if (!OperationsFiles::secureDelete(actualTargetFile, 1, false)) {
-                qDebug() << "Operations_VP_Shows: Failed to securely delete partial temp file:" << actualTargetFile;
+            // Delete partially written temp file
+            if (!QFile::remove(actualTargetFile)) {
+                qDebug() << "Operations_VP_Shows: Failed to delete partial temp file:" << actualTargetFile;
             }
             return false;
         }
@@ -4939,8 +4935,9 @@ bool Operations_VP_Shows::decryptVideoWithMetadata(const QString& sourceFile, co
             source.close();
             target.close();
             // Use secure deletion for partially written temp file (1 pass for temp files, allowExternalFiles=false)
-            if (!OperationsFiles::secureDelete(actualTargetFile, 1, false)) {
-                qDebug() << "Operations_VP_Shows: Failed to securely delete partial temp file:" << actualTargetFile;
+            // Delete partially written temp file
+            if (!QFile::remove(actualTargetFile)) {
+                qDebug() << "Operations_VP_Shows: Failed to delete partial temp file:" << actualTargetFile;
             }
             return false;
         }
@@ -4975,35 +4972,24 @@ void Operations_VP_Shows::cleanupTempFile()
                             QFile::ReadUser | QFile::WriteUser);
 #endif
         
-        // Use secure delete for temp file (3 passes for decrypted video content)
-        // Set allowExternalFiles to false since this should be in Data/username/temp
-        if (OperationsFiles::secureDelete(m_currentTempFile, 3, false)) {
-            qDebug() << "Operations_VP_Shows: Successfully securely deleted temp file";
+        // Delete temp file
+        if (QFile::remove(m_currentTempFile)) {
+            qDebug() << "Operations_VP_Shows: Successfully deleted temp file";
         } else {
-            qDebug() << "Operations_VP_Shows: Failed to securely delete temp file, trying regular delete";
-            // Try regular delete as fallback
-            if (QFile::remove(m_currentTempFile)) {
-                qDebug() << "Operations_VP_Shows: Successfully deleted temp file with regular delete";
-            } else {
-                qDebug() << "Operations_VP_Shows: Failed to delete temp file with regular delete";
-                // Schedule another attempt later with secure delete
-                QTimer::singleShot(2000, this, [this]() {
-                    if (!m_currentTempFile.isEmpty() && QFile::exists(m_currentTempFile)) {
-                        qDebug() << "Operations_VP_Shows: Retry secure deleting temp file";
-                        if (!OperationsFiles::secureDelete(m_currentTempFile, 3, false)) {
-                            // Final attempt with regular delete
-                            qDebug() << "Operations_VP_Shows: Secure delete retry failed, trying regular delete";
-                            QFile::remove(m_currentTempFile);
-                        }
+            qDebug() << "Operations_VP_Shows: Failed to delete temp file, will retry";
+            // Schedule another attempt later
+            QTimer::singleShot(2000, this, [this]() {
+                if (!m_currentTempFile.isEmpty() && QFile::exists(m_currentTempFile)) {
+                    qDebug() << "Operations_VP_Shows: Retry deleting temp file";
+                    if (!QFile::remove(m_currentTempFile)) {
+                        qDebug() << "Operations_VP_Shows: Delete retry failed";
                     }
-                });
-            }
+                }
+            });
         }
     }
-    
     m_currentTempFile.clear();
 }
-
 void Operations_VP_Shows::forceReleaseVideoFile()
 {
     if (m_episodePlayer) {
@@ -8107,7 +8093,7 @@ void Operations_VP_Shows::reacquireTMDBForSingleEpisode(const QString& videoFile
                     }
                 }
                 // Clean up temp file
-                OperationsFiles::secureDelete(tempImagePath, 1, false);
+                QFile::remove(tempImagePath);
             }
         }
     }
@@ -8383,7 +8369,7 @@ void Operations_VP_Shows::reacquireTMDBForMultipleEpisodesWithMetadata(const QSt
                         }
                     }
                     // Clean up temp file
-                    OperationsFiles::secureDelete(tempImagePath, 1, false);
+                    QFile::remove(tempImagePath);
                 }
             }
         }
@@ -8685,7 +8671,7 @@ void Operations_VP_Shows::reacquireTMDBForMultipleEpisodes(const QStringList& vi
                         }
                     }
                     // Clean up temp file
-                    OperationsFiles::secureDelete(tempImagePath, 1, false);
+                    QFile::remove(tempImagePath);
                 }
             }
         }
