@@ -1755,7 +1755,6 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
         qDebug() << "Operations_VP_Shows: Auto-delete setting:" << autoDeleteSetting;
 
         bool shouldDelete = false;
-        bool useSecureDeletion = false;
 
         switch (autoDeleteSetting) {
             case 0: // Always Ask
@@ -1769,17 +1768,12 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
 
                 QPushButton* keepButton = msgBox.addButton(tr("Keep Files"), QMessageBox::RejectRole);
                 QPushButton* deleteButton = msgBox.addButton(tr("Delete Files"), QMessageBox::ActionRole);
-                QPushButton* secureDeleteButton = msgBox.addButton(tr("Securely Delete Files"), QMessageBox::ActionRole);
                 msgBox.setDefaultButton(keepButton);  // Safe default option
 
                 msgBox.exec();
 
                 if (msgBox.clickedButton() == deleteButton) {
                     shouldDelete = true;
-                    useSecureDeletion = false;
-                } else if (msgBox.clickedButton() == secureDeleteButton) {
-                    shouldDelete = true;
-                    useSecureDeletion = true;
                 }
                 break;
             }
@@ -1800,25 +1794,11 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
             {
                 qDebug() << "Operations_VP_Shows: Auto-delete = Delete, performing regular deletion";
                 shouldDelete = true;
-                useSecureDeletion = false;
 
                 // Show success message
                 QMessageBox::information(m_mainWindow,
                                         tr("Import Successful"),
                                         successMessage + tr("\n\nOriginal files will be deleted."));
-                break;
-            }
-
-            case 3: // Secure Delete
-            {
-                qDebug() << "Operations_VP_Shows: Auto-delete = Secure Delete, performing secure deletion";
-                shouldDelete = true;
-                useSecureDeletion = true;
-
-                // Show success message
-                QMessageBox::information(m_mainWindow,
-                                        tr("Import Successful"),
-                                        successMessage + tr("\n\nOriginal files will be securely deleted."));
                 break;
             }
 
@@ -1833,17 +1813,12 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
 
                 QPushButton* keepButton = msgBox.addButton(tr("Keep Files"), QMessageBox::RejectRole);
                 QPushButton* deleteButton = msgBox.addButton(tr("Delete Files"), QMessageBox::ActionRole);
-                QPushButton* secureDeleteButton = msgBox.addButton(tr("Securely Delete Files"), QMessageBox::ActionRole);
                 msgBox.setDefaultButton(keepButton);
 
                 msgBox.exec();
 
                 if (msgBox.clickedButton() == deleteButton) {
                     shouldDelete = true;
-                    useSecureDeletion = false;
-                } else if (msgBox.clickedButton() == secureDeleteButton) {
-                    shouldDelete = true;
-                    useSecureDeletion = true;
                 }
                 break;
             }
@@ -1976,7 +1951,7 @@ void Operations_VP_Shows::onEncryptionComplete(bool success, const QString& mess
                         .arg(deletionFailures.join("\n"));
 
                     QMessageBox::warning(m_mainWindow,
-                                       useSecureDeletion ? tr("Secure Deletion Results") : tr("Deletion Results"),
+                                    tr("Deletion Results"),
                                        deletionMessage);
                 }
                 // If all deletions succeeded, no additional dialog is shown (silent success)

@@ -57,7 +57,7 @@
        </size>
       </property>
       <property name="currentIndex">
-       <number>3</number>
+       <number>5</number>
       </property>
       <property name="movable">
        <bool>true</bool>
@@ -2172,11 +2172,6 @@ li.checked::marker { content: &quot;\2612&quot;; }
                        <item>
                         <property name="text">
                          <string>Delete</string>
-                        </property>
-                       </item>
-                       <item>
-                        <property name="text">
-                         <string>Secure Delete</string>
                         </property>
                        </item>
                       </widget>

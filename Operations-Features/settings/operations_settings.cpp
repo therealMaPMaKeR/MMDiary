@@ -2064,7 +2064,7 @@ void Operations_Settings::SetupSettingDescriptions()
     m_settingDescriptions[m_mainWindow->ui->comboBox_VP_Shows_FileFolderParsing] = "Choose whether to determine the season or content type from the folder name or the file name.\n\nFolder Name: Use the folder structure to determine seasons\nFile Name: Parse the file name for season information. If unable to parse from folder name, it will default to filename.";
 
     m_settingNames[m_mainWindow->ui->comboBox_VP_Shows_AutoDelete] = "Auto Delete on Import";
-    m_settingDescriptions[m_mainWindow->ui->comboBox_VP_Shows_AutoDelete] = "Choose what happens to original files after importing them.\n\nAlways Ask: Prompt each time\nKeep Files: Never delete originals\nDelete: Normal deletion\nSecure Delete: Overwrite before deletion";
+    m_settingDescriptions[m_mainWindow->ui->comboBox_VP_Shows_AutoDelete] = "Choose what happens to original files after importing them.\n\nAlways Ask: Prompt each time\nKeep Files: Never delete originals\nDelete: Normal deletion";
 
     m_settingNames[m_mainWindow->ui->spinBox_VP_Shows_DefaultVolume] = "Default Volume";
     m_settingDescriptions[m_mainWindow->ui->spinBox_VP_Shows_DefaultVolume] = "The default volume level (0-150) when starting video playback for the first time after app launch. Afterwards it uses the volume value of the last opened player.";
