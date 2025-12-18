@@ -44,12 +44,7 @@ class MainWindow;
 class EncryptedFileMetadata;
 class FileIconProvider;
 
-// Enum for deletion type selection
-enum class DeletionType {
-    Files,
-    Folder,
-    Cancel
-};
+
 
 class Operations_EncryptedData : public QObject
 {
@@ -65,7 +60,6 @@ public:
     void encryptSelectedFile();
     void decryptSelectedFile();
     void deleteSelectedFile();
-    void secureDeleteExternalItems();
     void decryptAndExportVisibleFiles();
     void populateEncryptedFilesList();
     QString getOriginalFilename(const QString& encryptedFilePath);
@@ -107,11 +101,6 @@ private slots:
                                    const QStringList& failedFiles);
     void onBatchDecryptionCancelled();
 
-    // Secure deletion slots
-    void onSecureDeletionProgress(int percentage);
-    void onSecureDeletionCurrentItem(const QString& itemName);
-    void onSecureDeletionFinished(bool success, const DeletionResult& result, const QString& errorMessage);
-    void onSecureDeletionCancelled();
 
     // UI interaction slots
     void onCategorySelectionChanged();
@@ -149,7 +138,6 @@ private:
     QProgressDialog* m_progressDialog;
     EncryptionProgressDialog* m_encryptionProgressDialog;
     BatchDecryptionProgressDialog* m_batchProgressDialog;
-    SecureDeletionProgressDialog* m_secureDeletionProgressDialog;
 
     // Worker threads and objects
     EncryptionWorker* m_worker;
@@ -163,9 +151,6 @@ private:
     
     BatchDecryptionWorker* m_batchDecryptWorker;
     QThread* m_batchDecryptWorkerThread;
-    
-    SecureDeletionWorker* m_secureDeletionWorker;
-    QThread* m_secureDeletionWorkerThread;
 
     // Temp file management
     QString m_pendingAppToOpen;
@@ -254,12 +239,8 @@ private:
     QList<FileExportInfo> enumerateAllEncryptedFiles();
     QList<FileExportInfo> enumerateVisibleEncryptedFiles();
 
-    // Helper functions - Secure deletion
-    DeletionType showDeletionTypeDialog();
     bool validateExternalItem(const QString& itemPath, bool isFolder);
     qint64 calculateItemSize(const QString& itemPath, bool isFolder, int& fileCount);
-    bool showDeletionConfirmationDialog(const QList<DeletionItem>& items);
-    void showDeletionResultsDialog(const DeletionResult& result);
 
     // Helper functions - Metadata repair
     void repairCorruptedMetadata();

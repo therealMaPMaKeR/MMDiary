@@ -268,8 +268,6 @@ private slots:
 
     void on_pushButton_Acc_ChangePW_clicked();
 
-    void on_pushButton_DataENC_SecureDel_clicked();
-
     void on_pushButton_DataENC_Save_clicked();
 
     void on_pushButton_DataENC_Cancel_clicked();

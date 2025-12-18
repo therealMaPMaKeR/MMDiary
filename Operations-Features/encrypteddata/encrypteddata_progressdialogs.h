@@ -81,36 +81,6 @@ signals:
     void cancelled();
 };
 
-// Progress dialog class for secure deletion
-class SecureDeletionProgressDialog : public QDialog
-{
-    Q_OBJECT
-public:
-    explicit SecureDeletionProgressDialog(QWidget* parent = nullptr);
 
-    void setOverallProgress(int percentage);
-    void setCurrentItem(const QString& itemName);
-    void setStatusText(const QString& text);
-    bool wasCancelled() const;
-
-protected:
-    void closeEvent(QCloseEvent* event) override;
-    void reject() override;
-
-private slots:
-    void onCancelClicked();
-
-private:
-    void setupUI();
-
-    QProgressBar* m_overallProgress;
-    QLabel* m_statusLabel;
-    QLabel* m_currentItemLabel;
-    QPushButton* m_cancelButton;
-    bool m_cancelled;
-
-signals:
-    void cancelled();
-};
 
 #endif // ENCRYPTEDDATA_PROGRESSDIALOGS_H

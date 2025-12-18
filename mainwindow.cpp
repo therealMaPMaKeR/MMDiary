@@ -2091,13 +2091,6 @@ void MainWindow::on_pushButton_NonceCheck_clicked()
     }
 }
 
-void MainWindow::on_pushButton_DataENC_SecureDel_clicked()
-{
-    if (Operations_EncryptedData_ptr) {
-        Operations_EncryptedData_ptr->secureDeleteExternalItems();
-    }
-}
-
 //------Video Player Debug Button-----//
 void MainWindow::on_pushButton_Debug_clicked()
 {

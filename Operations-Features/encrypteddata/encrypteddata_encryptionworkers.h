@@ -24,24 +24,6 @@ struct FileExportInfo {
     QString fileType;
 };
 
-struct DeletionItem {
-    QString path;
-    QString displayName;
-    qint64 size;
-    bool isFolder;
-
-    DeletionItem(const QString& p, const QString& dn, qint64 s, bool folder)
-        : path(p), displayName(dn), size(s), isFolder(folder) {}
-};
-
-struct DeletionResult {
-    QStringList successfulItems;
-    QStringList failedItems;
-    qint64 totalSize;
-    int totalFiles;
-
-    DeletionResult() : totalSize(0), totalFiles(0) {}
-};
 
 // Worker class for encryption in separate thread
 class EncryptionWorker : public QObject
@@ -216,38 +198,5 @@ private:
     std::unique_ptr<EncryptedFileMetadata> m_metadataManager;  // Smart pointer for automatic cleanup
 };
 
-// Worker class for secure deletion
-class SecureDeletionWorker : public QObject
-{
-    Q_OBJECT
-
-public:
-    SecureDeletionWorker(const QList<DeletionItem>& items);
-    ~SecureDeletionWorker();
-
-    void cancel();
-
-public slots:
-    void doSecureDeletion();
-
-signals:
-    void progressUpdated(int percentage);
-    void currentItemChanged(const QString& itemName);
-    void deletionFinished(bool success, const DeletionResult& result, const QString& errorMessage = QString());
-
-private:
-    bool secureDeleteSingleFile(const QString& filePath);
-    bool secureDeleteFolder(const QString& folderPath, int& processedFiles, int totalFiles);
-    QStringList enumerateFilesInFolder(const QString& folderPath);
-
-    // Thread safety mutex for container access
-    mutable QMutex m_containerMutex;
-    
-    // Member variables (protected by mutex)
-    QList<DeletionItem> m_items;
-    
-    // Other member variables
-    QAtomicInt m_cancelled;  // Using atomic for thread-safe cancellation
-};
 
 #endif // ENCRYPTEDDATA_ENCRYPTIONWORKERS_H
