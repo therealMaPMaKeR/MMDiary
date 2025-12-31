@@ -44,6 +44,332 @@
 
 namespace OperationsFiles {
 
+// =============================================================================
+// PagefileBackedBuffer Implementation
+// =============================================================================
+
+PagefileBackedBuffer::PagefileBackedBuffer(qint64 size)
+    : m_data(nullptr)
+    , m_size(0)
+#ifdef Q_OS_WIN
+    , m_mappingHandle(nullptr)
+#endif
+{
+    qDebug() << "operations_files: PagefileBackedBuffer: Creating buffer of size" << size << "bytes";
+
+    if (size <= 0) {
+        m_lastError = "Invalid buffer size: must be greater than 0";
+        qWarning() << "operations_files: PagefileBackedBuffer:" << m_lastError;
+        return;
+    }
+
+    // Limit maximum allocation to prevent system destabilization
+    // Allow up to 10GB for large video files
+    const qint64 MAX_ALLOCATION = 10LL * 1024 * 1024 * 1024; // 10GB
+    if (size > MAX_ALLOCATION) {
+        m_lastError = QString("Buffer size %1 exceeds maximum allowed (%2)")
+                          .arg(size).arg(MAX_ALLOCATION);
+        qWarning() << "operations_files: PagefileBackedBuffer:" << m_lastError;
+        return;
+    }
+
+#ifdef Q_OS_WIN
+    // Create a file mapping backed by the system pagefile
+    // Using INVALID_HANDLE_VALUE means the mapping is backed by the pagefile, not a file
+    DWORD sizeHigh = static_cast<DWORD>((size >> 32) & 0xFFFFFFFF);
+    DWORD sizeLow = static_cast<DWORD>(size & 0xFFFFFFFF);
+
+    m_mappingHandle = CreateFileMappingW(
+        INVALID_HANDLE_VALUE,    // Use system pagefile
+        NULL,                    // Default security
+        PAGE_READWRITE,          // Read/write access
+        sizeHigh,                // Size high DWORD
+        sizeLow,                 // Size low DWORD
+        NULL                     // No name (anonymous mapping)
+    );
+
+    if (m_mappingHandle == NULL) {
+        DWORD error = GetLastError();
+        m_lastError = QString("CreateFileMapping failed with error %1").arg(error);
+        qWarning() << "operations_files: PagefileBackedBuffer:" << m_lastError;
+        return;
+    }
+
+    // Map the view into the process address space
+    m_data = static_cast<char*>(MapViewOfFile(
+        m_mappingHandle,
+        FILE_MAP_ALL_ACCESS,     // Read/write access
+        0,                       // Offset high
+        0,                       // Offset low
+        0                        // Map entire file
+    ));
+
+    if (m_data == nullptr) {
+        DWORD error = GetLastError();
+        m_lastError = QString("MapViewOfFile failed with error %1").arg(error);
+        qWarning() << "operations_files: PagefileBackedBuffer:" << m_lastError;
+        CloseHandle(m_mappingHandle);
+        m_mappingHandle = nullptr;
+        return;
+    }
+
+    m_size = size;
+    qDebug() << "operations_files: PagefileBackedBuffer: Successfully allocated" << size << "bytes";
+
+#else
+    // Non-Windows fallback: use standard memory allocation
+    // This won't have automatic pagefile backing but will work
+    m_data = new(std::nothrow) char[size];
+    if (m_data == nullptr) {
+        m_lastError = "Failed to allocate memory";
+        qWarning() << "operations_files: PagefileBackedBuffer:" << m_lastError;
+        return;
+    }
+    m_size = size;
+    qDebug() << "operations_files: PagefileBackedBuffer: Allocated" << size << "bytes (non-Windows fallback)";
+#endif
+}
+
+PagefileBackedBuffer::~PagefileBackedBuffer()
+{
+    cleanup();
+}
+
+PagefileBackedBuffer::PagefileBackedBuffer(PagefileBackedBuffer&& other) noexcept
+    : m_data(other.m_data)
+    , m_size(other.m_size)
+    , m_lastError(std::move(other.m_lastError))
+#ifdef Q_OS_WIN
+    , m_mappingHandle(other.m_mappingHandle)
+#endif
+{
+    other.m_data = nullptr;
+    other.m_size = 0;
+#ifdef Q_OS_WIN
+    other.m_mappingHandle = nullptr;
+#endif
+}
+
+PagefileBackedBuffer& PagefileBackedBuffer::operator=(PagefileBackedBuffer&& other) noexcept
+{
+    if (this != &other) {
+        cleanup();
+        m_data = other.m_data;
+        m_size = other.m_size;
+        m_lastError = std::move(other.m_lastError);
+#ifdef Q_OS_WIN
+        m_mappingHandle = other.m_mappingHandle;
+        other.m_mappingHandle = nullptr;
+#endif
+        other.m_data = nullptr;
+        other.m_size = 0;
+    }
+    return *this;
+}
+
+void PagefileBackedBuffer::cleanup()
+{
+    if (m_data != nullptr) {
+        qDebug() << "operations_files: PagefileBackedBuffer: Cleaning up buffer of size" << m_size;
+
+        // Securely clear the memory before releasing
+        secureClear();
+
+#ifdef Q_OS_WIN
+        // Unmap the view
+        if (!UnmapViewOfFile(m_data)) {
+            qWarning() << "operations_files: PagefileBackedBuffer: UnmapViewOfFile failed";
+        }
+
+        // Close the mapping handle
+        if (m_mappingHandle != nullptr) {
+            if (!CloseHandle(m_mappingHandle)) {
+                qWarning() << "operations_files: PagefileBackedBuffer: CloseHandle failed";
+            }
+            m_mappingHandle = nullptr;
+        }
+#else
+        delete[] m_data;
+#endif
+
+        m_data = nullptr;
+        m_size = 0;
+    }
+}
+
+void PagefileBackedBuffer::secureClear()
+{
+    if (m_data != nullptr && m_size > 0) {
+        // Use SecureZeroMemory on Windows for secure clearing
+#ifdef Q_OS_WIN
+        SecureZeroMemory(m_data, static_cast<SIZE_T>(m_size));
+#else
+        // Volatile pointer to prevent compiler optimization
+        volatile char* p = m_data;
+        for (qint64 i = 0; i < m_size; ++i) {
+            p[i] = 0;
+        }
+#endif
+        qDebug() << "operations_files: PagefileBackedBuffer: Securely cleared" << m_size << "bytes";
+    }
+}
+
+QByteArray PagefileBackedBuffer::toByteArray() const
+{
+    if (m_data == nullptr || m_size <= 0) {
+        return QByteArray();
+    }
+    return QByteArray(m_data, static_cast<int>(qMin(m_size, static_cast<qint64>(INT_MAX))));
+}
+
+bool PagefileBackedBuffer::write(const char* source, qint64 sourceSize, qint64 offset)
+{
+    if (m_data == nullptr) {
+        qWarning() << "operations_files: PagefileBackedBuffer: Cannot write to invalid buffer";
+        return false;
+    }
+
+    if (source == nullptr || sourceSize <= 0) {
+        qWarning() << "operations_files: PagefileBackedBuffer: Invalid source data";
+        return false;
+    }
+
+    if (offset < 0 || offset + sourceSize > m_size) {
+        qWarning() << "operations_files: PagefileBackedBuffer: Write would exceed buffer bounds"
+                   << "offset:" << offset << "sourceSize:" << sourceSize << "bufferSize:" << m_size;
+        return false;
+    }
+
+    memcpy(m_data + offset, source, static_cast<size_t>(sourceSize));
+    return true;
+}
+
+bool PagefileBackedBuffer::write(const QByteArray& source, qint64 offset)
+{
+    return write(source.constData(), source.size(), offset);
+}
+
+// =============================================================================
+// PagefileBackedFile Implementation
+// =============================================================================
+
+PagefileBackedFile::PagefileBackedFile(qint64 size, QObject* parent)
+    : QIODevice(parent)
+    , m_buffer(std::make_unique<PagefileBackedBuffer>(size))
+    , m_position(0)
+    , m_dataSize(0)
+{
+    qDebug() << "operations_files: PagefileBackedFile: Created with size" << size;
+}
+
+PagefileBackedFile::~PagefileBackedFile()
+{
+    if (isOpen()) {
+        close();
+    }
+    qDebug() << "operations_files: PagefileBackedFile: Destroyed";
+}
+
+bool PagefileBackedFile::open(OpenMode mode)
+{
+    if (!m_buffer || !m_buffer->isValid()) {
+        qWarning() << "operations_files: PagefileBackedFile: Cannot open - buffer is invalid";
+        return false;
+    }
+
+    // Reset position on open
+    m_position = 0;
+
+    // If opening for read-only, don't reset data size
+    if (!(mode & WriteOnly)) {
+        // Keep existing data size for read operations
+    } else if (mode & Truncate) {
+        m_dataSize = 0;
+    }
+
+    return QIODevice::open(mode);
+}
+
+void PagefileBackedFile::close()
+{
+    // Note: We do NOT clear the buffer on close because the file may be reopened
+    // for reading after writing. Call secureClear() explicitly when done, or
+    // let the destructor handle cleanup.
+    m_position = 0;
+    // Keep m_dataSize so the buffer can be reopened for reading
+    QIODevice::close();
+}
+
+bool PagefileBackedFile::seek(qint64 pos)
+{
+    if (!m_buffer || !m_buffer->isValid()) {
+        return false;
+    }
+
+    if (pos < 0 || pos > m_buffer->size()) {
+        return false;
+    }
+
+    m_position = pos;
+    return QIODevice::seek(pos);
+}
+
+bool PagefileBackedFile::atEnd() const
+{
+    return m_position >= m_dataSize;
+}
+
+qint64 PagefileBackedFile::readData(char* data, qint64 maxlen)
+{
+    if (!m_buffer || !m_buffer->isValid() || data == nullptr) {
+        return -1;
+    }
+
+    // Don't read beyond the actual data that was written
+    qint64 available = m_dataSize - m_position;
+    if (available <= 0) {
+        return 0;  // EOF
+    }
+
+    qint64 toRead = qMin(maxlen, available);
+    memcpy(data, m_buffer->data() + m_position, static_cast<size_t>(toRead));
+    m_position += toRead;
+
+    return toRead;
+}
+
+qint64 PagefileBackedFile::writeData(const char* data, qint64 len)
+{
+    if (!m_buffer || !m_buffer->isValid() || data == nullptr) {
+        return -1;
+    }
+
+    // Check if write would exceed buffer
+    if (m_position + len > m_buffer->size()) {
+        qWarning() << "operations_files: PagefileBackedFile: Write would exceed buffer";
+        return -1;
+    }
+
+    memcpy(m_buffer->data() + m_position, data, static_cast<size_t>(len));
+    m_position += len;
+
+    // Update the actual data size
+    if (m_position > m_dataSize) {
+        m_dataSize = m_position;
+    }
+
+    return len;
+}
+
+void PagefileBackedFile::secureClear()
+{
+    if (m_buffer) {
+        m_buffer->secureClear();
+    }
+    m_position = 0;
+    m_dataSize = 0;
+}
+
 // Static member definitions for FileLocker
 QMutex FileLocker::s_lockMapMutex;
 QHash<QString, FileLocker*> FileLocker::s_activeLocks;
@@ -1641,6 +1967,373 @@ bool decryptToTempAndProcess(const QString& encryptedFilePath, const QByteArray&
     }
 }
 
+// =============================================================================
+// Pagefile-backed decryption functions
+// =============================================================================
+
+bool decryptToPagefileBuffer(const QString& encryptedFilePath, const QByteArray& encryptionKey,
+                             std::unique_ptr<PagefileBackedBuffer>& outBuffer) {
+    qDebug() << "operations_files: decryptToPagefileBuffer: Starting decryption of" << encryptedFilePath;
+
+    // Validate the file path
+    InputValidation::ValidationResult result =
+        InputValidation::validateInput(encryptedFilePath, InputValidation::InputType::FilePath);
+    if (!result.isValid) {
+        qWarning() << "operations_files: Invalid encrypted file path:" << result.errorMessage;
+        return false;
+    }
+
+    // Check if encrypted file exists
+    QFileInfo encryptedInfo(encryptedFilePath);
+    if (!encryptedInfo.exists() || !encryptedInfo.isFile()) {
+        qWarning() << "operations_files: Encrypted file does not exist:" << encryptedFilePath;
+        return false;
+    }
+
+    // Get the encrypted file size
+    qint64 encryptedSize = encryptedInfo.size();
+    qDebug() << "operations_files: decryptToPagefileBuffer: Encrypted file size:" << encryptedSize;
+
+    // SECURITY: Check for weak encryption keys
+    if (isWeakEncryptionKey(encryptionKey)) {
+        qWarning() << "operations_files: Refusing to use weak encryption key";
+        return false;
+    }
+
+    // Read the encrypted file into memory
+    QFile encryptedFile(encryptedFilePath);
+    if (!encryptedFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "operations_files: Failed to open encrypted file:" << encryptedFilePath;
+        return false;
+    }
+
+    QByteArray encryptedData = encryptedFile.readAll();
+    encryptedFile.close();
+
+    if (encryptedData.isEmpty()) {
+        qWarning() << "operations_files: Encrypted file is empty:" << encryptedFilePath;
+        return false;
+    }
+
+    // Decrypt the data
+    QByteArray decryptedData;
+    try {
+        decryptedData = CryptoUtils::Encryption_DecryptBArray(encryptionKey, encryptedData);
+    } catch (const std::exception& e) {
+        qWarning() << "operations_files: Exception during decryption:" << e.what();
+        return false;
+    } catch (...) {
+        qWarning() << "operations_files: Unknown exception during decryption";
+        return false;
+    }
+
+    if (decryptedData.isEmpty()) {
+        qWarning() << "operations_files: Decryption produced empty result";
+        return false;
+    }
+
+    qDebug() << "operations_files: decryptToPagefileBuffer: Decrypted size:" << decryptedData.size();
+
+    // Create the pagefile-backed buffer
+    outBuffer = std::make_unique<PagefileBackedBuffer>(decryptedData.size());
+    if (!outBuffer->isValid()) {
+        qWarning() << "operations_files: Failed to create pagefile buffer:" << outBuffer->lastError();
+        outBuffer.reset();
+        return false;
+    }
+
+    // Copy decrypted data to the buffer
+    if (!outBuffer->write(decryptedData)) {
+        qWarning() << "operations_files: Failed to write decrypted data to buffer";
+        outBuffer.reset();
+        return false;
+    }
+
+    // Securely clear the temporary decrypted data
+#ifdef Q_OS_WIN
+    SecureZeroMemory(decryptedData.data(), static_cast<SIZE_T>(decryptedData.size()));
+#else
+    volatile char* p = decryptedData.data();
+    for (int i = 0; i < decryptedData.size(); ++i) {
+        p[i] = 0;
+    }
+#endif
+
+    qDebug() << "operations_files: decryptToPagefileBuffer: Successfully decrypted to pagefile buffer";
+    return true;
+}
+
+bool decryptToPagefileBufferAndProcess(const QString& encryptedFilePath, const QByteArray& encryptionKey,
+                                       std::function<bool(PagefileBackedFile*)> processFunction) {
+    qDebug() << "operations_files: decryptToPagefileBufferAndProcess: Starting for" << encryptedFilePath;
+
+    // Validate the file path
+    InputValidation::ValidationResult result =
+        InputValidation::validateInput(encryptedFilePath, InputValidation::InputType::FilePath);
+    if (!result.isValid) {
+        qWarning() << "operations_files: Invalid encrypted file path:" << result.errorMessage;
+        return false;
+    }
+
+    // Check if encrypted file exists
+    QFileInfo encryptedInfo(encryptedFilePath);
+    if (!encryptedInfo.exists() || !encryptedInfo.isFile()) {
+        qWarning() << "operations_files: Encrypted file does not exist:" << encryptedFilePath;
+        return false;
+    }
+
+    // SECURITY: Check for weak encryption keys
+    if (isWeakEncryptionKey(encryptionKey)) {
+        qWarning() << "operations_files: Refusing to use weak encryption key";
+        return false;
+    }
+
+    // Read the encrypted file into memory
+    QFile encryptedFile(encryptedFilePath);
+    if (!encryptedFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "operations_files: Failed to open encrypted file:" << encryptedFilePath;
+        return false;
+    }
+
+    QByteArray encryptedData = encryptedFile.readAll();
+    encryptedFile.close();
+
+    if (encryptedData.isEmpty()) {
+        qWarning() << "operations_files: Encrypted file is empty:" << encryptedFilePath;
+        return false;
+    }
+
+    // Decrypt the data
+    QByteArray decryptedData;
+    try {
+        decryptedData = CryptoUtils::Encryption_DecryptBArray(encryptionKey, encryptedData);
+    } catch (const std::exception& e) {
+        qWarning() << "operations_files: Exception during decryption:" << e.what();
+        return false;
+    } catch (...) {
+        qWarning() << "operations_files: Unknown exception during decryption";
+        return false;
+    }
+
+    // Clear encrypted data as we no longer need it
+#ifdef Q_OS_WIN
+    SecureZeroMemory(encryptedData.data(), static_cast<SIZE_T>(encryptedData.size()));
+#endif
+    encryptedData.clear();
+
+    if (decryptedData.isEmpty()) {
+        qWarning() << "operations_files: Decryption produced empty result";
+        return false;
+    }
+
+    qDebug() << "operations_files: decryptToPagefileBufferAndProcess: Decrypted size:" << decryptedData.size();
+
+    // Create the pagefile-backed file
+    PagefileBackedFile pagefileFile(decryptedData.size());
+    if (!pagefileFile.isValid()) {
+        qWarning() << "operations_files: Failed to create pagefile file:" << pagefileFile.lastError();
+        return false;
+    }
+
+    // Open for writing and write the decrypted data
+    if (!pagefileFile.open(QIODevice::WriteOnly)) {
+        qWarning() << "operations_files: Failed to open pagefile file for writing";
+        return false;
+    }
+
+    qint64 written = pagefileFile.write(decryptedData.constData(), decryptedData.size());
+    if (written != decryptedData.size()) {
+        qWarning() << "operations_files: Failed to write all data to pagefile file";
+        pagefileFile.close();
+        return false;
+    }
+
+    // Securely clear the temporary decrypted data
+#ifdef Q_OS_WIN
+    SecureZeroMemory(decryptedData.data(), static_cast<SIZE_T>(decryptedData.size()));
+#else
+    volatile char* p = decryptedData.data();
+    for (int i = 0; i < decryptedData.size(); ++i) {
+        p[i] = 0;
+    }
+#endif
+    decryptedData.clear();
+
+    // Reopen for reading/processing
+    pagefileFile.close();
+    if (!pagefileFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "operations_files: Failed to reopen pagefile file for reading";
+        return false;
+    }
+
+    // Process the decrypted data
+    bool processingSuccess = false;
+    try {
+        processingSuccess = processFunction(&pagefileFile);
+    } catch (const std::exception& e) {
+        qWarning() << "operations_files: Exception during processing:" << e.what();
+        processingSuccess = false;
+    } catch (...) {
+        qWarning() << "operations_files: Unknown exception during processing";
+        processingSuccess = false;
+    }
+
+    // PagefileBackedFile destructor will securely clear the buffer
+    pagefileFile.close();
+
+    qDebug() << "operations_files: decryptToPagefileBufferAndProcess: Processing result:" << processingSuccess;
+    return processingSuccess;
+}
+
+bool readEncryptedFileToBuffer(const QString& filePath, const QByteArray& encryptionKey,
+                               QString& outContent) {
+    outContent.clear();
+
+    qDebug() << "operations_files: readEncryptedFileToBuffer: Reading" << filePath;
+
+    // Validate the file path
+    InputValidation::ValidationResult result =
+        InputValidation::validateInput(filePath, InputValidation::InputType::FilePath);
+    if (!result.isValid) {
+        qWarning() << "operations_files: Invalid file path:" << result.errorMessage;
+        return false;
+    }
+
+    // Check if the file exists
+    QFileInfo fileInfo(filePath);
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        qWarning() << "operations_files: File does not exist:" << filePath;
+        return false;
+    }
+
+    // SECURITY: Check file size to prevent memory exhaustion
+    qint64 fileSize = fileInfo.size();
+    if (fileSize > MAX_ENCRYPTED_FILE_SIZE) {
+        qWarning() << "operations_files: File too large for readEncryptedFileToBuffer:"
+                   << fileSize << "bytes (max:" << MAX_ENCRYPTED_FILE_SIZE << "bytes)";
+        return false;
+    }
+
+    // SECURITY: Check for weak encryption keys
+    if (isWeakEncryptionKey(encryptionKey)) {
+        qWarning() << "operations_files: Refusing to use weak encryption key";
+        return false;
+    }
+
+    // Read the encrypted file
+    QFile encryptedFile(filePath);
+    if (!encryptedFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "operations_files: Failed to open encrypted file:" << filePath;
+        return false;
+    }
+
+    QByteArray encryptedData = encryptedFile.readAll();
+    encryptedFile.close();
+
+    if (encryptedData.isEmpty()) {
+        qWarning() << "operations_files: Encrypted file is empty:" << filePath;
+        return false;
+    }
+
+    // Decrypt the data
+    QByteArray decryptedData;
+    try {
+        decryptedData = CryptoUtils::Encryption_DecryptBArray(encryptionKey, encryptedData);
+    } catch (const std::exception& e) {
+        qWarning() << "operations_files: Exception during decryption:" << e.what();
+        return false;
+    } catch (...) {
+        qWarning() << "operations_files: Unknown exception during decryption";
+        return false;
+    }
+
+    // Clear encrypted data
+#ifdef Q_OS_WIN
+    SecureZeroMemory(encryptedData.data(), static_cast<SIZE_T>(encryptedData.size()));
+#endif
+    encryptedData.clear();
+
+    if (decryptedData.isEmpty()) {
+        qWarning() << "operations_files: Decryption produced empty result";
+        return false;
+    }
+
+    // SECURITY: TOCTOU mitigation - validate decrypted content size
+    if (decryptedData.size() > MAX_CONTENT_SIZE) {
+        qWarning() << "operations_files: Decrypted content exceeds size limit:"
+                   << decryptedData.size() << "bytes (max:" << MAX_CONTENT_SIZE << "bytes)";
+        // Securely clear before returning
+#ifdef Q_OS_WIN
+        SecureZeroMemory(decryptedData.data(), static_cast<SIZE_T>(decryptedData.size()));
+#endif
+        return false;
+    }
+
+    // Create pagefile buffer and copy data
+    PagefileBackedBuffer buffer(decryptedData.size());
+    if (!buffer.isValid()) {
+        qWarning() << "operations_files: Failed to create pagefile buffer:" << buffer.lastError();
+        // Securely clear before returning
+#ifdef Q_OS_WIN
+        SecureZeroMemory(decryptedData.data(), static_cast<SIZE_T>(decryptedData.size()));
+#endif
+        return false;
+    }
+
+    if (!buffer.write(decryptedData)) {
+        qWarning() << "operations_files: Failed to write to pagefile buffer";
+        // Securely clear before returning
+#ifdef Q_OS_WIN
+        SecureZeroMemory(decryptedData.data(), static_cast<SIZE_T>(decryptedData.size()));
+#endif
+        return false;
+    }
+
+    // Securely clear the temporary decrypted data now that it's in the buffer
+#ifdef Q_OS_WIN
+    SecureZeroMemory(decryptedData.data(), static_cast<SIZE_T>(decryptedData.size()));
+#else
+    volatile char* p = decryptedData.data();
+    for (int i = 0; i < decryptedData.size(); ++i) {
+        p[i] = 0;
+    }
+#endif
+
+    // Convert buffer to QString
+    outContent = QString::fromUtf8(buffer.data(), static_cast<int>(buffer.size()));
+
+    // Buffer will be securely cleared by destructor
+    qDebug() << "operations_files: readEncryptedFileToBuffer: Successfully read" << outContent.length() << "characters";
+    return true;
+}
+
+bool readEncryptedFileLinesToBuffer(const QString& filePath, const QByteArray& encryptionKey,
+                                    QStringList& outLines) {
+    outLines.clear();
+
+    qDebug() << "operations_files: readEncryptedFileLinesToBuffer: Reading" << filePath;
+
+    // Read the content first
+    QString content;
+    if (!readEncryptedFileToBuffer(filePath, encryptionKey, content)) {
+        return false;
+    }
+
+    // Split into lines
+    outLines = content.split('\n', Qt::KeepEmptyParts);
+
+    // Remove trailing empty line if present (from trailing newline)
+    if (!outLines.isEmpty() && outLines.last().isEmpty()) {
+        outLines.removeLast();
+    }
+
+    qDebug() << "operations_files: readEncryptedFileLinesToBuffer: Read" << outLines.size() << "lines";
+    return true;
+}
+
+// =============================================================================
+// Common file operations
+// =============================================================================
 // New functions to abstract common file operations
 
 // Optimized encrypted file reading with improved error handling
@@ -3162,3 +3855,6 @@ bool cleanupAllUserTempFolders() {
 }
 
 } // end namespace OperationsFiles
+
+// Include moc file for Q_OBJECT macro in PagefileBackedFile
+#include "moc_operations_files.cpp"
