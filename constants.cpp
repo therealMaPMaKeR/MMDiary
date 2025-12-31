@@ -28,9 +28,6 @@ const QString SettingsButton_ResetEncryptedData = "ResetENCRYPTEDDATA";
 const QString SettingsButton_SaveVPShows = "SaveVPShows";
 const QString SettingsButton_CancelVPShows = "CancelVPShows";
 const QString SettingsButton_ResetVPShows = "ResetVPShows";
-const QString SettingsButton_SaveMisc = "SaveMisc";
-const QString SettingsButton_CancelMisc = "CancelMisc";
-const QString SettingsButton_ResetMisc = "ResetMisc";
 // Data Types
 const QString DataType_QString = "QString";
 const QString DataType_QByteArray = "QByteArray";
@@ -44,7 +41,6 @@ const QString DBSettings_Type_Tasklists = "Tasklists";
 const QString DBSettings_Type_PWManager = "PWManager";
 const QString DBSettings_Type_EncryptedData = "ENCRYPTEDDATA";
 const QString DBSettings_Type_VPShows = "VPShows";
-const QString DBSettings_Type_Misc = "Misc";
 // User Database
 const QString DBPath_User = "Data/users.db";
 // User Database Table Indexes - User Info
@@ -119,9 +115,6 @@ const QString SettingsT_Index_VP_Shows_FileFolderParsing = "VP_Shows_FileFolderP
 const QString SettingsT_Index_VP_Shows_AutoDelete = "VP_Shows_AutoDelete";
 const QString SettingsT_Index_VP_Shows_DefaultVolume = "VP_Shows_DefaultVolume";
 const QString SettingsT_Index_VP_Shows_CheckNewEPStartup = "VP_Shows_CheckNewEPStartup";
-// Settings Database Table Indexes - Misc Settings
-const QString SettingsT_Index_Misc_DecryptToRAM = "Misc_DecryptToRAM";
-const QString SettingsT_Index_Misc_MinFreeRAM = "Misc_MinFreeRAM";
 // User Database Table Indexes - Backup Management
 const QString UserT_Index_BackupDeletionMode = "backup_deletion_mode";
 const QString UserT_Index_BackupDeletionDate = "backup_deletion_date";

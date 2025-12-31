@@ -292,54 +292,6 @@ bool SetDefault_VideoPlayerSettings(const QString& username, const QByteArray& e
     return success;
 }
 
-bool SetDefault_MiscSettings(const QString& username, const QByteArray& encryptionKey)
-{
-    // SECURITY: Validate username before any operations
-    if(username.isEmpty()){
-        qDebug() << "settings_default_usersettings: Unable to set default settings for Misc - username is empty";
-        return false;
-    }
-    
-    // SECURITY: Validate username format to prevent injection
-    InputValidation::ValidationResult usernameResult = InputValidation::validateInput(
-        username, InputValidation::InputType::Username, 20);
-    if (!usernameResult.isValid) {
-        qDebug() << "settings_default_usersettings: Invalid username:" << usernameResult.errorMessage;
-        return false;
-    }
-
-    DatabaseSettingsManager& db = DatabaseSettingsManager::instance();
-
-    // Ensure database connection
-    if (!db.isConnected()) {
-        if (!db.connect(username, encryptionKey)) {
-            qDebug() << "settings_default_usersettings: Failed to connect to settings database for Misc defaults";
-            return false;
-        }
-    }
-
-    // Start transaction
-    if (!db.beginTransaction()) {
-        qDebug() << "settings_default_usersettings: Failed to begin transaction for Misc defaults";
-        return false;
-    }
-
-    // Set all misc defaults
-    bool success = true;
-    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_Misc_DecryptToRAM, DEFAULT_MISC_DECRYPT_TO_RAM);
-    success &= db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_Misc_MinFreeRAM, DEFAULT_MISC_MIN_FREE_RAM);
-
-    if (success) {
-        db.commitTransaction();
-        qDebug() << "settings_default_usersettings: Misc settings reset to defaults successfully";
-    } else {
-        db.rollbackTransaction();
-        qDebug() << "settings_default_usersettings: Failed to reset Misc settings to defaults";
-    }
-
-    return success;
-}
-
 bool SetAllDefaults(const QString& username, const QByteArray& encryptionKey)
 {
     if(SetDefault_GlobalSettings(username, encryptionKey) &&
@@ -347,8 +299,7 @@ bool SetAllDefaults(const QString& username, const QByteArray& encryptionKey)
         SetDefault_TasklistsSettings(username, encryptionKey) &&
         SetDefault_PWManagerSettings(username, encryptionKey) &&
         SetDefault_EncryptedDataSettings(username, encryptionKey) &&
-        SetDefault_VideoPlayerSettings(username, encryptionKey) &&
-        SetDefault_MiscSettings(username, encryptionKey))
+        SetDefault_VideoPlayerSettings(username, encryptionKey))
     {
         return true;
     }

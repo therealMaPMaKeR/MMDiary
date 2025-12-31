@@ -28,9 +28,6 @@ extern const QString SettingsButton_ResetEncryptedData;
 extern const QString SettingsButton_SaveVPShows;
 extern const QString SettingsButton_CancelVPShows;
 extern const QString SettingsButton_ResetVPShows;
-extern const QString SettingsButton_SaveMisc;
-extern const QString SettingsButton_CancelMisc;
-extern const QString SettingsButton_ResetMisc;
 // Data Types
 extern const QString DataType_QString;
 extern const QString DataType_QByteArray;
@@ -44,7 +41,6 @@ extern const QString DBSettings_Type_Tasklists;
 extern const QString DBSettings_Type_PWManager;
 extern const QString DBSettings_Type_EncryptedData;
 extern const QString DBSettings_Type_VPShows;
-extern const QString DBSettings_Type_Misc;
 // User Database
 extern const QString DBPath_User;
 // Users Database Table Indexes - User Info
@@ -95,9 +91,6 @@ extern const QString SettingsT_Index_VP_Shows_FileFolderParsing;
 extern const QString SettingsT_Index_VP_Shows_AutoDelete;
 extern const QString SettingsT_Index_VP_Shows_DefaultVolume;
 extern const QString SettingsT_Index_VP_Shows_CheckNewEPStartup;
-// Settings Database Table Indexes - Misc Settings
-extern const QString SettingsT_Index_Misc_DecryptToRAM;
-extern const QString SettingsT_Index_Misc_MinFreeRAM;
 // User Database Table Indexes - Backup Management
 extern const QString UserT_Index_BackupDeletionMode;
 extern const QString UserT_Index_BackupDeletionDate;
