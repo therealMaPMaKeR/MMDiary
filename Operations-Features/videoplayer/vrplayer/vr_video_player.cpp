@@ -21,107 +21,8 @@
 #include <QCloseEvent>
 #include <QMouseEvent>
 
-#ifdef Q_OS_WIN
-#include <Windows.h>
-#include <mmdeviceapi.h>
-#include <endpointvolume.h>
-#include <comdef.h>
-#pragma comment(lib, "ole32.lib")
-#pragma comment(lib, "oleaut32.lib")
-#endif
-
-//=============================================================================
-// Windows System Volume Control Functions
-//=============================================================================
-
-#ifdef Q_OS_WIN
-// Function to adjust Windows system volume
-static bool adjustWindowsSystemVolume(float volumeDelta)
-{
-    qDebug() << "VRVideoPlayer: Adjusting Windows system volume by" << volumeDelta;
-    
-    HRESULT hr = CoInitialize(NULL);
-    if (FAILED(hr)) {
-        qDebug() << "VRVideoPlayer: Failed to initialize COM";
-        return false;
-    }
-    
-    IMMDeviceEnumerator* deviceEnumerator = NULL;
-    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_INPROC_SERVER,
-                         __uuidof(IMMDeviceEnumerator), (LPVOID*)&deviceEnumerator);
-    if (FAILED(hr)) {
-        qDebug() << "VRVideoPlayer: Failed to create device enumerator";
-        CoUninitialize();
-        return false;
-    }
-    
-    IMMDevice* defaultDevice = NULL;
-    hr = deviceEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &defaultDevice);
-    if (FAILED(hr)) {
-        qDebug() << "VRVideoPlayer: Failed to get default audio endpoint";
-        deviceEnumerator->Release();
-        CoUninitialize();
-        return false;
-    }
-    
-    IAudioEndpointVolume* endpointVolume = NULL;
-    hr = defaultDevice->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_INPROC_SERVER,
-                                NULL, (LPVOID*)&endpointVolume);
-    if (FAILED(hr)) {
-        qDebug() << "VRVideoPlayer: Failed to activate audio endpoint volume";
-        defaultDevice->Release();
-        deviceEnumerator->Release();
-        CoUninitialize();
-        return false;
-    }
-    
-    // Get current volume
-    float currentVolume = 0.0f;
-    hr = endpointVolume->GetMasterVolumeLevelScalar(&currentVolume);
-    if (FAILED(hr)) {
-        qDebug() << "VRVideoPlayer: Failed to get current volume";
-        endpointVolume->Release();
-        defaultDevice->Release();
-        deviceEnumerator->Release();
-        CoUninitialize();
-        return false;
-    }
-    
-    // Calculate new volume (clamp between 0.0 and 1.0)
-    float newVolume = qBound(0.0f, currentVolume + volumeDelta, 1.0f);
-    
-    // Set new volume
-    hr = endpointVolume->SetMasterVolumeLevelScalar(newVolume, NULL);
-    if (FAILED(hr)) {
-        qDebug() << "VRVideoPlayer: Failed to set new volume";
-        endpointVolume->Release();
-        defaultDevice->Release();
-        deviceEnumerator->Release();
-        CoUninitialize();
-        return false;
-    }
-    
-    qDebug() << "VRVideoPlayer: Windows system volume changed from" << (currentVolume * 100) << "% to" << (newVolume * 100) << "%";
-    
-    // Cleanup
-    endpointVolume->Release();
-    defaultDevice->Release();
-    deviceEnumerator->Release();
-    CoUninitialize();
-    
-    return true;
-}
-
-static void increaseWindowsVolume()
-{
-    adjustWindowsSystemVolume(0.05f); // Increase by 5%
-}
-
-static void decreaseWindowsVolume()
-{
-    adjustWindowsSystemVolume(-0.05f); // Decrease by 5%
-}
-#endif
+// NOTE: Windows system volume control has been replaced with VLC volume control.
+// VLC volume control is implemented as member functions of VRVideoPlayer class.
 
 //=============================================================================
 // ClickableSlider class for VR Video Player
@@ -218,6 +119,7 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     , m_ipdSpinBox(nullptr)
     , m_zoomSlider(nullptr)
     , m_speedSlider(nullptr)
+    , m_volumeSlider(nullptr)
     , m_formatLabel(nullptr)
     , m_projectionLabel(nullptr)
     , m_ipdLabel(nullptr)
@@ -225,6 +127,8 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
     , m_zoomValueLabel(nullptr)
     , m_speedLabel(nullptr)
     , m_speedValueLabel(nullptr)
+    , m_volumeLabel(nullptr)
+    , m_volumeValueLabel(nullptr)
     , m_vrAvailable(false)
     , m_vrActive(false)
     , m_vrInitialized(false)
@@ -251,6 +155,9 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
         QMessageBox::critical(this, "Error", "Failed to initialize VLC player. Make sure VLC is properly installed.");
     } else {
         qDebug() << "VRVideoPlayer: VLC player initialized successfully";
+        // Set initial VLC volume to 100%
+        m_vlcPlayer->setVolume(100);
+        qDebug() << "VRVideoPlayer: Set initial VLC volume to 100%";
     }
     
     // Connect VLC player signals
@@ -383,8 +290,8 @@ void VRVideoPlayer::setupUI()
                          "\u25cf Press W/S or Up/Down to zoom in/out | A/D or Left/Right to seek 10s\n\n"
                          "\u25cf Press Shift+W/S or Ctrl/Shift+Up/Down to increase/decrease playback speed\n\n"
                          "\u25cf Press Shift+A/D or Ctrl/Shift+Left/Right to seek backward/forward 60s\n\n"
-                         "\u25cf Press Q/E or Page Down/Up to decrease/increase Windows system volume\n\n"
-                         "\u25cf Use the controls below to adjust video format, zoom, speed, and IPD");
+                         "\u25cf Press Q/E or Page Down/Up to decrease/increase VLC volume\n\n"
+                         "\u25cf Use the controls below to adjust video format, zoom, speed, volume, and IPD");
     mainLayout->addWidget(vrInfoLabel, 1);
     
     // VR Format Controls
@@ -464,6 +371,22 @@ void VRVideoPlayer::setupUI()
     formatLayout->addWidget(m_speedLabel, 2, 0);
     formatLayout->addWidget(m_speedSlider, 2, 1);
     formatLayout->addWidget(m_speedValueLabel, 2, 2);
+    
+    // VLC Volume slider
+    m_volumeLabel = new QLabel("Volume:", this);
+    m_volumeSlider = new QSlider(Qt::Horizontal, this);
+    m_volumeSlider->setRange(0, 200); // 0% to 200% (VLC supports up to 200%)
+    m_volumeSlider->setValue(100); // Default 100%
+    m_volumeSlider->setSingleStep(5);
+    m_volumeSlider->setPageStep(10);
+    m_volumeSlider->setToolTip("Adjust VLC volume (0-200%)");
+    m_volumeSlider->setFocusPolicy(Qt::NoFocus); // Don't grab focus for keyboard shortcuts
+    m_volumeValueLabel = new QLabel("100%", this);
+    m_volumeValueLabel->setFixedWidth(50);
+    connect(m_volumeSlider, &QSlider::valueChanged, this, &VRVideoPlayer::onVolumeSliderChanged);
+    formatLayout->addWidget(m_volumeLabel, 2, 3);
+    formatLayout->addWidget(m_volumeSlider, 2, 4);
+    formatLayout->addWidget(m_volumeValueLabel, 2, 5);
     
     mainLayout->addWidget(formatGroup);
     
@@ -1394,24 +1317,16 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
             break;
             
         case Qt::Key_E:
-            // E key for Windows volume up
-            qDebug() << "VRVideoPlayer: E key pressed - increasing Windows system volume";
-#ifdef Q_OS_WIN
-            increaseWindowsVolume();
-#else
-            qDebug() << "VRVideoPlayer: Windows volume control only available on Windows";
-#endif
+            // E key for VLC volume up
+            qDebug() << "VRVideoPlayer: E key pressed - increasing VLC volume";
+            increaseVLCVolume();
             event->accept();
             break;
             
         case Qt::Key_Q:
-            // Q key for Windows volume down
-            qDebug() << "VRVideoPlayer: Q key pressed - decreasing Windows system volume";
-#ifdef Q_OS_WIN
-            decreaseWindowsVolume();
-#else
-            qDebug() << "VRVideoPlayer: Windows volume control only available on Windows";
-#endif
+            // Q key for VLC volume down
+            qDebug() << "VRVideoPlayer: Q key pressed - decreasing VLC volume";
+            decreaseVLCVolume();
             event->accept();
             break;
             
@@ -1502,24 +1417,16 @@ void VRVideoPlayer::keyPressEvent(QKeyEvent *event)
             break;
             
         case Qt::Key_PageUp:
-            // Page Up key mirrors E key (Windows volume up)
-            qDebug() << "VRVideoPlayer: Page Up key pressed - increasing Windows system volume";
-#ifdef Q_OS_WIN
-            increaseWindowsVolume();
-#else
-            qDebug() << "VRVideoPlayer: Windows volume control only available on Windows";
-#endif
+            // Page Up key mirrors E key (VLC volume up)
+            qDebug() << "VRVideoPlayer: Page Up key pressed - increasing VLC volume";
+            increaseVLCVolume();
             event->accept();
             break;
             
         case Qt::Key_PageDown:
-            // Page Down key mirrors Q key (Windows volume down)
-            qDebug() << "VRVideoPlayer: Page Down key pressed - decreasing Windows system volume";
-#ifdef Q_OS_WIN
-            decreaseWindowsVolume();
-#else
-            qDebug() << "VRVideoPlayer: Windows volume control only available on Windows";
-#endif
+            // Page Down key mirrors Q key (VLC volume down)
+            qDebug() << "VRVideoPlayer: Page Down key pressed - decreasing VLC volume";
+            decreaseVLCVolume();
             event->accept();
             break;
             
@@ -1854,6 +1761,76 @@ void VRVideoPlayer::onSpeedSliderChanged(int value)
     qDebug() << "VRVideoPlayer: Playback speed changed to" << speed;
 }
 
+void VRVideoPlayer::increaseVLCVolume()
+{
+    if (!m_vlcPlayer) {
+        qDebug() << "VRVideoPlayer: Cannot increase volume - VLC player not initialized";
+        return;
+    }
+    
+    int currentVolume = m_vlcPlayer->volume();
+    int newVolume = qBound(0, currentVolume + 5, 200); // Increase by 5%, max 200%
+    
+    m_vlcPlayer->setVolume(newVolume);
+    
+    // Update slider and label
+    if (m_volumeSlider) {
+        m_volumeSlider->blockSignals(true);
+        m_volumeSlider->setValue(newVolume);
+        m_volumeSlider->blockSignals(false);
+    }
+    if (m_volumeValueLabel) {
+        m_volumeValueLabel->setText(QString("%1%").arg(newVolume));
+    }
+    
+    qDebug() << "VRVideoPlayer: Increased VLC volume from" << currentVolume << "to" << newVolume;
+}
+
+void VRVideoPlayer::decreaseVLCVolume()
+{
+    if (!m_vlcPlayer) {
+        qDebug() << "VRVideoPlayer: Cannot decrease volume - VLC player not initialized";
+        return;
+    }
+    
+    int currentVolume = m_vlcPlayer->volume();
+    int newVolume = qBound(0, currentVolume - 5, 200); // Decrease by 5%, min 0%
+    
+    m_vlcPlayer->setVolume(newVolume);
+    
+    // Update slider and label
+    if (m_volumeSlider) {
+        m_volumeSlider->blockSignals(true);
+        m_volumeSlider->setValue(newVolume);
+        m_volumeSlider->blockSignals(false);
+    }
+    if (m_volumeValueLabel) {
+        m_volumeValueLabel->setText(QString("%1%").arg(newVolume));
+    }
+    
+    qDebug() << "VRVideoPlayer: Decreased VLC volume from" << currentVolume << "to" << newVolume;
+}
+
+void VRVideoPlayer::onVolumeSliderChanged(int value)
+{
+    if (!m_vlcPlayer) {
+        qDebug() << "VRVideoPlayer: Cannot set volume - VLC player not initialized";
+        return;
+    }
+    
+    // Clamp volume to valid range
+    value = qBound(0, value, 200);
+    
+    m_vlcPlayer->setVolume(value);
+    
+    // Update the value label
+    if (m_volumeValueLabel) {
+        m_volumeValueLabel->setText(QString("%1%").arg(value));
+    }
+    
+    qDebug() << "VRVideoPlayer: VLC volume changed to" << value;
+}
+
 void VRVideoPlayer::updatePlaybackPosition()
 {
     if (!m_videoLoaded) {
@@ -2051,17 +2028,13 @@ void VRVideoPlayer::processControllerInput()
                 if ((verticalAxis > volumeThreshold && m_lastSeekAxis.y() <= volumeThreshold) ||
                     (verticalAxis < -volumeThreshold && m_lastSeekAxis.y() >= -volumeThreshold)) {
                     
-#ifdef Q_OS_WIN
                     if (verticalAxis > 0) {
-                        qDebug() << "VRVideoPlayer: Controller grip+up - increasing Windows volume";
-                        increaseWindowsVolume();
+                        qDebug() << "VRVideoPlayer: Controller grip+up - increasing VLC volume";
+                        increaseVLCVolume();
                     } else {
-                        qDebug() << "VRVideoPlayer: Controller grip+down - decreasing Windows volume";
-                        decreaseWindowsVolume();
+                        qDebug() << "VRVideoPlayer: Controller grip+down - decreasing VLC volume";
+                        decreaseVLCVolume();
                     }
-#else
-                    qDebug() << "VRVideoPlayer: Volume control only available on Windows";
-#endif
                 }
             }
         } else {

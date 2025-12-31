@@ -103,6 +103,7 @@ private slots:
     void onIPDSpinBoxChanged(int value);
     void onZoomSliderChanged(int value);
     void onSpeedSliderChanged(int value);
+    void onVolumeSliderChanged(int value);
     void updatePlaybackPosition();
     void processControllerInput();  // VR controller input processing
 
@@ -129,6 +130,10 @@ private:
     void decreasePlaybackSpeed();
     void resetPlaybackSpeed();
     void setPlaybackSpeed(qreal speed);
+    
+    // VLC volume control methods
+    void increaseVLCVolume();
+    void decreaseVLCVolume();
 
 private:
     // VR components
@@ -159,6 +164,7 @@ private:
     QSpinBox* m_ipdSpinBox;           // IPD adjustment
     QSlider* m_zoomSlider;            // Zoom control
     QSlider* m_speedSlider;           // Playback speed control
+    QSlider* m_volumeSlider;          // VLC volume control
     QLabel* m_formatLabel;
     QLabel* m_projectionLabel;
     QLabel* m_ipdLabel;
@@ -166,6 +172,8 @@ private:
     QLabel* m_zoomValueLabel;
     QLabel* m_speedLabel;
     QLabel* m_speedValueLabel;
+    QLabel* m_volumeLabel;
+    QLabel* m_volumeValueLabel;
     
     // VR state
     bool m_vrAvailable;
