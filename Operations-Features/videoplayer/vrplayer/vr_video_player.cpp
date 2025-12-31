@@ -156,8 +156,8 @@ VRVideoPlayer::VRVideoPlayer(QWidget *parent)
         QMessageBox::critical(this, "Error", "Failed to initialize VLC player. Make sure VLC is properly installed.");
     } else {
         qDebug() << "VRVideoPlayer: VLC player initialized successfully";
-        // Set initial VLC volume to 100%
-        m_vlcPlayer->setVolume(100);
+        // Set initial VLC volume to 50%
+        m_vlcPlayer->setVolume(50);
         qDebug() << "VRVideoPlayer: Set initial VLC volume to 100%";
     }
     
