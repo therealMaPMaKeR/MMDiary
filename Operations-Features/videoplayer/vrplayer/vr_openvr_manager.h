@@ -102,12 +102,23 @@ public:
     void shutdownControllerInput();
     VRControllerState pollControllerInput();
     bool isControllerInputReady() const { return m_controllerInputReady; }
+    
+    // Hot-plug support: attempt to detect newly connected controllers
+    // Returns the number of controllers found (0, 1, or 2)
+    int tryDetectControllers();
+    
+    // Check if at least one controller is currently valid/connected
+    bool hasValidController() const;
 
 signals:
     void statusChanged(VRStatus status);
     void hmdConnected();
     void hmdDisconnected();
     void error(const QString& errorMessage);
+    
+    // Controller hot-plug signals
+    void controllerConnected(int controllerCount);
+    void controllerDisconnected();
 
 private:
     bool checkSteamVRRuntime();

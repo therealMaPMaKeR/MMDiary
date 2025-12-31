@@ -597,6 +597,16 @@ bool VRVideoPlayer::initializeVR()
         // Continue anyway - controller input is not critical
     } else {
         qDebug() << "VRVideoPlayer: Controller input initialized successfully";
+        
+        // Connect controller hot-plug signals for logging
+        connect(m_vrManager.get(), &VROpenVRManager::controllerConnected,
+                this, [](int count) {
+                    qDebug() << "VRVideoPlayer: Controller(s) connected - count:" << count;
+                });
+        connect(m_vrManager.get(), &VROpenVRManager::controllerDisconnected,
+                this, []() {
+                    qDebug() << "VRVideoPlayer: All controllers disconnected - waiting for reconnection";
+                });
     }
     
     // Set up VR components
@@ -1100,16 +1110,21 @@ void VRVideoPlayer::enterVRMode()
         qDebug() << "VRVideoPlayer: Started focus restoration timer (2 seconds)";
     }
     
-    // Start VR controller input polling
+    // Start VR controller input polling - always start timer to support hot-plug
+    // Controllers can be turned on after VR mode is entered
     if (m_vrManager && m_vrManager->isControllerInputReady()) {
         SafeTimer* controllerInputTimer = m_timerManager.getTimer("controllerInputTimer");
         if (controllerInputTimer) {
             controllerInputTimer->start([this]() { processControllerInput(); });
             m_controllerInputActive = true;
-            qDebug() << "VRVideoPlayer: Started VR controller input polling (60Hz)";
+            if (m_vrManager->hasValidController()) {
+                qDebug() << "VRVideoPlayer: Started VR controller input polling (60Hz) - controllers detected";
+            } else {
+                qDebug() << "VRVideoPlayer: Started VR controller input polling (60Hz) - waiting for controllers (hot-plug enabled)";
+            }
         }
     } else {
-        qDebug() << "VRVideoPlayer: Controller input not available";
+        qDebug() << "VRVideoPlayer: Controller input system not available";
     }
     
     emit vrStatusChanged(true);

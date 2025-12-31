@@ -614,57 +614,17 @@ bool VROpenVRManager::initializeControllerInput()
     memset(&m_lastLeftControllerState, 0, sizeof(vr::VRControllerState_t));
     memset(&m_lastRightControllerState, 0, sizeof(vr::VRControllerState_t));
     
-    // Find controller devices
-    int controllersFound = 0;
-    for (vr::TrackedDeviceIndex_t device = 0; device < vr::k_unMaxTrackedDeviceCount; ++device) {
-        if (!m_vrSystem->IsTrackedDeviceConnected(device)) {
-            continue;
-        }
-        
-        vr::ETrackedDeviceClass deviceClass = m_vrSystem->GetTrackedDeviceClass(device);
-        if (deviceClass == vr::TrackedDeviceClass_Controller) {
-            vr::ETrackedControllerRole role = m_vrSystem->GetControllerRoleForTrackedDeviceIndex(device);
-            
-            // Get controller model name for debugging
-            QString modelName = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_ModelNumber_String));
-            QString controllerType = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_ControllerType_String));
-            
-            // Skip gamepads and non-VR controllers
-            if (controllerType == "gamepad" || modelName.contains("XInput", Qt::CaseInsensitive)) {
-                qDebug() << "VROpenVRManager: Skipping non-VR controller at index" << device;
-                continue;
-            }
-            
-            if (role == vr::TrackedControllerRole_LeftHand) {
-                m_leftControllerIndex = device;
-                qDebug() << "VROpenVRManager: Found LEFT controller at index" << device << "Model:" << modelName;
-                controllersFound++;
-            } else if (role == vr::TrackedControllerRole_RightHand) {
-                m_rightControllerIndex = device;
-                qDebug() << "VROpenVRManager: Found RIGHT controller at index" << device << "Model:" << modelName;
-                controllersFound++;
-            } else if (m_leftControllerIndex == vr::k_unTrackedDeviceIndexInvalid) {
-                // If no specific role, assign to left if left is empty
-                m_leftControllerIndex = device;
-                qDebug() << "VROpenVRManager: Found controller (assigned to LEFT) at index" << device << "Model:" << modelName;
-                controllersFound++;
-            } else if (m_rightControllerIndex == vr::k_unTrackedDeviceIndexInvalid) {
-                // Otherwise assign to right
-                m_rightControllerIndex = device;
-                qDebug() << "VROpenVRManager: Found controller (assigned to RIGHT) at index" << device << "Model:" << modelName;
-                controllersFound++;
-            }
-        }
-    }
+    // Try to detect controllers
+    int controllersFound = tryDetectControllers();
     
     if (controllersFound == 0) {
-        qDebug() << "VROpenVRManager: No VR controllers detected";
-        qDebug() << "VROpenVRManager: Please turn on your VR controllers and try again";
-        m_controllerInputReady = false;
-        return false;
+        qDebug() << "VROpenVRManager: No VR controllers detected at startup";
+        qDebug() << "VROpenVRManager: Controllers can be turned on later - hot-plug supported";
     }
     
-    qDebug() << "VROpenVRManager: Found" << controllersFound << "controller(s)";
+    // Always mark as ready - we support hot-plug now
+    m_controllerInputReady = true;
+    
     qDebug() << "VROpenVRManager: ";
     qDebug() << "VROpenVRManager: BUTTON MAPPINGS (Legacy Direct Input):";
     qDebug() << "VROpenVRManager:   Trigger -> Recenter View (hold for continuous)";
@@ -676,12 +636,99 @@ bool VROpenVRManager::initializeControllerInput()
     qDebug() << "VROpenVRManager:     - Normal: X=Seek 10s, Y=Zoom";
     qDebug() << "VROpenVRManager:     - With Grip: X=Seek 60s, Y=Volume";
     qDebug() << "VROpenVRManager: ";
-    qDebug() << "VROpenVRManager: Legacy input ready - no SteamVR binding configuration needed!";
+    qDebug() << "VROpenVRManager: Legacy input ready - hot-plug enabled!";
     
-    m_controllerInputReady = true;
     return true;
 #else
     qDebug() << "VROpenVRManager: Controller input not available - OpenVR not compiled in";
+    return false;
+#endif
+}
+
+int VROpenVRManager::tryDetectControllers()
+{
+#ifdef USE_OPENVR
+    if (!m_vrSystem) {
+        return 0;
+    }
+    
+    int controllersFound = 0;
+    bool leftWasInvalid = (m_leftControllerIndex == vr::k_unTrackedDeviceIndexInvalid);
+    bool rightWasInvalid = (m_rightControllerIndex == vr::k_unTrackedDeviceIndexInvalid);
+    
+    // Scan for controller devices
+    for (vr::TrackedDeviceIndex_t device = 0; device < vr::k_unMaxTrackedDeviceCount; ++device) {
+        if (!m_vrSystem->IsTrackedDeviceConnected(device)) {
+            continue;
+        }
+        
+        vr::ETrackedDeviceClass deviceClass = m_vrSystem->GetTrackedDeviceClass(device);
+        if (deviceClass != vr::TrackedDeviceClass_Controller) {
+            continue;
+        }
+        
+        // Skip if we already have this device assigned
+        if (device == m_leftControllerIndex || device == m_rightControllerIndex) {
+            controllersFound++;
+            continue;
+        }
+        
+        vr::ETrackedControllerRole role = m_vrSystem->GetControllerRoleForTrackedDeviceIndex(device);
+        
+        // Get controller model name for debugging
+        QString modelName = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_ModelNumber_String));
+        QString controllerType = getTrackedDeviceString(device, static_cast<uint32_t>(vr::Prop_ControllerType_String));
+        
+        // Skip gamepads and non-VR controllers
+        if (controllerType == "gamepad" || modelName.contains("XInput", Qt::CaseInsensitive)) {
+            continue;
+        }
+        
+        // Assign based on role or to first available slot
+        if (role == vr::TrackedControllerRole_LeftHand && m_leftControllerIndex == vr::k_unTrackedDeviceIndexInvalid) {
+            m_leftControllerIndex = device;
+            memset(&m_lastLeftControllerState, 0, sizeof(vr::VRControllerState_t));
+            qDebug() << "VROpenVRManager: Found LEFT controller at index" << device << "Model:" << modelName;
+            controllersFound++;
+        } else if (role == vr::TrackedControllerRole_RightHand && m_rightControllerIndex == vr::k_unTrackedDeviceIndexInvalid) {
+            m_rightControllerIndex = device;
+            memset(&m_lastRightControllerState, 0, sizeof(vr::VRControllerState_t));
+            qDebug() << "VROpenVRManager: Found RIGHT controller at index" << device << "Model:" << modelName;
+            controllersFound++;
+        } else if (m_leftControllerIndex == vr::k_unTrackedDeviceIndexInvalid) {
+            m_leftControllerIndex = device;
+            memset(&m_lastLeftControllerState, 0, sizeof(vr::VRControllerState_t));
+            qDebug() << "VROpenVRManager: Found controller (assigned to LEFT) at index" << device << "Model:" << modelName;
+            controllersFound++;
+        } else if (m_rightControllerIndex == vr::k_unTrackedDeviceIndexInvalid) {
+            m_rightControllerIndex = device;
+            memset(&m_lastRightControllerState, 0, sizeof(vr::VRControllerState_t));
+            qDebug() << "VROpenVRManager: Found controller (assigned to RIGHT) at index" << device << "Model:" << modelName;
+            controllersFound++;
+        }
+    }
+    
+    // Emit signal if we found new controllers
+    bool leftNowValid = (m_leftControllerIndex != vr::k_unTrackedDeviceIndexInvalid);
+    bool rightNowValid = (m_rightControllerIndex != vr::k_unTrackedDeviceIndexInvalid);
+    
+    if ((leftWasInvalid && leftNowValid) || (rightWasInvalid && rightNowValid)) {
+        qDebug() << "VROpenVRManager: Controller(s) connected - total:" << controllersFound;
+        emit controllerConnected(controllersFound);
+    }
+    
+    return controllersFound;
+#else
+    return 0;
+#endif
+}
+
+bool VROpenVRManager::hasValidController() const
+{
+#ifdef USE_OPENVR
+    return m_leftControllerIndex != vr::k_unTrackedDeviceIndexInvalid ||
+           m_rightControllerIndex != vr::k_unTrackedDeviceIndexInvalid;
+#else
     return false;
 #endif
 }
@@ -719,6 +766,21 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
         return state;
     }
     
+    // Hot-plug detection: if no valid controllers, try to find newly connected ones
+    // We do this periodically (not every frame) to avoid performance impact
+    static int hotPlugCheckCounter = 0;
+    if (!hasValidController()) {
+        if (++hotPlugCheckCounter >= 30) { // Check every ~0.5 seconds at 60Hz polling
+            hotPlugCheckCounter = 0;
+            int found = tryDetectControllers();
+            if (found > 0) {
+                qDebug() << "VROpenVRManager: Hot-plug detected" << found << "controller(s)";
+            }
+        }
+        return state; // No controllers available yet
+    }
+    hotPlugCheckCounter = 0; // Reset counter when we have valid controllers
+    
     // Button constants for different controller types
     // These are the raw button masks used by OpenVR
     static const uint64_t k_ButtonTrigger = (1ULL << 33);      // Trigger button
@@ -726,6 +788,10 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
     static const uint64_t k_ButtonGrip = (1ULL << 2);          // Grip button  
     static const uint64_t k_ButtonTouchpad = (1ULL << 32);     // Touchpad/Joystick button
     static const uint64_t k_TouchpadTouched = (1ULL << 32);    // Touchpad being touched
+    
+    // Track if we had controllers before this poll (for disconnect detection)
+    bool hadLeftController = (m_leftControllerIndex != vr::k_unTrackedDeviceIndexInvalid);
+    bool hadRightController = (m_rightControllerIndex != vr::k_unTrackedDeviceIndexInvalid);
     
     // Check both controllers
     vr::TrackedDeviceIndex_t controllers[2] = { m_leftControllerIndex, m_rightControllerIndex };
@@ -856,6 +922,15 @@ VROpenVRManager::VRControllerState VROpenVRManager::pollControllerInput()
         
         // Store current state for next frame
         lastState = controllerState;
+    }
+    
+    // Emit disconnect signal if we lost all controllers
+    bool hasLeftNow = (m_leftControllerIndex != vr::k_unTrackedDeviceIndexInvalid);
+    bool hasRightNow = (m_rightControllerIndex != vr::k_unTrackedDeviceIndexInvalid);
+    
+    if ((hadLeftController || hadRightController) && !hasLeftNow && !hasRightNow) {
+        qDebug() << "VROpenVRManager: All controllers disconnected";
+        emit controllerDisconnected();
     }
     
 #endif
