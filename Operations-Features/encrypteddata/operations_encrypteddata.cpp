@@ -1016,11 +1016,36 @@ void Operations_EncryptedData::onFileListDoubleClicked(QListWidgetItem* item)
     qDebug() << "Operations_EncryptedData: File extension:" << extension;
     qDebug() << "Operations_EncryptedData: Default app found:" << (defaultApp.isEmpty() ? "None" : defaultApp);
 
-    // Check if this is a video file - if so, use BaseVideoPlayer
+    // Check if this is a video file - if so, check for VR tag
     if (isVideoFile(originalFilename)) {
-        qDebug() << "Operations_EncryptedData: Video file detected, using BaseVideoPlayer";
-        openWithVideoPlayer(encryptedFilePath, originalFilename);
-        return; // Exit early, BaseVideoPlayer will handle everything
+        qDebug() << "Operations_EncryptedData: Video file detected, checking for VR tag";
+
+        // Get metadata to check for VR tag
+        bool hasVRTag = false;
+        if (m_fileMetadataCache.contains(encryptedFilePath)) {
+            auto metadataOpt = m_fileMetadataCache.value(encryptedFilePath);
+            if (metadataOpt.has_value()) {
+                const EncryptedFileMetadata::FileMetadata& metadata = metadataOpt.value();
+
+                // Check if any tag matches "VR" (case-insensitive)
+                for (const QString& tag : metadata.tags) {
+                    if (tag.compare("VR", Qt::CaseInsensitive) == 0) {
+                        hasVRTag = true;
+                        qDebug() << "Operations_EncryptedData: VR tag found, using VRVideoPlayer";
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Open with appropriate player based on VR tag
+        if (hasVRTag) {
+            openWithVRVideoPlayer(encryptedFilePath, originalFilename);
+        } else {
+            qDebug() << "Operations_EncryptedData: No VR tag, using BaseVideoPlayer";
+            openWithVideoPlayer(encryptedFilePath, originalFilename);
+        }
+        return; // Exit early, player will handle everything
     }
 
     if (defaultApp.isEmpty()) {
