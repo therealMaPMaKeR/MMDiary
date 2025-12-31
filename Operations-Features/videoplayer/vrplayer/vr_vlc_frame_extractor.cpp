@@ -1,6 +1,7 @@
 #include "vr_vlc_frame_extractor.h"
 #include <QDebug>
 #include <QOpenGLContext>
+#include <QThread>  // For msleep in cleanup synchronization
 #include <cstring>
 #include <algorithm>
 
@@ -22,6 +23,7 @@ VRVLCFrameExtractor::VRVLCFrameExtractor(void* mediaPlayer, QObject *parent)
     , m_droppedFrames(0)
     , m_lastFrameTime(std::chrono::steady_clock::now())
     , m_initialized(false)
+    , m_isDestroying(false)  // Initialize safety flag
 {
     qDebug() << "VRVLCFrameExtractor: Constructor called";
 }
@@ -76,11 +78,22 @@ void VRVLCFrameExtractor::cleanup()
     
     qDebug() << "VRVLCFrameExtractor: Cleaning up";
     
+    // Set destroying flag FIRST to prevent new callbacks
+    m_isDestroying = true;
+    qDebug() << "VRVLCFrameExtractor: Set destroying flag to prevent callbacks";
+    
 #ifdef USE_LIBVLC
     // Clear callbacks
     if (m_mediaPlayer) {
+        qDebug() << "VRVLCFrameExtractor: Clearing VLC video callbacks";
         libvlc_video_set_callbacks(m_mediaPlayer, nullptr, nullptr, nullptr, nullptr);
         libvlc_video_set_format_callbacks(m_mediaPlayer, nullptr, nullptr);
+        
+        // CRITICAL: Wait for any in-flight callbacks to complete
+        // VLC may still have callbacks queued or in progress
+        qDebug() << "VRVLCFrameExtractor: Waiting 100ms for VLC callbacks to drain...";
+        QThread::msleep(100);
+        qDebug() << "VRVLCFrameExtractor: Callback drain wait complete";
     }
 #endif
     
@@ -240,6 +253,12 @@ void VRVLCFrameExtractor::formatCleanupCallback(void* opaque)
 // Instance method implementations
 void* VRVLCFrameExtractor::lock(void** planes)
 {
+    // SAFETY: Check if we're being destroyed - prevent use-after-free
+    if (m_isDestroying) {
+        qDebug() << "VRVLCFrameExtractor: lock() called during destruction - ignoring";
+        return nullptr;
+    }
+    
     m_frameMutex.lock();  // Lock here and hold through VLC write.
     if (!m_pixelBuffer) {
         qDebug() << "VRVLCFrameExtractor: Buffer not allocated";
@@ -262,12 +281,25 @@ void VRVLCFrameExtractor::unlock(void* picture, void* const* planes)
 {
     Q_UNUSED(picture);
     Q_UNUSED(planes);
+    
+    // SAFETY: Check if we're being destroyed
+    if (m_isDestroying) {
+        qDebug() << "VRVLCFrameExtractor: unlock() called during destruction - ignoring";
+        return;
+    }
+    
     m_frameMutex.unlock();  // Unlock after VLC write completes.
 }
 
 void VRVLCFrameExtractor::display(void* picture)
 {
     Q_UNUSED(picture);
+    
+    // SAFETY: Check if we're being destroyed - prevent use-after-free
+    if (m_isDestroying) {
+        // Don't log every frame during destruction to avoid spam
+        return;
+    }
     
     m_frameCount++;
     
@@ -311,6 +343,12 @@ void VRVLCFrameExtractor::display(void* picture)
 unsigned VRVLCFrameExtractor::format(char* chroma, unsigned* width, unsigned* height,
                                     unsigned* pitches, unsigned* lines)
 {
+    // SAFETY: Check if we're being destroyed - prevent use-after-free
+    if (m_isDestroying) {
+        qDebug() << "VRVLCFrameExtractor: format() called during destruction - ignoring";
+        return 0;
+    }
+    
     qDebug() << "VRVLCFrameExtractor: Format callback - Input size:" 
              << *width << "x" << *height;
     
@@ -381,6 +419,12 @@ unsigned VRVLCFrameExtractor::format(char* chroma, unsigned* width, unsigned* he
 
 void VRVLCFrameExtractor::formatCleanup()
 {
+    // SAFETY: Check if we're being destroyed
+    if (m_isDestroying) {
+        qDebug() << "VRVLCFrameExtractor: formatCleanup() called during destruction - ignoring";
+        return;
+    }
+    
     qDebug() << "VRVLCFrameExtractor: Format cleanup called";
     
     QMutexLocker locker(&m_frameMutex);

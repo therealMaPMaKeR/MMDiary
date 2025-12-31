@@ -20,6 +20,7 @@
 #include <QKeyEvent>
 #include <QCloseEvent>
 #include <QMouseEvent>
+#include <QThread>  // For msleep in destructor cleanup
 
 // NOTE: Windows system volume control has been replaced with VLC volume control.
 // VLC volume control is implemented as member functions of VRVideoPlayer class.
@@ -230,32 +231,59 @@ VRVideoPlayer::~VRVideoPlayer()
 {
     qDebug() << "VRVideoPlayer: Destructor called";
     
-    // Stop playback first
+    // CRITICAL FIX: Proper cleanup order to prevent VLC callback crashes
+    // The issue: VLC callbacks can still fire after we start cleanup, causing use-after-free
+    // Solution: Stop VLC completely, wait, then cleanup frame extractor
+    
+    // Step 1: Stop playback first
     if (m_isPlaying) {
-        stop();
+        qDebug() << "VRVideoPlayer: Stopping playback in destructor";
+        if (m_vlcPlayer) {
+            m_vlcPlayer->pause();  // Pause first
+        }
+        m_isPlaying = false;
     }
     
-    // Exit VR mode if active
+    // Step 2: Exit VR mode if active (this stops the render thread)
     if (m_vrActive) {
+        qDebug() << "VRVideoPlayer: Exiting VR mode in destructor";
         exitVRMode();
     }
     
-    // Clean up VLC player
+    // Step 3: COMPLETELY stop VLC and wait for it to finish
     if (m_vlcPlayer) {
-        m_vlcPlayer->stop();
+        qDebug() << "VRVideoPlayer: Stopping VLC player completely";
+        m_vlcPlayer->stop();  // Full stop, not just pause
+        
+        // Wait for VLC to fully stop before touching frame extractor
+        qDebug() << "VRVideoPlayer: Waiting for VLC to fully stop...";
+        QThread::msleep(50);  // Give VLC time to stop
+        qDebug() << "VRVideoPlayer: VLC stop wait complete";
+        
+        // Unload media to release VLC's internal references
         m_vlcPlayer->unloadMedia();
+        qDebug() << "VRVideoPlayer: VLC media unloaded";
     }
     
-    // Shutdown VR (this will properly clean up OpenGL resources)
+    // Step 4: NOW it's safe to cleanup frame extractor
+    // The cleanup() function will set m_isDestroying flag and wait for callbacks to drain
+    if (m_frameExtractor) {
+        qDebug() << "VRVideoPlayer: Cleaning up frame extractor";
+        m_frameExtractor->cleanup();
+        
+        // Wait a bit more to ensure VLC callbacks have completely drained
+        qDebug() << "VRVideoPlayer: Waiting for frame extractor callbacks to drain...";
+        QThread::msleep(50);
+        
+        m_frameExtractor.reset();
+        qDebug() << "VRVideoPlayer: Frame extractor destroyed";
+    }
+    
+    // Step 5: Shutdown VR (this will properly clean up OpenGL resources)
+    qDebug() << "VRVideoPlayer: Shutting down VR";
     shutdownVR();
     
-    // Clean up frame extractor
-    if (m_frameExtractor) {
-        m_frameExtractor->cleanup();
-        m_frameExtractor.reset();
-    }
-    
-    // Delete OpenGL widget last
+    // Step 6: Delete OpenGL widget last
     if (m_glWidget) {
         delete m_glWidget;
         m_glWidget = nullptr;

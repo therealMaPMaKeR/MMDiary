@@ -109,6 +109,7 @@ private:
     std::chrono::steady_clock::time_point m_lastFrameTime;
     
     bool m_initialized;
+    std::atomic<bool> m_isDestroying;  // Flag to prevent callbacks during destruction
 };
 
 #endif // VR_VLC_FRAME_EXTRACTOR_H
