@@ -2186,6 +2186,12 @@ void MainWindow::on_pushButton_Acc_ChangePW_clicked()
 
 void MainWindow::onTabChanged(int index)
 {
+    // Clear status bar message whenever we switch tabs
+    if (statusBar()) {
+        statusBar()->clearMessage();
+        qDebug() << "MainWindow: Status bar cleared on tab change to index:" << index;
+    }
+    
     // Find the Password Manager tab dynamically instead of using hardcoded index
     int passwordTabIndex = Operations::GetTabIndexByObjectName("tab_Passwords", ui->tabWidget_Main);
 
