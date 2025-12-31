@@ -2065,45 +2065,6 @@ void MainWindow::on_checkBox_VP_Shows_CheckNewEPStartup_stateChanged(int arg1)
     }
 }
 
-//Misc Settings - Button handlers
-void MainWindow::on_pushButton_Misc_Save_clicked()
-{
-    if (Operations_Settings_ptr) {
-        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_SaveMisc);
-    }
-}
-
-void MainWindow::on_pushButton_Misc_Cancel_clicked()
-{
-    if (Operations_Settings_ptr) {
-        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_CancelMisc);
-    }
-}
-
-void MainWindow::on_pushButton_Misc_RDefault_clicked()
-{
-    if (Operations_Settings_ptr) {
-        Operations_Settings_ptr->Slot_ButtonPressed(Constants::SettingsButton_ResetMisc);
-    }
-}
-
-//Misc Settings - Value changed handlers
-void MainWindow::on_checkBox_DecryptRam_stateChanged(int arg1)
-{
-    Q_UNUSED(arg1)
-    if (initFinished && Operations_Settings_ptr) {
-        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Misc);
-    }
-}
-
-void MainWindow::on_spinBox_Misc_MinRam_valueChanged(int arg1)
-{
-    Q_UNUSED(arg1)
-    if (initFinished && Operations_Settings_ptr) {
-        Operations_Settings_ptr->Slot_ValueChanged(Constants::DBSettings_Type_Misc);
-    }
-}
-
 //---------- Encrypted Data Feature ----------//
 void MainWindow::on_pushButton_DataENC_Encrypt_clicked()
 {

@@ -177,10 +177,6 @@ private:
     int setting_VP_Shows_DefaultVolume = 100;
     bool setting_VP_Shows_CheckNewEPStartup = false;
 
-    // Misc Settings
-    bool setting_Misc_DecryptToRAM = true;
-    int setting_Misc_MinFreeRAM = 500;  // Minimum free RAM in MB before falling back to disk decryption
-
     //Member Classes
     Operations_Diary* Operations_Diary_ptr = nullptr;
     Operations_PasswordManager* Operations_PasswordManager_ptr = nullptr;
@@ -301,13 +297,6 @@ private slots:
     void on_comboBox_VP_Shows_AutoDelete_currentIndexChanged(int index);
     void on_spinBox_VP_Shows_DefaultVolume_valueChanged(int arg1);
     void on_checkBox_VP_Shows_CheckNewEPStartup_stateChanged(int arg1);
-
-    // Misc Settings
-    void on_pushButton_Misc_Save_clicked();
-    void on_pushButton_Misc_Cancel_clicked();
-    void on_pushButton_Misc_RDefault_clicked();
-    void on_checkBox_DecryptRam_stateChanged(int arg1);
-    void on_spinBox_Misc_MinRam_valueChanged(int arg1);
 
 private:
     void UpdateTasklistTextSize();
