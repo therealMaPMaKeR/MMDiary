@@ -120,6 +120,16 @@ Operations_Settings::Operations_Settings(MainWindow* mainWindow)
     connect(m_mainWindow->ui->checkBox_VP_Shows_CheckNewEPStartup, &QCheckBox::stateChanged,
             [this]() { Slot_ValueChanged(Constants::DBSettings_Type_VPShows); });
 
+    // Connect Misc Settings UI signals
+    connect(m_mainWindow->ui->checkBox_DecryptRam, &QCheckBox::stateChanged,
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_Misc); });
+
+    connect(m_mainWindow->ui->spinBox_Misc_MinRam, QOverload<int>::of(&QSpinBox::valueChanged),
+            [this]() { Slot_ValueChanged(Constants::DBSettings_Type_Misc); });
+
+    // Initialize Misc settings button states
+    UpdateButtonStates(Constants::DBSettings_Type_Misc);
+
     InitializeCustomCheckboxes();
 }
 
@@ -708,6 +718,55 @@ void Operations_Settings::LoadSettings(const QString& settingsType)
         }
     }
 
+    // ------- Load Misc Settings -------
+    if (settingsType == Constants::DBSettings_Type_ALL || settingsType == Constants::DBSettings_Type_Misc)
+    {
+        bool validationFailed = false;
+
+        // Decrypt to RAM
+        QString decryptToRAM = db.GetSettingsData_String(Constants::SettingsT_Index_Misc_DecryptToRAM);
+        if (decryptToRAM != Constants::ErrorMessage_Default) {
+            if (decryptToRAM == "0" || decryptToRAM == "1") {
+                bool value = (decryptToRAM == "1");
+                m_mainWindow->ui->checkBox_DecryptRam->setChecked(value);
+                m_mainWindow->setting_Misc_DecryptToRAM = value;
+            } else {
+                qDebug() << "Operations_Settings: Invalid decrypt to RAM value:" << decryptToRAM;
+                validationFailed = true;
+            }
+        } else {
+            qDebug() << "Operations_Settings: Failed to load decrypt to RAM setting";
+            validationFailed = true;
+        }
+
+        // Minimum Free RAM
+        QString minFreeRAM = db.GetSettingsData_String(Constants::SettingsT_Index_Misc_MinFreeRAM);
+        if (minFreeRAM != Constants::ErrorMessage_Default) {
+            bool ok;
+            // SECURITY: Use long long to detect overflow before casting to int
+            long long ramLong = minFreeRAM.toLongLong(&ok);
+            if (ok && ramLong >= 500 && ramLong <= 99999) {
+                int ram = static_cast<int>(ramLong);
+                m_mainWindow->ui->spinBox_Misc_MinRam->setValue(ram);
+                m_mainWindow->setting_Misc_MinFreeRAM = ram;
+            } else {
+                qDebug() << "Operations_Settings: Invalid minimum free RAM from database (overflow or out of range):" << minFreeRAM;
+                validationFailed = true;
+            }
+        } else {
+            qDebug() << "Operations_Settings: Failed to load minimum free RAM setting";
+            validationFailed = true;
+        }
+
+        // If any validation failed, reset to defaults
+        if (validationFailed) {
+            qDebug() << "Operations_Settings: Some misc settings failed validation, resetting to defaults";
+            Default_UserSettings::SetDefault_MiscSettings(username, encryptionKey);
+            LoadSettings(Constants::DBSettings_Type_Misc); // Reload with default values
+            return;
+        }
+    }
+
     // Update button states after loading
     UpdateButtonStates(settingsType);
     m_mainWindow->UpdateTasklistTextSize();
@@ -998,6 +1057,22 @@ void Operations_Settings::SaveSettings(const QString& settingsType)
         m_mainWindow->setting_VP_Shows_CheckNewEPStartup = checkNewEPStartup;
     }
 
+    // ------- Save Misc Settings -------
+    if (settingsType == Constants::DBSettings_Type_ALL || settingsType == Constants::DBSettings_Type_Misc)
+    {
+        // Decrypt to RAM
+        bool decryptToRAM = m_mainWindow->ui->checkBox_DecryptRam->isChecked();
+        QString decryptToRAMStr = decryptToRAM ? "1" : "0";
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_Misc_DecryptToRAM, decryptToRAMStr);
+        m_mainWindow->setting_Misc_DecryptToRAM = decryptToRAM;
+
+        // Minimum Free RAM
+        int minFreeRAM = m_mainWindow->ui->spinBox_Misc_MinRam->value();
+        QString minFreeRAMStr = QString::number(minFreeRAM);
+        db.UpdateSettingsData_TEXT(Constants::SettingsT_Index_Misc_MinFreeRAM, minFreeRAMStr);
+        m_mainWindow->setting_Misc_MinFreeRAM = minFreeRAM;
+    }
+
     // Update button states after saving
     UpdateButtonStates(settingsType);
     m_mainWindow->UpdateTasklistTextSize();
@@ -1093,6 +1168,16 @@ bool Operations_Settings::ValidateSettingsInput(const QString& settingsType)
     {
         // For now, no specific validation needed for encrypted data settings
         // The checkbox is either checked or not, both are valid states
+    }
+
+    if (settingsType == Constants::DBSettings_Type_ALL || settingsType == Constants::DBSettings_Type_Misc)
+    {
+        // Validate Minimum Free RAM
+        int minFreeRAM = m_mainWindow->ui->spinBox_Misc_MinRam->value();
+        if (minFreeRAM < 500 || minFreeRAM > 99999) {
+            isValid = false;
+            errorMessage += "- Minimum Free RAM: Must be between 500 and 99999 MB\n";
+        }
     }
 
     if (!isValid) {
@@ -1490,6 +1575,37 @@ void Operations_Settings::UpdateButtonStates(const QString& settingsType)
         m_mainWindow->ui->pushButton_VP_Shows_RDefault->setStyleSheet(matchesDefault ? disabledStyle : enabledStyle);
     }
 
+    // ------- Misc Settings Button States -------
+    else if (settingsType == Constants::DBSettings_Type_Misc)
+    {
+        bool matchesDatabase = true;
+        bool matchesDefault = true;
+
+        // Decrypt to RAM
+        QString dbDecryptToRAM = db.GetSettingsData_String(Constants::SettingsT_Index_Misc_DecryptToRAM);
+        QString uiDecryptToRAM = m_mainWindow->ui->checkBox_DecryptRam->isChecked() ? "1" : "0";
+        if (dbDecryptToRAM != uiDecryptToRAM) matchesDatabase = false;
+        if (uiDecryptToRAM != Default_UserSettings::DEFAULT_MISC_DECRYPT_TO_RAM) matchesDefault = false;
+
+        // Minimum Free RAM
+        QString dbMinFreeRAM = db.GetSettingsData_String(Constants::SettingsT_Index_Misc_MinFreeRAM);
+        QString uiMinFreeRAM = QString::number(m_mainWindow->ui->spinBox_Misc_MinRam->value());
+        if (dbMinFreeRAM != uiMinFreeRAM) matchesDatabase = false;
+        if (uiMinFreeRAM != Default_UserSettings::DEFAULT_MISC_MIN_FREE_RAM) matchesDefault = false;
+
+        // Update button states
+        m_mainWindow->ui->pushButton_Misc_Save->setEnabled(!matchesDatabase);
+        m_mainWindow->ui->pushButton_Misc_Cancel->setEnabled(!matchesDatabase);
+        m_mainWindow->ui->pushButton_Misc_RDefault->setEnabled(!matchesDefault);
+
+        // Apply styling
+        QString enabledStyle = "";
+        QString disabledStyle = "QPushButton { color: gray; }";
+        m_mainWindow->ui->pushButton_Misc_Save->setStyleSheet(matchesDatabase ? disabledStyle : enabledStyle);
+        m_mainWindow->ui->pushButton_Misc_Cancel->setStyleSheet(matchesDatabase ? disabledStyle : enabledStyle);
+        m_mainWindow->ui->pushButton_Misc_RDefault->setStyleSheet(matchesDefault ? disabledStyle : enabledStyle);
+    }
+
 }
 
 void Operations_Settings::InitializeCustomCheckboxes()
@@ -1810,6 +1926,9 @@ bool Operations_Settings::hasUnsavedChanges(const QString& settingsType)
     else if (settingsType == Constants::DBSettings_Type_VPShows) {
         return m_mainWindow->ui->pushButton_VP_Shows_Save->isEnabled();
     }
+    else if (settingsType == Constants::DBSettings_Type_Misc) {
+        return m_mainWindow->ui->pushButton_Misc_Save->isEnabled();
+    }
     // Future Video Player sub-tabs can be added here:
     // else if (settingsType == Constants::DBSettings_Type_VPMovies) {
     //     return m_mainWindow->ui->pushButton_VP_Movies_Save->isEnabled();
@@ -1820,7 +1939,8 @@ bool Operations_Settings::hasUnsavedChanges(const QString& settingsType)
                hasUnsavedChanges(Constants::DBSettings_Type_PWManager) ||
                hasUnsavedChanges(Constants::DBSettings_Type_Global) ||
                hasUnsavedChanges(Constants::DBSettings_Type_EncryptedData) ||
-               hasUnsavedChanges(Constants::DBSettings_Type_VPShows);
+               hasUnsavedChanges(Constants::DBSettings_Type_VPShows) ||
+               hasUnsavedChanges(Constants::DBSettings_Type_Misc);
                // Add future VP sub-tabs to this check as well
     }
 
@@ -1851,6 +1971,8 @@ bool Operations_Settings::handleUnsavedChanges(const QString& settingsType, int 
             categoryName = "encrypted data";
         } else if (settingsType == Constants::DBSettings_Type_VPShows) {
             categoryName = "TV shows";
+        } else if (settingsType == Constants::DBSettings_Type_Misc) {
+            categoryName = "misc";
         }
         // Future Video Player sub-tabs can be added here:
         // else if (settingsType == Constants::DBSettings_Type_VPMovies) {
@@ -1895,6 +2017,9 @@ bool Operations_Settings::handleUnsavedChanges(const QString& settingsType, int 
             }
             if (hasUnsavedChanges(Constants::DBSettings_Type_VPShows)) {
                 SaveSettings(Constants::DBSettings_Type_VPShows);
+            }
+            if (hasUnsavedChanges(Constants::DBSettings_Type_Misc)) {
+                SaveSettings(Constants::DBSettings_Type_Misc);
             }
             // Add future VP sub-tabs here:
             // if (hasUnsavedChanges(Constants::DBSettings_Type_VPMovies)) {
@@ -2075,6 +2200,13 @@ void Operations_Settings::SetupSettingDescriptions()
     m_settingNames[m_mainWindow->ui->checkBox_VP_Shows_AutoFullScreen] = "Auto FullScreen";
     m_settingDescriptions[m_mainWindow->ui->checkBox_VP_Shows_AutoFullScreen] = "Automatically enter fullscreen mode when starting video playback.\n\nWhen enabled, videos will start in fullscreen mode.\nYou can always exit fullscreen with ESC or F11.";
 
+    // Misc Settings
+    m_settingNames[m_mainWindow->ui->checkBox_DecryptRam] = "Decrypt to RAM";
+    m_settingDescriptions[m_mainWindow->ui->checkBox_DecryptRam] = "When enabled, files will be temporarily decrypted to RAM instead of to disk.\n\nThis improves security as decrypted data is never written to storage and is automatically cleared when the file is closed or the application exits.\n\nNote: Large files may require significant RAM. If free RAM falls below the minimum threshold, decryption will fall back to using disk.";
+
+    m_settingNames[m_mainWindow->ui->spinBox_Misc_MinRam] = "Minimum Free RAM";
+    m_settingDescriptions[m_mainWindow->ui->spinBox_Misc_MinRam] = "The minimum amount of free RAM (in MB) required to decrypt files to memory.\n\nIf available RAM falls below this threshold, the application will fall back to decrypting files to disk instead.\n\nDefault: 500 MB\nRange: 500 - 99999 MB\n\nIncrease this value if you have limited RAM or work with very large files.";
+
     // Install event filters on all UI controls
     QMap<QObject*, QString>::iterator it;
     for (it = m_settingNames.begin(); it != m_settingNames.end(); ++it) {
@@ -2229,6 +2361,9 @@ QString Operations_Settings::getSettingsTypeFromTabObjectName(const QString& tab
         // Default to VPShows if we can't determine the sub-tab
         return Constants::DBSettings_Type_VPShows;
     }
+    else if (tabObjectName == "tab_Settings_Misc") {
+        return Constants::DBSettings_Type_Misc;
+    }
     else {
         qDebug() << "Unknown settings tab object name:" << tabObjectName;
         return Constants::DBSettings_Type_Diary; // Default fallback
@@ -2332,6 +2467,19 @@ void Operations_Settings::Slot_ButtonPressed(const QString button)
     else if (button == Constants::SettingsButton_ResetVPShows) {
         if (Default_UserSettings::SetDefault_VideoPlayerSettings(username, encryptionKey)) {
             LoadSettings(Constants::DBSettings_Type_VPShows);
+        }
+    }
+
+    // --- Misc Settings Buttons ---
+    else if (button == Constants::SettingsButton_SaveMisc) {
+        SaveSettings(Constants::DBSettings_Type_Misc);
+    }
+    else if (button == Constants::SettingsButton_CancelMisc) {
+        LoadSettings(Constants::DBSettings_Type_Misc);
+    }
+    else if (button == Constants::SettingsButton_ResetMisc) {
+        if (Default_UserSettings::SetDefault_MiscSettings(username, encryptionKey)) {
+            LoadSettings(Constants::DBSettings_Type_Misc);
         }
     }
 

@@ -2379,7 +2379,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
               </property>
               <layout class="QHBoxLayout" name="horizontalLayout_25">
                <item>
-                <widget class="QPushButton" name="pushButton_RDefaults">
+                <widget class="QPushButton" name="pushButton_Misc_RDefault">
                  <property name="text">
                   <string>Reset to Defaults</string>
                  </property>
