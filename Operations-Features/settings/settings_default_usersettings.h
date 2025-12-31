@@ -53,6 +53,10 @@ const QString DEFAULT_VP_SHOWS_AUTO_DELETE = "0";
 const QString DEFAULT_VP_SHOWS_DEFAULT_VOLUME = "100";
 const QString DEFAULT_VP_SHOWS_CHECK_NEW_EP_STARTUP = "0";
 
+// Misc Settings
+const QString DEFAULT_MISC_DECRYPT_TO_RAM = "1";
+const QString DEFAULT_MISC_MIN_FREE_RAM = "500";
+
 // SECURITY: Pass QString by const reference to avoid unnecessary copies
 bool SetDefault_GlobalSettings(const QString& username, const QByteArray& encryptionKey);
 bool SetDefault_DiarySettings(const QString& username, const QByteArray& encryptionKey);
@@ -60,6 +64,7 @@ bool SetDefault_TasklistsSettings(const QString& username, const QByteArray& enc
 bool SetDefault_PWManagerSettings(const QString& username, const QByteArray& encryptionKey);
 bool SetDefault_EncryptedDataSettings(const QString& username, const QByteArray& encryptionKey);
 bool SetDefault_VideoPlayerSettings(const QString& username, const QByteArray& encryptionKey);
+bool SetDefault_MiscSettings(const QString& username, const QByteArray& encryptionKey);
 bool SetAllDefaults(const QString& username, const QByteArray& encryptionKey);
 };
 
